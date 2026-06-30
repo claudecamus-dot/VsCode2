@@ -1,0 +1,105 @@
+---
+name: audit-handoff-format
+description: Source de vérité pour le format de retour des agents auditor-* vers l'orchestrator. Définit le bloc structuré à produire quand un agent auditeur termine son rapport et est invoqué depuis l'orchestrator. Injecté dans tous les auditor-* et dans l'orchestrator pour garantir que le producteur et le consommateur partagent le même contrat.
+---
+
+# Skill — Format de handoff auditor → orchestrator
+
+Ce skill est la **source de vérité** pour le format de retour des agents `auditor-*` vers l'orchestrator.
+Il est injecté dans chaque `auditor-*` et dans l'`orchestrator` — producteur et consommateur partagent le même contrat.
+
+---
+
+## Quand produire ce bloc
+
+Quand tu es invoqué depuis l'`orchestrator` (et non en standalone),
+tu **dois** produire dans cet ordre :
+
+1. **Le rapport d'audit complet** — analyse narrative et détaillée du périmètre : observations item par item, contexte de chaque problème identifié, **preuves et chemins d'exploitation** si applicable. **Ce rapport doit être produit même si aucun problème n'est identifié.** Il n'a pas à reproduire le tableau des problèmes ni les listes de recommandations — ceux-ci sont dans le bloc structuré qui suit.
+2. **Le bloc `## Retour vers orchestrator`** défini ci-dessous — synthèse structurée et actionnelle du rapport.
+
+En standalone, le rapport d'audit complet précède également ce bloc.
+
+> **Autocontrôle obligatoire avant de produire ce bloc :**
+> « Ai-je produit le rapport d'audit complet avant ce bloc ? Si non, le produire d'abord. »
+
+---
+
+## Format du bloc `## Retour vers orchestrator`
+
+```
+---
+
+## Retour vers orchestrator
+
+**Agent :** auditor-<domaine>
+**Ticket :** #<ID> — <titre>
+
+### Périmètre audité
+**Couvert :** <liste des fichiers, répertoires, composants, endpoints analysés>
+**Non couvert :** <ce qui n'a pas été analysé et pourquoi — "Périmètre complet couvert" si rien n'a été exclu>
+
+### Synthèse des problèmes identifiés
+
+| Sévérité | Problème | Localisation |
+|----------|---------|--------------|
+| 🔴 Critique | <titre court> | <fichier:ligne ou composant> |
+| 🟠 Majeur | <titre court> | <fichier:ligne ou composant> |
+| 🟡 Mineur | <titre court> | <fichier:ligne ou composant> |
+
+<"Aucun problème identifié" si le périmètre est conforme>
+<Le détail complet de chaque problème est dans le rapport d'audit ci-dessus>
+
+### Recommandations priorisées
+
+1. 🔴 **[Critique]** <recommandation 1 — action concrète à réaliser>
+   *Effort estimé : <faible | moyen | élevé>*
+2. 🟠 **[Majeur]** <recommandation 2>
+   *Effort estimé : <faible | moyen | élevé>*
+3. 🟡 **[Mineur]** <recommandation 3>
+   *Effort estimé : <faible | moyen | élevé>*
+
+<"Aucune recommandation" si aucun problème identifié>
+
+### Risque résiduel si non corrigé
+<description du risque global si les corrections identifiées ne sont pas appliquées>
+<"Risque résiduel nul — périmètre conforme" si aucun problème>
+
+### Statut
+`corrections-requises` | `acceptable` | `bloquant`
+```
+
+**Définitions du statut :**
+
+| Statut | Condition |
+|--------|-----------|
+| `corrections-requises` | Au moins un problème Critique ou Majeur identifié — des corrections sont nécessaires avant mise en production |
+| `acceptable` | Uniquement des problèmes Mineurs ou aucun — le code peut être mis en production avec les corrections en backlog |
+| `bloquant` | Un problème Critique bloquant identifié qui empêche tout déploiement immédiat |
+
+---
+
+## Règles pour le producteur (auditor-*)
+
+- **Toujours produire le rapport d'audit complet** avant ce bloc — même si aucun problème n'est identifié. Le rapport est obligatoire dans tous les cas. Il apporte **les preuves, le contexte et les chemins d'exploitation** — pas un ré-encodage du tableau de synthèse du bloc structuré.
+- **Toujours produire ce bloc** à la suite du rapport, même si le statut est `acceptable`
+- **Le tableau `### Synthèse des problèmes identifiés`** est une synthèse — le détail complet est dans le rapport narratif qui précède
+- **Toujours renseigner le `### Périmètre audité`** — même si le périmètre est complet, l'indiquer explicitement
+- **Toujours renseigner le `### Risque résiduel`** — même si nul, l'indiquer explicitement
+- Si aucun problème n'est identifié, renseigner chaque section avec la mention explicite correspondante
+
+> ❌ Ne jamais produire le bloc handoff sans avoir d'abord produit le rapport d'audit complet.
+> ❌ Ne jamais résumer le rapport dans le bloc — le bloc est une synthèse structurée, pas un substitut.
+
+---
+
+## Règles pour le consommateur (orchestrator)
+
+> Protocole de retranscription complet (séquence obligatoire, templates, checklist, exemples) → skill `posture/retranscription-coordinateur`.
+
+**Spécificités auditor à vérifier :**
+
+- **Champs obligatoires** : `Périmètre audité`, `Synthèse des problèmes identifiés`, `Recommandations priorisées`, `Risque résiduel si non corrigé`, `Statut`. Si l'un est absent → demander à l'agent auditor de compléter avant de continuer.
+- **Statut** : `bloquant` → le mentionner explicitement dans la question CP-audit · `acceptable` → le mentionner pour aider l'utilisateur à choisir "Accepter".
+- **Corrections** : transmettre les `### Recommandations priorisées` **intégralement** à `orchestrator-dev` si l'utilisateur choisit "Corriger" au CP-audit — ne jamais les résumer.
+- **Périmètre non couvert** : signaler dans le récap CP-feature si des zones n'ont pas été auditées.

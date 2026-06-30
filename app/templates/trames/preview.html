@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Aperçu de l'entretien — {{ mission.name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> /
+  <a href="/missions/{{ mission.id }}/trame">Trame</a> / Aperçu
+</div>
+
+<div class="page-head">
+  <div>
+    <h1>Aperçu de l'entretien</h1>
+    <p class="muted">{{ trame.themes | length }} thème(s) · {{ question_count }} question(s)</p>
+  </div>
+  <div class="head-actions">
+    <a class="btn" href="/missions/{{ mission.id }}/trame">Modifier la trame</a>
+    {% if question_count > 0 %}
+    <a class="btn btn-primary" href="/missions/{{ mission.id }}/interviews/new">Démarrer un entretien</a>
+    {% endif %}
+  </div>
+</div>
+
+{% if not trame.themes %}
+  <div class="card empty">
+    <p>La trame est vide.</p>
+    <a class="btn btn-primary" href="/missions/{{ mission.id }}/trame">Éditer la trame</a>
+  </div>
+{% else %}
+
+{% if trame.intro_text %}
+<section class="card ref-box" open>
+  <h2>Introduction (reprise en tête d'entretien)</h2>
+  <p class="intro-preview">{{ trame.intro_text }}</p>
+</section>
+{% endif %}
+
+{% for theme in trame.themes %}
+<section class="card theme">
+  <h2>{{ loop.index }}. {{ theme.title }}</h2>
+  {% if theme.questions %}
+  <ul class="questions preview-questions">
+    {% for q in theme.questions %}
+    <li>
+      <span class="q-label">{{ q.label }}</span>
+      <span class="badge badge-{{ q.qtype }}">{{ q.type_label }}</span>
+      {% if q.qtype == 'scale' %}
+        <span class="q-config">{{ q.config.min }}–{{ q.config.max }}</span>
+      {% elif q.qtype == 'choice' %}
+        <span class="q-config">{{ q.config.options | join(' · ') }}</span>
+      {% endif %}
+      {% if q.help_text %}<span class="q-help">{{ q.help_text }}</span>{% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">Aucune question dans ce thème.</p>
+  {% endif %}
+</section>
+{% endfor %}
+
+<div class="form-actions">
+  <a class="btn" href="/missions/{{ mission.id }}/trame">Modifier la trame</a>
+  <a class="btn btn-primary" href="/missions/{{ mission.id }}/interviews/new">Démarrer un entretien</a>
+</div>
+{% endif %}
+{% endblock %}

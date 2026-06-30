@@ -1,0 +1,45 @@
+{% macro field(theme, name, label, value) %}
+<label class="synth-field">
+  <span>{{ label }}</span>
+  <textarea name="value" rows="4"
+    hx-post="/syntheses/theme/{{ theme.id }}/field"
+    hx-vals='{"field": "{{ name }}"}'
+    hx-trigger="keyup changed delay:700ms, blur"
+    hx-target="#synth-saved" hx-swap="innerHTML"
+    placeholder="—">{{ value or '' }}</textarea>
+</label>
+{% endmacro %}
+
+<section class="card" id="synth-panel">
+  <div class="card-head">
+    <h2>Synthèse du thème</h2>
+    <span class="badge badge-synth-{{ synthesis.status }}" id="synth-status">{{ synthesis.status_label }}</span>
+  </div>
+
+  {% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
+  {% if not ai_ready and demo_ready %}
+  <p class="muted ai-hint">🧪 <strong>Mode démo</strong> : synthèse générée hors-ligne par règles
+    (sans IA, sans coût). Définissez <code>ANTHROPIC_API_KEY</code> pour la vraie génération Claude.</p>
+  {% elif not ai_ready %}
+  <p class="muted ai-hint">Génération IA indisponible : définissez la variable d'environnement
+    <code>ANTHROPIC_API_KEY</code> (ou <code>SYNTHESE_DEMO=1</code> pour une démo hors-ligne).
+    Vous pouvez aussi saisir la synthèse à la main ci-dessous.</p>
+  {% endif %}
+
+  {{ field(theme, 'summary', 'Points saillants', synthesis.summary) }}
+  {{ field(theme, 'convergences', 'Convergences', synthesis.convergences) }}
+  {{ field(theme, 'divergences', 'Divergences', synthesis.divergences) }}
+
+  <div class="synth-actions">
+    {% set mode = '(IA)' if ai_ready else ('(démo)' if demo_ready else '') %}
+    <button class="btn btn-primary" type="button"
+      hx-post="/syntheses/theme/{{ theme.id }}/generate"
+      hx-target="#synth-panel" hx-swap="outerHTML"
+      hx-disabled-elt="this"
+      {% if not (ai_ready or demo_ready) %}disabled title="Définissez ANTHROPIC_API_KEY ou SYNTHESE_DEMO=1"{% endif %}>
+      <span class="htmx-indicator">⏳ </span>{{ ('✨ Générer ' ~ mode) if synthesis.status == 'empty' else ('↻ Régénérer ' ~ mode) }}
+    </button>
+    <span id="synth-saved" class="saved"></span>
+    {% if synthesis.generated_at %}<span class="muted">généré le {{ synthesis.generated_at.strftime('%d/%m %H:%M') }}</span>{% endif %}
+  </div>
+</section>

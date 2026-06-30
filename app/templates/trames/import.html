@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Importer une trame — {{ mission.name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> /
+  <a href="/missions/{{ mission.id }}/trame">Trame</a> / Importer
+</div>
+
+<div class="page-head"><h1>Importer une trame (.docx)</h1></div>
+
+<form method="post" enctype="multipart/form-data"
+      action="/missions/{{ mission.id }}/trame/import" class="card form">
+  <p class="muted">
+    Convention attendue : <strong>titres numérotés</strong> = thèmes,
+    <strong>puces</strong> = questions, <strong>sous-puces</strong> = options
+    ou sous-questions. L'import <strong>remplace</strong> la trame actuelle —
+    tu pourras tout ajuster dans l'éditeur juste après.
+  </p>
+  <label>
+    Fichier .docx
+    <input type="file" name="file" accept=".docx"
+           required style="margin-top:6px;">
+  </label>
+  <div class="form-actions">
+    <a class="btn" href="/missions/{{ mission.id }}/trame">Annuler</a>
+    <button class="btn btn-primary" type="submit">Importer</button>
+  </div>
+</form>
+{% endblock %}

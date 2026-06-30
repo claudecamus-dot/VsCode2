@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Nouvelle mission — Interview-to-Deck{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Nouvelle mission</h1></div>
+
+<form method="post" action="/missions" class="card form">
+  <label>
+    Nom de la mission *
+    <input type="text" name="name" required autofocus
+           placeholder="Ex. Audit SI Direction Financière">
+  </label>
+  <label>
+    Client
+    <input type="text" name="client" placeholder="Ex. ACME">
+  </label>
+  <label>
+    Description
+    <textarea name="description" rows="3"
+              placeholder="Contexte, périmètre, objectifs de la mission…"></textarea>
+  </label>
+  <div class="form-actions">
+    <a class="btn" href="/missions">Annuler</a>
+    <button class="btn btn-primary" type="submit">Créer</button>
+  </div>
+</form>
+{% endblock %}

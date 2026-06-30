@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Synthèse — {{ mission.name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> / Synthèse
+</div>
+
+<div class="capture-head">
+  <div>
+    <h1>Synthèse transverse</h1>
+    <div class="meta"><span>{{ interview_count }} entretien(s)</span></div>
+  </div>
+</div>
+
+{% if not themes %}
+  <div class="card empty">
+    <p>La trame est vide — aucun thème à synthétiser.</p>
+    <a class="btn btn-primary" href="/missions/{{ mission.id }}/trame">Éditer la trame</a>
+  </div>
+{% else %}
+<nav class="theme-nav">
+  {% for t in themes %}
+    <a class="chip {% if current and t.id == current.id %}active{% endif %} {% if t.synthesis and t.synthesis.status != 'empty' %}done{% endif %}"
+       href="/missions/{{ mission.id }}/synthese?theme={{ t.id }}">
+      <span class="chip-num">{{ loop.index }}</span>{{ t.title|truncate(26) }}
+    </a>
+  {% endfor %}
+</nav>
+
+<h2 class="theme-title">{{ current.title }}</h2>
+
+{% with theme = current %}{% include "synthese/_panel.html" %}{% endwith %}
+
+<section class="card material">
+  <div class="card-head"><h2>Matière brute</h2>
+    <span class="muted">réponses de tous les entretiens</span>
+  </div>
+
+  {% set has_material = by_question|length > 0 or verbatims|length > 0 %}
+  {% if not has_material %}
+    <p class="muted">Aucune réponse saisie sur ce thème pour l'instant.</p>
+  {% else %}
+    {% for q in current.questions %}
+      {% set rows = by_question.get(q.id) %}
+      {% if rows %}
+      <div class="material-q">
+        <p class="material-label">{{ q.label }}</p>
+        <ul class="material-answers">
+          {% for r in rows %}
+          <li>
+            <span class="who">{{ r.interviewee }}{% if r.role %} <span class="muted">· {{ r.role }}</span>{% endif %}</span>
+            <span class="ans">{{ (r.value ~ ' — ' ~ r.text) if (r.value and r.text) else (r.value or r.text) }}</span>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+    {% endfor %}
+
+    {% if verbatims %}
+    <div class="material-verbatims">
+      <p class="material-label">❝ Verbatims</p>
+      <ul class="verbatims">
+        {% for v in verbatims %}
+        <li class="verbatim">
+          <blockquote>{{ v.quote }}<span class="vb-who">— {{ v.interviewee }}</span></blockquote>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+  {% endif %}
+</section>
+{% endif %}
+{% endblock %}

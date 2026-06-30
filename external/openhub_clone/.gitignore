@@ -1,0 +1,35 @@
+projects/projects.md
+projects/paths.local.md
+projects/api-keys.local.md
+.DS_Store
+
+# Sorties générées par oc deploy — ne pas committer
+.opencode/agents/
+.github/copilot-instructions.md
+.vscode/prompts/
+
+# Skills téléchargés depuis des sources externes — ne pas committer
+# Utilisez : oc skills sync   pour les re-télécharger après un clone
+skills/external/
+
+# Fichiers générés dans .opencode/ par OpenCode (ignorés ici car .opencode/.gitignore s'ignore lui-même)
+.opencode/node_modules/
+.opencode/package.json
+.opencode/bun.lock
+config/hub.json
+opencode.json
+
+# Fichiers providers — contiennent des clés API en clair (mammouth)
+# À recréer manuellement après clone (voir config/providers/README.md dans wjp.3)
+config/providers/*.json
+
+# MCP Servers
+servers/*/dist/
+servers/*/node_modules/
+servers/*/.env
+
+# Plugins
+plugins/*/node_modules/
+
+# Fichiers temporaires laissés par les tests (ex: crash avant teardown)
+tests/tmp_*

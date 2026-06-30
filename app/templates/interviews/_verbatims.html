@@ -1,0 +1,10 @@
+{% for v in verbatims %}
+<li class="verbatim">
+  <blockquote>{{ v.quote }}</blockquote>
+  <button class="btn-link-danger verbatim-del" type="button"
+    title="Supprimer ce verbatim"
+    hx-post="/verbatims/{{ v.id }}/delete"
+    hx-target="#verbatims-{{ v.question_id }}" hx-swap="innerHTML"
+    hx-confirm="Supprimer ce verbatim ?">✕</button>
+</li>
+{% endfor %}

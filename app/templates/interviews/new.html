@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Nouvel entretien — {{ mission.name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> / Nouvel entretien
+</div>
+
+<div class="page-head"><h1>Nouvel entretien</h1></div>
+
+{% if mission.trame.intro_text %}
+<section class="card intro-readonly">
+  <p class="intro-caption">Introduction — à lire en début d'entretien (non modifiable)</p>
+  <p class="intro-body">{{ mission.trame.intro_text }}</p>
+</section>
+{% endif %}
+
+<form method="post" action="/missions/{{ mission.id }}/interviews" class="card form">
+  <label>
+    Nom &amp; prénom de l'interviewé·e
+    <input type="text" name="interviewee_name" autofocus
+           placeholder="Ex. Marc Dupont — modifiable au début de l'entretien">
+  </label>
+  <label>
+    Rôle / fonction
+    <input type="text" name="interviewee_role" placeholder="Ex. RSSI, DSI, Product Owner…">
+  </label>
+  <label>
+    Entité / direction
+    <input type="text" name="interviewee_entity" placeholder="Ex. DSI, Métier Assurance…">
+  </label>
+  <label>
+    Date de l'entretien
+    <input type="date" name="interview_date">
+  </label>
+  <div class="form-actions">
+    <a class="btn" href="/missions/{{ mission.id }}">Annuler</a>
+    <button class="btn btn-primary" type="submit">Démarrer la saisie</button>
+  </div>
+</form>
+{% endblock %}

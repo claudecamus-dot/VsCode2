@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}{{ mission.name }} — Interview-to-Deck{% endblock %}
+{% block content %}
+{% set theme_count = mission.trame.themes | length %}
+{% set question_count = mission.trame.themes | map(attribute='questions') | map('length') | sum %}
+
+<div class="breadcrumb"><a href="/missions">Missions</a> / {{ mission.name }}</div>
+
+<div class="page-head">
+  <h1>{{ mission.name }}</h1>
+  <form method="post" action="/missions/{{ mission.id }}/delete"
+        onsubmit="return confirm('Supprimer cette mission ?');">
+    <button class="btn btn-danger btn-sm" type="submit">Supprimer la mission</button>
+  </form>
+</div>
+
+<div class="meta">
+  {% if mission.client %}<span><strong>Client :</strong> {{ mission.client }}</span>{% endif %}
+  <span><strong>Créée le :</strong> {{ mission.created_at.strftime("%d/%m/%Y") }}</span>
+</div>
+{% if mission.description %}<p class="muted">{{ mission.description }}</p>{% endif %}
+
+<div class="card">
+  <div class="card-head">
+    <h2>Trame d'entretien</h2>
+    <a class="btn btn-primary" href="/missions/{{ mission.id }}/trame">Éditer la trame</a>
+  </div>
+  <p class="muted">{{ theme_count }} thème(s) · {{ question_count }} question(s)</p>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>Entretiens</h2>
+    {% if theme_count > 0 %}
+    <a class="btn btn-primary" href="/missions/{{ mission.id }}/interviews/new">+ Nouvel entretien</a>
+    {% endif %}
+  </div>
+  {% if theme_count == 0 %}
+    <p class="muted">Définis d'abord la trame pour pouvoir saisir des entretiens.</p>
+  {% elif mission.interviews %}
+    <table class="table">
+      <thead>
+        <tr><th>Interviewé·e</th><th>Date</th><th>Couverture</th><th>Statut</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for iv in mission.interviews %}
+        {% set done = iv.answers | selectattr('status', 'equalto', 'answered') | list | length %}
+        <tr>
+          <td>
+            <a href="/interviews/{{ iv.id }}">{{ iv.interviewee_name }}</a>
+            {% if iv.interviewee_role %}<span class="muted">— {{ iv.interviewee_role }}</span>{% endif %}
+          </td>
+          <td>{{ iv.interview_date.strftime('%d/%m/%Y') if iv.interview_date else '—' }}</td>
+          <td>{{ done }}/{{ question_count }}</td>
+          <td><span class="pill pill-{{ iv.status }}">{{ 'Terminé' if iv.status == 'done' else 'Brouillon' }}</span></td>
+          <td class="row-actions">
+            <form method="post" action="/interviews/{{ iv.id }}/delete"
+                  onsubmit="return confirm('Supprimer cet entretien ?');">
+              <button class="btn btn-danger btn-sm" type="submit">Supprimer</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="muted">Aucun entretien pour le moment.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>Synthèse transverse</h2>
+    {% if theme_count > 0 %}
+    <a class="btn btn-primary" href="/missions/{{ mission.id }}/synthese">Ouvrir la synthèse</a>
+    {% endif %}
+  </div>
+  {% if theme_count == 0 %}
+    <p class="muted">Définis la trame et saisis des entretiens avant de synthétiser.</p>
+  {% else %}
+    <p class="muted">Vue par thème : agrège les réponses, dégage convergences et divergences (IA).</p>
+    <a class="btn btn-secondary" href="/missions/{{ mission.id }}/agents">Agents OpenHub</a>
+  {% endif %}
+</div>
+{% endblock %}

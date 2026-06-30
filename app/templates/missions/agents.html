@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block title %}Agents OpenHub — {{ mission.name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> /
+  Agents OpenHub
+</div>
+
+<div class="page-head">
+  <div>
+    <h1>Assistant OpenHub</h1>
+    <p class="muted">Sélectionnez un agent pour générer une suggestion à partir de cette mission.</p>
+  </div>
+  <div class="agent-status">
+    {% if runtime_available %}
+    <span class="badge badge-success">OpenCode disponible</span>
+    {% else %}
+    <span class="badge badge-warning">OpenCode indisponible</span>
+    {% endif %}
+  </div>
+</div>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Agents disponibles</h2>
+  </div>
+  {% if agents %}
+  <div class="agent-grid">
+    {% for agent in agents %}
+    <div class="agent-card">
+      <div class="agent-card-head">
+        <h3>{{ agent.label }}</h3>
+        <span class="badge badge-soft">{{ agent.mode }}</span>
+      </div>
+      <p class="agent-description">{{ agent.description }}</p>
+      <form method="post"
+            action="/missions/{{ mission.id }}/agents/{{ agent.id }}/invoke"
+            hx-post="/missions/{{ mission.id }}/agents/{{ agent.id }}/invoke"
+            hx-target="#agent-result"
+            hx-swap="innerHTML">
+        <button class="btn btn-primary">Exécuter</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">Aucun agent OpenHub trouvé dans le dossier <code>.opencode/agents</code>.</p>
+  {% endif %}
+</section>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Skills disponibles</h2>
+  </div>
+  {% if skills %}
+  <div class="agent-grid">
+    {% for skill in skills %}
+    <div class="agent-card">
+      <div class="agent-card-head">
+        <h3>{{ skill.label }}</h3>
+        <span class="badge badge-soft">skill</span>
+      </div>
+      <p class="agent-description">{{ skill.description }}</p>
+      <p class="muted">ID : {{ skill.id }}</p>
+      <p class="muted">Source : {{ skill.source }}</p>
+      <form method="post"
+            action="/missions/{{ mission.id }}/skills/{{ skill.id }}/invoke"
+            hx-post="/missions/{{ mission.id }}/skills/{{ skill.id }}/invoke"
+            hx-target="#agent-result"
+            hx-swap="innerHTML">
+        <button class="btn btn-secondary">Utiliser le skill</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="muted">Aucun skill OpenHub trouvé dans le dossier <code>.opencode/skills</code>.</p>
+  {% endif %}
+</section>
+
+<section class="card" id="agent-result">
+  {% if result %}
+  <div class="card-head">
+    <div>
+      <h2>Résultat</h2>
+      <p class="muted">Agent : {{ result.agent_label }}</p>
+    </div>
+    {% if not result.runtime_available %}
+    <span class="badge badge-warning">Exécution locale indisponible</span>
+    {% endif %}
+  </div>
+  <div class="agent-result-panel">
+    <div class="agent-result-meta">
+      <div>
+        <strong>Agent</strong>
+        <p class="muted">{{ result.agent_label }}</p>
+      </div>
+      <div>
+        <strong>Statut</strong>
+        <p class="muted">{{ 'Runtime local' if result.runtime_available else 'Simulation' }}</p>
+      </div>
+    </div>
+    <pre class="agent-output">{{ result.output }}</pre>
+  </div>
+  {% elif not runtime_available %}
+  <p class="ai-error">OpenCode n'est pas installé ou n'est pas accessible. Vous pouvez toujours installer <code>opencode</code> et relancer.</p>
+  {% else %}
+  <p class="muted">Choisissez un agent ci-dessus pour lancer une exécution et afficher le résultat ici.</p>
+  {% endif %}
+</section>
+
+{% if result_history %}
+<section class="card">
+  <div class="card-head"><h2>Historique récent</h2></div>
+  <ul class="agent-history">
+    {% for row in result_history %}
+    <li>
+      <div class="history-head">
+        <strong>{{ row.agent_label }}</strong>
+        <span class="muted">le {{ row.created_at.strftime('%d/%m/%Y %H:%M') }}</span>
+      </div>
+      <pre class="agent-output">{{ row.output | truncate(320, True, '...') }}</pre>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+{% endblock %}

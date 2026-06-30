@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Fin d'entretien — {{ interview.interviewee_name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ interview.mission_id }}">{{ interview.mission.name }}</a> /
+  <a href="/interviews/{{ interview.id }}">Entretien</a> / Fin
+</div>
+
+<div class="page-head"><h1>Fin d'entretien — {{ interview.interviewee_name }}</h1></div>
+
+<div class="card">
+  <p class="coverage-big">{{ answered }} / {{ total }} questions répondues</p>
+  {% if interview.verbatims %}<p class="muted">❝ {{ interview.verbatims|length }} verbatim{{ 's' if interview.verbatims|length > 1 else '' }} relevé{{ 's' if interview.verbatims|length > 1 else '' }}.</p>{% endif %}
+
+  {% if missed %}
+    <h2>Questions non couvertes ({{ missed|length }})</h2>
+    <ul class="missed">
+      {% for m in missed %}
+      <li>
+        <span class="badge badge-status-{{ m.status }}">{{ ANSWER_STATUS_LABELS[m.status] }}</span>
+        <span class="muted">{{ m.theme }}</span> — {{ m.label }}
+      </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>Toutes les questions de la trame ont une réponse 🎉</p>
+  {% endif %}
+
+  <div class="form-actions">
+    <a class="btn" href="/interviews/{{ interview.id }}">← Revenir à la saisie</a>
+    <form method="post" action="/interviews/{{ interview.id }}/finish" class="inline">
+      <button class="btn btn-primary" type="submit">Marquer l'entretien terminé</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

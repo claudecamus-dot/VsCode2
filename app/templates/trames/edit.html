@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Trame — {{ mission.name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> / Trame
+</div>
+
+{% set question_count = trame.themes | map(attribute='questions') | map('length') | sum %}
+<div class="page-head">
+  <h1>Trame d'entretien</h1>
+  <div class="head-actions">
+    <a class="btn" href="/missions/{{ mission.id }}/trame/import">Importer (.docx)</a>
+    {% if question_count > 0 %}
+    <a class="btn" href="/missions/{{ mission.id }}/trame/preview">Aperçu de l'entretien</a>
+    <a class="btn btn-primary" href="/missions/{{ mission.id }}/interviews/new">Démarrer un entretien</a>
+    {% endif %}
+  </div>
+</div>
+
+<section class="card">
+  <div class="card-head">
+    <h2>Introduction (« Objectifs et principes »)</h2>
+    <span class="muted">reprise en tête de chaque entretien</span>
+  </div>
+  <textarea class="ref-text" rows="4" name="intro_text"
+    hx-post="/missions/{{ mission.id }}/trame/intro"
+    hx-trigger="keyup changed delay:800ms, blur"
+    hx-target="#intro-status" hx-swap="innerHTML"
+    placeholder="Objectifs de la démarche, principes, cadre de confidentialité… (renseigné automatiquement si le .docx importé contient une partie « Objectifs et principes »)">{{ trame.intro_text or '' }}</textarea>
+  <div class="autosave-line"><span id="intro-status" class="saved"></span></div>
+</section>
+
+{% for theme in trame.themes %}
+<section class="card theme">
+  <div class="card-head">
+    <h2>{{ loop.index }}. {{ theme.title }}</h2>
+    <form method="post" action="/missions/{{ mission.id }}/trame/themes/{{ theme.id }}/delete"
+          onsubmit="return confirm('Supprimer ce thème et ses questions ?');">
+      <button class="btn btn-danger btn-sm" type="submit">Supprimer le thème</button>
+    </form>
+  </div>
+
+  {% if theme.questions %}
+  <ul class="questions">
+    {% for q in theme.questions %}
+    <li class="q-edit">
+      <form method="post" action="/missions/{{ mission.id }}/trame/questions/{{ q.id }}/edit"
+            class="edit-question">
+        <input type="text" name="label" value="{{ q.label }}" required aria-label="Intitulé">
+        <select name="qtype" aria-label="Type de question">
+          <option value="open"   {% if q.qtype == 'open' %}selected{% endif %}>Ouverte</option>
+          <option value="scale"  {% if q.qtype == 'scale' %}selected{% endif %}>Échelle</option>
+          <option value="choice" {% if q.qtype == 'choice' %}selected{% endif %}>Choix</option>
+        </select>
+        <span class="qopt" data-when="scale" {% if q.qtype != 'scale' %}hidden{% endif %}>
+          de <input type="number" name="scale_min" aria-label="Échelle min" value="{{ q.config.min if q.qtype == 'scale' else 1 }}" class="num">
+          à <input type="number" name="scale_max" aria-label="Échelle max" value="{{ q.config.max if q.qtype == 'scale' else 5 }}" class="num">
+        </span>
+        <span class="qopt" data-when="choice" {% if q.qtype != 'choice' %}hidden{% endif %}>
+          <input type="text" name="choices"
+                 value="{{ q.config.options | join(', ') if q.qtype == 'choice' else '' }}"
+                 placeholder="Options séparées par des virgules…">
+        </span>
+        <input type="text" name="help_text" class="help-input"
+               value="{{ q.help_text or '' }}" aria-label="Texte d'aide"
+               placeholder="Texte d'aide / contexte (optionnel)">
+        <button class="btn btn-sm" type="submit" title="Enregistrer les modifications">Enregistrer</button>
+      </form>
+      <form method="post"
+            action="/missions/{{ mission.id }}/trame/questions/{{ q.id }}/delete"
+            class="inline" onsubmit="return confirm('Supprimer cette question ?');">
+        <button class="btn-link-danger" type="submit" title="Supprimer">✕</button>
+      </form>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="muted">Aucune question dans ce thème.</p>
+  {% endif %}
+
+  <form method="post" action="/missions/{{ mission.id }}/trame/themes/{{ theme.id }}/questions"
+        class="add-question">
+    <input type="text" name="label" required placeholder="Intitulé de la question">
+    <select name="qtype" aria-label="Type de question">
+      <option value="open">Ouverte</option>
+      <option value="scale">Échelle</option>
+      <option value="choice">Choix</option>
+    </select>
+    <span class="qopt" data-when="scale" hidden>
+      de <input type="number" name="scale_min" value="1" class="num">
+      à <input type="number" name="scale_max" value="5" class="num">
+    </span>
+    <span class="qopt" data-when="choice" hidden>
+      <input type="text" name="choices" placeholder="Options séparées par des virgules… (ou une par ligne)">
+    </span>
+    <button class="btn btn-primary btn-sm" type="submit">+ Question</button>
+  </form>
+</section>
+{% endfor %}
+
+<section class="card add-theme">
+  <h2>Ajouter un thème</h2>
+  <form method="post" action="/missions/{{ mission.id }}/trame/themes" class="inline-form">
+    <input type="text" name="title" required placeholder="Intitulé du thème">
+    <button class="btn btn-primary" type="submit">+ Thème</button>
+  </form>
+</section>
+
+<script>
+  // Affiche les options spécifiques au type de question sélectionné.
+  document.addEventListener('change', function (e) {
+    if (e.target.matches('select[name="qtype"]')) {
+      var form = e.target.closest('form');
+      form.querySelectorAll('.qopt').forEach(function (el) {
+        el.hidden = el.dataset.when !== e.target.value;
+      });
+    }
+  });
+</script>
+{% endblock %}

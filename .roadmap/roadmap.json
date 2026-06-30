@@ -1,0 +1,133 @@
+{
+  "title": "Interview-to-Deck",
+  "subtitle": "Saisie d'interviews sur trame -> synthese transverse -> generation PPT sur template. MVP manuel. Incr.1-3 livres : trame, saisie+couverture+verbatims, synthese transverse par theme (vue cross-interviews, generation IA Opus 4.8, edition autosave). Prochain : incr.4 import du template corporate + plan de deck validable.",
+  "items": [
+    {
+      "phase": "reflexion",
+      "title": "Brief produit & cadrage",
+      "description": "Besoin clarifie : capture sur trame, synthese, generation PPT type restitution.",
+      "status": "done",
+      "tokens": { "estimate": 20000 }
+    },
+    {
+      "phase": "reflexion",
+      "title": "Etude technique & solutions",
+      "description": "Choix : Python/python-pptx, Claude API, Whisper local, boucle de verif rendu.",
+      "status": "done",
+      "tokens": { "estimate": 30000 }
+    },
+    {
+      "phase": "conception",
+      "title": "Architecture & modele de donnees",
+      "description": "Pipeline modulaire ; modele Mission/Trame/Interview/Synthese/Deck en SQLite.",
+      "status": "done",
+      "tokens": { "estimate": 25000 }
+    },
+    {
+      "phase": "conception",
+      "title": "Backlog Epics/US & phasage MVP",
+      "description": "9 epics decoupes en US ; MVP manuel d'abord, audio + narration en v2.",
+      "status": "done",
+      "tokens": { "estimate": 25000 }
+    },
+    {
+      "phase": "realisation",
+      "title": "1. Socle + Mission & Trame",
+      "description": "Backend, modele de donnees, gestion de mission, edition de la trame et import .docx.",
+      "status": "done",
+      "tokens": { "estimate": 70000 },
+      "subItems": [
+        { "label": "US0.1 modele", "status": "done" },
+        { "label": "US0.2 mission", "status": "done" },
+        { "label": "US1.1 trame", "status": "done" },
+        { "label": "US1.2 types Q", "status": "done" },
+        { "label": "US1.3 import trame", "status": "done" }
+      ]
+    },
+    {
+      "phase": "realisation",
+      "title": "2. Saisie manuelle des interviews",
+      "description": "Formulaire suivant la trame, metadonnees interviewe, verbatims, brouillon.",
+      "status": "done",
+      "tokens": { "estimate": 60000 },
+      "subItems": [
+        { "label": "US2.1 saisie", "status": "done" },
+        { "label": "US2.2 metadata", "status": "done" },
+        { "label": "couverture/zap", "status": "done" },
+        { "label": "US2.4 brouillon", "status": "done" },
+        { "label": "US2.3 verbatims", "status": "done" }
+      ]
+    },
+    {
+      "phase": "realisation",
+      "title": "3. Synthese transverse IA",
+      "description": "Vue par theme cross-interviews, generation IA (Opus 4.8, sortie JSON), edition autosave. Testes (degradation sans cle + chemin succes mocke).",
+      "status": "done",
+      "tokens": { "estimate": 80000 },
+      "subItems": [
+        { "label": "US4.1 vue theme", "status": "done" },
+        { "label": "US4.2 synthese IA", "status": "done" },
+        { "label": "US4.3 edition", "status": "done" }
+      ]
+    },
+    {
+      "phase": "realisation",
+      "title": "4. Template & plan de deck",
+      "description": "Import des templates corporate ; generation d'un plan de deck validable.",
+      "status": "todo",
+      "tokens": { "estimate": 60000 },
+      "subItems": [
+        { "label": "US5.1 import template", "status": "todo" },
+        { "label": "US6.1 plan de deck", "status": "todo" }
+      ]
+    },
+    {
+      "phase": "realisation",
+      "title": "5. Generation PPT + verif rendu",
+      "description": "Increment critique : rendu sur layouts du template + boucle self-check / verif visuelle.",
+      "status": "todo",
+      "tokens": { "estimate": 120000 },
+      "subItems": [
+        { "label": "US6.2 rendu charte", "status": "todo" },
+        { "label": "US6.3 contenu slides", "status": "todo" },
+        { "label": "US7.1 self-check geo", "status": "todo" },
+        { "label": "US7.2 verif visuelle", "status": "todo" }
+      ]
+    },
+    {
+      "phase": "realisation",
+      "title": "6. Export & finitions MVP",
+      "description": "Export du .pptx final et consolidation de la chaine de bout en bout.",
+      "status": "todo",
+      "tokens": { "estimate": 40000 },
+      "subItems": [
+        { "label": "US8.1 export pptx", "status": "todo" }
+      ]
+    },
+    {
+      "phase": "realisation",
+      "title": "7. Capture audio + structuration IA (v2)",
+      "description": "Import/enregistrement audio, transcription locale, pre-remplissage de la trame.",
+      "status": "todo",
+      "tokens": { "estimate": 90000 },
+      "subItems": [
+        { "label": "US3.1 audio", "status": "todo" },
+        { "label": "US3.2 transcription", "status": "todo" },
+        { "label": "US3.3 structuration", "status": "todo" }
+      ]
+    },
+    {
+      "phase": "realisation",
+      "title": "8. Narration exemples + pagination (v2)",
+      "description": "Apprentissage du squelette narratif depuis les decks exemples, pagination auto, regeneration.",
+      "status": "todo",
+      "tokens": { "estimate": 80000 },
+      "subItems": [
+        { "label": "US5.2 plan exemples", "status": "todo" },
+        { "label": "US5.3 archetypes", "status": "todo" },
+        { "label": "US6.4 pagination", "status": "todo" },
+        { "label": "US6.5 regeneration", "status": "todo" }
+      ]
+    }
+  ]
+}
