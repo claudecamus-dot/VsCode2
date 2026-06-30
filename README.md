@@ -38,6 +38,16 @@ uvicorn app.main:app --reload
 
 Puis ouvrir http://127.0.0.1:8000 (redirige vers `/missions`).
 
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Les tests tournent sur une base SQLite jetable (variable `APP_DB_PATH`, fixée
+par `tests/conftest.py`) — la base de dev `data/app.db` n'est jamais touchée.
+
 ## Structure
 
 ```
