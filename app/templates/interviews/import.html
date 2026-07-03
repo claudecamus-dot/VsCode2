@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Importer un entretien — {{ mission.name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> / Importer un entretien
+</div>
+
+<div class="page-head"><h1>Importer un entretien depuis un document</h1></div>
+<p class="muted">
+  Dépose une transcription ou des notes déjà rédigées : l'IA propose une réponse
+  par question couverte dans le document. Rien n'est enregistré avant validation
+  sur l'écran suivant, et chaque réponse importée reste marquée « à valider »
+  jusqu'à relecture.
+</p>
+
+{% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
+
+<form method="post" enctype="multipart/form-data"
+      action="/missions/{{ mission.id }}/interviews/import" class="card form">
+  <label>
+    Fichier .docx
+    <input type="file" name="file" accept=".docx" required style="margin-top:6px;">
+  </label>
+  <label>
+    Nom &amp; prénom de l'interviewé·e
+    <input type="text" name="interviewee_name"
+           value="{{ identity.interviewee_name if identity else '' }}"
+           placeholder="Ex. Marc Dupont — modifiable ensuite">
+  </label>
+  <label>
+    Rôle / fonction
+    <input type="text" name="interviewee_role"
+           value="{{ identity.interviewee_role if identity else '' }}"
+           placeholder="Ex. RSSI, DSI, Product Owner…">
+  </label>
+  <label>
+    Entité / direction
+    <input type="text" name="interviewee_entity"
+           value="{{ identity.interviewee_entity if identity else '' }}"
+           placeholder="Ex. DSI, Métier Assurance…">
+  </label>
+  <label>
+    Date de l'entretien
+    <input type="date" name="interview_date"
+           value="{{ identity.interview_date if identity else '' }}">
+  </label>
+  <div class="form-actions">
+    <a class="btn" href="/missions/{{ mission.id }}">Annuler</a>
+    <button class="btn btn-primary" type="submit">Analyser le document</button>
+  </div>
+</form>
+{% endblock %}

@@ -229,6 +229,20 @@ def parse_docx_bytes(content: bytes, name: str = "Trame importée") -> ParsedTra
     return parse_docx(io.BytesIO(content), name=name)
 
 
+def extract_text(doc) -> str:
+    """Texte brut du document (un paragraphe non vide par ligne).
+
+    Utilisé comme entrée du mode IA (`trame_extract_ai.py`,
+    `interview_extract_ai.py`) quand le document ne suit pas la convention
+    reconnue par le parser heuristique ci-dessus.
+    """
+    return "\n".join(p.text.strip() for p in doc.paragraphs if p.text.strip())
+
+
+def extract_text_bytes(content: bytes) -> str:
+    return extract_text(Document(io.BytesIO(content)))
+
+
 # --------------------------------------------------------------------------- #
 # Inspection / CLI (pour caler le parser sur un vrai document)
 # --------------------------------------------------------------------------- #

@@ -9,13 +9,12 @@
 {% if missions %}
 <table class="table">
   <thead>
-    <tr><th>Mission</th><th>Client</th><th>Créée le</th><th></th></tr>
+    <tr><th>Mission</th><th>Créée le</th><th></th></tr>
   </thead>
   <tbody>
     {% for m in missions %}
     <tr>
       <td><a href="/missions/{{ m.id }}">{{ m.name }}</a></td>
-      <td>{{ m.client or "—" }}</td>
       <td>{{ m.created_at.strftime("%d/%m/%Y") }}</td>
       <td class="row-actions">
         <form method="post" action="/missions/{{ m.id }}/delete"

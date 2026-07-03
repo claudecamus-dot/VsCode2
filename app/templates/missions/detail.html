@@ -15,7 +15,6 @@
 </div>
 
 <div class="meta">
-  {% if mission.client %}<span><strong>Client :</strong> {{ mission.client }}</span>{% endif %}
   <span><strong>Créée le :</strong> {{ mission.created_at.strftime("%d/%m/%Y") }}</span>
 </div>
 {% if mission.description %}<p class="muted">{{ mission.description }}</p>{% endif %}
@@ -72,14 +71,13 @@
   <div class="card-head">
     <h2>Synthèse transverse</h2>
     {% if theme_count > 0 %}
-    <a class="btn btn-primary" href="/missions/{{ mission.id }}/synthese">Ouvrir la synthèse</a>
+    <a class="btn btn-primary" href="/missions/{{ mission.id }}/synthese/export-import">Ouvrir la synthèse</a>
     {% endif %}
   </div>
   {% if theme_count == 0 %}
     <p class="muted">Définis la trame et saisis des entretiens avant de synthétiser.</p>
   {% else %}
-    <p class="muted">Vue par thème : agrège les réponses, dégage convergences et divergences (IA).</p>
-    <a class="btn btn-secondary" href="/missions/{{ mission.id }}/agents">Agents OpenHub</a>
+    <p class="muted">Synthèse transverse à tous les thèmes, recommandations et export PPT.</p>
   {% endif %}
 </div>
 {% endblock %}

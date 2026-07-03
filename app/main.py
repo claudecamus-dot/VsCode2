@@ -21,12 +21,17 @@ except ModuleNotFoundError:
     pass
 
 from .db import init_db  # noqa: E402
-from .routers import agents, interviews, missions, synthese, trames  # noqa: E402
+from .routers import agents, export, interviews, missions, synthese, trames  # noqa: E402
+from .services import audio_transcribe  # noqa: E402
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
+    try:
+        audio_transcribe.warm_up()
+    except Exception:
+        pass  # le premier enregistrement réel retentera et remontera une erreur normale
     yield
 
 
@@ -41,6 +46,7 @@ app.include_router(missions.router)
 app.include_router(trames.router)
 app.include_router(interviews.router)
 app.include_router(synthese.router)
+app.include_router(export.router)
 app.include_router(agents.router)
 
 

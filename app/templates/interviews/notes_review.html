@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Revue de la répartition — {{ interview.interviewee_name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ interview.mission_id }}">{{ interview.mission.name }}</a> /
+  <a href="/interviews/{{ interview.id }}?theme=notes">Entretien</a> / Revue de la répartition
+</div>
+
+<div class="page-head"><h1>Revue de la répartition</h1></div>
+
+{% if error %}
+<p class="ai-error">⚠ {{ error }}</p>
+<a class="btn" href="/interviews/{{ interview.id }}?theme=notes">Retour aux notes</a>
+{% else %}
+<p class="muted">
+  Voici les réponses identifiées dans les Notes libres. Décoche ce que tu ne
+  veux pas répartir vers les questions — pour une question déjà répondue, la
+  réponse actuelle est affichée à côté de la proposition et n'est écrasée que
+  si la case reste cochée.
+</p>
+
+<form method="post" action="/interviews/{{ interview.id }}/notes/confirm" class="card form">
+  <input type="hidden" name="proposed" value="{{ proposed_json }}">
+
+  <section class="card">
+    <h2>Notes libres analysées</h2>
+    <p class="intro-body">{{ transcript }}</p>
+  </section>
+
+  {% if not by_theme %}
+  <p class="muted">Aucune réponse identifiée dans la transcription — seul le texte ci-dessus sera ajouté aux notes.</p>
+  {% endif %}
+
+  {% for theme, rows in by_theme %}
+  <section class="card theme">
+    <h2>{{ theme.title }}</h2>
+    <ul class="questions preview-questions">
+      {% for row in rows %}
+      <li>
+        <label>
+          <input type="checkbox" name="keep" value="{{ row.question.id }}" {% if row.default_keep %}checked{% endif %}>
+          <span class="q-label">{{ row.question.label }}</span>
+        </label>
+        {% if row.existing %}
+        <p class="q-help">Réponse actuelle
+          (<span class="badge badge-status-{{ row.existing.status }}">{{ ANSWER_STATUS_LABELS[row.existing.status] }}</span>) :
+          {{ row.existing.text or "—" }}</p>
+        {% endif %}
+        <p class="q-help">Proposition : {{ row.proposed.text }}</p>
+        {% if row.proposed.verbatims %}
+        <ul class="verbatims">
+          {% for quote in row.proposed.verbatims %}
+          <li>❝ {{ quote }} ❞</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endfor %}
+
+  <div class="form-actions">
+    <a class="btn" href="/interviews/{{ interview.id }}?theme=notes">Annuler</a>
+    <button class="btn btn-primary" type="submit">Valider</button>
+  </div>
+</form>
+{% endif %}
+{% endblock %}

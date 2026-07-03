@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Export / Import — {{ mission.name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> / Synthèse
+</div>
+
+<div class="capture-head"><div><h1>Export / Import</h1></div></div>
+
+{% if not themes %}
+  <div class="card empty">
+    <p>La trame est vide — aucun thème à synthétiser.</p>
+    <a class="btn btn-primary" href="/missions/{{ mission.id }}/trame">Éditer la trame</a>
+  </div>
+{% else %}
+{% set active = 'export_import' %}
+{% include "synthese/_nav.html" %}
+
+<p class="muted">
+  Point de départ du parcours : exporte la matière d'entretien pour la faire
+  analyser en dehors de la plateforme, puis réimporte le résultat — c'est ce
+  qui alimente la synthèse globale (étape 2) et les recommandations (étape 3).
+</p>
+
+{% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
+
+<section class="card apercu-actions">
+  <div class="apercu-action">
+    <div>
+      <strong>1. Exporter</strong>
+      <p class="muted">Toute la matière d'entretien + un gabarit de demande d'analyse.</p>
+    </div>
+    <a class="btn" href="/missions/{{ mission.id }}/export/interviews">📥 Exporter les entretiens (.md)</a>
+  </div>
+
+  <div class="apercu-action">
+    <div>
+      <strong>2. Importer</strong>
+      <p class="muted">Le fichier une fois complété par l'analyse externe (mêmes titres Markdown).</p>
+    </div>
+    <form method="post" action="/missions/{{ mission.id }}/import/analyse" enctype="multipart/form-data" class="apercu-upload">
+      <input type="file" name="file" accept=".md,text/markdown" aria-label="Fichier Markdown d'analyse" required>
+      <button class="btn btn-primary" type="submit">📤 Importer l'analyse</button>
+    </form>
+  </div>
+</section>
+
+{% set has_content = (global_synthesis and global_synthesis.has_content) or axes %}
+{% if has_content %}
+<div class="card">
+  <p class="muted">
+    ✓ Cette mission a déjà de la matière importée/générée —
+    <a href="/missions/{{ mission.id }}/synthese/globale">continuer vers la synthèse globale</a>.
+  </p>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

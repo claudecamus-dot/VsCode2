@@ -1,0 +1,22 @@
+<nav class="wizard-steps">
+  <a class="wizard-step {% if active == 'export_import' %}active{% endif %}"
+     href="/missions/{{ mission.id }}/synthese/export-import">
+    <span class="wizard-step-num">1</span>
+    <span class="wizard-step-label">Export / Import</span>
+  </a>
+  <a class="wizard-step {% if active == 'globale' %}active{% endif %} {% if global_synthesis and global_synthesis.has_content %}done{% endif %}"
+     href="/missions/{{ mission.id }}/synthese/globale">
+    <span class="wizard-step-num">{% if global_synthesis and global_synthesis.has_content %}✓{% else %}2{% endif %}</span>
+    <span class="wizard-step-label">Synthèse globale</span>
+  </a>
+  <a class="wizard-step {% if active == 'recommandations' %}active{% endif %} {% if axes %}done{% endif %}"
+     href="/missions/{{ mission.id }}/recommandations">
+    <span class="wizard-step-num">{% if axes %}✓{% else %}3{% endif %}</span>
+    <span class="wizard-step-label">Recommandations</span>
+  </a>
+  <a class="wizard-step {% if active == 'export_ppt' %}active{% endif %}"
+     href="/missions/{{ mission.id }}/synthese/apercu">
+    <span class="wizard-step-num">4</span>
+    <span class="wizard-step-label">Export PPT</span>
+  </a>
+</nav>

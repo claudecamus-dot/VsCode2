@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Recommandations — {{ mission.name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> / Synthèse
+</div>
+
+<div class="capture-head"><div><h1>Recommandations</h1></div></div>
+
+{% if not themes %}
+  <div class="card empty">
+    <p>La trame est vide — aucun thème à synthétiser.</p>
+    <a class="btn btn-primary" href="/missions/{{ mission.id }}/trame">Éditer la trame</a>
+  </div>
+{% else %}
+{% set active = 'recommandations' %}
+{% include "synthese/_nav.html" %}
+
+<p class="muted">
+  Extraites de la synthèse globale — un petit nombre d'axes transverses à la
+  mission (pas un axe par thème), chacun décliné en recommandations
+  actionnables.
+</p>
+
+{% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
+{% if not ai_ready %}
+<p class="muted ai-hint">⚠ <strong>Service IA indisponible</strong> : définissez
+  <code>ANTHROPIC_API_KEY</code> pour activer la génération, ou utilisez
+  l'<a href="/missions/{{ mission.id }}/export/interviews">export</a> pour lancer une analyse
+  externe puis <a href="/missions/{{ mission.id }}/synthese/apercu">importez le résultat</a>.</p>
+{% endif %}
+
+<form method="post" action="/missions/{{ mission.id }}/recommandations/generate" class="reco-generate">
+  <button class="btn btn-primary" type="submit"
+    {% if not ai_ready %}disabled title="Service IA indisponible — définissez ANTHROPIC_API_KEY"{% endif %}>
+    {{ '✨ Générer (IA)' if not axes else '↻ Régénérer (IA)' }}
+  </button>
+  {% if not global_synthesis or not global_synthesis.has_content %}
+  <span class="muted">Nécessite une <a href="/missions/{{ mission.id }}/synthese/globale">synthèse globale</a> déjà générée.</span>
+  {% endif %}
+</form>
+
+{% if not axes %}
+<div class="card empty"><p class="muted">Aucune recommandation pour l'instant.</p></div>
+{% else %}
+  {% for axis in axes %}
+  <section class="card reco-axis">
+    <div class="card-head"><h2>Axe {{ loop.index }} — {{ axis.title }}</h2></div>
+
+    {% for reco in axis.recommendations %}
+    <div class="reco-card">
+      <label class="reco-title">
+        <input type="text" name="value" value="{{ reco.title }}" aria-label="Titre de la recommandation"
+          hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "title"}'
+          hx-trigger="keyup changed delay:700ms, blur"
+          hx-target="#reco-saved-{{ reco.id }}" hx-swap="innerHTML">
+      </label>
+
+      <div class="reco-meta">
+        <label>Objectif
+          <textarea name="value" rows="2"
+            hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "objectif"}'
+            hx-trigger="keyup changed delay:700ms, blur"
+            hx-target="#reco-saved-{{ reco.id }}" hx-swap="innerHTML">{{ reco.objectif }}</textarea>
+        </label>
+        <label>Acteurs
+          <input type="text" name="value" value="{{ reco.acteurs }}"
+            hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "acteurs"}'
+            hx-trigger="keyup changed delay:700ms, blur"
+            hx-target="#reco-saved-{{ reco.id }}" hx-swap="innerHTML">
+        </label>
+        <label>Valeur
+          <select name="value"
+            hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "valeur"}'
+            hx-trigger="change" hx-target="#reco-saved-{{ reco.id }}" hx-swap="innerHTML">
+            {% for n in range(1, 6) %}<option value="{{ n }}" {% if reco.valeur == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
+          </select>
+          <span class="score-dots">{{ '●' * reco.valeur }}{{ '○' * (5 - reco.valeur) }}</span>
+        </label>
+        <label>Complexité
+          <select name="value"
+            hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "complexite"}'
+            hx-trigger="change" hx-target="#reco-saved-{{ reco.id }}" hx-swap="innerHTML">
+            {% for n in range(1, 6) %}<option value="{{ n }}" {% if reco.complexite == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
+          </select>
+          <span class="score-dots">{{ '●' * reco.complexite }}{{ '○' * (5 - reco.complexite) }}</span>
+        </label>
+      </div>
+
+      <label class="reco-field">
+        <span>Proposition de valeur</span>
+        <textarea name="value" rows="2"
+          hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "proposition_valeur"}'
+          hx-trigger="keyup changed delay:700ms, blur"
+          hx-target="#reco-saved-{{ reco.id }}" hx-swap="innerHTML">{{ reco.proposition_valeur }}</textarea>
+      </label>
+      <label class="reco-field">
+        <span>Plan d'actions</span>
+        <textarea name="value" rows="4"
+          hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "plan_actions"}'
+          hx-trigger="keyup changed delay:700ms, blur"
+          hx-target="#reco-saved-{{ reco.id }}" hx-swap="innerHTML">{{ reco.plan_actions }}</textarea>
+      </label>
+      <label class="reco-field">
+        <span>Résultats attendus</span>
+        <textarea name="value" rows="2"
+          hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "resultats_attendus"}'
+          hx-trigger="keyup changed delay:700ms, blur"
+          hx-target="#reco-saved-{{ reco.id }}" hx-swap="innerHTML">{{ reco.resultats_attendus }}</textarea>
+      </label>
+      <div class="autosave-line"><span id="reco-saved-{{ reco.id }}" class="saved"></span></div>
+    </div>
+    {% endfor %}
+  </section>
+  {% endfor %}
+{% endif %}
+{% endif %}
+{% endblock %}

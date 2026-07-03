@@ -31,7 +31,6 @@ def new_mission(request: Request):
 @router.post("")
 def create_mission(
     name: str = Form(...),
-    client: str = Form(""),
     description: str = Form(""),
     db: Session = Depends(get_session),
 ):
@@ -40,7 +39,6 @@ def create_mission(
         raise HTTPException(status_code=400, detail="Le nom est obligatoire.")
     mission = Mission(
         name=name,
-        client=client.strip() or None,
         description=description.strip() or None,
         trame=Trame(name="Trame d'entretien"),
     )

@@ -28,14 +28,15 @@ agents: [onboarder]
 - Test-after : les tests sont écrits après l'implémentation (aucun label Beads TDD, pas de mention TDD dans README)
   — `DÉDUIT` · onboarder · 2026-06-30
 
-## Tests existants (6 tests)
+## Tests existants (7 tests)
 
 1. `test_create_mission_and_view_trame` — Création mission + consultation trame
 2. `test_add_theme_and_question` — Ajout thème + question
 3. `test_import_docx_creates_theme_and_questions` — Import .docx en mémoire
 4. `test_agents_page_lists_available_skills` — Page agents liste les skills
-5. `test_dynamic_skill_execution_uses_opencode_runtime` — Mock du runtime opencode
-6. `test_interview_capture_and_save_answer` — Saisie d'entretien + réponse
+5. `test_skill_invocation_from_agents_page` — Invocation d'un skill depuis la page agents
+6. `test_dynamic_skill_execution_uses_opencode_runtime` — Mock du runtime opencode
+7. `test_interview_capture_and_save_answer` — Saisie d'entretien + réponse
 
 ## Commandes
 

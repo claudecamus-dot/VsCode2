@@ -66,12 +66,124 @@
 <section class="card">
   <h2>📝 Notes libres</h2>
   <p class="muted">Tout ce qui est dit hors-trame — rattachable plus tard.</p>
-  <textarea class="free-notes" rows="16" name="free_notes"
+
+  {% if recording_available %}
+  <div class="record-controls">
+    <button class="btn" type="button" id="notes-rec-start">● Enregistrer une note</button>
+    <button class="btn" type="button" id="notes-rec-stop" hidden>■ Arrêter</button>
+    <span class="rec-timer" id="notes-rec-timer">00:00</span>
+    <span class="muted" id="notes-rec-status"></span>
+    <button class="btn-link" type="button" id="notes-rec-reset" hidden>Recommencer</button>
+  </div>
+  <audio controls id="notes-rec-preview" hidden></audio>
+  <script>
+  (function () {
+    var startBtn = document.getElementById('notes-rec-start');
+    var stopBtn = document.getElementById('notes-rec-stop');
+    var resetBtn = document.getElementById('notes-rec-reset');
+    var timerEl = document.getElementById('notes-rec-timer');
+    var statusEl = document.getElementById('notes-rec-status');
+    var preview = document.getElementById('notes-rec-preview');
+
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+      statusEl.textContent = 'Enregistrement non supporté par ce navigateur.';
+      startBtn.disabled = true;
+      return;
+    }
+
+    var mediaRecorder, chunks, startTime, timerId, stream;
+
+    function formatElapsed(ms) {
+      var s = Math.floor(ms / 1000);
+      var m = Math.floor(s / 60);
+      s = s % 60;
+      return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+    }
+
+    startBtn.addEventListener('click', function () {
+      navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
+        stream = s;
+        chunks = [];
+        mediaRecorder = new MediaRecorder(stream);
+        mediaRecorder.addEventListener('dataavailable', function (e) {
+          if (e.data && e.data.size > 0) chunks.push(e.data);
+        });
+        mediaRecorder.addEventListener('stop', function () {
+          var blob = new Blob(chunks, { type: mediaRecorder.mimeType || 'audio/webm' });
+          preview.src = URL.createObjectURL(blob);
+          preview.hidden = false;
+          resetBtn.hidden = false;
+          stream.getTracks().forEach(function (t) { t.stop(); });
+
+          statusEl.textContent = 'Transcription en cours…';
+          var formData = new FormData();
+          formData.append('file', new File([blob], 'note.webm', { type: blob.type }));
+          fetch('/interviews/{{ interview.id }}/notes/transcribe', { method: 'POST', body: formData })
+            .then(function (res) {
+              return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+            })
+            .then(function (result) {
+              if (!result.ok) {
+                console.error('notes/transcribe a échoué', result.data);
+                statusEl.textContent = '⚠ ' + (result.data.error || result.data.detail || 'Échec de la transcription.');
+                return;
+              }
+              var notesEl = document.getElementById('free-notes');
+              notesEl.value = result.data.free_notes;
+              notesEl.scrollTop = notesEl.scrollHeight;
+              statusEl.textContent = '✓ transcription ajoutée aux notes.';
+            })
+            .catch(function (err) {
+              statusEl.textContent = '⚠ Échec de la transcription : ' + err.message;
+            });
+        });
+        mediaRecorder.start();
+        startTime = Date.now();
+        timerId = setInterval(function () {
+          timerEl.textContent = formatElapsed(Date.now() - startTime);
+        }, 500);
+        startBtn.hidden = true;
+        stopBtn.hidden = false;
+        statusEl.textContent = 'Enregistrement en cours…';
+      }).catch(function (err) {
+        statusEl.textContent = 'Micro inaccessible : ' + err.message;
+      });
+    });
+
+    stopBtn.addEventListener('click', function () {
+      mediaRecorder.stop();
+      clearInterval(timerId);
+      stopBtn.hidden = true;
+      startBtn.hidden = false;
+    });
+
+    resetBtn.addEventListener('click', function () {
+      preview.hidden = true;
+      preview.removeAttribute('src');
+      resetBtn.hidden = true;
+      statusEl.textContent = '';
+      timerEl.textContent = '00:00';
+    });
+  })();
+  </script>
+  {% endif %}
+
+  <textarea class="free-notes" id="free-notes" rows="16" name="free_notes"
     hx-post="/interviews/{{ interview.id }}/notes"
     hx-trigger="keyup changed delay:800ms, blur"
     hx-target="#notes-status" hx-swap="innerHTML"
     placeholder="Notes libres…">{{ interview.free_notes or '' }}</textarea>
   <div class="autosave-line"><span id="notes-status" class="saved"></span></div>
+
+  <form method="post" action="/interviews/{{ interview.id }}/notes/dispatch" id="notes-dispatch-form">
+    <input type="hidden" name="free_notes" id="dispatch-free-notes">
+    <button class="btn btn-primary" type="submit">Répartir vers les questions</button>
+  </form>
+  <script>
+  document.getElementById('notes-dispatch-form').addEventListener('submit', function () {
+    document.getElementById('dispatch-free-notes').value = document.getElementById('free-notes').value;
+  });
+  </script>
 </section>
 {% else %}
 <section class="theme-block">

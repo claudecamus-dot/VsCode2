@@ -101,8 +101,6 @@ def opencode_available() -> bool:
 
 def _build_mission_summary(mission: Mission) -> str:
     lines = [f"Mission : {mission.name}"]
-    if mission.client:
-        lines.append(f"Client : {mission.client}")
     if mission.description:
         lines.append(f"Description : {mission.description}")
 

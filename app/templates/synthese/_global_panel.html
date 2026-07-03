@@ -1,0 +1,46 @@
+{% macro field(mission, name, label, value) %}
+<label class="synth-field">
+  <span>{{ label }}</span>
+  <textarea name="value" rows="5"
+    hx-post="/syntheses/globale/{{ mission.id }}/field"
+    hx-vals='{"field": "{{ name }}"}'
+    hx-trigger="keyup changed delay:700ms, blur"
+    hx-target="#global-synth-saved" hx-swap="innerHTML"
+    placeholder="—">{{ value or '' }}</textarea>
+</label>
+{% endmacro %}
+
+<section class="card" id="global-synth-panel">
+  <div class="card-head">
+    <h2>Synthèse globale</h2>
+    <span class="badge badge-synth-{{ global_synthesis.status }}" id="global-synth-status">{{ global_synthesis.status_label }}</span>
+  </div>
+
+  {% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
+  {% if not ai_ready %}
+  <p class="muted ai-hint">⚠ <strong>Service IA indisponible</strong> : définissez la variable
+    d'environnement <code>ANTHROPIC_API_KEY</code> pour activer la génération, ou utilisez
+    l'<a href="/missions/{{ mission.id }}/export/interviews">export</a> pour lancer une analyse
+    externe puis <a href="/missions/{{ mission.id }}/synthese/apercu">importez le résultat</a>.
+    Vous pouvez aussi saisir la synthèse à la main ci-dessous.</p>
+  {% endif %}
+
+  {{ field(mission, 'contexte', 'Contexte', global_synthesis.contexte) }}
+  {{ field(mission, 'culture_adn', 'Culture & ADN', global_synthesis.culture_adn) }}
+  {{ field(mission, 'forces_succes', 'Forces & succès', global_synthesis.forces_succes) }}
+  {{ field(mission, 'points_amelioration', 'Points d\'amélioration', global_synthesis.points_amelioration) }}
+  {{ field(mission, 'aspirations', 'Aspirations (baguette magique)', global_synthesis.aspirations) }}
+
+  <div class="synth-actions">
+    <button class="btn btn-primary" type="button"
+      hx-post="/missions/{{ mission.id }}/synthese/globale/generate"
+      hx-target="#global-synth-panel" hx-swap="outerHTML"
+      hx-disabled-elt="this"
+      {% if not ai_ready %}disabled title="Service IA indisponible — définissez ANTHROPIC_API_KEY"{% endif %}>
+      <span class="htmx-indicator">⏳ </span>{{ '✨ Générer (IA)' if global_synthesis.status == 'empty' else '↻ Régénérer (IA)' }}
+    </button>
+    <span id="global-synth-saved" class="saved"></span>
+    {% if global_synthesis.generated_at %}<span class="muted">généré le {{ global_synthesis.generated_at.strftime('%d/%m %H:%M') }}</span>{% endif %}
+    <span class="muted">{{ answer_count }} réponse(s) source</span>
+  </div>
+</section>

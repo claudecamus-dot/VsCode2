@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Revue de l'import — {{ mission.name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> / Revue de l'import
+</div>
+
+<div class="page-head"><h1>Revue avant import</h1></div>
+<p class="muted">
+  Décoche ce que tu ne veux pas importer. L'entretien n'est créé qu'à la validation ;
+  chaque réponse importée reste marquée « à valider » jusqu'à relecture dans l'écran de saisie.
+</p>
+
+<form method="post" action="/missions/{{ mission.id }}/interviews/import/confirm" class="card form">
+  <input type="hidden" name="proposed" value="{{ proposed_json }}">
+
+  {% for theme, questions in by_theme %}
+  <section class="card theme">
+    <h2>{{ theme.title }}</h2>
+    <ul class="questions preview-questions">
+      {% for q in questions %}
+      {% set item = extracted[q.id] %}
+      <li>
+        <label>
+          <input type="checkbox" name="keep" value="{{ q.id }}" checked>
+          <span class="q-label">{{ q.label }}</span>
+        </label>
+        <p class="q-help">{{ item.text }}</p>
+        {% if item.verbatims %}
+        <ul class="verbatims">
+          {% for quote in item.verbatims %}
+          <li>❝ {{ quote }} ❞</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endfor %}
+
+  <div class="form-actions">
+    <a class="btn" href="/missions/{{ mission.id }}/interviews/import">Annuler</a>
+    <button class="btn btn-primary" type="submit">Valider l'import</button>
+  </div>
+</form>
+{% endblock %}

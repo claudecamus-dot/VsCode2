@@ -3,7 +3,7 @@
 Outil de saisie d'interviews sur une trame, de synthèse transverse, et de
 génération de PPT de restitution sur la base d'un template corporate.
 
-Statut : **incrément 1 — Socle + Mission & Trame** (MVP manuel).
+Statut : **socle incréments 1 à 3** — Mission & Trame, capture d'interview, synthèse IA transverse et intégration OpenHub (agents).
 Voir la roadmap : [.roadmap/roadmap.json](.roadmap/roadmap.json) (rendu SVG via le skill `roadmap-keeper`).
 
 ## Stack
@@ -12,15 +12,18 @@ Voir la roadmap : [.roadmap/roadmap.json](.roadmap/roadmap.json) (rendu SVG via 
 - **SQLAlchemy 2.0** + **SQLite** (fichier `data/app.db`, créé au démarrage)
 - Python 3.12+
 
-## Périmètre de l'incrément 1
+## Périmètre couvert
 
 - Créer / lister / consulter / supprimer une **mission** (US0.2)
 - Modèle de données `Mission → Trame → Theme → Question` (US0.1)
-- Éditer la **trame** : ajouter des thèmes et des questions (US1.1)
+- Éditer la **trame** : ajouter des thèmes et des questions, import `.docx` non-destructif (US1.1)
 - **Typer** les questions : ouverte / échelle / choix (US1.2)
+- **Capturer** un entretien : réponses et verbatims par question (`Interview` / `Answer` / `Verbatim`)
+- **Synthétiser** transversalement les réponses par thème, en mode IA (Claude) ou démo (`Synthesis`)
+- **Invoquer des agents OpenHub** (skills dynamiques) depuis l'écran mission (`AgentResult`)
 
-Les entités Interview / Synthèse / Deck arrivent aux incréments suivants ;
-le modèle est déjà pensé pour les accueillir sans refonte.
+La génération du **deck PPT** final reste à venir ; le modèle est déjà pensé pour
+l'accueillir sans refonte.
 
 ## Démarrage
 
@@ -54,11 +57,19 @@ par `tests/conftest.py`) — la base de dev `data/app.db` n'est jamais touchée.
 app/
   main.py          # app FastAPI (lifespan -> init DB), montage static
   db.py            # engine SQLite, session, PRAGMA foreign_keys
-  models.py        # Mission / Trame / Theme / Question (SQLAlchemy 2.0)
+  models.py        # Mission / Trame / Theme / Question / Interview / Answer / Verbatim / Synthesis / AgentResult
   templating.py    # instance Jinja2Templates partagée
   routers/
     missions.py    # CRUD mission
-    trames.py      # édition de la trame (thèmes / questions / types)
+    trames.py      # édition de la trame (thèmes / questions / types), import .docx
+    interviews.py  # capture d'entretien, sauvegarde réponses/verbatims
+    synthese.py    # synthèse IA transverse par thème
+    agents.py      # intégration OpenHub — liste et invocation de skills
+  services/
+    synthese_ai.py      # appel Claude / mode démo pour la synthèse
+    openhub_agents.py   # client OpenHub (skills dynamiques)
+  importers/
+    docx_trame.py  # import non-destructif d'une trame .docx
   templates/       # base.html + vues
   static/app.css
 data/app.db        # base SQLite (gitignored)

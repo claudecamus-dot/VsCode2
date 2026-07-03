@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Synthèse globale — {{ mission.name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> / Synthèse
+</div>
+
+<div class="capture-head">
+  <div>
+    <h1>Synthèse transverse</h1>
+    <div class="meta"><span>{{ interview_count }} entretien(s)</span></div>
+  </div>
+</div>
+
+{% if not themes %}
+  <div class="card empty">
+    <p>La trame est vide — aucun thème à synthétiser.</p>
+    <a class="btn btn-primary" href="/missions/{{ mission.id }}/trame">Éditer la trame</a>
+  </div>
+{% else %}
+{% set active = 'globale' %}
+{% include "synthese/_nav.html" %}
+
+<p class="muted">
+  Regroupe le contenu de <strong>tous les thèmes</strong> de la mission en 5
+  catégories transverses (pas thème par thème) — c'est cette synthèse qui
+  alimente ensuite les recommandations.
+</p>
+
+{% include "synthese/_global_panel.html" %}
+{% endif %}
+{% endblock %}

@@ -35,13 +35,16 @@ QUESTION_TYPE_LABELS = {
     "choice": "Choix",
 }
 
-# Statut de couverture d'une réponse pendant l'entretien (US2.3/“je zap”).
-ANSWER_STATUSES = ("pending", "answered", "skipped", "revisit")
+# Statut de couverture d'une reponse pendant l'entretien (US2.3/zap).
+# to_review : pre-remplie par extraction IA depuis un document, pas encore
+# validee par l'interviewer.euse (import d'entretien).
+ANSWER_STATUSES = ("pending", "answered", "skipped", "revisit", "to_review")
 ANSWER_STATUS_LABELS = {
     "pending": "À poser",
     "answered": "Répondue",
     "skipped": "Non posée",
     "revisit": "À revoir",
+    "to_review": "Extraite du document — à valider",
 }
 
 
@@ -58,9 +61,11 @@ class Mission(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200))
-    client: Mapped[str | None] = mapped_column(String(200), default=None)
     description: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    # Chemin (relatif à data/pptx_templates/) du template PPT client uploadé,
+    # utilisé comme base pour l'export PPT (évol) — hérite thème/masters.
+    pptx_template_path: Mapped[str | None] = mapped_column(String(500), default=None)
 
     # Une mission possède une trame (1:1 au MVP), créée avec la mission.
     trame: Mapped["Trame"] = relationship(
@@ -77,6 +82,16 @@ class Mission(Base):
         back_populates="mission",
         cascade="all, delete-orphan",
         order_by="AgentResult.created_at.desc()",
+    )
+    global_synthesis: Mapped["GlobalSynthesis | None"] = relationship(
+        back_populates="mission",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
+    recommendation_axes: Mapped[list["RecommendationAxis"]] = relationship(
+        back_populates="mission",
+        cascade="all, delete-orphan",
+        order_by="RecommendationAxis.position",
     )
 
 
@@ -162,6 +177,10 @@ class Interview(Base):
     # Protocole / infos de référence à introduire pendant l'entretien (évol).
     reference_text: Mapped[str | None] = mapped_column(Text, default=None)
     free_notes: Mapped[str | None] = mapped_column(Text, default=None)
+    # Chemin (relatif à data/recordings/) de la sauvegarde audio complète de
+    # l'entretien enregistré — filet de sécurité en cas de souci de
+    # transcription/extraction, l'audio brut n'étant sinon jamais conservé.
+    audio_backup_path: Mapped[str | None] = mapped_column(String(500), default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
     mission: Mapped["Mission"] = relationship(back_populates="interviews")
@@ -269,6 +288,104 @@ class Synthesis(Base):
     @property
     def has_content(self) -> bool:
         return bool((self.summary or "").strip() or (self.convergences or "").strip() or (self.divergences or "").strip())
+
+
+class GlobalSynthesis(Base):
+    """Synthèse transverse à la mission, tous thèmes confondus (évol).
+
+    Contrairement à `Synthesis` (par thème), regroupe les entretiens en 5
+    catégories fixes — contexte, culture & ADN, forces/succès, points
+    d'amélioration, aspirations — qui recoupent les thèmes de trame plutôt
+    que de les suivre un à un. Alimente `Recommendation` (le pipeline
+    recommandations part de cette synthèse, pas des réponses brutes).
+    """
+
+    __tablename__ = "global_syntheses"
+    __table_args__ = (
+        UniqueConstraint("mission_id", name="uq_global_synthesis_mission"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mission_id: Mapped[int] = mapped_column(
+        ForeignKey("missions.id", ondelete="CASCADE")
+    )
+    contexte: Mapped[str] = mapped_column(Text, default="")
+    culture_adn: Mapped[str] = mapped_column(Text, default="")
+    forces_succes: Mapped[str] = mapped_column(Text, default="")
+    points_amelioration: Mapped[str] = mapped_column(Text, default="")
+    aspirations: Mapped[str] = mapped_column(Text, default="")
+    # empty | generated | edited
+    status: Mapped[str] = mapped_column(String(20), default="empty")
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow
+    )
+
+    mission: Mapped["Mission"] = relationship(back_populates="global_synthesis")
+
+    @property
+    def has_content(self) -> bool:
+        return bool(
+            (self.contexte or "").strip()
+            or (self.culture_adn or "").strip()
+            or (self.forces_succes or "").strip()
+            or (self.points_amelioration or "").strip()
+            or (self.aspirations or "").strip()
+        )
+
+    @property
+    def status_label(self) -> str:
+        return SYNTHESIS_STATUS_LABELS.get(self.status, self.status)
+
+
+class RecommendationAxis(Base):
+    """Axe de recommandation transverse à la mission (évol).
+
+    Un petit nombre d'axes (3-4 dans la pratique) qui recoupent plusieurs
+    thèmes de trame — pas un axe par thème. Chaque axe porte plusieurs
+    `Recommendation`.
+    """
+
+    __tablename__ = "recommendation_axes"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mission_id: Mapped[int] = mapped_column(
+        ForeignKey("missions.id", ondelete="CASCADE")
+    )
+    title: Mapped[str] = mapped_column(String(300))
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+    mission: Mapped["Mission"] = relationship(back_populates="recommendation_axes")
+    recommendations: Mapped[list["Recommendation"]] = relationship(
+        back_populates="axis",
+        cascade="all, delete-orphan",
+        order_by="Recommendation.position",
+    )
+
+
+class Recommendation(Base):
+    """Fiche de recommandation — schéma calqué sur un rapport de restitution
+    réel (Objectif / Acteurs / Critères de priorisation / Résultats
+    attendus / Proposition de valeur / Plan d'actions)."""
+
+    __tablename__ = "recommendations"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    axis_id: Mapped[int] = mapped_column(
+        ForeignKey("recommendation_axes.id", ondelete="CASCADE")
+    )
+    title: Mapped[str] = mapped_column(String(300))
+    objectif: Mapped[str] = mapped_column(Text, default="")
+    acteurs: Mapped[str] = mapped_column(String(300), default="")
+    # 1 (faible) à 5 (fort)
+    valeur: Mapped[int] = mapped_column(Integer, default=3)
+    complexite: Mapped[int] = mapped_column(Integer, default=3)
+    proposition_valeur: Mapped[str] = mapped_column(Text, default="")
+    plan_actions: Mapped[str] = mapped_column(Text, default="")
+    resultats_attendus: Mapped[str] = mapped_column(Text, default="")
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+    axis: Mapped["RecommendationAxis"] = relationship(back_populates="recommendations")
 
     @property
     def status_label(self) -> str:

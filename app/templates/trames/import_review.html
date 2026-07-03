@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Revue de l'import — {{ mission.name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> /
+  <a href="/missions/{{ mission.id }}/trame">Trame</a> / Revue de l'import
+</div>
+
+<div class="page-head"><h1>Revue avant import</h1></div>
+<p class="muted">
+  Décoche ce que tu ne veux pas ajouter. Rien n'est encore enregistré — la fusion
+  (non destructive, tes réponses déjà saisies sont préservées) n'a lieu qu'à la validation.
+</p>
+
+<form method="post" action="/missions/{{ mission.id }}/trame/import/confirm" class="card form">
+  <input type="hidden" name="parsed" value="{{ parsed_json }}">
+
+  {% for theme in parsed.themes %}
+  {% set ti = loop.index0 %}
+  <section class="card theme">
+    <h2>{{ theme.title }}</h2>
+    <ul class="questions preview-questions">
+      {% for q in theme.questions %}
+      <li>
+        <label>
+          <input type="checkbox" name="keep" value="{{ ti }}-{{ loop.index0 }}" checked>
+          <span class="q-label">{{ q.label }}</span>
+          {% if q.help %}<span class="q-help">{{ q.help }}</span>{% endif %}
+        </label>
+      </li>
+      {% endfor %}
+    </ul>
+  </section>
+  {% endfor %}
+
+  <div class="form-actions">
+    <a class="btn" href="/missions/{{ mission.id }}/trame/import">Annuler</a>
+    <button class="btn btn-primary" type="submit">Valider l'import</button>
+  </div>
+</form>
+{% endblock %}

@@ -1,0 +1,259 @@
+{% extends "base.html" %}
+{% block title %}Enregistrer un entretien — {{ mission.name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> / Enregistrer un entretien
+</div>
+
+<div class="page-head"><h1>Enregistrer un entretien</h1></div>
+
+{% if not recording_available %}
+<p class="ai-error">⚠ La transcription locale n'est pas installée sur ce poste
+  (<code>pip install faster-whisper</code>). Utilise plutôt la saisie manuelle
+  ou l'import depuis un document.</p>
+<a class="btn" href="/missions/{{ mission.id }}/interviews/new">Retour</a>
+{% else %}
+<p class="muted">
+  Enregistre l'entretien en continu depuis ce poste : la voix ne quitte
+  jamais la machine. La transcription se fait au fil de l'eau par segments
+  d'environ une minute, affichés ci-dessous au fur et à mesure — pas besoin
+  d'attendre la fin d'un entretien d'1h ou plus. Une sauvegarde audio
+  complète est conservée en cas de souci technique. Une fois arrêté, relis
+  le texte puis envoie-le pour extraction des réponses — rien n'est
+  enregistré avant validation sur l'écran de revue suivant, et chaque
+  réponse importée reste marquée « à valider » jusqu'à relecture.
+</p>
+
+{% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
+
+<form method="post" action="/missions/{{ mission.id }}/interviews/record" class="card form" id="record-form">
+  <input type="hidden" name="transcript" id="rec-transcript-hidden" value="{{ identity.transcript if identity else '' }}">
+  <input type="hidden" name="audio_backup_path" id="rec-backup-path" value="{{ identity.audio_backup_path if identity else '' }}">
+
+  <div class="record-controls">
+    <button class="btn btn-primary" type="button" id="rec-start">● Démarrer l'enregistrement</button>
+    <button class="btn" type="button" id="rec-stop" hidden>■ Arrêter</button>
+    <span class="rec-timer" id="rec-timer">00:00</span>
+    <span class="muted" id="rec-status"></span>
+  </div>
+  <div class="autosave-line"><span class="muted" id="rec-backup-status"></span></div>
+
+  <textarea class="record-transcript" id="rec-transcript" rows="10" readonly
+    placeholder="Le texte transcrit apparaîtra ici au fil de l'enregistrement…"></textarea>
+  <button class="btn-link" type="button" id="rec-reset" hidden>Recommencer</button>
+
+  <label>
+    Nom &amp; prénom de l'interviewé·e
+    <input type="text" name="interviewee_name"
+           value="{{ identity.interviewee_name if identity else '' }}"
+           placeholder="Ex. Marc Dupont — modifiable ensuite">
+  </label>
+  <label>
+    Rôle / fonction
+    <input type="text" name="interviewee_role"
+           value="{{ identity.interviewee_role if identity else '' }}"
+           placeholder="Ex. RSSI, DSI, Product Owner…">
+  </label>
+  <label>
+    Entité / direction
+    <input type="text" name="interviewee_entity"
+           value="{{ identity.interviewee_entity if identity else '' }}"
+           placeholder="Ex. DSI, Métier Assurance…">
+  </label>
+  <label>
+    Date de l'entretien
+    <input type="date" name="interview_date"
+           value="{{ identity.interview_date if identity else '' }}">
+  </label>
+
+  <div class="form-actions">
+    <a class="btn" href="/missions/{{ mission.id }}">Annuler</a>
+    <button class="btn btn-primary" type="submit" id="rec-submit" disabled>Envoyer pour extraction des réponses</button>
+  </div>
+</form>
+
+<script>
+(function () {
+  var SEGMENT_MS = 60000;
+
+  var startBtn = document.getElementById('rec-start');
+  var stopBtn = document.getElementById('rec-stop');
+  var resetBtn = document.getElementById('rec-reset');
+  var submitBtn = document.getElementById('rec-submit');
+  var timerEl = document.getElementById('rec-timer');
+  var statusEl = document.getElementById('rec-status');
+  var backupStatusEl = document.getElementById('rec-backup-status');
+  var transcriptEl = document.getElementById('rec-transcript');
+  var transcriptHidden = document.getElementById('rec-transcript-hidden');
+  var backupPathHidden = document.getElementById('rec-backup-path');
+
+  if (!navigator.mediaDevices || !window.MediaRecorder) {
+    statusEl.textContent = "Enregistrement non supporté par ce navigateur.";
+    startBtn.disabled = true;
+    return;
+  }
+
+  var stream, startTime, timerId, rotationTimer;
+  var segmentRecorder, segmentChunks;
+  var backupRecorder, backupChunks;
+  var recordingActive = false;
+  var pendingSegments = 0;
+  var transcriptSoFar = '';
+
+  function formatElapsed(ms) {
+    var s = Math.floor(ms / 1000);
+    var m = Math.floor(s / 60);
+    s = s % 60;
+    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+
+  function updateSubmitState() {
+    submitBtn.disabled = recordingActive || pendingSegments > 0 || !transcriptSoFar.trim();
+    if (!recordingActive && pendingSegments === 0 && transcriptSoFar.trim()) {
+      statusEl.textContent = 'Enregistrement terminé — prêt à envoyer.';
+    }
+  }
+
+  function appendTranscript(text) {
+    transcriptSoFar = transcriptSoFar ? transcriptSoFar + '\n\n' + text : text;
+    transcriptEl.value = transcriptSoFar;
+    transcriptEl.scrollTop = transcriptEl.scrollHeight;
+    transcriptHidden.value = transcriptSoFar;
+  }
+
+  function startSegment() {
+    segmentChunks = [];
+    segmentRecorder = new MediaRecorder(stream);
+    segmentRecorder.addEventListener('dataavailable', function (e) {
+      if (e.data && e.data.size > 0) segmentChunks.push(e.data);
+    });
+    segmentRecorder.addEventListener('stop', function () {
+      var blob = new Blob(segmentChunks, { type: segmentRecorder.mimeType || 'audio/webm' });
+      uploadSegment(blob);
+      if (recordingActive) startSegment();
+    });
+    segmentRecorder.start();
+  }
+
+  function uploadSegment(blob) {
+    pendingSegments++;
+    updateSubmitState();
+    var formData = new FormData();
+    formData.append('file', new File([blob], 'segment.webm', { type: blob.type }));
+    fetch('/audio/transcribe-segment', { method: 'POST', body: formData })
+      .then(function (res) {
+        return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+      })
+      .then(function (result) {
+        if (result.ok && result.data.text) {
+          appendTranscript(result.data.text);
+        } else if (!result.ok) {
+          console.error('segment de transcription perdu', result.data);
+          appendTranscript('⚠ [segment perdu : ' + (result.data.error || result.data.detail || 'erreur inconnue') + ']');
+        }
+      })
+      .catch(function (err) {
+        appendTranscript('⚠ [segment perdu : ' + err.message + ']');
+      })
+      .finally(function () {
+        pendingSegments--;
+        updateSubmitState();
+      });
+  }
+
+  function startBackupRecorder() {
+    backupChunks = [];
+    backupRecorder = new MediaRecorder(stream);
+    backupRecorder.addEventListener('dataavailable', function (e) {
+      if (e.data && e.data.size > 0) backupChunks.push(e.data);
+    });
+    backupRecorder.addEventListener('stop', function () {
+      var blob = new Blob(backupChunks, { type: backupRecorder.mimeType || 'audio/webm' });
+      uploadBackup(blob);
+    });
+    backupRecorder.start();
+  }
+
+  function uploadBackup(blob) {
+    backupStatusEl.textContent = '💾 sauvegarde audio en cours…';
+    var formData = new FormData();
+    formData.append('file', new File([blob], 'entretien.webm', { type: blob.type }));
+    fetch('/missions/{{ mission.id }}/interviews/record/backup', { method: 'POST', body: formData })
+      .then(function (res) {
+        return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+      })
+      .then(function (result) {
+        if (result.ok && result.data.path) {
+          backupPathHidden.value = result.data.path;
+          backupStatusEl.textContent = '✓ sauvegarde audio complète effectuée.';
+        } else {
+          console.error('sauvegarde audio échouée', result.data);
+          backupStatusEl.textContent = '⚠ échec de la sauvegarde audio (le texte transcrit reste disponible).';
+        }
+      })
+      .catch(function (err) {
+        backupStatusEl.textContent = '⚠ échec de la sauvegarde audio : ' + err.message;
+      });
+  }
+
+  startBtn.addEventListener('click', function () {
+    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
+      stream = s;
+      recordingActive = true;
+      transcriptSoFar = '';
+      transcriptEl.value = '';
+      transcriptHidden.value = '';
+      backupPathHidden.value = '';
+      backupStatusEl.textContent = '';
+
+      startSegment();
+      startBackupRecorder();
+
+      startTime = Date.now();
+      timerId = setInterval(function () {
+        timerEl.textContent = formatElapsed(Date.now() - startTime);
+      }, 500);
+      rotationTimer = setInterval(function () {
+        if (segmentRecorder && segmentRecorder.state === 'recording') segmentRecorder.stop();
+      }, SEGMENT_MS);
+
+      startBtn.hidden = true;
+      stopBtn.hidden = false;
+      resetBtn.hidden = true;
+      statusEl.textContent = 'Enregistrement en cours…';
+      updateSubmitState();
+    }).catch(function (err) {
+      statusEl.textContent = 'Micro inaccessible : ' + err.message;
+    });
+  });
+
+  stopBtn.addEventListener('click', function () {
+    recordingActive = false;
+    clearInterval(rotationTimer);
+    clearInterval(timerId);
+    if (segmentRecorder && segmentRecorder.state === 'recording') segmentRecorder.stop();
+    if (backupRecorder && backupRecorder.state === 'recording') backupRecorder.stop();
+    stream.getTracks().forEach(function (t) { t.stop(); });
+    stopBtn.hidden = true;
+    startBtn.hidden = false;
+    resetBtn.hidden = false;
+    statusEl.textContent = 'Enregistrement terminé — transcription du dernier segment en cours…';
+    updateSubmitState();
+  });
+
+  resetBtn.addEventListener('click', function () {
+    transcriptSoFar = '';
+    transcriptEl.value = '';
+    transcriptHidden.value = '';
+    backupPathHidden.value = '';
+    backupStatusEl.textContent = '';
+    resetBtn.hidden = true;
+    statusEl.textContent = '';
+    timerEl.textContent = '00:00';
+    submitBtn.disabled = true;
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

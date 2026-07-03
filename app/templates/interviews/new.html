@@ -6,7 +6,18 @@
   <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> / Nouvel entretien
 </div>
 
-<div class="page-head"><h1>Nouvel entretien</h1></div>
+<div class="page-head">
+  <h1>Nouvel entretien</h1>
+  <div class="head-actions">
+    <a class="btn" href="/missions/{{ mission.id }}/interviews/import">Importer depuis un document</a>
+    {% if recording_available %}
+    <a class="btn" href="/missions/{{ mission.id }}/interviews/record">Enregistrer l'entretien</a>
+    {% endif %}
+  </div>
+</div>
+{% if not recording_available %}
+<p class="muted">Installe <code>faster-whisper</code> pour activer l'enregistrement direct depuis le navigateur.</p>
+{% endif %}
 
 {% if mission.trame.intro_text %}
 <section class="card intro-readonly">
@@ -31,7 +42,7 @@
   </label>
   <label>
     Date de l'entretien
-    <input type="date" name="interview_date">
+    <input type="date" name="interview_date" value="{{ today }}">
   </label>
   <div class="form-actions">
     <a class="btn" href="/missions/{{ mission.id }}">Annuler</a>

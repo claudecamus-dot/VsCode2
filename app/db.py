@@ -23,6 +23,17 @@ else:
     DATA_DIR.mkdir(exist_ok=True)
     DB_PATH = DATA_DIR / "app.db"
 
+# Sauvegardes audio brutes des entretiens enregistrés (filet de sécurité) —
+# même dossier de données que la base, donc déjà couvert par `data/` dans
+# .gitignore.
+RECORDINGS_DIR = DATA_DIR / "recordings"
+RECORDINGS_DIR.mkdir(exist_ok=True)
+
+# Templates PPT client uploadés, utilisés comme base pour l'export PPT
+# (évol) — même convention que RECORDINGS_DIR.
+PPTX_TEMPLATES_DIR = DATA_DIR / "pptx_templates"
+PPTX_TEMPLATES_DIR.mkdir(exist_ok=True)
+
 engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
 
 
@@ -46,9 +57,10 @@ def _add_missing_columns() -> None:
     existante — on ajoute donc à la main les colonnes introduites après coup.
     """
     additions = {
-        "interviews": {"reference_text": "TEXT"},
+        "interviews": {"reference_text": "TEXT", "audio_backup_path": "TEXT"},
         "trames": {"intro_text": "TEXT"},
         "questions": {"help_text": "TEXT"},
+        "missions": {"pptx_template_path": "TEXT"},
     }
     with engine.begin() as conn:
         for table, cols in additions.items():

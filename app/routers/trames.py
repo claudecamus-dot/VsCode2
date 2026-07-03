@@ -1,13 +1,22 @@
 """Édition de la trame : thèmes et questions typées (US1.1, US1.2)."""
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from ..db import get_session
-from ..importers.docx_trame import parse_docx_bytes
+from ..importers.docx_trame import (
+    ParsedQuestion,
+    ParsedTheme,
+    ParsedTrame,
+    extract_text_bytes,
+    parse_docx_bytes,
+)
 from ..models import Mission, Question, Theme, QUESTION_TYPES
+from ..services.trame_extract_ai import TrameExtractAIError, extract_trame_from_text
 from ..templating import templates
 
 router = APIRouter(prefix="/missions/{mission_id}/trame", tags=["trame"])
@@ -82,25 +91,71 @@ def _norm(text: str) -> str:
     return " ".join((text or "").split()).casefold()
 
 
-@router.post("/import")
-async def import_docx(
-    mission_id: int,
-    file: UploadFile = File(...),
-    db: Session = Depends(get_session),
-):
-    mission = _get_mission(db, mission_id)
-    if not (file.filename or "").lower().endswith(".docx"):
-        raise HTTPException(status_code=400, detail="Un fichier .docx est attendu.")
+def _parsed_to_json(parsed: ParsedTrame) -> str:
+    return json.dumps(
+        {
+            "name": parsed.name,
+            "intro": parsed.intro,
+            "themes": [
+                {
+                    "title": t.title,
+                    "questions": [
+                        {
+                            "label": q.label,
+                            "help": q.help,
+                            "qtype": q.qtype,
+                            "config": q.config,
+                        }
+                        for q in t.questions
+                    ],
+                }
+                for t in parsed.themes
+            ],
+        }
+    )
 
-    parsed = parse_docx_bytes(await file.read())
 
-    # Import NON destructif : on fusionne dans la trame existante sans jamais
-    # supprimer un thème/une question déjà là (donc sans toucher aux réponses
-    # déjà saisies). Un thème est rapproché par titre ; au sein d'un thème, on
-    # n'ajoute que les questions dont l'intitulé n'existe pas encore.
+def _parsed_from_json(raw: str) -> ParsedTrame:
+    data = json.loads(raw)
+    return ParsedTrame(
+        name=data.get("name") or "Trame importée",
+        intro=data.get("intro") or "",
+        themes=[
+            ParsedTheme(
+                title=t.get("title") or "Thème",
+                questions=[
+                    ParsedQuestion(
+                        label=q.get("label") or "",
+                        qtype=q.get("qtype") or "open",
+                        config=q.get("config") or {},
+                        help=q.get("help") or "",
+                    )
+                    for q in t.get("questions") or []
+                ],
+            )
+            for t in data.get("themes") or []
+        ],
+    )
+
+
+def _merge_parsed_trame(mission: Mission, parsed: ParsedTrame, keep: set[str]) -> None:
+    """Fusion NON destructive dans la trame existante : ne supprime jamais un
+    thème/une question déjà là (donc ne touche pas aux réponses déjà
+    saisies). Un thème est rapproché par titre ; au sein d'un thème, on
+    n'ajoute que les questions dont l'intitulé n'existe pas encore.
+
+    `keep` : clés `"{theme_idx}-{question_idx}"` des questions proposées que
+    l'utilisateur a validées sur l'écran de revue (les autres sont ignorées).
+    """
     themes_by_title = {_norm(t.title): t for t in mission.trame.themes}
 
-    for ptheme in parsed.themes:
+    for ti, ptheme in enumerate(parsed.themes):
+        kept_questions = [
+            (qi, pq) for qi, pq in enumerate(ptheme.questions) if f"{ti}-{qi}" in keep
+        ]
+        if not kept_questions:
+            continue
+
         theme = themes_by_title.get(_norm(ptheme.title))
         if theme is None:
             theme = Theme(
@@ -111,7 +166,7 @@ async def import_docx(
             themes_by_title[_norm(ptheme.title)] = theme
 
         existing_labels = {_norm(q.label) for q in theme.questions}
-        for pq in ptheme.questions:
+        for _, pq in kept_questions:
             if _norm(pq.label) in existing_labels:
                 continue  # question déjà présente : on ne l'écrase pas
             theme.questions.append(
@@ -130,6 +185,60 @@ async def import_docx(
     if parsed.intro:
         mission.trame.intro_text = parsed.intro
 
+
+@router.post("/import")
+async def import_docx(
+    mission_id: int,
+    request: Request,
+    file: UploadFile = File(...),
+    ai_mode: bool = Form(False),
+    db: Session = Depends(get_session),
+):
+    mission = _get_mission(db, mission_id)
+    if not (file.filename or "").lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="Un fichier .docx est attendu.")
+
+    content = await file.read()
+    parsed = None if ai_mode else parse_docx_bytes(content)
+
+    ai_error = None
+    if parsed is None or not parsed.themes:
+        try:
+            parsed = extract_trame_from_text(extract_text_bytes(content))
+        except TrameExtractAIError as exc:
+            ai_error = str(exc)
+            parsed = parsed or ParsedTrame(name="Trame importée")
+
+    if not parsed.themes:
+        return templates.TemplateResponse(
+            request,
+            "trames/import.html",
+            {
+                "mission": mission,
+                "error": ai_error
+                or "Aucun thème ni question détecté dans ce document.",
+            },
+        )
+
+    # Rien n'est encore écrit en base : l'utilisateur valide sur l'écran de
+    # revue (checkbox par question) avant que la fusion ne s'applique.
+    return templates.TemplateResponse(
+        request,
+        "trames/import_review.html",
+        {"mission": mission, "parsed": parsed, "parsed_json": _parsed_to_json(parsed)},
+    )
+
+
+@router.post("/import/confirm")
+def import_confirm(
+    mission_id: int,
+    parsed: str = Form(...),
+    keep: list[str] = Form([]),
+    db: Session = Depends(get_session),
+):
+    mission = _get_mission(db, mission_id)
+    parsed_trame = _parsed_from_json(parsed)
+    _merge_parsed_trame(mission, parsed_trame, set(keep))
     db.commit()
     # Après import : on présente l'aperçu (questions importées + actions :
     # modifier la trame / démarrer un entretien).

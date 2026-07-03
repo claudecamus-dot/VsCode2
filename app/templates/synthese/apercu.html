@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}Export PPT — {{ mission.name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> / Synthèse
+</div>
+
+<div class="capture-head"><div><h1>Export PPT</h1></div></div>
+
+{% if not themes %}
+  <div class="card empty">
+    <p>La trame est vide — aucun thème à synthétiser.</p>
+    <a class="btn btn-primary" href="/missions/{{ mission.id }}/trame">Éditer la trame</a>
+  </div>
+{% else %}
+{% set active = 'export_ppt' %}
+{% include "synthese/_nav.html" %}
+
+{% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
+
+{% set has_content = (global_synthesis and global_synthesis.has_content) or axes %}
+{% if not has_content %}
+<div class="card empty">
+  <p class="muted">
+    Rien à exporter pour l'instant —
+    <a href="/missions/{{ mission.id }}/synthese/export-import">commencez par l'export/import</a>
+    ou générez la synthèse globale (IA).
+  </p>
+</div>
+{% else %}
+
+<section class="card apercu-actions">
+  <div class="apercu-action">
+    <div>
+      <strong>Template PPT (optionnel)</strong>
+      <p class="muted">
+        {% if mission.pptx_template_path %}✓ Template client actif ({{ mission.pptx_template_path }}) — l'export en hérite le thème et les masters.
+        {% else %}Aucun template — export avec la mise en forme par défaut.{% endif %}
+      </p>
+    </div>
+    <form method="post" action="/missions/{{ mission.id }}/pptx-template" enctype="multipart/form-data" class="apercu-upload">
+      <input type="file" name="file" accept=".pptx" aria-label="Fichier de template PowerPoint" required>
+      <button class="btn" type="submit">🖼️ Utiliser ce template</button>
+    </form>
+  </div>
+</section>
+
+<section class="card">
+  <div class="card-head"><h2>Définition des slides</h2></div>
+  <p class="muted">Choisis ce qui doit figurer dans l'export — tout est coché par défaut.</p>
+  <form method="get" action="/missions/{{ mission.id }}/export/pptx" class="pptx-config">
+    <input type="hidden" name="config_submitted" value="1">
+    <div class="pptx-config-grid">
+      <label class="pptx-check"><input type="checkbox" name="sommaire" value="true" checked> Sommaire</label>
+      {% if global_synthesis and global_synthesis.has_content %}
+      <label class="pptx-check"><input type="checkbox" name="synthese" value="true" checked> Synthèse globale (5 slides)</label>
+      {% endif %}
+      {% if axes %}
+      <label class="pptx-check"><input type="checkbox" name="axes_overview" value="true" checked> Vue d'ensemble des axes</label>
+      <label class="pptx-check"><input type="checkbox" name="matrix" value="true" checked> Matrice effort / valeur</label>
+      {% endif %}
+    </div>
+    {% if axes %}
+    <p class="muted pptx-config-subheading">Fiches de recommandation détaillées, par axe :</p>
+    <div class="pptx-config-grid">
+      {% for axis in axes %}
+      <label class="pptx-check"><input type="checkbox" name="axis" value="{{ axis.id }}" checked> {{ axis.title }} ({{ axis.recommendations|length }})</label>
+      {% endfor %}
+    </div>
+    {% endif %}
+    <div class="synth-actions">
+      <button class="btn btn-primary" type="submit">📊 Exporter en PPT</button>
+    </div>
+  </form>
+</section>
+
+<h2 class="theme-title">Aperçu</h2>
+<p class="muted">L'aperçu ci-dessous montre l'ensemble du contenu disponible (non filtré par la sélection ci-dessus).</p>
+
+<div class="slide-preview">
+  <span class="slide-preview-label">Slide — Titre</span>
+  <div class="slide-preview-body slide-title">
+    <h2>{{ mission.name }}</h2>
+    <p class="muted">Synthèse transverse &amp; recommandations</p>
+  </div>
+</div>
+
+<div class="slide-preview">
+  <span class="slide-preview-label">Slide — Sommaire</span>
+  <div class="slide-preview-body">
+    <ol class="slide-sommaire">
+      {% if global_synthesis and global_synthesis.has_content %}<li>Synthèse globale</li>{% endif %}
+      {% if axes %}<li>Recommandations</li><li>Matrice effort / valeur</li>{% endif %}
+    </ol>
+  </div>
+</div>
+
+{% if global_synthesis and global_synthesis.has_content %}
+  {% for label, content in [
+    ('Contexte', global_synthesis.contexte),
+    ('Culture & ADN', global_synthesis.culture_adn),
+    ('Forces & succès', global_synthesis.forces_succes),
+    ("Points d'amélioration", global_synthesis.points_amelioration),
+    ('Aspirations (baguette magique)', global_synthesis.aspirations),
+  ] %}
+  {% if content and content.strip() %}
+  <div class="slide-preview">
+    <span class="slide-preview-label">Slide — Synthèse globale : {{ label }}</span>
+    <div class="slide-preview-body">
+      <h3>{{ label }}</h3>
+      <ul>{% for line in content.splitlines() if line.strip() %}<li>{{ line.strip().lstrip('-•').strip() }}</li>{% endfor %}</ul>
+    </div>
+  </div>
+  {% endif %}
+  {% endfor %}
+{% endif %}
+
+{% if axes %}
+<div class="slide-preview">
+  <span class="slide-preview-label">Slide — Vue d'ensemble des axes</span>
+  <div class="slide-preview-body">
+    {% for axis in axes %}
+    <div class="reco-axis-row">
+      <span class="axis-num">#{{ loop.index }}</span>
+      <div>
+        <strong>{{ axis.title }}</strong>
+        <p class="muted">{{ axis.recommendations|length }} recommandation(s)</p>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="slide-preview">
+  <span class="slide-preview-label">Slide — Matrice effort / valeur</span>
+  <div class="slide-preview-body">
+    <div class="matrix-quadrant">
+      <div class="matrix-axis-y">Valeur</div>
+      {% for axis in axes %}
+        {% for reco in axis.recommendations %}
+        <div class="matrix-dot" style="left: {{ (reco.complexite / 5 * 100)|round(1) }}%; bottom: {{ (reco.valeur / 5 * 100)|round(1) }}%;" title="{{ reco.title }} — Valeur {{ reco.valeur }}, Complexité {{ reco.complexite }}"></div>
+        {% endfor %}
+      {% endfor %}
+      <div class="matrix-axis-x">Complexité</div>
+    </div>
+  </div>
+</div>
+
+{% for axis in axes %}
+  {% set axis_index = loop.index %}
+  {% for reco in axis.recommendations %}
+  <div class="slide-preview">
+    <span class="slide-preview-label">Slide — Recommandation {{ axis_index }}.{{ loop.index }} ({{ axis.title }})</span>
+    <div class="slide-preview-body">
+      <h3>{{ reco.title }}</h3>
+      <div class="reco-meta">
+        <div><span class="muted">Objectif</span><p>{{ reco.objectif or '—' }}</p></div>
+        <div><span class="muted">Acteurs</span><p>{{ reco.acteurs or '—' }}</p></div>
+        <div><span class="muted">Valeur</span><p>{{ '●' * reco.valeur }}{{ '○' * (5 - reco.valeur) }}</p></div>
+        <div><span class="muted">Complexité</span><p>{{ '●' * reco.complexite }}{{ '○' * (5 - reco.complexite) }}</p></div>
+      </div>
+      <p><strong><em>{{ reco.proposition_valeur or '—' }}</em></strong></p>
+      <p class="muted">Plan d'actions</p>
+      <ul>{% for line in (reco.plan_actions or '').splitlines() if line.strip() %}<li>{{ line.strip().lstrip('-•').strip() }}</li>{% endfor %}</ul>
+    </div>
+  </div>
+  {% endfor %}
+{% endfor %}
+{% endif %}
+{% endif %}
+{% endif %}
+{% endblock %}

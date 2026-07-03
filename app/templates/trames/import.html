@@ -9,18 +9,25 @@
 
 <div class="page-head"><h1>Importer une trame (.docx)</h1></div>
 
+{% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
+
 <form method="post" enctype="multipart/form-data"
       action="/missions/{{ mission.id }}/trame/import" class="card form">
   <p class="muted">
     Convention attendue : <strong>titres numérotés</strong> = thèmes,
     <strong>puces</strong> = questions, <strong>sous-puces</strong> = options
-    ou sous-questions. L'import <strong>remplace</strong> la trame actuelle —
-    tu pourras tout ajuster dans l'éditeur juste après.
+    ou sous-questions. L'import <strong>fusionne</strong> dans la trame actuelle
+    sans jamais rien supprimer (tes réponses déjà saisies sont préservées) — tu
+    valideras ce qui est proposé sur l'écran suivant avant tout enregistrement.
   </p>
   <label>
     Fichier .docx
     <input type="file" name="file" accept=".docx"
            required style="margin-top:6px;">
+  </label>
+  <label class="opt">
+    <input type="checkbox" name="ai_mode" value="true">
+    <span>Mode IA (document non structuré, ne suivant pas la convention ci-dessus)</span>
   </label>
   <div class="form-actions">
     <a class="btn" href="/missions/{{ mission.id }}/trame">Annuler</a>
