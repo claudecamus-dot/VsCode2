@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Aperçu — {{ interview.interviewee_name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb no-print">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ interview.mission_id }}">{{ interview.mission.name }}</a> /
+  <a href="/interviews/{{ interview.id }}">Entretien</a> / Aperçu
+</div>
+
+<div class="capture-head no-print">
+  <div>
+    <h1>Aperçu — {{ interview.interviewee_name }}</h1>
+    <div class="meta">
+      {% if interview.interviewee_role %}<span>{{ interview.interviewee_role }}</span>{% endif %}
+      {% if interview.interviewee_entity %}<span>{{ interview.interviewee_entity }}</span>{% endif %}
+      {% if interview.interview_date %}<span>{{ interview.interview_date.strftime('%d/%m/%Y') }}</span>{% endif %}
+      <span>{{ answered }}/{{ total }} répondues</span>
+    </div>
+  </div>
+  <div class="coverage-box">
+    <a class="btn" href="/interviews/{{ interview.id }}">← Retour à la saisie</a>
+    <button class="btn" type="button" onclick="window.print()">🖨️ Imprimer</button>
+  </div>
+</div>
+
+<article class="preview-doc">
+  <header class="preview-doc-head">
+    <h1>{{ interview.interviewee_name }}</h1>
+    <p class="muted">
+      {% if interview.interviewee_role %}{{ interview.interviewee_role }}{% endif %}
+      {% if interview.interviewee_entity %} — {{ interview.interviewee_entity }}{% endif %}
+      {% if interview.interview_date %} · {{ interview.interview_date.strftime('%d/%m/%Y') }}{% endif %}
+    </p>
+  </header>
+
+  {% if interview.free_notes and interview.free_notes.strip() %}
+  <section class="preview-theme">
+    <h2>📝 Notes libres</h2>
+    <p class="preview-answer">{{ interview.free_notes }}</p>
+  </section>
+  {% endif %}
+
+  {% for t in themes %}
+  <section class="preview-theme">
+    <h2>{{ t.title }}</h2>
+    {% for q in t.questions %}
+      {% set a = answers.get(q.id) %}
+      {% set vbs = verbatims_by_q.get(q.id, []) %}
+      <div class="preview-qa">
+        <p class="preview-question">
+          {{ q.label }}
+          {% if a and a.status and a.status != 'answered' %}
+          <span class="badge badge-status-{{ a.status }}">{{ ANSWER_STATUS_LABELS[a.status] }}</span>
+          {% endif %}
+        </p>
+        {% if a and (a.value or a.text) %}
+          {% if a.value %}<p class="preview-answer preview-answer-value">{{ a.value }}</p>{% endif %}
+          {% if a.text %}<p class="preview-answer">{{ a.text }}</p>{% endif %}
+        {% else %}
+          <p class="preview-answer preview-empty">— sans réponse —</p>
+        {% endif %}
+        {% if vbs %}
+        <ul class="preview-verbatims">
+          {% for v in vbs %}<li>❝ {{ v.quote }} ❞</li>{% endfor %}
+        </ul>
+        {% endif %}
+      </div>
+    {% endfor %}
+  </section>
+  {% endfor %}
+</article>
+{% endblock %}

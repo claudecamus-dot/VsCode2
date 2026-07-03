@@ -87,19 +87,42 @@ def build_export_markdown(mission: Mission) -> str:
         "Merci d'analyser l'ensemble des entretiens ci-dessus et de compléter "
         "les sections suivantes, en conservant **exactement** les titres "
         "ci-dessous (`##`/`###`/`####`/`#####`) pour permettre une "
-        "réintégration automatique dans la plateforme.",
+        "réintégration automatique dans la plateforme. Le texte de consigne "
+        "(ce paragraphe et les suivants situés juste après un titre `##`) "
+        "n'est **pas** réimporté — seul le contenu placé sous les titres "
+        "`###`/`####`/`#####` l'est : remplace-le par ton analyse, ne le "
+        "laisse pas tel quel.",
         "",
         "## SYNTHÈSE GLOBALE",
         "",
+        "Pour chaque rubrique ci-dessous, rédige une synthèse **courte et "
+        "structurée en puces** (3 à 6 puces, une idée par puce) — pas un "
+        "paragraphe continu. Appuie chaque point sur la matière d'entretien "
+        "ci-dessus plutôt que sur une généralité, et quand c'est pertinent "
+        "cite 1 à 2 **verbatims structurants** entre guillemets "
+        "(« ... » — Prénom Nom) pour ancrer le point sur un propos réel qui "
+        "résume bien une tension ou un constat partagé.",
+        "",
         "### Contexte",
+        "_Faits marquants du contexte : organisation, historique, "
+        "évènements récents qui éclairent la lecture du reste._",
         "",
         "### Culture & ADN",
+        "_Traits de culture observés, pratiques en place, ce qui définit "
+        "\"la façon de faire\" ici._",
         "",
         "### Forces & succès",
+        "_Ce qui marche bien : leviers de succès, pratiques à préserver, "
+        "sources de fierté ou de motivation revenues dans plusieurs "
+        "entretiens._",
         "",
         "### Points d'amélioration",
+        "_Douleurs, tensions, blocages — les axes d'amélioration qui "
+        "reviennent le plus souvent, avec leur impact concret._",
         "",
         "### Aspirations (baguette magique)",
+        "_Ce que les personnes espèrent ou changeraient si elles le "
+        "pouvaient — la direction souhaitée, pas seulement les problèmes._",
         "",
         "## RECOMMANDATIONS",
         "",
@@ -109,6 +132,14 @@ def build_export_markdown(mission: Mission) -> str:
         "effort/valeur, restituée comme un slide dédié dans le PPT final. "
         "Répète le bloc `##### Recommandation` pour chaque recommandation, "
         "et le bloc `#### Axe` pour chaque axe.",
+        "",
+        "Avant le détail par axe, tu peux rédiger ici une **synthèse en "
+        "3 à 5 puces** de l'ensemble des recommandations (priorités, ce "
+        "qui revient le plus souvent) — utile à la lecture du document, "
+        "mais uniquement les blocs `#### Axe`/`##### Recommandation` "
+        "ci-dessous sont réintégrés automatiquement (l'application affiche "
+        "déjà sa propre vue de synthèse, calculée depuis les fiches "
+        "détaillées).",
         "",
         "#### Axe 1 : <titre de l'axe>",
         "",

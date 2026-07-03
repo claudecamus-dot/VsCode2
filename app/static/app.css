@@ -531,27 +531,31 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #bcd0fb; outline-
 .wizard-step.done:not(.active) .wizard-step-num { background: var(--success-bg); color: var(--success-text); }
 .wizard-step-label { font-weight: 600; }
 
-/* ---- Éditeur de deck par onglets (aperçu + édition, évol) ---- */
-.deck-editor { margin-top: 8px; }
-.deck-tab-strip {
+/* ---- Onglets génériques (contrôlés par static/tabs.js, [data-tabs]) ---- */
+.tab-strip {
   display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 16px;
   border-bottom: 1px solid var(--border); padding-bottom: 8px;
 }
-.deck-tab {
+.tab {
   font: inherit; font-size: .85rem; padding: 6px 12px; border-radius: 999px;
   border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer;
 }
-.deck-tab:hover { border-color: var(--border-hover); }
-.deck-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
-.deck-tab-panel { display: none; }
-.deck-tab-panel.active { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(320px, 760px); gap: 24px; align-items: start; }
+.tab:hover { border-color: var(--border-hover); }
+.tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.tab-panel { display: none; }
+.tab-panel.active { display: block; }
+/* Modificateur "two-col" : panneau formulaire | aperçu côte à côte (éditeur
+   de deck, aperçu.html) — les onglets qui n'ont qu'un contenu simple (ex.
+   étape Analyse) utilisent .tab-panel.active tel quel (display: block). */
+.tab-panel.two-col.active { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(320px, 760px); gap: 24px; align-items: start; }
+.deck-editor { margin-top: 8px; }
 .deck-pane-form { min-width: 0; }
 .deck-pane-preview { position: sticky; top: 16px; }
 .fit-hint { display: block; font-size: .78rem; color: var(--muted); margin: -10px 0 12px; }
 .fit-hint:empty { display: none; }
 
 @media (max-width: 900px) {
-  .deck-tab-panel.active { grid-template-columns: 1fr; }
+  .tab-panel.two-col.active { grid-template-columns: 1fr; }
   .deck-pane-preview { position: static; }
 }
 
@@ -564,3 +568,32 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #bcd0fb; outline-
 .htmx-indicator { display: none; }
 .htmx-request .htmx-indicator { display: inline; }
 .htmx-request.htmx-indicator { display: inline; }
+
+/* ---- Aperçu lecture seule d'un entretien (évol) ---- */
+.preview-doc {
+  max-width: 820px; margin: 0 auto; background: var(--panel);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 32px 40px;
+}
+.preview-doc-head { border-bottom: 2px solid var(--border); margin-bottom: 20px; padding-bottom: 12px; }
+.preview-doc-head h1 { margin: 0 0 4px; }
+.preview-theme { margin-bottom: 28px; }
+.preview-theme:last-child { margin-bottom: 0; }
+.preview-theme h2 {
+  font-size: 1.1rem; border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: 6px; margin-bottom: 14px;
+}
+.preview-qa { padding: 10px 0; border-bottom: 1px dashed var(--border-subtle); }
+.preview-qa:last-child { border-bottom: none; }
+.preview-question { font-weight: 600; margin: 0 0 6px; display: flex; align-items: center; gap: 8px; }
+.preview-answer { margin: 0 0 4px; white-space: pre-wrap; }
+.preview-answer-value { font-weight: 600; color: var(--accent-dark); }
+.preview-empty { color: var(--muted); font-style: italic; }
+.preview-verbatims { margin: 6px 0 0; padding-left: 18px; color: #5b6470; font-size: .92rem; }
+.preview-verbatims li { margin-bottom: 2px; }
+
+@media print {
+  .no-print, .topbar { display: none !important; }
+  .preview-doc { box-shadow: none; border: none; padding: 0; max-width: none; }
+  body { background: #fff; }
+}

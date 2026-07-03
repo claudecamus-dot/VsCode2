@@ -19,10 +19,13 @@ from sqlalchemy.orm import Session
 from ..db import PPTX_TEMPLATES_DIR, get_session
 from ..models import Mission
 from ..routers.synthese import (
+    _all_theme_material,
     _apply_global_synthesis_result,
     _apply_recommendations_result,
     _get_or_create_global_synthesis,
+    _total_answer_count,
 )
+from ..services.ai_common import api_key_env_name, is_configured
 from ..services.analyse_import import AnalysisParseError, parse_analysis_markdown
 from ..services.mission_export import build_export_markdown, slugify
 from ..services.pptx_export import build_presentation
@@ -39,23 +42,37 @@ def _get_mission(db: Session, mission_id: int) -> Mission:
 
 
 def _synthese_context(mission: Mission, error: str | None = None) -> dict:
-    """Contexte de gabarit partagé par l'étape 1 (export/import) et l'étape 4
-    (export PPT) — les deux ont besoin de savoir si de la matière existe déjà."""
+    """Contexte de gabarit partagé par l'étape 1 (analyse — IA intégrée +
+    export/import manuel) et l'étape 4 (export PPT) — toutes ont besoin de
+    savoir si de la matière existe déjà ; l'étape 1 en plus affiche le
+    sous-onglet "IA intégrée" (bouton Générer/Régénérer réutilisé depuis
+    `_global_panel.html`), qui a besoin de `ai_ready`/`api_key_env`/
+    `answer_count` comme la page synthèse globale elle-même."""
+    material_by_theme = _all_theme_material(mission)
     return {
         "mission": mission,
         "themes": mission.trame.themes,
         "global_synthesis": mission.global_synthesis,
         "axes": mission.recommendation_axes,
         "error": error,
+        "ai_ready": is_configured(),
+        "api_key_env": api_key_env_name(),
+        "answer_count": _total_answer_count(material_by_theme),
     }
 
 
 # --------------------------------------------------------------------------- #
-# Étape 1 — Export Markdown (matière brute + gabarit de demande d'analyse)
+# Étape 1 — Analyse : IA intégrée (génère sans sortir de la plateforme) ou
+# export/import manuel (matière + gabarit -> analyse externe -> réimport).
 # --------------------------------------------------------------------------- #
 @router.get("/missions/{mission_id}/synthese/export-import")
 def export_import_view(mission_id: int, request: Request, db: Session = Depends(get_session)):
     mission = _get_mission(db, mission_id)
+    # get_or_create (pas juste lecture) : le sous-onglet IA intégrée inclut
+    # _global_panel.html, qui suppose toujours un GlobalSynthesis existant
+    # (comme son autre appelant, synthese.global_synthese_view).
+    _get_or_create_global_synthesis(db, mission)
+    db.commit()
     return templates.TemplateResponse(request, "synthese/export_import.html", _synthese_context(mission))
 
 
@@ -82,12 +99,17 @@ async def import_analyse(
     db: Session = Depends(get_session),
 ):
     mission = _get_mission(db, mission_id)
+    # Toujours garanti avant de rendre export_import.html en cas d'erreur
+    # plus bas (le sous-onglet IA intégrée y suppose un GlobalSynthesis non
+    # nul) — fait avant le parsing, qui peut échouer avant d'atteindre le
+    # get_or_create plus bas dans le flux nominal.
+    global_synthesis = _get_or_create_global_synthesis(db, mission)
+    db.commit()
     try:
         raw = await file.read()
         text = raw.decode("utf-8", errors="replace")
         parsed = parse_analysis_markdown(text)
 
-        global_synthesis = _get_or_create_global_synthesis(db, mission)
         if any((v or "").strip() for v in parsed["global_synthesis"].values()):
             _apply_global_synthesis_result(global_synthesis, parsed["global_synthesis"])
         if parsed["axes"]:

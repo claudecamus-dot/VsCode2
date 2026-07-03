@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Export / Import — {{ mission.name }}{% endblock %}
+{% block title %}Analyse — {{ mission.name }}{% endblock %}
 {% block content %}
 <div class="breadcrumb">
   <a href="/missions">Missions</a> /
   <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> / Synthèse
 </div>
 
-<div class="capture-head"><div><h1>Export / Import</h1></div></div>
+<div class="capture-head"><div><h1>Analyse</h1></div></div>
 
 {% if not themes %}
   <div class="card empty">
@@ -18,33 +18,74 @@
 {% include "synthese/_nav.html" %}
 
 <p class="muted">
-  Point de départ du parcours : exporte la matière d'entretien pour la faire
-  analyser en dehors de la plateforme, puis réimporte le résultat — c'est ce
-  qui alimente la synthèse globale (étape 2) et les recommandations (étape 3).
+  Point de départ du parcours : produis la synthèse globale et les
+  recommandations, soit directement via l'IA intégrée, soit en exportant la
+  matière pour une analyse externe puis en réimportant le résultat — c'est ce
+  qui alimente ensuite la synthèse globale (étape 2) et les recommandations
+  (étape 3).
 </p>
 
 {% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
 
-<section class="card apercu-actions">
-  <div class="apercu-action">
-    <div>
-      <strong>1. Exporter</strong>
-      <p class="muted">Toute la matière d'entretien + un gabarit de demande d'analyse.</p>
-    </div>
-    <a class="btn" href="/missions/{{ mission.id }}/export/interviews">📥 Exporter les entretiens (.md)</a>
+<div data-tabs>
+  <div class="tab-strip">
+    <button type="button" class="tab" data-tab="ia">🤖 IA intégrée</button>
+    <button type="button" class="tab" data-tab="manuel">📄 Manuel (export / import)</button>
   </div>
 
-  <div class="apercu-action">
-    <div>
-      <strong>2. Importer</strong>
-      <p class="muted">Le fichier une fois complété par l'analyse externe (mêmes titres Markdown).</p>
-    </div>
-    <form method="post" action="/missions/{{ mission.id }}/import/analyse" enctype="multipart/form-data" class="apercu-upload">
-      <input type="file" name="file" accept=".md,text/markdown" aria-label="Fichier Markdown d'analyse" required>
-      <button class="btn btn-primary" type="submit">📤 Importer l'analyse</button>
-    </form>
-  </div>
-</section>
+  <section class="tab-panel" data-panel="ia">
+    {% include "synthese/_global_panel.html" %}
+
+    <section class="card">
+      <div class="card-head">
+        <h2>Recommandations</h2>
+        {% if axes %}<span class="badge badge-synth-generated">✓ {{ axes|length }} axe(s)</span>{% endif %}
+      </div>
+      {% if not global_synthesis or not global_synthesis.has_content %}
+        <p class="muted">Nécessite la synthèse globale ci-dessus (déjà générée ou éditée).</p>
+      {% else %}
+        <form method="post" action="/missions/{{ mission.id }}/recommandations/generate" class="reco-generate">
+          <button class="btn btn-primary" type="submit"
+            {% if not ai_ready %}disabled title="Service IA indisponible — définissez {{ api_key_env }}"{% endif %}>
+            {{ '✨ Générer (IA)' if not axes else '↻ Régénérer (IA)' }}
+          </button>
+          <span class="muted">{{ 'Aucun axe pour l’instant.' if not axes else 'Voir/éditer le détail à l’étape 3 « Recommandations ».' }}</span>
+        </form>
+        {% if axes %}
+        <ul class="missed">
+          {% for axis in axes %}
+          <li><span class="muted">{{ axis.recommendations|length }} reco.</span> — {{ axis.title }}</li>
+          {% endfor %}
+        </ul>
+        <a class="btn" href="/missions/{{ mission.id }}/recommandations">Voir le détail →</a>
+        {% endif %}
+      {% endif %}
+    </section>
+  </section>
+
+  <section class="tab-panel" data-panel="manuel">
+    <section class="card apercu-actions">
+      <div class="apercu-action">
+        <div>
+          <strong>1. Exporter</strong>
+          <p class="muted">Toute la matière d'entretien + un gabarit de demande d'analyse détaillé (synthèse par rubrique en puces, verbatims structurants, recommandations en synthèse puis détaillées).</p>
+        </div>
+        <a class="btn" href="/missions/{{ mission.id }}/export/interviews">📥 Exporter les entretiens (.md)</a>
+      </div>
+
+      <div class="apercu-action">
+        <div>
+          <strong>2. Importer</strong>
+          <p class="muted">Le fichier une fois complété par l'analyse externe (mêmes titres Markdown).</p>
+        </div>
+        <form method="post" action="/missions/{{ mission.id }}/import/analyse" enctype="multipart/form-data" class="apercu-upload">
+          <input type="file" name="file" accept=".md,text/markdown" aria-label="Fichier Markdown d'analyse" required>
+          <button class="btn btn-primary" type="submit">📤 Importer l'analyse</button>
+        </form>
+      </div>
+    </section>
+  </section>
+</div>
 
 {% set has_content = (global_synthesis and global_synthesis.has_content) or axes %}
 {% if has_content %}

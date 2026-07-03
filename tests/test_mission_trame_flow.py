@@ -1277,7 +1277,11 @@ def test_import_analyse_invalid_file_shows_friendly_error(client: TestClient) ->
     session = SessionLocal()
     try:
         mission = session.get(Mission, int(mission_id))
-        assert mission.global_synthesis is None
+        # Un GlobalSynthesis (vide) est désormais toujours garanti en arrivant
+        # sur l'écran Analyse (le sous-onglet IA intégrée en a besoin) —
+        # l'import qui échoue ne le remplit simplement pas.
+        assert mission.global_synthesis is not None
+        assert not mission.global_synthesis.has_content
         assert mission.recommendation_axes == []
     finally:
         session.close()
@@ -1337,7 +1341,10 @@ def test_export_import_view_is_step_one_of_the_wizard(client: TestClient) -> Non
 
     response = client.get(f"/missions/{mission_id}/synthese/export-import")
     assert response.status_code == 200
-    assert "Export / Import" in response.text
+    # L'étape 1 s'appelle "Analyse" (évol) — 2 sous-onglets : IA intégrée et
+    # export/import manuel.
+    assert "Analyse" in response.text
+    assert "IA intégrée" in response.text
     assert "Exporter les entretiens" in response.text
     assert "Importer l'analyse" in response.text
     # Les actions d'export/import ne sont plus sur l'écran "Export PPT".

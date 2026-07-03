@@ -757,6 +757,34 @@ def delete_verbatim(
 
 
 # --------------------------------------------------------------------------- #
+# Aperçu lecture seule : toutes les questions/réponses d'un coup, pour une
+# relecture complète rapide (évol) — pas de saisie possible ici, contrairement
+# à la capture qui n'affiche qu'un thème à la fois.
+# --------------------------------------------------------------------------- #
+@router.get("/interviews/{interview_id}/preview")
+def preview(interview_id: int, request: Request, db: Session = Depends(get_session)):
+    interview = _get_interview(db, interview_id)
+    answers = {a.question_id: a for a in interview.answers}
+    verbatims_by_q: dict[int, list[Verbatim]] = {}
+    for v in interview.verbatims:
+        verbatims_by_q.setdefault(v.question_id, []).append(v)
+    answered, total = _coverage(interview)
+
+    return templates.TemplateResponse(
+        request,
+        "interviews/preview.html",
+        {
+            "interview": interview,
+            "themes": interview.mission.trame.themes if interview.mission.trame else [],
+            "answers": answers,
+            "verbatims_by_q": verbatims_by_q,
+            "answered": answered,
+            "total": total,
+        },
+    )
+
+
+# --------------------------------------------------------------------------- #
 # Fin d'entretien : récap de couverture
 # --------------------------------------------------------------------------- #
 @router.get("/interviews/{interview_id}/finish")

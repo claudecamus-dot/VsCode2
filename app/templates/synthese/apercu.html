@@ -110,30 +110,30 @@
 {{ fit_hint(hint_id) }}
 {% endmacro %}
 
-<div class="deck-editor" id="deck-editor">
-  <div class="deck-tab-strip">
-    <button type="button" class="deck-tab" data-tab="title">Titre</button>
-    <button type="button" class="deck-tab" data-tab="sommaire">Sommaire</button>
+<div class="deck-editor" data-tabs>
+  <div class="tab-strip">
+    <button type="button" class="tab" data-tab="title">Titre</button>
+    <button type="button" class="tab" data-tab="sommaire">Sommaire</button>
     {% if global_synthesis %}
     {% for key, label in [
       ('contexte', 'Contexte'), ('culture_adn', 'Culture & ADN'), ('forces_succes', 'Forces & succès'),
       ('points_amelioration', "Points d'amélioration"), ('aspirations', 'Aspirations'),
     ] %}
-    <button type="button" class="deck-tab" data-tab="synth-{{ key }}">{{ label }}</button>
+    <button type="button" class="tab" data-tab="synth-{{ key }}">{{ label }}</button>
     {% endfor %}
     {% endif %}
     {% if axes %}
-    <button type="button" class="deck-tab" data-tab="axes">Axes</button>
-    <button type="button" class="deck-tab" data-tab="matrix">Matrice</button>
+    <button type="button" class="tab" data-tab="axes">Axes</button>
+    <button type="button" class="tab" data-tab="matrix">Matrice</button>
     {% for axis in axes %}{% set axis_index = loop.index %}{% for reco in axis.recommendations %}
-    <button type="button" class="deck-tab" data-tab="reco-{{ reco.id }}">{{ axis_index }}.{{ loop.index }}</button>
+    <button type="button" class="tab" data-tab="reco-{{ reco.id }}">{{ axis_index }}.{{ loop.index }}</button>
     {% endfor %}{% endfor %}
     {% endif %}
   </div>
 
-  <div class="deck-tab-panels">
+  <div class="tab-panels">
 
-    <section class="deck-tab-panel" data-panel="title">
+    <section class="tab-panel two-col" data-panel="title">
       <div class="deck-pane deck-pane-form">
         <p class="muted">Le titre reprend le nom de la mission — modifiable depuis la <a href="/missions/{{ mission.id }}">fiche mission</a>.</p>
       </div>
@@ -145,7 +145,7 @@
       </div>
     </section>
 
-    <section class="deck-tab-panel" data-panel="sommaire">
+    <section class="tab-panel two-col" data-panel="sommaire">
       <div class="deck-pane deck-pane-form">
         <p class="muted">Généré automatiquement à partir des sections disponibles ci-contre — rien à éditer ici.</p>
       </div>
@@ -164,7 +164,7 @@
       ('contexte', 'Contexte'), ('culture_adn', 'Culture & ADN'), ('forces_succes', 'Forces & succès'),
       ('points_amelioration', "Points d'amélioration"), ('aspirations', 'Aspirations (baguette magique)'),
     ] %}
-    <section class="deck-tab-panel" data-panel="synth-{{ key }}">
+    <section class="tab-panel two-col" data-panel="synth-{{ key }}">
       <div class="deck-pane deck-pane-form">
         {{ bullet_field(label, '/syntheses/globale/' ~ mission.id ~ '/field', key, global_synthesis[key],
                          'fit-hint-global-' ~ key, 'preview-global-' ~ key, 'global-saved-' ~ key, rows=6) }}
@@ -181,7 +181,7 @@
     {% endif %}
 
     {% if axes %}
-    <section class="deck-tab-panel" data-panel="axes">
+    <section class="tab-panel two-col" data-panel="axes">
       <div class="deck-pane deck-pane-form">
         {% for axis in axes %}
         <label class="synth-field">
@@ -212,7 +212,7 @@
       </div>
     </section>
 
-    <section class="deck-tab-panel" data-panel="matrix">
+    <section class="tab-panel two-col" data-panel="matrix">
       <div class="deck-pane deck-pane-form">
         <p class="muted">Dérivée des scores Valeur/Complexité de chaque recommandation — modifiez-les depuis l'onglet de la recommandation concernée.</p>
       </div>
@@ -234,7 +234,7 @@
     {% for axis in axes %}
       {% set axis_index = loop.index %}
       {% for reco in axis.recommendations %}
-      <section class="deck-tab-panel" data-panel="reco-{{ reco.id }}">
+      <section class="tab-panel two-col" data-panel="reco-{{ reco.id }}">
         <div class="deck-pane deck-pane-form">
           {{ text_field('Titre', '/recommandations/' ~ reco.id ~ '/field', 'title', reco.title,
                          'fit-hint-reco-' ~ reco.id ~ '-title', 'preview-reco-title-' ~ reco.id, 'reco-saved-' ~ reco.id, rows=1) }}
@@ -291,21 +291,6 @@
 </div>
 
 <script>
-(function () {
-  var root = document.getElementById('deck-editor');
-  if (!root) return;
-  var tabs = root.querySelectorAll('.deck-tab');
-  var panels = root.querySelectorAll('.deck-tab-panel');
-  function activate(name) {
-    tabs.forEach(function (t) { t.classList.toggle('active', t.dataset.tab === name); });
-    panels.forEach(function (p) { p.classList.toggle('active', p.dataset.panel === name); });
-  }
-  tabs.forEach(function (t) {
-    t.addEventListener('click', function () { activate(t.dataset.tab); });
-  });
-  if (tabs.length) activate(tabs[0].dataset.tab);
-})();
-
 function i2dLivePreview(el) {
   var target = document.getElementById(el.dataset.previewTarget);
   if (!target) return;

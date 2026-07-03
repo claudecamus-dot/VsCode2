@@ -44,6 +44,28 @@
 {% if not axes %}
 <div class="card empty"><p class="muted">Aucune recommandation pour l'instant.</p></div>
 {% else %}
+<section class="card reco-summary">
+  <div class="card-head"><h2>Synthèse</h2></div>
+  <p class="muted">Vue d'ensemble de toutes les recommandations — cliquez une ligne pour aller à sa fiche détaillée.</p>
+  <table class="table reco-summary-table">
+    <thead>
+      <tr><th>Axe</th><th>Recommandation</th><th>Valeur</th><th>Complexité</th></tr>
+    </thead>
+    <tbody>
+      {% for axis in axes %}{% set axis_index = loop.index %}
+      {% for reco in axis.recommendations %}
+      <tr>
+        <td class="muted">{{ axis_index }}.{{ loop.index }} — {{ axis.title }}</td>
+        <td><a href="#reco-card-{{ reco.id }}">{{ reco.title or '—' }}</a></td>
+        <td><span class="score-dots">{{ '●' * reco.valeur }}{{ '○' * (5 - reco.valeur) }}</span></td>
+        <td><span class="score-dots">{{ '●' * reco.complexite }}{{ '○' * (5 - reco.complexite) }}</span></td>
+      </tr>
+      {% endfor %}
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
   {% for axis in axes %}
   <section class="card reco-axis">
     <div class="card-head">
@@ -56,7 +78,7 @@
     </div>
 
     {% for reco in axis.recommendations %}
-    <div class="reco-card">
+    <div class="reco-card" id="reco-card-{{ reco.id }}">
       <label class="reco-title">
         <input type="text" name="value" value="{{ reco.title }}" aria-label="Titre de la recommandation"
           hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "title"}'
