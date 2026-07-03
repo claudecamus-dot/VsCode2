@@ -15,6 +15,12 @@
     ]
   },
   "permissions": {
+    "disableBypassPermissionsMode": "disable",
+    "deny": [
+      "Read(./.env)",
+      "Read(./secrets/**)",
+      "Read(./config/credentials.json)"
+    ],
     "allow": [
       "Bash(node \"C:\\\\Users\\\\claude.camus\\\\.claude\\\\skills\\\\roadmap-keeper\\\\scripts\\\\render-roadmap.js\" \"c:\\\\Users\\\\claude.camus\\\\Documents\\\\VSCode2\\\\.roadmap\\\\roadmap.json\")",
       "Bash(python -m pip --version)",

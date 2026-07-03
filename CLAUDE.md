@@ -40,3 +40,9 @@ There is no linter/formatter configured (no ruff/black/eslint) and no pre-commit
 **Web editor / PPT preview parity**: `app/templates/synthese/apercu.html` is a tabbed editor (one tab per slide) whose form fields reuse the same autosave endpoints as the rest of the app (`/syntheses/globale/{mission_id}/field`, `/recommandations/{id}/field`, `/recommandations/axes/{id}/field`). The "shape-aware" hint shown under each field comes from `pptx_export.field_fit_hint()`, which reuses the exact geometry constants and font-fitting functions the real PPT generator uses — treat that coupling as intentional; if you change a slide's layout constants in `pptx_export.py`, update `FIELD_SHAPE` too or the hint will drift from reality.
 
 **OpenHub agents integration** (`app/services/openhub_agents.py`) is unrelated to Claude Code's own skill/agent system — it shells out to an external `opencode` CLI (`.opencode/agents/`, `.opencode/skills/`) to power the app's own "Agents" page, with a simulated-response fallback when `opencode` isn't on PATH.
+
+## Claude Code project setup
+
+- `.claude/settings.json`, `.claude/skills/`, `.claude/hooks/` are versioned — shared by the whole team. `.claude/settings.local.json` and `CLAUDE.local.md` (personal preferences/notes, not created by default) are gitignored — never put secrets or machine-specific paths in the versioned files.
+- A `PreToolUse` hook (`.claude/hooks/guard_destructive_git.py`) blocks `git push --force` (without `--force-with-lease`) and `git reset --hard` deterministically; `permissions.deny` blocks reading `.env`/`secrets/**`/`config/credentials.json`.
+- Project skill `run-dev-server`: the verified way to launch the server, bootstrap a mission with real content via HTTP, and screenshot a page — use it instead of rediscovering that sequence.

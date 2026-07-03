@@ -7,3 +7,9 @@ data/
 .roadmap/*.svg
 .env
 .DS_Store
+
+# Claude Code — reglages/notes propres a une machine ou une personne (jamais
+# partages), a distinguer de .claude/settings.json et .claude/skills|hooks|
+# agents/ qui eux restent versionnes pour toute l'equipe.
+.claude/settings.local.json
+CLAUDE.local.md
