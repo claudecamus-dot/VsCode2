@@ -1,4 +1,19 @@
 {
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py .claude/hooks/guard_destructive_git.py",
+            "timeout": 10,
+            "statusMessage": "Checking for destructive git operations..."
+          }
+        ]
+      }
+    ]
+  },
   "permissions": {
     "allow": [
       "Bash(node \"C:\\\\Users\\\\claude.camus\\\\.claude\\\\skills\\\\roadmap-keeper\\\\scripts\\\\render-roadmap.js\" \"c:\\\\Users\\\\claude.camus\\\\Documents\\\\VSCode2\\\\.roadmap\\\\roadmap.json\")",
