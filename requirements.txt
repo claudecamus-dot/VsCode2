@@ -5,6 +5,8 @@ python-multipart>=0.0.9
 sqlalchemy>=2.0
 python-docx>=1.1
 anthropic>=0.69  # synthèse IA (US4.2) — facultatif au runtime, importé en lazy
-python-dotenv>=1.0  # charge .env au démarrage (clé ANTHROPIC_API_KEY)
+openai>=1.0  # fournisseur IA alternatif (AI_PROVIDER=openai) — facultatif au runtime, importé en lazy
+mistralai>=1.0  # fournisseur IA alternatif (AI_PROVIDER=mistral) — facultatif au runtime, importé en lazy
+python-dotenv>=1.0  # charge .env au démarrage (clé API du fournisseur IA actif)
 faster-whisper>=1.0  # transcription locale (US3.2) — facultatif au runtime, importé en lazy
 python-pptx>=1.0  # export PowerPoint de la synthèse/recommandations (évol)

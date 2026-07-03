@@ -19,10 +19,10 @@
   {% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
   {% if not ai_ready and demo_ready %}
   <p class="muted ai-hint">🧪 <strong>Mode démo</strong> : synthèse générée hors-ligne par règles
-    (sans IA, sans coût). Définissez <code>ANTHROPIC_API_KEY</code> pour la vraie génération Claude.</p>
+    (sans IA, sans coût). Définissez <code>{{ api_key_env }}</code> pour la vraie génération IA.</p>
   {% elif not ai_ready %}
   <p class="muted ai-hint">Génération IA indisponible : définissez la variable d'environnement
-    <code>ANTHROPIC_API_KEY</code> (ou <code>SYNTHESE_DEMO=1</code> pour une démo hors-ligne).
+    <code>{{ api_key_env }}</code> (ou <code>SYNTHESE_DEMO=1</code> pour une démo hors-ligne).
     Vous pouvez aussi saisir la synthèse à la main ci-dessous.</p>
   {% endif %}
 

@@ -5,14 +5,12 @@ d'entretien).
 Même plomberie que `synthese_ai.py`/`trame_extract_ai.py` (`ai_common.py`).
 Pas d'heuristique de repli fiable pour un texte libre non structuré : sans IA
 configurée, `extract_answers_from_text()` lève `InterviewExtractAIError`.
+Fournisseur IA actif = `AI_PROVIDER` (voir `ai_common.py`), anthropic par défaut.
 """
 from __future__ import annotations
 
-import os
+from .ai_common import AIError, call_ai_json
 
-from .ai_common import AIError, _anthropic, _friendly, _parse_json
-
-MODEL = os.environ.get("SYNTHESE_MODEL", "claude-opus-4-8")
 MAX_TOKENS = 3000
 
 SYSTEM = (
@@ -70,48 +68,19 @@ def extract_answers_from_text(questions, text: str) -> dict[int, dict]:
     Ne contient que les questions pour lesquelles l'IA a trouvé de la
     matière. Lève `InterviewExtractAIError`.
     """
-    anthropic = _anthropic()
-    if anthropic is None:
-        raise InterviewExtractAIError("Le SDK « anthropic » n'est pas installé.")
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        raise InterviewExtractAIError(
-            "Clé absente : définissez ANTHROPIC_API_KEY pour l'extraction IA."
-        )
     if not text.strip():
         raise InterviewExtractAIError("Document vide — rien à extraire.")
     if not questions:
         raise InterviewExtractAIError("La trame ne contient aucune question.")
 
-    common = dict(
-        model=MODEL,
+    data = call_ai_json(
+        SYSTEM,
+        _build_prompt(questions, text),
+        _SCHEMA,
+        _JSON_HINT,
         max_tokens=MAX_TOKENS,
-        messages=[{"role": "user", "content": _build_prompt(questions, text)}],
+        error_cls=InterviewExtractAIError,
     )
-    try:
-        client = anthropic.Anthropic()
-        try:
-            resp = client.messages.create(
-                system=SYSTEM,
-                output_config={"format": {"type": "json_schema", "schema": _SCHEMA}},
-                **common,
-            )
-        except TypeError:
-            resp = client.messages.create(system=SYSTEM + _JSON_HINT, **common)
-    except anthropic.APIError as exc:
-        raise InterviewExtractAIError(_friendly(exc)) from exc
-    except Exception as exc:
-        raise InterviewExtractAIError(_friendly(exc)) from exc
-
-    if getattr(resp, "stop_reason", None) == "refusal":
-        raise InterviewExtractAIError("Extraction refusée par le modèle.")
-
-    body = next(
-        (b.text for b in resp.content if getattr(b, "type", None) == "text"), ""
-    )
-    try:
-        data = _parse_json(body)
-    except AIError as exc:
-        raise InterviewExtractAIError(str(exc)) from exc
 
     valid_ids = {q.id for q in questions}
     result: dict[int, dict] = {}

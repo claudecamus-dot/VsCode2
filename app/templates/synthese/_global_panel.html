@@ -19,7 +19,7 @@
   {% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
   {% if not ai_ready %}
   <p class="muted ai-hint">⚠ <strong>Service IA indisponible</strong> : définissez la variable
-    d'environnement <code>ANTHROPIC_API_KEY</code> pour activer la génération, ou utilisez
+    d'environnement <code>{{ api_key_env }}</code> pour activer la génération, ou utilisez
     l'<a href="/missions/{{ mission.id }}/export/interviews">export</a> pour lancer une analyse
     externe puis <a href="/missions/{{ mission.id }}/synthese/apercu">importez le résultat</a>.
     Vous pouvez aussi saisir la synthèse à la main ci-dessous.</p>

@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_session
 from ..models import GlobalSynthesis, Mission, Recommendation, RecommendationAxis, Synthesis, Theme
+from ..services.ai_common import api_key_env_name
 from ..services.synthese_ai import (
     SynthesisAIError,
     demo_enabled,
@@ -188,6 +189,7 @@ def synthese_view(
             "verbatims": verbatims or [],
             "synthesis": synthesis,
             "ai_ready": is_configured(),
+            "api_key_env": api_key_env_name(),
             "demo_ready": demo_enabled(),
             "interview_count": len(mission.interviews),
         },
@@ -220,7 +222,7 @@ def generate(
                 result = generate_demo_synthesis(theme, by_question, verbatims)
             else:
                 raise SynthesisAIError(
-                    "Génération indisponible : définissez ANTHROPIC_API_KEY "
+                    f"Génération indisponible : définissez {api_key_env_name()} "
                     "ou activez SYNTHESE_DEMO=1."
                 )
             synthesis.summary = result["summary"]
@@ -239,6 +241,7 @@ def generate(
             "synthesis": synthesis,
             "theme": theme,
             "ai_ready": is_configured(),
+            "api_key_env": api_key_env_name(),
             "demo_ready": demo_enabled(),
             "error": error,
             "answer_count": _answer_count(by_question),
@@ -296,6 +299,7 @@ def global_synthese_view(
             "global_synthesis": global_synthesis,
             "axes": mission.recommendation_axes,
             "ai_ready": is_configured(),
+            "api_key_env": api_key_env_name(),
             "interview_count": len(mission.interviews),
             "answer_count": _total_answer_count(material_by_theme),
         },
@@ -335,6 +339,7 @@ def generate_global(
             "mission": mission,
             "global_synthesis": global_synthesis,
             "ai_ready": is_configured(),
+            "api_key_env": api_key_env_name(),
             "error": error,
             "answer_count": _total_answer_count(material_by_theme),
         },
@@ -383,6 +388,7 @@ def recommendations_view(
             "axes": mission.recommendation_axes,
             "global_synthesis": mission.global_synthesis,
             "ai_ready": is_configured(),
+            "api_key_env": api_key_env_name(),
         },
     )
 
@@ -422,6 +428,7 @@ def generate_recommendations_view(
             "axes": mission.recommendation_axes,
             "global_synthesis": mission.global_synthesis,
             "ai_ready": is_configured(),
+            "api_key_env": api_key_env_name(),
             "error": error,
         },
     )

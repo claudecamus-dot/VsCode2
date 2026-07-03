@@ -1,23 +1,20 @@
 """Génération IA de la synthèse d'un thème (US4.2).
 
-Appelle l'API Claude via le SDK officiel `anthropic`, en sortie structurée JSON
-(`output_config.format`), avec repli sur une consigne JSON si le SDK est trop
-ancien. Modèle par défaut : Claude Opus 4.8 (`claude-opus-4-8`).
+Appelle le fournisseur IA actif (`AI_PROVIDER` — anthropic par défaut, ou
+openai/mistral) via `ai_common.call_ai_json()`, en sortie structurée JSON.
 
-Dégradation gracieuse : si la clé `ANTHROPIC_API_KEY` est absente ou le SDK non
-installé, `is_configured()` renvoie False (l'UI propose alors la saisie manuelle)
-et `generate_theme_synthesis()` lève `SynthesisAIError` avec un message lisible.
+Dégradation gracieuse : si la clé API du fournisseur actif est absente ou son
+SDK non installé, `is_configured()` renvoie False (l'UI propose alors la
+saisie manuelle) et `generate_theme_synthesis()` lève `SynthesisAIError` avec
+un message lisible.
 """
 from __future__ import annotations
 
-import os
-import re
 from collections import Counter
+import re
 
-from .ai_common import AIError, _anthropic, _friendly, _parse_json, demo_enabled, is_configured
+from .ai_common import AIError, call_ai_json, demo_enabled, is_configured
 
-# Modèle par défaut — surchargeable par variable d'environnement.
-MODEL = os.environ.get("SYNTHESE_MODEL", "claude-opus-4-8")
 MAX_TOKENS = 2000
 
 SYSTEM = (
@@ -137,51 +134,16 @@ def generate_demo_synthesis(theme, by_question, verbatims) -> dict:
 
 
 def _call_claude(system: str, prompt: str, schema: dict, json_hint: str, max_tokens: int = MAX_TOKENS) -> dict:
-    """Appel Claude générique, sortie JSON structurée. Lève SynthesisAIError.
+    """Appel IA générique (fournisseur actif — voir `ai_common.PROVIDER`),
+    sortie JSON structurée. Lève SynthesisAIError.
 
     Factorisé pour être réutilisé par la synthèse par thème, la synthèse
     globale et la génération de recommandations — seuls system/prompt/schema
-    changent.
+    changent. Le nom historique (`_call_claude`) est conservé pour limiter le
+    diff des 3 sites d'appel ci-dessous ; le fournisseur réel dépend d'
+    `AI_PROVIDER` (anthropic par défaut).
     """
-    anthropic = _anthropic()
-    if anthropic is None:
-        raise SynthesisAIError("Le SDK « anthropic » n'est pas installé.")
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        raise SynthesisAIError(
-            "Clé absente : définissez ANTHROPIC_API_KEY pour générer la synthèse."
-        )
-
-    common = dict(
-        model=MODEL,
-        max_tokens=max_tokens,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    try:
-        client = anthropic.Anthropic()
-        try:
-            resp = client.messages.create(
-                system=system,
-                output_config={"format": {"type": "json_schema", "schema": schema}},
-                **common,
-            )
-        except TypeError:
-            # SDK antérieur à output_config : repli sur consigne JSON + parsing.
-            resp = client.messages.create(system=system + json_hint, **common)
-    except anthropic.APIError as exc:  # auth / rate limit / connexion / 5xx
-        raise SynthesisAIError(_friendly(exc)) from exc
-    except Exception as exc:  # garde-fou : ne jamais propager une 500 brute
-        raise SynthesisAIError(_friendly(exc)) from exc
-
-    if getattr(resp, "stop_reason", None) == "refusal":
-        raise SynthesisAIError("Génération refusée par le modèle.")
-
-    text = next(
-        (b.text for b in resp.content if getattr(b, "type", None) == "text"), ""
-    )
-    try:
-        return _parse_json(text)
-    except AIError as exc:
-        raise SynthesisAIError(str(exc)) from exc
+    return call_ai_json(system, prompt, schema, json_hint, max_tokens=max_tokens, error_cls=SynthesisAIError)
 
 
 def generate_theme_synthesis(theme, by_question, verbatims) -> dict:
