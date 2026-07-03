@@ -28,6 +28,69 @@ from . import pptx_deck as D
 
 MARGIN = 0.6
 
+# --------------------------------------------------------------------------- #
+# Repères "forme" pour l'éditeur web par onglets (aperçu.html) — mêmes
+# contraintes géométriques (largeur, hauteur max, échelle typo) que les
+# fonctions de slide ci-dessous, dupliquées ici en constantes plutôt que
+# recalculées dynamiquement : l'éditeur enregistre un champ à la fois, hors
+# contexte d'une Presentation réelle (pas de mission/axes/inclusions connus à
+# cet instant). Restent donc des repères indicatifs, pas une garantie — le
+# garde-fou qui compte vraiment reste `D.verifier_geometrie()` à l'export.
+# plan_actions/resultats_attendus utilisent en vrai l'espace *restant* après
+# les blocs précédents (variable) ; ici on prend une estimation généreuse
+# mais fixe, cohérente avec une slide "normale".
+_W_IN, _H_IN = 13.333, 7.5
+_LEFT_W = _W_IN * 0.34
+_RIGHT_W = _W_IN - (MARGIN + _LEFT_W + 0.4) - MARGIN
+
+FIELD_SHAPE = {
+    "objectif": dict(width_in=_LEFT_W, max_h_in=1.1),
+    "acteurs": dict(width_in=_LEFT_W, max_h_in=0.5),
+    "resultats_attendus": dict(width_in=_LEFT_W, max_h_in=1.5),
+    "proposition_valeur": dict(width_in=_RIGHT_W, max_h_in=1.6),
+    "plan_actions": dict(width_in=_RIGHT_W, max_h_in=2.8),
+    "reco_title": dict(width_in=_W_IN - 2 * MARGIN, size_pt=D.TYPE["title"], max_lignes=2),
+    "axis_title": dict(width_in=_W_IN - 2 * MARGIN - 2.0, max_h_in=1.1, size_max=D.TYPE["h3"]),
+    "synthese_categorie": dict(width_in=_W_IN - 2 * (MARGIN + 0.3), max_h_in=5.0, size_max=20),
+}
+
+
+def field_fit_hint(field_key: str, text: str) -> str:
+    """Message court indiquant comment `text` sera rendu à l'export pour le
+    champ `field_key` (police retenue, nombre de lignes, troncature
+    éventuelle) — s'appuie sur les mêmes fonctions d'ajustement
+    (`D.ajuster_police` / `D.tronquer_a_lignes` / `D.estimer_lignes`) que le
+    générateur, appliquées aux contraintes de forme de `FIELD_SHAPE` (voir
+    note du module). Chaîne vide si le champ est inconnu ou vide — pas de
+    repère à afficher plutôt qu'un repère trompeur."""
+    spec = FIELD_SHAPE.get(field_key)
+    text = (text or "").strip()
+    if spec is None or not text:
+        return ""
+
+    width_in = spec["width_in"]
+
+    if "max_lignes" in spec:
+        size = spec["size_pt"]
+        lignes = D.estimer_lignes(text, width_in, size)
+        if lignes > spec["max_lignes"]:
+            return f"⚠ trop long — sera tronqué à {spec['max_lignes']} lignes à l'export"
+        return f"{lignes} ligne(s) à {size:.0f}pt à l'export"
+
+    max_h_in = spec["max_h_in"]
+    size_max = spec.get("size_max", D.TYPE["body"])
+    size_min = D.TYPE["tiny"]
+
+    def budget_ok(taille, lignes_max):
+        return lignes_max * _per_line_height_in(taille) <= max_h_in
+
+    size, lignes = D.ajuster_police([text], width_in, size_max, size_min, budget_ok=budget_ok)
+    if lignes * _per_line_height_in(size) > max_h_in:
+        return f"⚠ très long — sera réduit à {size:.0f}pt et tronqué à l'export"
+    if size < size_max - 0.5:
+        return f"{lignes} ligne(s) — police réduite à {size:.0f}pt pour tenir à l'export"
+    return f"{lignes} ligne(s) à {size:.0f}pt à l'export"
+
 
 def _dims(prs: Presentation) -> tuple[float, float]:
     return Emu(prs.slide_width).inches, Emu(prs.slide_height).inches

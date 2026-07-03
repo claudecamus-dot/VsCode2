@@ -36,7 +36,7 @@
       hx-post="/missions/{{ mission.id }}/synthese/globale/generate"
       hx-target="#global-synth-panel" hx-swap="outerHTML"
       hx-disabled-elt="this"
-      {% if not ai_ready %}disabled title="Service IA indisponible — définissez ANTHROPIC_API_KEY"{% endif %}>
+      {% if not ai_ready %}disabled title="Service IA indisponible — définissez {{ api_key_env }}"{% endif %}>
       <span class="htmx-indicator">⏳ </span>{{ '✨ Générer (IA)' if global_synthesis.status == 'empty' else '↻ Régénérer (IA)' }}
     </button>
     <span id="global-synth-saved" class="saved"></span>

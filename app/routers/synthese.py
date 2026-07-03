@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from ..db import get_session
 from ..models import GlobalSynthesis, Mission, Recommendation, RecommendationAxis, Synthesis, Theme
 from ..services.ai_common import api_key_env_name
+from ..services.pptx_export import field_fit_hint
 from ..services.synthese_ai import (
     SynthesisAIError,
     demo_enabled,
@@ -75,6 +76,28 @@ def _get_recommendation(db: Session, recommendation_id: int) -> Recommendation:
     if reco is None:
         raise HTTPException(status_code=404, detail="Recommandation introuvable.")
     return reco
+
+
+def _get_axis(db: Session, axis_id: int) -> RecommendationAxis:
+    axis = db.get(RecommendationAxis, axis_id)
+    if axis is None:
+        raise HTTPException(status_code=404, detail="Axe introuvable.")
+    return axis
+
+
+def _hint_span(elem_id: str, field_key: str, text: str) -> str:
+    """Repère "forme" en oob-swap (US2, éditeur par onglets) : sans effet sur
+    les pages qui n'ont pas cet id dans leur DOM (recommandations.html,
+    globale.html) — HTMX ignore silencieusement un oob-swap dont la cible est
+    absente, donc les mêmes endpoints d'autosave servent les deux."""
+    hint = field_fit_hint(field_key, text)
+    return f'<span id="{elem_id}" class="fit-hint" hx-swap-oob="true">{hint}</span>'
+
+
+# Le champ "title" d'une recommandation utilise une contrainte de forme
+# différente des autres (titre de slide natif, pas un bloc de texte du
+# gabarit) — cf. FIELD_SHAPE dans pptx_export.py.
+_RECO_FIT_KEY = {"title": "reco_title"}
 
 
 def _theme_material(mission: Mission, theme: Theme) -> tuple[dict, list]:
@@ -365,7 +388,8 @@ def save_global_field(
         f'<span class="badge badge-synth-{global_synthesis.status}" id="global-synth-status" '
         f'hx-swap-oob="true">{global_synthesis.status_label}</span>'
     )
-    return HTMLResponse(f'<span class="saved">✓ enregistré</span>{badge}')
+    hint = _hint_span(f"fit-hint-global-{field}", "synthese_categorie", value)
+    return HTMLResponse(f'<span class="saved">✓ enregistré</span>{badge}{hint}')
 
 
 # --------------------------------------------------------------------------- #
@@ -453,4 +477,25 @@ def save_recommendation_field(
     else:
         raise HTTPException(status_code=400, detail="Champ inconnu.")
     db.commit()
-    return HTMLResponse('<span class="saved">✓ enregistré</span>')
+    hint = ""
+    if field in RECO_TEXT_FIELDS:
+        hint = _hint_span(
+            f"fit-hint-reco-{recommendation_id}-{field}", _RECO_FIT_KEY.get(field, field), value
+        )
+    return HTMLResponse(f'<span class="saved">✓ enregistré</span>{hint}')
+
+
+@router.post("/recommandations/axes/{axis_id}/field")
+def save_axis_field(
+    axis_id: int,
+    field: str = Form(...),
+    value: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    axis = _get_axis(db, axis_id)
+    if field != "title":
+        raise HTTPException(status_code=400, detail="Champ inconnu.")
+    axis.title = value
+    db.commit()
+    hint = _hint_span(f"fit-hint-axis-{axis_id}", "axis_title", value)
+    return HTMLResponse(f'<span class="saved">✓ enregistré</span>{hint}')

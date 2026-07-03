@@ -36,7 +36,7 @@
       hx-post="/syntheses/theme/{{ theme.id }}/generate"
       hx-target="#synth-panel" hx-swap="outerHTML"
       hx-disabled-elt="this"
-      {% if not (ai_ready or demo_ready) %}disabled title="Définissez ANTHROPIC_API_KEY ou SYNTHESE_DEMO=1"{% endif %}>
+      {% if not (ai_ready or demo_ready) %}disabled title="Définissez {{ api_key_env }} ou SYNTHESE_DEMO=1"{% endif %}>
       <span class="htmx-indicator">⏳ </span>{{ ('✨ Générer ' ~ mode) if synthesis.status == 'empty' else ('↻ Régénérer ' ~ mode) }}
     </button>
     <span id="synth-saved" class="saved"></span>

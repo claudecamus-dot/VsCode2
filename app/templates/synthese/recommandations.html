@@ -46,7 +46,14 @@
 {% else %}
   {% for axis in axes %}
   <section class="card reco-axis">
-    <div class="card-head"><h2>Axe {{ loop.index }} — {{ axis.title }}</h2></div>
+    <div class="card-head">
+      <h2>Axe {{ loop.index }}</h2>
+      <input type="text" name="value" value="{{ axis.title }}" class="axis-title-input" aria-label="Titre de l'axe"
+        hx-post="/recommandations/axes/{{ axis.id }}/field" hx-vals='{"field": "title"}'
+        hx-trigger="keyup changed delay:700ms, blur"
+        hx-target="#axis-saved-{{ axis.id }}" hx-swap="innerHTML">
+      <span id="axis-saved-{{ axis.id }}" class="saved"></span>
+    </div>
 
     {% for reco in axis.recommendations %}
     <div class="reco-card">

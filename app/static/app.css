@@ -450,6 +450,11 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #bcd0fb; outline-
   border-radius: 6px; padding: 4px 6px; margin: -4px -6px 8px; background: transparent;
 }
 .reco-title input:hover, .reco-title input:focus { border-color: var(--border); }
+.axis-title-input {
+  flex: 1; font-size: 1.05rem; font-weight: 700; border: 1px solid transparent;
+  border-radius: 6px; padding: 4px 6px; background: transparent; font-family: inherit;
+}
+.axis-title-input:hover, .axis-title-input:focus { border-color: var(--border); }
 .reco-meta { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; }
 .reco-meta label, .reco-meta > div { flex: 1; min-width: 140px; font-size: .85rem; font-weight: 600; }
 .reco-meta textarea, .reco-meta input, .reco-meta select {
@@ -525,6 +530,30 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #bcd0fb; outline-
 .wizard-step.active .wizard-step-num { background: rgba(255,255,255,.25); }
 .wizard-step.done:not(.active) .wizard-step-num { background: var(--success-bg); color: var(--success-text); }
 .wizard-step-label { font-weight: 600; }
+
+/* ---- Éditeur de deck par onglets (aperçu + édition, évol) ---- */
+.deck-editor { margin-top: 8px; }
+.deck-tab-strip {
+  display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 16px;
+  border-bottom: 1px solid var(--border); padding-bottom: 8px;
+}
+.deck-tab {
+  font: inherit; font-size: .85rem; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer;
+}
+.deck-tab:hover { border-color: var(--border-hover); }
+.deck-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.deck-tab-panel { display: none; }
+.deck-tab-panel.active { display: grid; grid-template-columns: minmax(280px, 1fr) minmax(320px, 760px); gap: 24px; align-items: start; }
+.deck-pane-form { min-width: 0; }
+.deck-pane-preview { position: sticky; top: 16px; }
+.fit-hint { display: block; font-size: .78rem; color: var(--muted); margin: -10px 0 12px; }
+.fit-hint:empty { display: none; }
+
+@media (max-width: 900px) {
+  .deck-tab-panel.active { grid-template-columns: 1fr; }
+  .deck-pane-preview { position: static; }
+}
 
 /* Formulaire "définition des slides" (étape 4) */
 .pptx-config-grid { display: flex; flex-wrap: wrap; gap: 10px 20px; }

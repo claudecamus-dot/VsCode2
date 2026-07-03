@@ -11,7 +11,7 @@ from pptx.util import Emu, Inches
 from app.main import app
 from app.db import DB_PATH, SessionLocal, engine, init_db
 from app.importers.docx_trame import parse_docx_bytes
-from app.models import Answer, Interview, Mission, Question, Recommendation, Theme, Trame
+from app.models import Answer, Interview, Mission, Question, Recommendation, RecommendationAxis, Theme, Trame
 from app.routers.trames import _parsed_to_json
 from app.services import audio_transcribe
 from app.services.openhub_agents import invoke_skill
@@ -1075,8 +1075,30 @@ def test_recommendations_generate_from_global_synthesis(
     try:
         reco = session.get(Recommendation, recommendation_id)
         assert reco.acteurs == "CODIR + Factory"
+        axis_id = reco.axis_id
     finally:
         session.close()
+
+    # Autosave sur le titre d'un axe.
+    response = client.post(
+        f"/recommandations/axes/{axis_id}/field",
+        data={"field": "title", "value": "Axe renommé"},
+    )
+    assert response.status_code == 200
+
+    session = SessionLocal()
+    try:
+        axis = session.get(RecommendationAxis, axis_id)
+        assert axis.title == "Axe renommé"
+    finally:
+        session.close()
+
+    # Champ inconnu -> 400, pas de crash.
+    response = client.post(
+        f"/recommandations/axes/{axis_id}/field",
+        data={"field": "position", "value": "9"},
+    )
+    assert response.status_code == 400
 
 
 def test_recommendations_require_global_synthesis_first(client: TestClient) -> None:
