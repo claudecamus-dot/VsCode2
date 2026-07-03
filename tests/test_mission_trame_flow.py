@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from pptx import Presentation
+from pptx.util import Emu, Inches
 
 from app.main import app
 from app.db import DB_PATH, SessionLocal, engine, init_db
@@ -1384,3 +1385,83 @@ def test_export_pptx_partial_axis_selection_produces_fewer_slides(client: TestCl
     slides_partial = len(list(Presentation(io.BytesIO(response_partial.content)).slides))
 
     assert slides_partial < slides_full
+
+
+def _long_text(n_sentences: int) -> str:
+    sentence = (
+        "Cette phrase est volontairement longue pour simuler une réponse "
+        "détaillée d'entretien, avec beaucoup de mots afin de forcer un "
+        "retour à la ligne multiple dans la zone de texte de la slide."
+    )
+    return " ".join(sentence for _ in range(n_sentences))
+
+
+def _many_axes_analysis(n_axes: int, n_recos_per_axis: int) -> str:
+    """Analyse markdown adversariale (US7.1) : synthèse globale avec des
+    paragraphes très longs, et N axes de M recommandations chacun, chaque
+    champ texte étant lui aussi très long — sert à vérifier que la mise en
+    page absorbe des contenus bien plus fournis que le jeu de données de
+    test habituel sans faire déborder aucune forme de la slide."""
+    lines = ["## SYNTHÈSE GLOBALE", ""]
+    for heading in ("Contexte", "Culture & ADN", "Forces & succès", "Points d'amélioration", "Aspirations (baguette magique)"):
+        lines += [f"### {heading}", _long_text(4), ""]
+    lines += ["## RECOMMANDATIONS", ""]
+    for i in range(1, n_axes + 1):
+        lines += [f"#### Axe {i} : Axe de transformation numéro {i} avec un intitulé assez long pour tester le débordement", ""]
+        for j in range(1, n_recos_per_axis + 1):
+            lines += [
+                f"##### Recommandation {i}.{j} : Une recommandation avec un titre lui-même particulièrement long et détaillé",
+                f"- Objectif : {_long_text(3)}",
+                "- Acteurs : Direction Générale, DRH, DSI, Managers de proximité, Représentants du personnel",
+                f"- Valeur (1-5) : {(i + j) % 5 + 1}",
+                f"- Complexité (1-5) : {(i * j) % 5 + 1}",
+                f"- Proposition de valeur : {_long_text(3)}",
+                f"- Plan d'actions : {_long_text(4)}",
+                f"- Résultats attendus : {_long_text(3)}",
+                "",
+            ]
+    return "\n".join(lines)
+
+
+def test_export_pptx_geometry_clean_with_long_text_and_many_axes(client: TestClient) -> None:
+    """US7.1 : le garde-fou géométrique (build_presentation -> verifier_geometrie)
+    ne doit jamais se déclencher, même avec un contenu bien plus dense que le
+    jeu de données de test habituel (textes longs, 5 axes x 3 recommandations)."""
+    mission_id, _qid = _setup_mission_with_one_answer(client, "Mission Geometrie Contenu Dense")
+    analysis = _many_axes_analysis(n_axes=5, n_recos_per_axis=3)
+    files = {"file": ("analyse.md", analysis.encode("utf-8"), "text/markdown")}
+    response = client.post(f"/missions/{mission_id}/import/analyse", files=files, follow_redirects=False)
+    assert response.status_code == 303
+
+    # build_presentation lève RuntimeError si verifier_geometrie détecte une
+    # forme hors cadre — une réponse 200 avec un .pptx valide suffit donc à
+    # prouver que le garde-fou n'a rien trouvé à redire.
+    response = client.get(f"/missions/{mission_id}/export/pptx")
+    assert response.status_code == 200
+    prs = Presentation(io.BytesIO(response.content))
+    assert len(list(prs.slides)) > 20  # titre+sommaire+5 synthèse+axes+matrice+15 recos
+
+
+def test_export_pptx_geometry_clean_with_4_3_client_template(client: TestClient) -> None:
+    """US7.1 : un template client au format 4:3 (au lieu du 16:9 par défaut)
+    ne doit pas non plus faire déborder la mise en page — toutes les slides
+    lisent prs.slide_width/height dynamiquement plutôt qu'une constante."""
+    mission_id, _qid = _setup_mission_with_one_answer(client, "Mission Geometrie Template 4:3")
+    files = {"file": ("analyse.md", _FILLED_ANALYSIS.encode("utf-8"), "text/markdown")}
+    client.post(f"/missions/{mission_id}/import/analyse", files=files, follow_redirects=False)
+
+    template_buf = io.BytesIO()
+    template_prs = Presentation()
+    template_prs.slide_width = Inches(10)
+    template_prs.slide_height = Inches(7.5)
+    template_prs.save(template_buf)
+    client.post(
+        f"/missions/{mission_id}/pptx-template",
+        files={"file": ("template_4_3.pptx", template_buf.getvalue(), "application/vnd.openxmlformats-officedocument.presentationml.presentation")},
+        follow_redirects=False,
+    )
+
+    response = client.get(f"/missions/{mission_id}/export/pptx")
+    assert response.status_code == 200
+    prs = Presentation(io.BytesIO(response.content))
+    assert Emu(prs.slide_width).inches == pytest.approx(10)

@@ -19,8 +19,9 @@ from pptx import Presentation
 from pptx.chart.data import XyChartData
 from pptx.enum.chart import XL_CHART_TYPE
 from pptx.enum.shapes import PP_PLACEHOLDER
-from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
-from pptx.util import Emu, Inches
+from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
+from pptx.oxml.ns import qn
+from pptx.util import Emu, Inches, Pt
 
 from ..models import Mission
 from . import pptx_deck as D
@@ -38,11 +39,15 @@ def _clear_slides(prs: Presentation) -> None:
     template qui est un vrai exemple de deck (pas un .potx vierge) ferait
     apparaître tout son contenu d'origine avant le nôtre. `python-pptx`
     n'expose pas de suppression de slide côté API publique ; on vide
-    directement la liste XML des slides (limite connue/acceptée : les parts
-    des anciennes slides restent dans l'archive, inutilisées — pas de risque
-    de fuite visible, juste un fichier un peu plus lourd)."""
+    directement la liste XML des slides — mais il faut aussi lâcher la
+    relation (r:id) de chaque slide sur la part présentation, sans quoi le
+    fichier réserialisé contient des relations pointant vers des parts
+    devenues orphelines : invisible pour python-pptx (parseur tolérant),
+    mais PowerPoint refuse ensuite d'ouvrir le fichier (constaté via
+    l'automation COM — l'export semblait « valide » côté tests avant ça)."""
     sld_id_lst = prs.slides._sldIdLst
     for sld_id in list(sld_id_lst):
+        prs.part.drop_rel(sld_id.get(qn("r:id")))
         sld_id_lst.remove(sld_id)
 
 
@@ -75,19 +80,62 @@ def _pick_layout(prs: Presentation, preferred: int = 6):
 
 
 def _new_slide(prs: Presentation, title: str):
+    """Crée une slide de contenu et pose son titre. Renvoie
+    `(slide, w_in, h_in, content_top)` — `content_top` est calculé à partir
+    de la position/hauteur réelle du placeholder de titre (natif du
+    template) et du nombre de lignes qu'occupera effectivement `title` une
+    fois replié, plutôt qu'une constante suppposant un titre sur une seule
+    ligne : un titre de longueur normale (~50 caractères) suffit à passer
+    sur 2 lignes et, avec une position de contenu figée, à chevaucher la
+    zone en dessous — ce qu'une constante ne peut pas anticiper."""
     slide = prs.slides.add_slide(_pick_layout(prs))
     w_in, h_in = _dims(prs)
-    # Le placeholder de titre natif hérite police/couleur/position du
-    # template — préféré à une zone de texte dessinée à la main dès qu'il
-    # existe sur le layout choisi.
-    if slide.shapes.title is not None:
-        slide.shapes.title.text = title
+    title_shape = slide.shapes.title
+    # Le placeholder de titre natif hérite position/police du template —
+    # préféré à une zone de texte dessinée à la main dès qu'il existe sur le
+    # layout choisi. On fige sa taille de police sur D.TYPE["title"] (au lieu
+    # de laisser le style hérité, potentiellement bien plus grand) : ça reste
+    # cohérent avec l'unique échelle typographique du reste du deck, et ça
+    # rend le nombre de lignes prévisible (donc calculable) plutôt que soumis
+    # à un style de thème inconnu.
+    if title_shape is not None:
+        if getattr(prs, "_i2d_synthetic", False):
+            # Présentation vierge (pas de template client) : le placeholder
+            # de titre hérité du modèle par défaut de python-pptx est
+            # dimensionné pour un slide 10x7.5in (4:3) — trop étroit une fois
+            # la slide passée en 16:9. On le repositionne explicitement sur
+            # CETTE slide (jamais sur le layout/master : leurs placeholders
+            # sont résolus par héritage et se sont révélés instables à muter
+            # directement avec python-pptx — cf. essai précédent).
+            title_shape.left = Inches(MARGIN)
+            title_shape.top = Inches(0.3)
+            title_shape.width = Inches(w_in - 2 * MARGIN)
+            title_shape.height = Inches(1.1)
+        title_w_in = Emu(title_shape.width).inches if title_shape.width is not None else (w_in - 2 * MARGIN)
+        title_top_in = Emu(title_shape.top).inches if title_shape.top is not None else 0.3
+        title_box_h_in = Emu(title_shape.height).inches if title_shape.height is not None else 0.7
+        size = D.TYPE["title"]
+        max_lignes = 2
+        if D.estimer_lignes(title, title_w_in, size) > max_lignes:
+            title = D.tronquer_a_lignes(title, title_w_in, size, max_lignes)
+        title_shape.text = title
+        tf = title_shape.text_frame
+        tf.word_wrap = True
+        tf.auto_size = MSO_AUTO_SIZE.NONE
+        for p in tf.paragraphs:
+            for run in p.runs:
+                run.font.size = Pt(size)
+                run.font.bold = True
+        lignes = D.estimer_lignes(title, title_w_in, size)
+        needed_h = lignes * _per_line_height_in(size) + 0.15
+        content_top = title_top_in + max(title_box_h_in, needed_h) + 0.25
     else:
         D.add_text(
             slide, MARGIN, 0.35, w_in - 2 * MARGIN, 0.7,
             [(title, {"size": D.TYPE["title"], "bold": True, "color": D.INK})],
         )
-    return slide, w_in, h_in
+        content_top = 1.4
+    return slide, w_in, h_in, content_top
 
 
 def _bullet_lines(text: str) -> list[str]:
@@ -132,6 +180,35 @@ def _add_bulleted_text(
 # --------------------------------------------------------------------------- #
 # Slides
 # --------------------------------------------------------------------------- #
+def _add_measured_field(
+    slide, l, t, w, label: str, text: str, max_h: float,
+    size_max: float = D.TYPE["body"], size_min: float = D.TYPE["tiny"],
+    bold: bool = False, italic: bool = False,
+) -> float:
+    """Pose un libellé (petit, gras, discret) puis son contenu juste en
+    dessous, en adaptant la taille de police du contenu à `max_h`
+    (D.ajuster_police) et en tronquant en tout dernier recours — jamais de
+    débordement dans le bloc suivant même avec une réponse d'entretien très
+    longue. Renvoie la hauteur réellement occupée (libellé + contenu), à
+    utiliser pour empiler le bloc suivant à la bonne position."""
+    label_h = 0.3
+    D.add_text(slide, l, t, w, label_h, [(label, {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
+    body = ((text or "").strip()) or "—"
+    body_max_h = max(0.2, max_h - label_h)
+
+    def budget_ok(taille, lignes_max):
+        return lignes_max * _per_line_height_in(taille) <= body_max_h
+
+    size, lignes_max = D.ajuster_police([body], w, size_max, size_min, budget_ok=budget_ok)
+    if lignes_max * _per_line_height_in(size) > body_max_h:
+        max_lignes = max(1, int(body_max_h / _per_line_height_in(size)))
+        body = D.tronquer_a_lignes(body, w, size, max_lignes)
+        lignes_max = max_lignes
+    body_h = lignes_max * _per_line_height_in(size)
+    D.add_text(slide, l, t + label_h, w, body_h, [(body, {"size": size, "bold": bold, "italic": italic, "color": D.INK})])
+    return label_h + body_h
+
+
 def _slide_title(prs: Presentation, mission: Mission) -> None:
     slide = prs.slides.add_slide(_pick_layout(prs))
     w_in, h_in = _dims(prs)
@@ -151,29 +228,34 @@ def _slide_title(prs: Presentation, mission: Mission) -> None:
 
 
 def _slide_sommaire(prs: Presentation, sections: list[str]) -> None:
-    slide, w_in, h_in = _new_slide(prs, "Sommaire")
+    slide, w_in, h_in, top = _new_slide(prs, "Sommaire")
     lines = [
         (f"{i:02d}   {label}", {"size": D.TYPE["h2"], "color": D.INK, "space_after": 14})
         for i, label in enumerate(sections, start=1)
     ]
-    D.add_text(slide, MARGIN + 0.3, 1.6, w_in - 2 * (MARGIN + 0.3), h_in - 2.2, lines)
+    D.add_text(slide, MARGIN + 0.3, top + 0.1, w_in - 2 * (MARGIN + 0.3), h_in - top - 0.7, lines)
 
 
 def _slide_synthese_categorie(prs: Presentation, label: str, content: str) -> None:
-    slide, w_in, h_in = _new_slide(prs, f"Synthèse globale — {label}")
-    top = 1.5
+    slide, w_in, h_in, top = _new_slide(prs, f"Synthèse globale — {label}")
+    # Ancré en haut (pas MIDDLE) : un paragraphe court dans une grande bande
+    # centrée verticalement laisse un vide au-dessus ET en dessous, plus
+    # visible qu'un unique vide en bas — cf. skill pptx-deck, principe n°2.
     _add_bulleted_text(
         slide, MARGIN + 0.3, top, w_in - 2 * (MARGIN + 0.3), h_in - top - 0.5, content,
-        anchor=MSO_ANCHOR.MIDDLE, size_max=20, size_min=D.TYPE["small"],
+        anchor=MSO_ANCHOR.TOP, size_max=20, size_min=D.TYPE["small"],
     )
 
 
 def _slide_axes_overview(prs: Presentation, axes: list, palette: list[str]) -> None:
-    slide, w_in, h_in = _new_slide(prs, "Les recommandations sont construites autour de ces axes")
-    top = 1.5
+    slide, w_in, h_in, top = _new_slide(prs, "Les recommandations sont construites autour de ces axes")
     band_h = h_in - top - 0.5
     row_h = min(1.1, (band_h - 0.15 * (len(axes) - 1)) / max(1, len(axes)))
-    y = top
+    total_h = len(axes) * row_h + 0.15 * (len(axes) - 1)
+    # Centré verticalement dans la bande plutôt que plaqué en haut : avec peu
+    # d'axes (1-3), row_h plafonne à 1.1in et laisse sinon un grand vide sous
+    # les cartes.
+    y = top + max(0.0, (band_h - total_h) / 2)
     for i, axis in enumerate(axes):
         accent = palette[i % len(palette)]
         D.add_card(slide, MARGIN, y, w_in - 2 * MARGIN, row_h, accent)
@@ -194,15 +276,14 @@ def _slide_axes_overview(prs: Presentation, axes: list, palette: list[str]) -> N
 
 
 def _slide_matrice_effort_valeur(prs: Presentation, axes: list) -> None:
-    slide, w_in, h_in = _new_slide(prs, "Matrice effort / valeur")
-    recos = [(f"{i + 1}.{j + 1} {r.title[:20]}", r) for i, axis in enumerate(axes) for j, r in enumerate(axis.recommendations)]
+    slide, w_in, h_in, top = _new_slide(prs, "Matrice effort / valeur")
+    recos = [(f"{i + 1}.{j + 1} {D.tronquer_a_lignes(r.title, 3.0, D.TYPE['small'], 1)}", r) for i, axis in enumerate(axes) for j, r in enumerate(axis.recommendations)]
 
     chart_data = XyChartData()
     for name, reco in recos:
         series = chart_data.add_series(name)
         series.add_data_point(reco.complexite, reco.valeur)
 
-    top = 1.5
     chart_w = w_in - 2 * MARGIN
     chart_h = h_in - top - 0.5
     gf = slide.shapes.add_chart(
@@ -223,21 +304,23 @@ def _slide_matrice_effort_valeur(prs: Presentation, axes: list) -> None:
 
 
 def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: object) -> None:
-    slide, w_in, h_in = _new_slide(prs, f"{index} — {reco.title}")
-    top = 1.4
+    slide, w_in, h_in, top = _new_slide(prs, f"{index} — {reco.title}")
     left_w = w_in * 0.34
     right_x = MARGIN + left_w + 0.4
     right_w = w_in - right_x - MARGIN
     band_h = h_in - top - 0.4
 
-    # Colonne gauche : objectif / acteurs / jauges valeur-complexité / résultats
+    # Colonne gauche : objectif / acteurs / jauges valeur-complexité / résultats.
+    # OBJECTIF et ACTEURS adaptent leur police à un plafond (D.ajuster_police,
+    # troncature en dernier recours) et renvoient leur hauteur RÉELLEMENT
+    # occupée — le bloc suivant s'empile sur cette hauteur mesurée plutôt
+    # qu'un décalage fixe, qui déborderait avec une réponse d'entretien plus
+    # longue que le jeu de données de test habituel.
     y = top
-    D.add_text(slide, MARGIN, y, left_w, 0.3, [("OBJECTIF", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
-    D.add_text(slide, MARGIN, y + 0.3, left_w, 0.9, [(reco.objectif or "—", {"size": D.TYPE["body"], "color": D.INK})])
-    y += 1.3
-    D.add_text(slide, MARGIN, y, left_w, 0.3, [("ACTEURS", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
-    D.add_text(slide, MARGIN, y + 0.3, left_w, 0.6, [(reco.acteurs or "—", {"size": D.TYPE["body"], "color": D.INK})])
-    y += 1.0
+    y += _add_measured_field(slide, MARGIN, y, left_w, "OBJECTIF", reco.objectif, max_h=1.1)
+    y += 0.15
+    y += _add_measured_field(slide, MARGIN, y, left_w, "ACTEURS", reco.acteurs, max_h=0.5)
+    y += 0.15
     D.add_text(slide, MARGIN, y, left_w, 0.3, [("CRITÈRES DE PRIORISATION", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
     gauge_size = 1.1
     D.add_gauge(slide, MARGIN, y + 0.35, gauge_size, reco.valeur / 5, D.OK)
@@ -261,10 +344,14 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
         D.add_text(slide, MARGIN, y, left_w, 0.3, [("RÉSULTATS ATTENDUS", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
         _add_bulleted_text(slide, MARGIN, y + 0.3, left_w, remaining - 0.3, reco.resultats_attendus, size=D.TYPE["small"])
 
-    # Colonne droite : proposition de valeur / plan d'actions
-    D.add_text(slide, right_x, top, right_w, 0.3, [("PROPOSITION DE VALEUR", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
-    D.add_text(slide, right_x, top + 0.3, right_w, 0.9, [(reco.proposition_valeur or "—", {"size": D.TYPE["body"], "bold": True, "color": D.INK, "italic": True})])
-    plan_top = top + 1.4
+    # Colonne droite : proposition de valeur / plan d'actions — même logique
+    # de hauteur mesurée qu'à gauche pour PROPOSITION DE VALEUR, PLAN
+    # D'ACTIONS prend ensuite tout l'espace restant réellement disponible.
+    right_h = _add_measured_field(
+        slide, right_x, top, right_w, "PROPOSITION DE VALEUR", reco.proposition_valeur, max_h=1.6,
+        bold=True, italic=True,
+    )
+    plan_top = top + right_h + 0.2
     D.add_text(slide, right_x, plan_top, right_w, 0.3, [("PLAN D'ACTIONS", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
     _add_bulleted_text(slide, right_x, plan_top + 0.3, right_w, top + band_h - plan_top - 0.3, reco.plan_actions)
 
@@ -293,6 +380,7 @@ def build_presentation(
         prs = Presentation()
         prs.slide_width = Inches(13.333)
         prs.slide_height = Inches(7.5)
+        prs._i2d_synthetic = True
 
     # Ancre la palette catégorielle des axes sur la couleur de marque du
     # template injecté, sans jamais remplacer toute la palette par elle
@@ -337,5 +425,14 @@ def build_presentation(
             continue
         for j, reco in enumerate(axis.recommendations):
             _slide_recommendation(prs, axis, f"{i + 1}.{j + 1}", reco)
+
+    # Garde-fou géométrique (US7.1) : un texte trop long ou un template client
+    # aux dimensions inattendues peut faire déborder une forme de la slide —
+    # mieux vaut échouer bruyamment ici qu'exporter un .pptx visuellement cassé.
+    problemes = D.verifier_geometrie(prs)
+    if problemes:
+        raise RuntimeError(
+            "Export PPT : formes hors cadre détectées —\n" + "\n".join(problemes)
+        )
 
     return prs
