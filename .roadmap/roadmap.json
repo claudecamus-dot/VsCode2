@@ -1,6 +1,6 @@
 {
   "title": "Interview-to-Deck",
-  "subtitle": "Saisie d'interviews sur trame -> synthese transverse -> generation PPT sur template. MVP manuel. Incr.1-3 livres : trame, saisie+couverture+verbatims, synthese transverse par theme (vue cross-interviews, generation IA Opus 4.8, edition autosave). Incr.7 (v2) livre en avance : enregistrement audio navigateur, transcription locale faster-whisper, pre-remplissage par extraction IA. Incr.4 livre : upload template corporate, cycle export/import d'analyse, plan de deck validable (selection des slides). Incr.6 (export pptx) fonctionnel en avance. Prochain : incr.5 boucle self-check geometrique + verif visuelle du rendu.",
+  "subtitle": "Saisie d'interviews sur trame -> synthese transverse -> generation PPT sur template. MVP manuel livre en entier (incr.1-6) + incr.7 (v2, audio) en avance. Prochain : incr.8 narration sur decks exemples + pagination auto (v2).",
   "items": [
     {
       "phase": "reflexion",
@@ -84,21 +84,21 @@
     {
       "phase": "realisation",
       "title": "5. Generation PPT + verif rendu",
-      "description": "Rendu sur layouts du template + contenu genere ok ; reste la boucle self-check geo / verif visuelle.",
-      "status": "current",
+      "description": "Rendu sur layouts du template + contenu ; garde-fou verifier_geometrie() branche + rendu reel PowerPoint COM ayant fait remonter et corriger plusieurs bugs (titres qui chevauchent le contenu, champs qui debordent, template client illisible par PowerPoint).",
+      "status": "done",
       "tokens": { "estimate": 120000 },
       "subItems": [
         { "label": "US6.2 rendu charte", "status": "done" },
         { "label": "US6.3 contenu slides", "status": "done" },
-        { "label": "US7.1 self-check geo", "status": "todo" },
-        { "label": "US7.2 verif visuelle", "status": "todo" }
+        { "label": "US7.1 self-check geo", "status": "done" },
+        { "label": "US7.2 verif visuelle", "status": "done" }
       ]
     },
     {
       "phase": "realisation",
       "title": "6. Export & finitions MVP",
-      "description": "Export .pptx fonctionnel (avec/sans template, selection de slides) ; consolidation e2e en attente de l'increment 5.",
-      "status": "todo",
+      "description": "Export .pptx fonctionnel (avec/sans template, selection de slides), chaine bout en bout consolidee et verifiee.",
+      "status": "done",
       "tokens": { "estimate": 40000 },
       "subItems": [
         { "label": "US8.1 export pptx", "status": "done" }
@@ -120,7 +120,7 @@
       "phase": "realisation",
       "title": "8. Narration exemples + pagination (v2)",
       "description": "Apprentissage du squelette narratif depuis les decks exemples, pagination auto, regeneration.",
-      "status": "todo",
+      "status": "current",
       "tokens": { "estimate": 80000 },
       "subItems": [
         { "label": "US5.2 plan exemples", "status": "todo" },
