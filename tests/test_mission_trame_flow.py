@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import re
 from pathlib import Path
 
 import pytest
@@ -1634,3 +1635,103 @@ def test_export_pptx_geometry_clean_with_4_3_client_template(client: TestClient)
     assert response.status_code == 200
     prs = Presentation(io.BytesIO(response.content))
     assert Emu(prs.slide_width).inches == pytest.approx(10)
+
+
+def _slide_texts(slide) -> list[str]:
+    """Tous les paragraphes texte d'une slide, toutes zones de texte
+    confondues — utilitaire pour chercher un titre ou une puce sans dépendre
+    de la forme exacte qui la porte."""
+    texts = []
+    for shape in slide.shapes:
+        if not shape.has_text_frame:
+            continue
+        for p in shape.text_frame.paragraphs:
+            texts.append("".join(run.text for run in p.runs))
+    return texts
+
+
+def test_export_pptx_axes_overview_paginates_when_many_axes(client: TestClient) -> None:
+    """US6.4 (pagination auto) : au-delà du nombre d'axes qui tient
+    lisiblement sur une slide, la vue d'ensemble des axes se poursuit sur
+    des slides « (k/n) » plutôt que d'écraser les cartes en rangées
+    illisibles — aucun axe ne doit être perdu ni dupliqué au passage."""
+    mission_id, _qid = _setup_mission_with_one_answer(client, "Mission Pagination Axes")
+    analysis = _many_axes_analysis(n_axes=10, n_recos_per_axis=1)
+    files = {"file": ("analyse.md", analysis.encode("utf-8"), "text/markdown")}
+    response = client.post(f"/missions/{mission_id}/import/analyse", files=files, follow_redirects=False)
+    assert response.status_code == 303
+
+    response = client.get(f"/missions/{mission_id}/export/pptx")
+    assert response.status_code == 200
+    prs = Presentation(io.BytesIO(response.content))
+
+    title_re = re.compile(r"^Les recommandations sont construites autour de ces axes \((\d+)/(\d+)\)$")
+    axes_slides = []
+    for slide in prs.slides:
+        for text in _slide_texts(slide):
+            m = title_re.match(text)
+            if m:
+                axes_slides.append((slide, m.group(1), m.group(2)))
+                break
+
+    assert len(axes_slides) >= 2, "attendu plusieurs slides de vue d'ensemble des axes paginées"
+    assert {n for _, _, n in axes_slides} == {axes_slides[0][2]}  # même total "n" partout
+
+    numbers = []
+    for slide, _, _ in axes_slides:
+        for text in _slide_texts(slide):
+            m = re.fullmatch(r"#(\d+)", text)
+            if m:
+                numbers.append(int(m.group(1)))
+    assert sorted(numbers) == list(range(1, 11))  # les 10 axes, une seule fois chacun
+
+
+def test_export_pptx_recommendation_bullet_overflow_spills_to_continuation_slide(client: TestClient) -> None:
+    """US6.4 (pagination auto) : un plan d'actions trop long pour tenir dans
+    sa colonne, même à la police minimale, doit se poursuivre sur une slide
+    « (suite — Plan d'actions) » au lieu de déborder silencieusement de sa
+    zone de texte (ce que `verifier_geometrie` ne peut pas détecter)."""
+    mission_id, _qid = _setup_mission_with_one_answer(client, "Mission Pagination Plan Actions")
+
+    bullets = [f"Action numéro {i} : {_long_text(1)}" for i in range(1, 31)]
+    analysis = f"""
+## SYNTHÈSE GLOBALE
+
+### Contexte
+Contexte bref.
+
+## RECOMMANDATIONS
+
+#### Axe 1 : Cohérence du cadre
+
+##### Recommandation 1.1 : Revoir les principes
+- Objectif : Réduire l'ambiguïté
+- Acteurs : CODIR
+- Valeur (1-5) : 4
+- Complexité (1-5) : 2
+- Proposition de valeur : Un cadre clair
+- Plan d'actions : {bullets[0]}
+{chr(10).join(bullets[1:])}
+"""
+    files = {"file": ("analyse.md", analysis.encode("utf-8"), "text/markdown")}
+    response = client.post(f"/missions/{mission_id}/import/analyse", files=files, follow_redirects=False)
+    assert response.status_code == 303
+
+    response = client.get(f"/missions/{mission_id}/export/pptx")
+    assert response.status_code == 200
+    prs = Presentation(io.BytesIO(response.content))
+
+    def is_relevant(slide) -> bool:
+        texts = _slide_texts(slide)
+        return any("Revoir les principes" in t or "(suite — Plan d'actions)" in t for t in texts)
+
+    relevant_slides = [slide for slide in prs.slides if is_relevant(slide)]
+    assert len(relevant_slides) >= 2, "attendu la slide principale + au moins une slide de continuation"
+
+    all_bullets = [
+        text[len("•  "):]
+        for slide in relevant_slides
+        for text in _slide_texts(slide)
+        if text.startswith("•  ") and text != "•  —"  # placeholder du champ "Résultats attendus" laissé vide
+    ]
+    assert len(all_bullets) == len(bullets)  # aucune puce perdue

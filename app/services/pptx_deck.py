@@ -251,6 +251,38 @@ def tronquer_a_lignes(texte, largeur_in, taille_pt, max_lignes, cpi_ref=11.0,
     return tronque.rstrip(" ,;:.") + "…"
 
 
+def paginer_items(items, hauteur_fn, capacite_in):
+    """Repartit gloutonnement `items` (ordre preserve) en pages telles que,
+    pour chaque page, la somme de `hauteur_fn(item)` (pouces) ne depasse pas
+    `capacite_in`. Un item dont la hauteur depasse `capacite_in` a lui seul
+    reste seul sur sa page plutot que d'etre coupe (a l'appelant de le
+    tronquer en amont via `tronquer_a_lignes` s'il veut eviter ce cas) —
+    garantit qu'au moins un item est consomme par page, donc une terminaison
+    en au plus `len(items)` pages.
+
+    Agnostique du domaine : `hauteur_fn` est l'unique point de contact avec
+    la logique metier (lignes de texte via `estimer_lignes`, lignes de
+    tableau a hauteur fixe, etc.) — sert de brique de base a toute pagination
+    (aucune slide n'est creee ici, juste un decoupage en pages logiques).
+
+    Renvoie une liste de listes (au moins une page, eventuellement vide, si
+    `items` est vide)."""
+    if not items:
+        return [[]]
+    pages: list[list] = []
+    current: list = []
+    current_h = 0.0
+    for item in items:
+        h = hauteur_fn(item)
+        if current and current_h + h > capacite_in:
+            pages.append(current)
+            current, current_h = [], 0.0
+        current.append(item)
+        current_h += h
+    pages.append(current)
+    return pages
+
+
 def verifier_geometrie(prs, marge_in=0.02):
     """Retourne la liste des problemes : toute forme dont les bords depassent la
     slide (au-dela d'une petite marge de tolerance). Liste vide = OK."""

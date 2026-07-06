@@ -219,15 +219,36 @@ def _per_line_height_in(size_pt: float) -> float:
 def _add_bulleted_text(
     slide, l, t, w, h, text: str, size: float | None = None,
     anchor=MSO_ANCHOR.TOP, size_max: float = D.TYPE["body"], size_min: float = D.TYPE["tiny"],
-) -> None:
+    paginate: bool = False,
+) -> list[str]:
+    """Pose une liste à puces dans la zone donnée. Par défaut (`paginate=False`,
+    comportement historique) la police est réduite jusqu'à `size_min` pour
+    tenter de tout faire tenir, sans garantie — un texte très long peut
+    déborder silencieusement de sa zone (indétectable par
+    `D.verifier_geometrie`, qui ne voit que les bords des formes).
+
+    `paginate=True` change la garantie : si même `size_min` ne suffit pas, les
+    puces qui ne tiennent pas sont retenues (pas rendues) et renvoyées à
+    l'appelant plutôt que de déborder — à charge pour lui de les poser sur
+    une slide de continuation (voir `_emit_bullet_overflow`). Renvoie la
+    liste des puces non rendues (vide si tout tient)."""
     lines = _bullet_lines(text) or ["—"]
 
-    if size is None:
-        def budget_ok(taille, _lignes_max):
-            total = sum(D.estimer_lignes(line, w, taille) for line in lines)
-            return total * _per_line_height_in(taille) <= h
+    def budget_ok(taille, _lignes_max):
+        total = sum(D.estimer_lignes(line, w, taille) for line in lines)
+        return total * _per_line_height_in(taille) <= h
 
+    if size is None:
         size, _ = D.ajuster_police(lines, w, size_max, size_min, budget_ok=budget_ok)
+
+    overflow: list[str] = []
+    if paginate and not budget_ok(size, None):
+        rendered_pages = D.paginer_items(
+            lines, lambda line: D.estimer_lignes(line, w, size) * _per_line_height_in(size),
+            capacite_in=h,
+        )
+        lines = rendered_pages[0]
+        overflow = [line for page in rendered_pages[1:] for line in page]
 
     paragraphs = [(f"•  {line}", {"size": size, "color": D.INK, "space_after": 4}) for line in lines]
 
@@ -238,6 +259,25 @@ def _add_bulleted_text(
         D.add_text(slide, l, box_t, w, content_h, paragraphs)
     else:
         D.add_text(slide, l, t, w, h, paragraphs)
+    return overflow
+
+
+def _emit_bullet_overflow(prs: Presentation, base_title: str, field_label: str, overflow_lines: list[str]) -> None:
+    """Pose les puces qui n'ont pas tenu sur la slide d'origine (voir
+    `_add_bulleted_text(paginate=True)`) sur une ou plusieurs slides de
+    continuation pleine largeur — chacune dispose de bien plus d'espace que
+    la colonne étroite d'origine, donc peut se voir attribuer sa propre
+    police (recalculée, pas figée à `size_min`)."""
+    remaining = "\n".join(overflow_lines)
+    page_no = 1
+    while remaining:
+        suffix = f" {page_no}" if page_no > 1 else ""
+        slide, w_in, h_in, top = _new_slide(prs, f"{base_title} (suite — {field_label}){suffix}")
+        w = w_in - 2 * (MARGIN + 0.3)
+        h = h_in - top - 0.5
+        overflow = _add_bulleted_text(slide, MARGIN + 0.3, top, w, h, remaining, paginate=True)
+        remaining = "\n".join(overflow)
+        page_no += 1
 
 
 # --------------------------------------------------------------------------- #
@@ -310,32 +350,63 @@ def _slide_synthese_categorie(prs: Presentation, label: str, content: str) -> No
     )
 
 
+_AXES_ROW_H_MAX = 1.1
+_AXES_ROW_GAP = 0.15
+# En dessous de cette hauteur de ligne, le chiffre "#N" (D.TYPE["kpi"]=44pt)
+# chevauche visuellement le titre de l'axe à côté — verifier_geometrie() ne
+# peut pas le détecter (il ne vérifie que les bords des formes, pas le rendu
+# du texte à l'intérieur) : mieux vaut paginer sur une slide suivante que
+# de laisser les cartes devenir illisibles avec beaucoup d'axes.
+_AXES_ROW_H_MIN = 0.75
+
+
+def _axes_row_h(n: int, band_h: float) -> float:
+    return min(_AXES_ROW_H_MAX, (band_h - _AXES_ROW_GAP * (n - 1)) / max(1, n))
+
+
 def _slide_axes_overview(prs: Presentation, axes: list, palette: list[str]) -> None:
-    slide, w_in, h_in, top = _new_slide(prs, "Les recommandations sont construites autour de ces axes")
-    band_h = h_in - top - 0.5
-    row_h = min(1.1, (band_h - 0.15 * (len(axes) - 1)) / max(1, len(axes)))
-    total_h = len(axes) * row_h + 0.15 * (len(axes) - 1)
-    # Centré verticalement dans la bande plutôt que plaqué en haut : avec peu
-    # d'axes (1-3), row_h plafonne à 1.1in et laisse sinon un grand vide sous
-    # les cartes.
-    y = top + max(0.0, (band_h - total_h) / 2)
-    for i, axis in enumerate(axes):
-        accent = palette[i % len(palette)]
-        D.add_card(slide, MARGIN, y, w_in - 2 * MARGIN, row_h, accent)
-        D.add_text(
-            slide, MARGIN + 0.3, y, 1.0, row_h,
-            [(f"#{i + 1}", {"size": D.TYPE["kpi"], "bold": True, "color": accent})],
-            anchor=MSO_ANCHOR.MIDDLE,
-        )
-        D.add_text(
-            slide, MARGIN + 1.5, y, w_in - 2 * MARGIN - 2.0, row_h,
-            [
-                (axis.title, {"size": D.TYPE["h3"], "bold": True, "color": D.INK}),
-                (f"{len(axis.recommendations)} recommandation(s)", {"size": D.TYPE["small"], "color": D.MUTED}),
-            ],
-            anchor=MSO_ANCHOR.MIDDLE,
-        )
-        y += row_h + 0.15
+    title = "Les recommandations sont construites autour de ces axes"
+    # Sert UNIQUEMENT à décider combien d'axes tiennent par page (1.4in ~
+    # hauteur de contenu typique après un titre sur une ligne, cf. _new_slide) ;
+    # chaque page recalcule ensuite sa hauteur réellement disponible à partir
+    # de SON PROPRE titre (avec suffixe) une fois la slide créée, donc ce
+    # découpage préalable ne peut jamais faire déborder une carte — au pire
+    # (titre passé à 2 lignes à cause du suffixe) la page rend des rangées
+    # un peu plus basses que prévu, jamais hors-cadre.
+    w_in, h_in = _dims(prs)
+    band_h_estimate = h_in - 1.4 - 0.5
+    row_h_estimate = max(_AXES_ROW_H_MIN, _axes_row_h(len(axes), band_h_estimate))
+    pages = D.paginer_items(
+        list(enumerate(axes)), lambda _item: row_h_estimate + _AXES_ROW_GAP,
+        capacite_in=band_h_estimate + _AXES_ROW_GAP,
+    )
+    for k, page in enumerate(pages):
+        suffix = f" ({k + 1}/{len(pages)})" if len(pages) > 1 else ""
+        slide, w_in, h_in, top = _new_slide(prs, title + suffix)
+        band_h = h_in - top - 0.5
+        row_h = _axes_row_h(len(page), band_h)
+        total_h = len(page) * row_h + _AXES_ROW_GAP * (len(page) - 1)
+        # Centré verticalement dans la bande plutôt que plaqué en haut : avec
+        # peu d'axes (1-3) sur la page, row_h plafonne à 1.1in et laisse
+        # sinon un grand vide sous les cartes.
+        y = top + max(0.0, (band_h - total_h) / 2)
+        for i, axis in page:
+            accent = palette[i % len(palette)]
+            D.add_card(slide, MARGIN, y, w_in - 2 * MARGIN, row_h, accent)
+            D.add_text(
+                slide, MARGIN + 0.3, y, 1.0, row_h,
+                [(f"#{i + 1}", {"size": D.TYPE["kpi"], "bold": True, "color": accent})],
+                anchor=MSO_ANCHOR.MIDDLE,
+            )
+            D.add_text(
+                slide, MARGIN + 1.5, y, w_in - 2 * MARGIN - 2.0, row_h,
+                [
+                    (axis.title, {"size": D.TYPE["h3"], "bold": True, "color": D.INK}),
+                    (f"{len(axis.recommendations)} recommandation(s)", {"size": D.TYPE["small"], "color": D.MUTED}),
+                ],
+                anchor=MSO_ANCHOR.MIDDLE,
+            )
+            y += row_h + _AXES_ROW_GAP
 
 
 def _slide_matrice_effort_valeur(prs: Presentation, axes: list) -> None:
@@ -403,9 +474,13 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
     D.add_text(slide, gx2, y + 0.35 + gauge_size + 0.05, gauge_size, 0.25, [("Complexité", {"size": D.TYPE["tiny"], "color": D.MUTED, "align": PP_ALIGN.CENTER})], align=PP_ALIGN.CENTER)
     y += 0.35 + gauge_size + 0.35
     remaining = top + band_h - y
+    resultats_overflow: list[str] = []
     if remaining > 0.4:
         D.add_text(slide, MARGIN, y, left_w, 0.3, [("RÉSULTATS ATTENDUS", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
-        _add_bulleted_text(slide, MARGIN, y + 0.3, left_w, remaining - 0.3, reco.resultats_attendus, size=D.TYPE["small"])
+        resultats_overflow = _add_bulleted_text(
+            slide, MARGIN, y + 0.3, left_w, remaining - 0.3, reco.resultats_attendus,
+            size=D.TYPE["small"], paginate=True,
+        )
 
     # Colonne droite : proposition de valeur / plan d'actions — même logique
     # de hauteur mesurée qu'à gauche pour PROPOSITION DE VALEUR, PLAN
@@ -416,7 +491,15 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
     )
     plan_top = top + right_h + 0.2
     D.add_text(slide, right_x, plan_top, right_w, 0.3, [("PLAN D'ACTIONS", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
-    _add_bulleted_text(slide, right_x, plan_top + 0.3, right_w, top + band_h - plan_top - 0.3, reco.plan_actions)
+    plan_overflow = _add_bulleted_text(
+        slide, right_x, plan_top + 0.3, right_w, top + band_h - plan_top - 0.3, reco.plan_actions, paginate=True,
+    )
+
+    base_title = f"{index} — {reco.title}"
+    if resultats_overflow:
+        _emit_bullet_overflow(prs, base_title, "Résultats attendus", resultats_overflow)
+    if plan_overflow:
+        _emit_bullet_overflow(prs, base_title, "Plan d'actions", plan_overflow)
 
 
 # --------------------------------------------------------------------------- #
