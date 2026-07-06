@@ -2,6 +2,7 @@ import io
 import json
 import os
 import re
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -1735,3 +1736,63 @@ Contexte bref.
         if text.startswith("•  ") and text != "•  —"  # placeholder du champ "Résultats attendus" laissé vide
     ]
     assert len(all_bullets) == len(bullets)  # aucune puce perdue
+
+
+def _soffice_path() -> str | None:
+    import shutil
+
+    found = shutil.which("soffice") or shutil.which("soffice.exe")
+    if found:
+        return found
+    for candidate in (
+        r"C:\Program Files\LibreOffice\program\soffice.exe",
+        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+        "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+    ):
+        if Path(candidate).exists():
+            return candidate
+    return None
+
+
+@pytest.mark.skipif(_soffice_path() is None, reason="LibreOffice non installé")
+def test_export_pptx_renders_cleanly_in_a_real_engine(client: TestClient, tmp_path: Path) -> None:
+    """US7.2 (vérification visuelle) : `verifier_geometrie()` ne détecte que
+    des formes hors-cadre — pas un fichier que PowerPoint/LibreOffice refuse
+    d'ouvrir ou tronque silencieusement, la classe de bug ayant justement
+    motivé l'incrément 5 (cf. CLAUDE.md, « template client illisible par
+    PowerPoint » découvert via l'automation COM, pas par la suite de tests).
+    Un `.pptx` peut parser sans erreur avec python-pptx (parseur tolérant)
+    tout en étant rejeté ou mal rendu par un vrai moteur — ce test automatise
+    le réflexe de vérification réelle : convertir l'export en PDF via
+    LibreOffice et vérifier qu'il produit bien une page par slide attendue,
+    plutôt que de se fier au seul comptage `len(prs.slides)`."""
+    mission_id, _qid = _setup_mission_with_one_answer(client, "Mission Rendu Reel LibreOffice")
+    analysis = _many_axes_analysis(n_axes=6, n_recos_per_axis=2)
+    files = {"file": ("analyse.md", analysis.encode("utf-8"), "text/markdown")}
+    client.post(f"/missions/{mission_id}/import/analyse", files=files, follow_redirects=False)
+
+    response = client.get(f"/missions/{mission_id}/export/pptx")
+    assert response.status_code == 200
+    prs = Presentation(io.BytesIO(response.content))
+    expected_slides = len(list(prs.slides))
+
+    pptx_path = tmp_path / "export.pptx"
+    pptx_path.write_bytes(response.content)
+    result = subprocess.run(
+        [_soffice_path(), "--headless", "--convert-to", "pdf", "--outdir", str(tmp_path), str(pptx_path)],
+        capture_output=True, timeout=120,
+    )
+    assert result.returncode == 0, result.stderr.decode(errors="replace")
+    pdf_path = tmp_path / "export.pdf"
+    assert pdf_path.exists(), "LibreOffice n'a produit aucun PDF — l'export ne s'ouvrirait probablement pas non plus dans PowerPoint"
+
+    pdf_bytes = pdf_path.read_bytes()
+    assert len(pdf_bytes) > 2000, "PDF quasi vide — rendu suspect"
+    # Comptage de pages par regex plutôt qu'une dépendance PDF supplémentaire
+    # (aucune lib de lecture PDF dans ce venv) : suffisant pour un PDF simple
+    # généré par LibreOffice, pas cense être un parseur PDF général.
+    page_count = len(re.findall(rb"/Type\s*/Page[^s]", pdf_bytes))
+    assert page_count == expected_slides, (
+        f"{page_count} page(s) rendue(s) par LibreOffice pour {expected_slides} slide(s) exportée(s) "
+        "— le fichier n'est probablement pas ouvrable proprement par un vrai lecteur PowerPoint"
+    )
