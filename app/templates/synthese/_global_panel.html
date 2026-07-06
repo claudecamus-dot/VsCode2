@@ -23,6 +23,8 @@
     l'<a href="/missions/{{ mission.id }}/export/interviews">export</a> pour lancer une analyse
     externe puis <a href="/missions/{{ mission.id }}/synthese/apercu">importez le résultat</a>.
     Vous pouvez aussi saisir la synthèse à la main ci-dessous.</p>
+  {% elif not answer_count %}
+  <p class="muted ai-hint">Aucune réponse saisie sur la mission pour l'instant — rien à synthétiser.</p>
   {% endif %}
 
   {{ field(mission, 'contexte', 'Contexte', global_synthesis.contexte) }}
@@ -32,11 +34,12 @@
   {{ field(mission, 'aspirations', 'Aspirations (baguette magique)', global_synthesis.aspirations) }}
 
   <div class="synth-actions">
+    {% set can_generate = ai_ready and answer_count %}
     <button class="btn btn-primary" type="button"
       hx-post="/missions/{{ mission.id }}/synthese/globale/generate"
       hx-target="#global-synth-panel" hx-swap="outerHTML"
       hx-disabled-elt="this"
-      {% if not ai_ready %}disabled title="Service IA indisponible — définissez {{ api_key_env }}"{% endif %}>
+      {% if not can_generate %}disabled title="{% if not ai_ready %}Service IA indisponible — définissez {{ api_key_env }}{% else %}Aucune réponse saisie sur la mission{% endif %}"{% endif %}>
       <span class="htmx-indicator">⏳ </span>{{ '✨ Générer (IA)' if global_synthesis.status == 'empty' else '↻ Régénérer (IA)' }}
     </button>
     <span id="global-synth-saved" class="saved"></span>

@@ -485,13 +485,21 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #bcd0fb; outline-
 }
 .slide-preview-body {
   aspect-ratio: 16 / 9; max-width: 760px; border: 1px solid var(--border);
-  border-radius: 10px; background: #fff; padding: 24px 32px; overflow: auto;
+  border-top: 5px solid var(--slide-accent, var(--accent));
+  border-radius: 10px; background: #fff; padding: 26px 34px; overflow: auto;
   box-shadow: 0 1px 3px rgba(0,0,0,.06);
+  color: var(--text); font-size: .92rem;
 }
-.slide-preview-body h2 { margin: 0 0 6px; }
-.slide-preview-body h3 { margin: 0 0 10px; }
+.slide-preview-body h2 { margin: 0 0 6px; color: var(--text); }
+.slide-preview-body h3 {
+  margin: 0 0 14px; color: var(--text); font-size: 1.05rem; font-weight: 700;
+  padding-bottom: 8px; border-bottom: 2px solid var(--slide-accent, var(--accent));
+}
 .slide-title { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; text-align: center; }
-.slide-sommaire { margin: 0; padding-left: 20px; }
+.slide-title h2 { font-size: 1.7rem; border-bottom: none; }
+.slide-sommaire { margin: 0; }
+.slide-sommaire-row { display: flex; align-items: baseline; gap: 14px; padding: 7px 0; font-size: 1.05rem; }
+.slide-sommaire-num { font-weight: 700; color: var(--slide-accent, var(--accent)); font-variant-numeric: tabular-nums; }
 
 .reco-axis-row { display: flex; align-items: center; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--border-subtle); }
 .reco-axis-row:last-child { border-bottom: none; }
@@ -510,6 +518,68 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #bcd0fb; outline-
 }
 .matrix-axis-x { position: absolute; bottom: -24px; right: 0; font-size: .78rem; color: var(--muted); }
 .matrix-axis-y { position: absolute; top: -22px; left: 0; font-size: .78rem; color: var(--muted); }
+
+/* Cartes d'axes dans l'aperçu de la slide "vue d'ensemble" — reprend le
+   style carte+liseré de couleur de pptx_deck.add_card, avec la même
+   palette catégorielle que l'export (ppt_palette côté template). Classes
+   distinctes de .reco-axis-row/.axis-num (utilisées ailleurs, ex. la page
+   Recommandations) pour ne pas coupler leur style à celui-ci. */
+.ppt-axis-card {
+  position: relative; display: flex; align-items: center; gap: 16px;
+  background: #fff; border: 1px solid var(--border-subtle); border-radius: 10px;
+  padding: 12px 16px 12px 22px; margin-bottom: 10px;
+}
+.ppt-axis-card::before {
+  content: ''; position: absolute; left: 0; top: 10%; bottom: 10%; width: 5px;
+  border-radius: 4px; background: var(--axis-accent, var(--accent));
+}
+.ppt-axis-num { font-size: 1.8rem; font-weight: 800; width: 52px; flex-shrink: 0; color: var(--axis-accent, var(--accent)); }
+
+/* Puces stylées (remplace le marqueur navigateur par défaut) pour les
+   listes de l'aperçu de slide — mêmes textes que les bullets pptx
+   (D._bullet_lines), juste une puce colorée plutôt que "•" brut. */
+.ppt-bullets { list-style: none; margin: 0; padding: 0; }
+.ppt-bullets li { position: relative; padding-left: 18px; margin-bottom: 8px; line-height: 1.4; }
+.ppt-bullets li::before {
+  content: ''; position: absolute; left: 0; top: .55em; width: 6px; height: 6px;
+  border-radius: 50%; background: var(--slide-accent, var(--accent));
+}
+
+/* Colonnes gauche/droite de la fiche recommandation, calquées sur la mise
+   en page réelle de _slide_recommendation (pptx_export.py) : ~34% / reste. */
+.ppt-two-col { display: flex; gap: 24px; }
+.ppt-col-left { flex: 0 0 34%; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.ppt-col-right { flex: 1; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.ppt-field-label {
+  display: block; font-size: .72rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--muted); margin-bottom: 3px;
+}
+.ppt-field-value { margin: 0; }
+
+/* Jauges circulaires Valeur/Complexité — équivalent CSS (conic-gradient)
+   du doughnut chart PowerPoint natif posé par D.add_gauge. */
+.ppt-gauges { display: flex; gap: 18px; margin-top: 4px; }
+.ppt-gauge-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.ppt-gauge {
+  position: relative; width: 56px; height: 56px; border-radius: 50%;
+  background: conic-gradient(var(--gauge-color, var(--accent)) calc(var(--gauge-frac, 0) * 360deg), var(--border-subtle) 0);
+}
+.ppt-gauge::before { content: ''; position: absolute; inset: 7px; border-radius: 50%; background: #fff; }
+.ppt-gauge-value {
+  position: relative; z-index: 1; display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 100%; font-weight: 700; color: var(--text); font-size: .95rem;
+}
+.ppt-gauge-label { font-size: .68rem; color: var(--muted); }
+
+.ppt-value-prop {
+  background: #f5f3fb; border-left: 3px solid var(--axis-accent, var(--accent));
+  border-radius: 6px; padding: 10px 14px; font-weight: 600; font-style: italic;
+}
+
+@media (max-width: 620px) {
+  .ppt-two-col { flex-direction: column; }
+  .ppt-col-left { flex: none; }
+}
 
 /* ---- Parcours synthèse en 4 étapes (évol) ---- */
 .wizard-steps { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
@@ -563,6 +633,8 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #bcd0fb; outline-
 .pptx-config-grid { display: flex; flex-wrap: wrap; gap: 10px 20px; }
 .pptx-config-subheading { margin-top: 12px; }
 .pptx-check { display: flex; align-items: center; gap: 6px; font-size: .9rem; font-weight: 500; }
+
+.reco-summary-subheading { margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--border-subtle); }
 
 /* Indicateur de chargement HTMX */
 .htmx-indicator { display: none; }

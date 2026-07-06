@@ -32,8 +32,9 @@
 {% endif %}
 
 <form method="post" action="/missions/{{ mission.id }}/recommandations/generate" class="reco-generate">
+  {% set can_generate = ai_ready and global_synthesis and global_synthesis.has_content %}
   <button class="btn btn-primary" type="submit"
-    {% if not ai_ready %}disabled title="Service IA indisponible — définissez {{ api_key_env }}"{% endif %}>
+    {% if not can_generate %}disabled title="{% if not ai_ready %}Service IA indisponible — définissez {{ api_key_env }}{% else %}Nécessite une synthèse globale déjà générée{% endif %}"{% endif %}>
     {{ '✨ Générer (IA)' if not axes else '↻ Régénérer (IA)' }}
   </button>
   {% if not global_synthesis or not global_synthesis.has_content %}
@@ -46,7 +47,17 @@
 {% else %}
 <section class="card reco-summary">
   <div class="card-head"><h2>Synthèse</h2></div>
-  <p class="muted">Vue d'ensemble de toutes les recommandations — cliquez une ligne pour aller à sa fiche détaillée.</p>
+  <p class="muted">Les {{ axes|length }} axe(s) transverses (piliers) qui structurent les recommandations :</p>
+  {% for axis in axes %}
+  <div class="reco-axis-row">
+    <span class="axis-num">#{{ loop.index }}</span>
+    <div>
+      <strong>{{ axis.title }}</strong>
+      <p class="muted">{{ axis.recommendations|length }} recommandation(s)</p>
+    </div>
+  </div>
+  {% endfor %}
+  <p class="muted reco-summary-subheading">Vue d'ensemble de toutes les recommandations — cliquez une ligne pour aller à sa fiche détaillée :</p>
   <table class="table reco-summary-table">
     <thead>
       <tr><th>Axe</th><th>Recommandation</th><th>Valeur</th><th>Complexité</th></tr>

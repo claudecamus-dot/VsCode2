@@ -352,6 +352,146 @@ def test_interview_capture_and_save_answer(client: TestClient) -> None:
     assert "Réponse test" in response.text
 
 
+def test_interview_preview_shows_all_themes_answers_verbatims_and_notes(
+    client: TestClient,
+) -> None:
+    """US2 (évol) — la page /interviews/{id}/preview doit rester lisible en
+    un coup d'œil quel que soit le type de question, le statut de réponse,
+    la présence de verbatims/notes libres, et fonctionner même sans thème."""
+    response = client.post("/missions", data={"name": "Mission Preview"}, follow_redirects=False)
+    mission_id = response.headers["location"].rsplit("/", 1)[-1]
+
+    client.post(f"/missions/{mission_id}/trame/themes", data={"title": "Organisation"}, follow_redirects=False)
+    client.post(f"/missions/{mission_id}/trame/themes", data={"title": "Culture"}, follow_redirects=False)
+
+    session = SessionLocal()
+    try:
+        theme_org = session.scalars(select(Theme).where(Theme.title == "Organisation")).one()
+        theme_culture = session.scalars(select(Theme).where(Theme.title == "Culture")).one()
+        theme_org_id, theme_culture_id = theme_org.id, theme_culture.id
+    finally:
+        session.close()
+
+    client.post(
+        f"/missions/{mission_id}/trame/themes/{theme_org_id}/questions",
+        data={"label": "Question ouverte ?", "qtype": "open"},
+        follow_redirects=False,
+    )
+    client.post(
+        f"/missions/{mission_id}/trame/themes/{theme_org_id}/questions",
+        data={"label": "Question échelle ?", "qtype": "scale", "scale_min": "1", "scale_max": "5"},
+        follow_redirects=False,
+    )
+    client.post(
+        f"/missions/{mission_id}/trame/themes/{theme_culture_id}/questions",
+        data={"label": "Question choix ?", "qtype": "choice", "choices": "Collaboratif\nHiérarchique"},
+        follow_redirects=False,
+    )
+    client.post(
+        f"/missions/{mission_id}/trame/themes/{theme_culture_id}/questions",
+        data={"label": "Question non répondue ?", "qtype": "open"},
+        follow_redirects=False,
+    )
+
+    session = SessionLocal()
+    try:
+        q_open = session.scalars(select(Question).where(Question.label == "Question ouverte ?")).one()
+        q_scale = session.scalars(select(Question).where(Question.label == "Question échelle ?")).one()
+        q_choice = session.scalars(select(Question).where(Question.label == "Question choix ?")).one()
+        q_unanswered = session.scalars(select(Question).where(Question.label == "Question non répondue ?")).one()
+        q_open_id, q_scale_id, q_choice_id, q_unanswered_id = q_open.id, q_scale.id, q_choice.id, q_unanswered.id
+    finally:
+        session.close()
+
+    response = client.post(
+        f"/missions/{mission_id}/interviews",
+        data={"interviewee_name": "Marie Dupont", "interviewee_role": "DRH"},
+        follow_redirects=False,
+    )
+    interview_id = response.headers["location"].rsplit("/", 1)[-1]
+
+    client.post(f"/interviews/{interview_id}/answers/{q_open_id}", data={"text": "Réponse ouverte détaillée."})
+    client.post(f"/interviews/{interview_id}/answers/{q_scale_id}", data={"value": "4"})
+    client.post(f"/interviews/{interview_id}/answers/{q_choice_id}", data={"value": "Collaboratif"})
+    client.post(f"/interviews/{interview_id}/answers/{q_unanswered_id}/status", data={"status": "revisit"})
+    # Pas d'apostrophe dans la citation : l'autoescape Jinja la rendrait en
+    # `&#39;` dans le HTML source (correct à l'affichage navigateur, mais
+    # `in response.text` compare le HTML brut, pas le rendu décodé).
+    client.post(f"/interviews/{interview_id}/verbatims/{q_open_id}", data={"quote": "On adapte tout en continu."})
+    client.post(f"/interviews/{interview_id}/notes", data={"free_notes": "Note libre hors trame."})
+
+    response = client.get(f"/interviews/{interview_id}/preview")
+    assert response.status_code == 200
+    text = response.text
+
+    # Identité + couverture.
+    assert "Marie Dupont" in text
+    assert "3/4" in text
+
+    # Les deux thèmes et les 4 questions apparaissent.
+    assert "Organisation" in text
+    assert "Culture" in text
+    assert "Question ouverte ?" in text
+    assert "Question échelle ?" in text
+    assert "Question choix ?" in text
+    assert "Question non répondue ?" in text
+
+    # Chaque type de réponse est rendu (texte, échelle, choix).
+    assert "Réponse ouverte détaillée." in text
+    assert ">4<" in text
+    assert "Collaboratif" in text
+
+    # Question non répondue : badge de statut + pas de contenu fantôme.
+    assert "À revoir" in text
+    assert "sans réponse" in text
+
+    # Verbatim et notes libres visibles.
+    assert "On adapte tout en continu." in text
+    assert "Note libre hors trame." in text
+
+    # Pas de bouton/champ de saisie sur cette page en lecture seule.
+    assert "<textarea" not in text
+    assert "hx-post" not in text
+
+
+def test_interview_preview_without_trame_or_answers_does_not_crash(client: TestClient) -> None:
+    """Garde-fou : ni une trame vide, ni un entretien sans aucune réponse, ne
+    doivent faire planter la page (juste un aperçu vide/à sans-réponse)."""
+    response = client.post("/missions", data={"name": "Mission Preview Vide"}, follow_redirects=False)
+    mission_id = response.headers["location"].rsplit("/", 1)[-1]
+
+    # Entretien créé alors que la trame est encore vide (aucun thème).
+    response = client.post(
+        f"/missions/{mission_id}/interviews",
+        data={"interviewee_name": "Sans Thème"},
+        follow_redirects=False,
+    )
+    interview_id = response.headers["location"].rsplit("/", 1)[-1]
+
+    response = client.get(f"/interviews/{interview_id}/preview")
+    assert response.status_code == 200
+    assert "Sans Thème" in response.text
+
+    # Puis avec un thème/question mais aucune réponse saisie.
+    client.post(f"/missions/{mission_id}/trame/themes", data={"title": "Thème Vide"}, follow_redirects=False)
+    session = SessionLocal()
+    try:
+        theme = session.scalars(select(Theme).where(Theme.title == "Thème Vide")).one()
+        theme_id = theme.id
+    finally:
+        session.close()
+    client.post(
+        f"/missions/{mission_id}/trame/themes/{theme_id}/questions",
+        data={"label": "Jamais répondue ?", "qtype": "open"},
+        follow_redirects=False,
+    )
+
+    response = client.get(f"/interviews/{interview_id}/preview")
+    assert response.status_code == 200
+    assert "Jamais répondue ?" in response.text
+    assert "sans réponse" in response.text
+
+
 def test_interview_import_from_document_prefills_to_review(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

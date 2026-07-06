@@ -25,6 +25,9 @@
     <code>{{ api_key_env }}</code> (ou <code>SYNTHESE_DEMO=1</code> pour une démo hors-ligne).
     Vous pouvez aussi saisir la synthèse à la main ci-dessous.</p>
   {% endif %}
+  {% if (ai_ready or demo_ready) and not answer_count %}
+  <p class="muted ai-hint">Aucune réponse saisie sur ce thème pour l'instant — rien à synthétiser.</p>
+  {% endif %}
 
   {{ field(theme, 'summary', 'Points saillants', synthesis.summary) }}
   {{ field(theme, 'convergences', 'Convergences', synthesis.convergences) }}
@@ -32,11 +35,12 @@
 
   <div class="synth-actions">
     {% set mode = '(IA)' if ai_ready else ('(démo)' if demo_ready else '') %}
+    {% set can_generate = (ai_ready or demo_ready) and answer_count %}
     <button class="btn btn-primary" type="button"
       hx-post="/syntheses/theme/{{ theme.id }}/generate"
       hx-target="#synth-panel" hx-swap="outerHTML"
       hx-disabled-elt="this"
-      {% if not (ai_ready or demo_ready) %}disabled title="Définissez {{ api_key_env }} ou SYNTHESE_DEMO=1"{% endif %}>
+      {% if not can_generate %}disabled title="{% if not (ai_ready or demo_ready) %}Définissez {{ api_key_env }} ou SYNTHESE_DEMO=1{% else %}Aucune réponse saisie sur ce thème{% endif %}"{% endif %}>
       <span class="htmx-indicator">⏳ </span>{{ ('✨ Générer ' ~ mode) if synthesis.status == 'empty' else ('↻ Régénérer ' ~ mode) }}
     </button>
     <span id="synth-saved" class="saved"></span>

@@ -84,6 +84,10 @@
 
 {% macro fit_hint(elem_id) %}<span id="{{ elem_id }}" class="fit-hint"></span>{% endmacro %}
 
+{# Même palette catégorielle que l'export réel (pptx_deck.PALETTE) — pour que
+   l'aperçu web parle le même langage couleur que le .pptx généré. #}
+{% set ppt_palette = ['#2c5cc5', '#1e6b34', '#b3261e', '#b8860b', '#6a3d9a', '#138086'] %}
+
 {% macro text_field(label, post_url, field_name, value, hint_id, preview_id, target_id, rows=2) %}
 <label class="synth-field">
   <span>{{ label }}</span>
@@ -151,10 +155,14 @@
       </div>
       <div class="deck-pane deck-pane-preview">
         <div class="slide-preview-body">
-          <ol class="slide-sommaire">
-            {% if global_synthesis and global_synthesis.has_content %}<li>Synthèse globale</li>{% endif %}
-            {% if axes %}<li>Recommandations</li><li>Matrice effort / valeur</li>{% endif %}
-          </ol>
+          {% set sommaire_sections = [] %}
+          {% if global_synthesis and global_synthesis.has_content %}{% set _ = sommaire_sections.append('Synthèse globale') %}{% endif %}
+          {% if axes %}{% set _ = sommaire_sections.append('Recommandations') %}{% set _ = sommaire_sections.append('Matrice effort / valeur') %}{% endif %}
+          <div class="slide-sommaire">
+            {% for label in sommaire_sections %}
+            <div class="slide-sommaire-row"><span class="slide-sommaire-num">{{ '%02d'|format(loop.index) }}</span><span>{{ label }}</span></div>
+            {% endfor %}
+          </div>
         </div>
       </div>
     </section>
@@ -173,7 +181,7 @@
       <div class="deck-pane deck-pane-preview">
         <div class="slide-preview-body">
           <h3>{{ label }}</h3>
-          <ul id="preview-global-{{ key }}">{% for line in (global_synthesis[key] or '').splitlines() if line.strip() %}<li>{{ line.strip().lstrip('-•').strip() }}</li>{% endfor %}</ul>
+          <ul id="preview-global-{{ key }}" class="ppt-bullets">{% for line in (global_synthesis[key] or '').splitlines() if line.strip() %}<li>{{ line.strip().lstrip('-•').strip() }}</li>{% endfor %}</ul>
         </div>
       </div>
     </section>
@@ -200,8 +208,9 @@
       <div class="deck-pane deck-pane-preview">
         <div class="slide-preview-body">
           {% for axis in axes %}
-          <div class="reco-axis-row">
-            <span class="axis-num">#{{ loop.index }}</span>
+          {% set accent = ppt_palette[loop.index0 % ppt_palette|length] %}
+          <div class="ppt-axis-card" style="--axis-accent: {{ accent }};">
+            <span class="ppt-axis-num">#{{ loop.index }}</span>
             <div>
               <strong id="preview-axis-title-{{ axis.id }}">{{ axis.title }}</strong>
               <p class="muted">{{ axis.recommendations|length }} recommandation(s)</p>
@@ -219,13 +228,14 @@
       <div class="deck-pane deck-pane-preview">
         <div class="slide-preview-body">
           <div class="matrix-quadrant">
-            <div class="matrix-axis-y">Valeur</div>
+            <div class="matrix-axis-y">Valeur (impact)</div>
             {% for axis in axes %}
+              {% set accent = ppt_palette[loop.index0 % ppt_palette|length] %}
               {% for reco in axis.recommendations %}
-              <div class="matrix-dot" style="left: {{ (reco.complexite / 5 * 100)|round(1) }}%; bottom: {{ (reco.valeur / 5 * 100)|round(1) }}%;" title="{{ reco.title }} — Valeur {{ reco.valeur }}, Complexité {{ reco.complexite }}"></div>
+              <div class="matrix-dot" style="left: {{ (reco.complexite / 5 * 100)|round(1) }}%; bottom: {{ (reco.valeur / 5 * 100)|round(1) }}%; background: {{ accent }};" title="{{ reco.title }} — Valeur {{ reco.valeur }}, Complexité {{ reco.complexite }}"></div>
               {% endfor %}
             {% endfor %}
-            <div class="matrix-axis-x">Complexité</div>
+            <div class="matrix-axis-x">Complexité (effort)</div>
           </div>
         </div>
       </div>
@@ -269,17 +279,52 @@
           <span id="reco-saved-{{ reco.id }}" class="saved"></span>
         </div>
         <div class="deck-pane deck-pane-preview">
-          <div class="slide-preview-body">
+          {% set accent = ppt_palette[(axis_index - 1) % ppt_palette|length] %}
+          <div class="slide-preview-body" style="--slide-accent: {{ accent }};">
             <h3 id="preview-reco-title-{{ reco.id }}">{{ reco.title }}</h3>
-            <div class="reco-meta">
-              <div><span class="muted">Objectif</span><p id="preview-reco-objectif-{{ reco.id }}">{{ reco.objectif or '—' }}</p></div>
-              <div><span class="muted">Acteurs</span><p id="preview-reco-acteurs-{{ reco.id }}">{{ reco.acteurs or '—' }}</p></div>
-              <div><span class="muted">Valeur</span><p id="preview-reco-valeur-{{ reco.id }}">{{ '●' * reco.valeur }}{{ '○' * (5 - reco.valeur) }}</p></div>
-              <div><span class="muted">Complexité</span><p id="preview-reco-complexite-{{ reco.id }}">{{ '●' * reco.complexite }}{{ '○' * (5 - reco.complexite) }}</p></div>
+            <div class="ppt-two-col">
+              <div class="ppt-col-left">
+                <div>
+                  <span class="ppt-field-label">Objectif</span>
+                  <p class="ppt-field-value" id="preview-reco-objectif-{{ reco.id }}">{{ reco.objectif or '—' }}</p>
+                </div>
+                <div>
+                  <span class="ppt-field-label">Acteurs</span>
+                  <p class="ppt-field-value" id="preview-reco-acteurs-{{ reco.id }}">{{ reco.acteurs or '—' }}</p>
+                </div>
+                <div>
+                  <span class="ppt-field-label">Critères de priorisation</span>
+                  <div class="ppt-gauges">
+                    <div class="ppt-gauge-wrap">
+                      <div class="ppt-gauge" style="--gauge-frac: {{ (reco.valeur / 5)|round(3) }}; --gauge-color: var(--success-text);">
+                        <span class="ppt-gauge-value" id="preview-reco-valeur-{{ reco.id }}">{{ reco.valeur }}</span>
+                      </div>
+                      <span class="ppt-gauge-label">Valeur</span>
+                    </div>
+                    <div class="ppt-gauge-wrap">
+                      <div class="ppt-gauge" style="--gauge-frac: {{ (reco.complexite / 5)|round(3) }}; --gauge-color: var(--danger);">
+                        <span class="ppt-gauge-value" id="preview-reco-complexite-{{ reco.id }}">{{ reco.complexite }}</span>
+                      </div>
+                      <span class="ppt-gauge-label">Complexité</span>
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <span class="ppt-field-label">Résultats attendus</span>
+                  <ul class="ppt-bullets" id="preview-reco-resultats_attendus-{{ reco.id }}">{% for line in (reco.resultats_attendus or '').splitlines() if line.strip() %}<li>{{ line.strip().lstrip('-•').strip() }}</li>{% endfor %}</ul>
+                </div>
+              </div>
+              <div class="ppt-col-right">
+                <div>
+                  <span class="ppt-field-label">Proposition de valeur</span>
+                  <p class="ppt-value-prop" id="preview-reco-proposition_valeur-{{ reco.id }}">{{ reco.proposition_valeur or '—' }}</p>
+                </div>
+                <div>
+                  <span class="ppt-field-label">Plan d'actions</span>
+                  <ul class="ppt-bullets" id="preview-reco-plan_actions-{{ reco.id }}">{% for line in (reco.plan_actions or '').splitlines() if line.strip() %}<li>{{ line.strip().lstrip('-•').strip() }}</li>{% endfor %}</ul>
+                </div>
+              </div>
             </div>
-            <p><strong><em id="preview-reco-proposition_valeur-{{ reco.id }}">{{ reco.proposition_valeur or '—' }}</em></strong></p>
-            <p class="muted">Plan d'actions</p>
-            <ul id="preview-reco-plan_actions-{{ reco.id }}">{% for line in (reco.plan_actions or '').splitlines() if line.strip() %}<li>{{ line.strip().lstrip('-•').strip() }}</li>{% endfor %}</ul>
           </div>
         </div>
       </section>
@@ -310,7 +355,9 @@ function i2dLiveScore(el) {
   var target = document.getElementById(el.dataset.previewTarget);
   if (!target) return;
   var n = parseInt(el.value, 10) || 0;
-  target.textContent = '●'.repeat(n) + '○'.repeat(5 - n);
+  target.textContent = n;
+  var gauge = target.closest('.ppt-gauge');
+  if (gauge) gauge.style.setProperty('--gauge-frac', n / 5);
 }
 </script>
 {% endif %}

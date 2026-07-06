@@ -215,6 +215,7 @@ def synthese_view(
             "api_key_env": api_key_env_name(),
             "demo_ready": demo_enabled(),
             "interview_count": len(mission.interviews),
+            "answer_count": _answer_count(by_question or {}),
         },
     )
 

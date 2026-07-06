@@ -41,24 +41,25 @@
         <h2>Recommandations</h2>
         {% if axes %}<span class="badge badge-synth-generated">✓ {{ axes|length }} axe(s)</span>{% endif %}
       </div>
-      {% if not global_synthesis or not global_synthesis.has_content %}
-        <p class="muted">Nécessite la synthèse globale ci-dessus (déjà générée ou éditée).</p>
-      {% else %}
-        <form method="post" action="/missions/{{ mission.id }}/recommandations/generate" class="reco-generate">
-          <button class="btn btn-primary" type="submit"
-            {% if not ai_ready %}disabled title="Service IA indisponible — définissez {{ api_key_env }}"{% endif %}>
-            {{ '✨ Générer (IA)' if not axes else '↻ Régénérer (IA)' }}
-          </button>
-          <span class="muted">{{ 'Aucun axe pour l’instant.' if not axes else 'Voir/éditer le détail à l’étape 3 « Recommandations ».' }}</span>
-        </form>
-        {% if axes %}
-        <ul class="missed">
-          {% for axis in axes %}
-          <li><span class="muted">{{ axis.recommendations|length }} reco.</span> — {{ axis.title }}</li>
-          {% endfor %}
-        </ul>
-        <a class="btn" href="/missions/{{ mission.id }}/recommandations">Voir le détail →</a>
+      {% set can_generate = ai_ready and global_synthesis and global_synthesis.has_content %}
+      <form method="post" action="/missions/{{ mission.id }}/recommandations/generate" class="reco-generate">
+        <button class="btn btn-primary" type="submit"
+          {% if not can_generate %}disabled title="{% if not ai_ready %}Service IA indisponible — définissez {{ api_key_env }}{% else %}Nécessite la synthèse globale ci-dessus (déjà générée ou éditée){% endif %}"{% endif %}>
+          {{ '✨ Générer (IA)' if not axes else '↻ Régénérer (IA)' }}
+        </button>
+        {% if not global_synthesis or not global_synthesis.has_content %}
+        <span class="muted">Nécessite la synthèse globale ci-dessus (déjà générée ou éditée).</span>
+        {% else %}
+        <span class="muted">{{ 'Aucun axe pour l’instant.' if not axes else 'Voir/éditer le détail à l’étape 3 « Recommandations ».' }}</span>
         {% endif %}
+      </form>
+      {% if axes %}
+      <ul class="missed">
+        {% for axis in axes %}
+        <li><span class="muted">{{ axis.recommendations|length }} reco.</span> — {{ axis.title }}</li>
+        {% endfor %}
+      </ul>
+      <a class="btn" href="/missions/{{ mission.id }}/recommandations">Voir le détail →</a>
       {% endif %}
     </section>
   </section>
