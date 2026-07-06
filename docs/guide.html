@@ -1,0 +1,503 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interview-to-Deck — Guide de démarrage</title>
+<style>
+  :root {
+    --bg: #eeece3;
+    --bg-raised: #f6f4ec;
+    --ink: #201f1a;
+    --ink-soft: #55534a;
+    --ink-faint: #8c897c;
+    --line: #cac6b6;
+    --line-strong: #a9a494;
+    --accent: #1c4a6b;
+    --accent-soft: #dde6ea;
+    --accent-ink: #0d2c40;
+    --rust: #a2582c;
+    --rust-soft: #f0e0d0;
+    --done: #3e7a53;
+    --done-soft: #dbe9de;
+    --wip: #b48417;
+    --wip-soft: #f2e6c9;
+    --serif: Iowan Old Style, "Source Serif Pro", Georgia, "Noto Serif", serif;
+    --sans: -apple-system, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+  }
+  :root[data-theme="dark"] {
+    --bg: #171a1c;
+    --bg-raised: #1f2326;
+    --ink: #eae7dd;
+    --ink-soft: #b7b3a4;
+    --ink-faint: #7c7a70;
+    --line: #34383a;
+    --line-strong: #454a4c;
+    --accent: #6fa3c4;
+    --accent-soft: #223642;
+    --accent-ink: #cfe4ef;
+    --rust: #d0895a;
+    --rust-soft: #372a20;
+    --done: #7fbd93;
+    --done-soft: #1f3327;
+    --wip: #e0b256;
+    --wip-soft: #382c14;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #171a1c;
+      --bg-raised: #1f2326;
+      --ink: #eae7dd;
+      --ink-soft: #b7b3a4;
+      --ink-faint: #7c7a70;
+      --line: #34383a;
+      --line-strong: #454a4c;
+      --accent: #6fa3c4;
+      --accent-soft: #223642;
+      --accent-ink: #cfe4ef;
+      --rust: #d0895a;
+      --rust-soft: #372a20;
+      --done: #7fbd93;
+      --done-soft: #1f3327;
+      --wip: #e0b256;
+      --wip-soft: #382c14;
+    }
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); line-height: 1.6; }
+  .page { max-width: 900px; margin: 0 auto; padding: 2.5rem 1.5rem 5rem; }
+
+  .titleblock {
+    border: 1px solid var(--line-strong);
+    background: var(--bg-raised);
+    padding: 1.75rem 1.75rem 1.5rem;
+    margin-bottom: 2.5rem;
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(1.9rem, 5vw, 2.5rem);
+    margin: 0.2rem 0 0.4rem;
+    text-wrap: balance;
+  }
+  .subtitle { font-size: 1.05rem; color: var(--ink-soft); max-width: 66ch; text-wrap: balance; }
+
+  section { margin-bottom: 3rem; }
+  .kicker {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--rust);
+    margin-bottom: 0.4rem;
+  }
+  h2 { font-family: var(--serif); font-weight: 600; font-size: 1.55rem; margin: 0 0 1rem; text-wrap: balance; }
+  h3 { font-family: var(--sans); font-weight: 700; font-size: 1.02rem; margin: 1.4rem 0 0.5rem; color: var(--ink); }
+  p { max-width: 70ch; color: var(--ink-soft); }
+  p.lede { font-size: 1.08rem; color: var(--ink); max-width: 68ch; }
+  ul.plain, ol.plain { margin: 0.5rem 0; padding-left: 1.3rem; color: var(--ink-soft); max-width: 70ch; }
+  ul.plain li, ol.plain li { margin-bottom: 0.5rem; }
+  a { color: var(--accent); }
+  code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    padding: 0.05rem 0.3rem;
+    border-radius: 2px;
+  }
+  strong { color: var(--ink); }
+
+  .callout {
+    border-left: 3px solid var(--rust);
+    background: var(--rust-soft);
+    padding: 1rem 1.2rem;
+    margin: 1rem 0;
+    color: var(--ink);
+    max-width: 70ch;
+  }
+  .callout p { color: var(--ink); margin: 0.4rem 0; }
+  .callout h3 { margin-top: 0; }
+
+  .tip {
+    border-left: 3px solid var(--accent);
+    background: var(--accent-soft);
+    padding: 1rem 1.2rem;
+    margin: 1rem 0;
+    max-width: 70ch;
+  }
+  .tip p { color: var(--ink); margin: 0.4rem 0; }
+
+  .concept-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.1rem; margin-top: 1.2rem; }
+  @media (max-width: 760px) { .concept-grid { grid-template-columns: 1fr; } }
+  .concept-card {
+    border: 1px solid var(--line);
+    background: var(--bg-raised);
+    padding: 1.1rem 1.2rem;
+  }
+  .concept-card .num {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    color: var(--accent);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .concept-card h3 { margin: 0.3rem 0 0.5rem; font-family: var(--serif); font-size: 1.05rem; }
+  .concept-card p { font-size: 0.92rem; margin: 0; }
+
+  .diagram-wrap {
+    border: 1px solid var(--line);
+    background: var(--bg-raised);
+    padding: 1rem;
+    overflow-x: auto;
+    margin: 1.3rem 0;
+  }
+  .diagram-wrap svg { display: block; margin: 0 auto; width: 100%; max-width: 760px; height: auto; }
+
+  .legend { display: flex; flex-wrap: wrap; gap: 0.9rem 1.6rem; margin: 0.9rem 0 0; font-size: 0.85rem; color: var(--ink-soft); }
+  .legend-item { display: flex; align-items: center; gap: 0.5rem; }
+  .legend-swatch { width: 18px; height: 18px; flex: 0 0 auto; border-radius: 2px; }
+  .legend-swatch.main { background: var(--accent-soft); border: 1.5px solid var(--accent); }
+  .legend-swatch.opt { background: var(--wip-soft); border: 1.5px dashed var(--wip); }
+  .legend-swatch.ext { background: var(--bg); border: 1.5px dashed var(--rust); }
+
+  table.gab-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin: 1rem 0; }
+  table.gab-table th {
+    text-align: left;
+    font-family: var(--mono);
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    padding: 0.55rem 0.6rem;
+    border-bottom: 1px solid var(--line-strong);
+  }
+  table.gab-table td { padding: 0.65rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: top; color: var(--ink-soft); }
+  table.gab-table tr:last-child td { border-bottom: none; }
+  table.gab-table td:first-child { color: var(--ink); font-weight: 600; white-space: nowrap; }
+
+  .step-list { counter-reset: step; list-style: none; padding: 0; margin: 1.2rem 0; max-width: 70ch; }
+  .step-list li {
+    counter-increment: step;
+    position: relative;
+    padding: 0.2rem 0 1.1rem 2.4rem;
+    color: var(--ink-soft);
+  }
+  .step-list li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 1.7rem;
+    height: 1.7rem;
+    border-radius: 50%;
+    background: var(--accent);
+    color: var(--bg-raised);
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .step-list li strong { display: block; color: var(--ink); margin-bottom: 0.2rem; }
+
+  footer { font-size: 0.8rem; color: var(--ink-faint); border-top: 1px solid var(--line); padding-top: 1rem; margin-top: 3rem; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="titleblock">
+    <div class="eyebrow">Interview-to-Deck</div>
+    <h1>Guide de démarrage du consultant</h1>
+    <p class="subtitle">Comment mener une mission d'audit avec Interview-to-Deck — de la définition de la trame d'entretien jusqu'à l'export du deck de restitution PowerPoint.</p>
+  </div>
+
+  <section>
+    <div class="kicker">Introduction</div>
+    <h2>Qu'est-ce qu'Interview-to-Deck ?</h2>
+    <p class="lede">Interview-to-Deck est un outil interne pour les consultants qui mènent des entretiens qualitatifs pendant un audit ou une étude. Il couvre tout le trajet entre la <strong>capture</strong> des entretiens et la <strong>restitution</strong> : cadrer une trame de questions, saisir ou transcrire les entretiens, en tirer une synthèse transverse assistée par IA, puis générer un deck PowerPoint sur le template corporate du client.</p>
+
+    <h3>Dans quel contexte l'utiliser</h3>
+    <p>Interview-to-Deck est fait pour des missions comme celles-ci :</p>
+    <ul class="plain">
+      <li>une série d'entretiens structurés autour d'une même trame (thèmes et questions), menés par un ou plusieurs consultants ;</li>
+      <li>un besoin de croiser les réponses de plusieurs interviewés pour en tirer une synthèse par thème, puis une synthèse globale et des recommandations priorisées ;</li>
+      <li>une restitution finale attendue sous forme de deck PowerPoint, si possible directement sur le template corporate du client plutôt qu'un format générique ;</li>
+      <li>un contexte où la connexion à un fournisseur IA n'est pas toujours garantie (poste sans clé configurée, contrainte de confidentialité) — l'outil doit rester utilisable en mode dégradé.</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="kicker">À comprendre avant de démarrer</div>
+    <h2>Trois idées structurantes</h2>
+    <div class="concept-grid">
+      <div class="concept-card">
+        <div class="num">Idée 1</div>
+        <h3>Un seul fournisseur IA actif à la fois</h3>
+        <p>Le fournisseur (Anthropic, OpenAI ou Mistral) est choisi une fois par la variable <code>AI_PROVIDER</code>. Il n'y a <strong>pas de repli automatique</strong> vers un autre fournisseur si la clé manque — l'erreur nomme explicitement la variable d'environnement attendue. Sans clé du tout, <code>SYNTHESE_DEMO=1</code> active un mode démo heuristique (sans IA, sans coût) pour rester utilisable hors ligne.</p>
+      </div>
+      <div class="concept-card">
+        <div class="num">Idée 2</div>
+        <h3>L'aperçu web EST le PPT</h3>
+        <p>L'éditeur web par onglets et l'export PowerPoint ne sont pas deux contenus différents à maintenir en parallèle : ce sont deux rendus de la <strong>même donnée</strong> (synthèse globale, axes, recommandations). Modifier un champ dans l'aperçu web modifie ce qui sortira à l'export — il n'y a pas d'entité « slide » séparée à synchroniser.</p>
+      </div>
+      <div class="concept-card">
+        <div class="num">Idée 3</div>
+        <h3>Le garde-fou géométrique n'est pas une preuve visuelle</h3>
+        <p>Chaque export vérifie automatiquement qu'aucune forme ne sort du cadre de la slide. Mais ce contrôle ne détecte pas un texte qui déborde de <em>sa propre</em> zone (par ex. une liste à puces trop longue) : un <code>.pptx</code> qui passe ce contrôle peut encore avoir besoin d'être ouvert et regardé avant d'être livré.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="kicker">Vue d'ensemble</div>
+    <h2>Déroulement d'une mission</h2>
+    <p>Le schéma ci-dessous montre l'enchaînement principal, le point où le mode de capture d'un entretien varie, et les mécanismes transverses (import de trame, mode démo, template client, vérification visuelle) qui s'y greffent.</p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 940 980" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Logigramme du déroulement d'une mission Interview-to-Deck">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-faint)"></path>
+          </marker>
+        </defs>
+
+        <style>
+          .n-main rect, .n-main ellipse { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1.5; }
+          .n-main text { fill: var(--accent-ink); }
+          .n-opt rect { fill: var(--wip-soft); stroke: var(--wip); stroke-width: 1.3; stroke-dasharray: 4 3; }
+          .n-opt text { fill: var(--ink); }
+          .n-ext rect { fill: var(--bg); stroke: var(--rust); stroke-width: 1.3; stroke-dasharray: 5 3; }
+          .n-ext text { fill: var(--ink); }
+          .lbl-title { font-family: var(--sans); font-weight: 700; font-size: 15px; }
+          .lbl-sub { font-family: var(--mono); font-size: 10.5px; }
+          .lbl-small { font-family: var(--sans); font-size: 11px; }
+          .edge { stroke: var(--ink-faint); stroke-width: 1.6; fill: none; }
+          .edge-dashed { stroke: var(--ink-faint); stroke-width: 1.4; fill: none; stroke-dasharray: 5 4; }
+        </style>
+
+        <!-- start -->
+        <g class="n-main">
+          <ellipse cx="340" cy="40" rx="150" ry="26"></ellipse>
+          <text x="340" y="45" text-anchor="middle" class="lbl-title">Nouvelle mission</text>
+        </g>
+        <line x1="340" y1="66" x2="340" y2="88" class="edge" marker-end="url(#arrow)"></line>
+
+        <!-- trame -->
+        <g class="n-main">
+          <rect x="190" y="90" width="300" height="60" rx="8"></rect>
+          <text x="340" y="115" text-anchor="middle" class="lbl-title">Trame</text>
+          <text x="340" y="134" text-anchor="middle" class="lbl-sub">thèmes → questions</text>
+        </g>
+        <line x1="340" y1="150" x2="340" y2="176" class="edge" marker-end="url(#arrow)"></line>
+
+        <!-- fork: capture modes -->
+        <text x="340" y="196" text-anchor="middle" class="lbl-small" fill="var(--ink-faint)">un entretien, trois façons de le capturer</text>
+        <line x1="340" y1="200" x2="150" y2="224" class="edge"></line>
+        <line x1="340" y1="200" x2="340" y2="224" class="edge"></line>
+        <line x1="340" y1="200" x2="530" y2="224" class="edge"></line>
+
+        <g class="n-opt">
+          <rect x="40" y="226" width="220" height="54" rx="8"></rect>
+          <text x="150" y="250" text-anchor="middle" class="lbl-title" font-size="12.5">Saisie manuelle</text>
+          <text x="150" y="266" text-anchor="middle" class="lbl-sub">champ par question</text>
+        </g>
+        <g class="n-opt">
+          <rect x="230" y="226" width="220" height="54" rx="8"></rect>
+          <text x="340" y="250" text-anchor="middle" class="lbl-title" font-size="12.5">Enregistrement audio</text>
+          <text x="340" y="266" text-anchor="middle" class="lbl-sub">Whisper local + IA</text>
+        </g>
+        <g class="n-opt">
+          <rect x="420" y="226" width="220" height="54" rx="8"></rect>
+          <text x="530" y="250" text-anchor="middle" class="lbl-title" font-size="12.5">Import de document</text>
+          <text x="530" y="266" text-anchor="middle" class="lbl-sub">transcription existante + IA</text>
+        </g>
+
+        <line x1="150" y1="280" x2="340" y2="306" class="edge"></line>
+        <line x1="340" y1="280" x2="340" y2="306" class="edge"></line>
+        <line x1="530" y1="280" x2="340" y2="306" class="edge"></line>
+        <line x1="340" y1="306" x2="340" y2="330" class="edge" marker-end="url(#arrow)"></line>
+
+        <!-- entretien capturé -->
+        <g class="n-main">
+          <rect x="190" y="332" width="300" height="60" rx="8"></rect>
+          <text x="340" y="357" text-anchor="middle" class="lbl-title" font-size="14.5">Entretien capturé</text>
+          <text x="340" y="376" text-anchor="middle" class="lbl-sub">réponses + verbatims, à revoir avant validation</text>
+        </g>
+        <line x1="340" y1="392" x2="340" y2="418" class="edge" marker-end="url(#arrow)"></line>
+
+        <!-- synthese par theme -->
+        <g class="n-main">
+          <rect x="190" y="420" width="300" height="60" rx="8"></rect>
+          <text x="340" y="445" text-anchor="middle" class="lbl-title" font-size="14">Synthèse par thème</text>
+          <text x="340" y="464" text-anchor="middle" class="lbl-sub">croisement inter-entretiens</text>
+        </g>
+        <line x1="340" y1="480" x2="340" y2="506" class="edge" marker-end="url(#arrow)"></line>
+
+        <!-- synthese globale -->
+        <g class="n-main">
+          <rect x="190" y="508" width="300" height="60" rx="8"></rect>
+          <text x="340" y="533" text-anchor="middle" class="lbl-title" font-size="14">Synthèse globale</text>
+          <text x="340" y="552" text-anchor="middle" class="lbl-sub">5 catégories fixes</text>
+        </g>
+        <line x1="340" y1="568" x2="340" y2="594" class="edge" marker-end="url(#arrow)"></line>
+
+        <!-- recommandations -->
+        <g class="n-main">
+          <rect x="190" y="596" width="300" height="60" rx="8"></rect>
+          <text x="340" y="621" text-anchor="middle" class="lbl-title">Recommandations</text>
+          <text x="340" y="640" text-anchor="middle" class="lbl-sub">axes → recommandations notées valeur/complexité</text>
+        </g>
+        <line x1="340" y1="656" x2="340" y2="682" class="edge" marker-end="url(#arrow)"></line>
+
+        <!-- apercu -->
+        <g class="n-main">
+          <rect x="190" y="684" width="300" height="60" rx="8"></rect>
+          <text x="340" y="709" text-anchor="middle" class="lbl-title" font-size="14">Aperçu &amp; édition</text>
+          <text x="340" y="728" text-anchor="middle" class="lbl-sub">un onglet par slide, même donnée que l'export</text>
+        </g>
+        <line x1="340" y1="744" x2="340" y2="770" class="edge" marker-end="url(#arrow)"></line>
+
+        <!-- export -->
+        <g class="n-main">
+          <rect x="190" y="772" width="300" height="60" rx="8"></rect>
+          <text x="340" y="797" text-anchor="middle" class="lbl-title">Export PPT</text>
+          <text x="340" y="816" text-anchor="middle" class="lbl-sub">garde-fou géométrique automatique</text>
+        </g>
+        <line x1="340" y1="832" x2="340" y2="858" class="edge" marker-end="url(#arrow)"></line>
+
+        <!-- end -->
+        <g class="n-main">
+          <ellipse cx="340" cy="884" rx="150" ry="26"></ellipse>
+          <text x="340" y="889" text-anchor="middle" class="lbl-title">Deck livré</text>
+        </g>
+
+        <!-- extension: import trame docx -->
+        <g class="n-ext">
+          <rect x="680" y="90" width="240" height="70" rx="8"></rect>
+          <text x="800" y="113" text-anchor="middle" class="lbl-small" font-weight="700">Mécanisme additif :</text>
+          <text x="800" y="129" text-anchor="middle" class="lbl-small" font-weight="700">Import de trame (.docx)</text>
+          <text x="800" y="146" text-anchor="middle" class="lbl-sub">fusion non destructive par titre de thème</text>
+        </g>
+        <line x1="680" y1="125" x2="492" y2="118" class="edge-dashed" marker-end="url(#arrow)"></line>
+
+        <!-- extension: template ppt client -->
+        <g class="n-ext">
+          <rect x="680" y="742" width="240" height="80" rx="8"></rect>
+          <text x="800" y="765" text-anchor="middle" class="lbl-small" font-weight="700">Mécanisme additif :</text>
+          <text x="800" y="781" text-anchor="middle" class="lbl-small" font-weight="700">Template PPT client</text>
+          <text x="800" y="797" text-anchor="middle" class="lbl-sub">hérite thème / masters / logo,</text>
+          <text x="800" y="811" text-anchor="middle" class="lbl-sub">sinon deck 16:9 par défaut</text>
+        </g>
+        <line x1="680" y1="782" x2="492" y2="800" class="edge-dashed" marker-end="url(#arrow)"></line>
+
+        <!-- extension: verification visuelle reelle -->
+        <g class="n-ext">
+          <rect x="680" y="850" width="240" height="70" rx="8"></rect>
+          <text x="800" y="873" text-anchor="middle" class="lbl-small" font-weight="700">À ne jamais sauter :</text>
+          <text x="800" y="889" text-anchor="middle" class="lbl-small" font-weight="700">Vérification visuelle réelle</text>
+          <text x="800" y="906" text-anchor="middle" class="lbl-sub">le garde-fou géométrique ne détecte pas tout</text>
+        </g>
+        <line x1="680" y1="885" x2="492" y2="812" class="edge-dashed" marker-end="url(#arrow)"></line>
+
+        <!-- mode demo bracket, spanning synthese steps -->
+        <line x1="660" y1="420" x2="660" y2="656" class="edge-dashed"></line>
+        <line x1="660" y1="420" x2="675" y2="420" class="edge-dashed"></line>
+        <line x1="660" y1="656" x2="675" y2="656" class="edge-dashed"></line>
+        <line x1="660" y1="538" x2="680" y2="538" class="edge-dashed"></line>
+        <g class="n-ext">
+          <rect x="680" y="493" width="240" height="90" rx="8"></rect>
+          <text x="800" y="517" text-anchor="middle" class="lbl-small" font-weight="700">Mode démo</text>
+          <text x="800" y="535" text-anchor="middle" class="lbl-sub">SYNTHESE_DEMO=1 — hors-ligne,</text>
+          <text x="800" y="549" text-anchor="middle" class="lbl-sub">sans clé IA, à la place de la</text>
+          <text x="800" y="563" text-anchor="middle" class="lbl-sub">synthèse/recommandations IA</text>
+        </g>
+      </svg>
+
+      <div class="legend">
+        <div class="legend-item"><span class="legend-swatch main"></span> étape du parcours principal (toujours présente)</div>
+        <div class="legend-item"><span class="legend-swatch opt"></span> variante au même point du parcours (un choix parmi plusieurs)</div>
+        <div class="legend-item"><span class="legend-swatch ext"></span> mécanisme additif (import, template, mode démo, vérification)</div>
+      </div>
+    </div>
+
+    <h3>Ce que le schéma ne montre pas explicitement</h3>
+    <ul class="plain">
+      <li><strong>L'import de trame ne remplace pas la trame existante.</strong> La fusion se fait par titre de thème : les questions déjà répondues ne sont jamais écrasées.</li>
+      <li><strong>Le mode démo n'est pas réservé aux tests.</strong> Il rend l'outil utilisable de bout en bout sans aucune clé IA configurée — utile pour une démonstration ou un poste sans accès réseau sortant.</li>
+      <li><strong>La vérification visuelle réelle n'est déclenchée par aucune étape du logiciel</strong> : c'est un réflexe humain à garder après chaque export, pas un contrôle automatisé de plus.</li>
+    </ul>
+  </section>
+
+  <section>
+    <div class="kicker">Outillage</div>
+    <h2>Choisir le mode de capture d'un entretien</h2>
+    <p>Les trois modes produisent le même résultat (des <code>Answer</code>/<code>Verbatim</code> rattachés aux questions de la trame) mais conviennent à des situations différentes.</p>
+
+    <table class="gab-table">
+      <thead>
+        <tr><th>Mode</th><th>Comment</th><th>Quand l'utiliser</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Saisie manuelle</td>
+          <td>Un champ de texte par question, autosave à chaque frappe.</td>
+          <td>Entretien court, ou notes déjà prises pendant l'échange.</td>
+        </tr>
+        <tr>
+          <td>Enregistrement audio</td>
+          <td>Capture navigateur, transcription locale (faster-whisper, la voix ne quitte jamais le poste), puis une IA répartit le texte transcrit par question et propose des verbatims.</td>
+          <td>Entretien long ou spontané, où prendre des notes en direct gênerait l'échange.</td>
+        </tr>
+        <tr>
+          <td>Import de document</td>
+          <td>Un fichier <code>.docx</code> déjà rédigé (transcription, notes) est analysé par la même IA de répartition par question.</td>
+          <td>Une transcription existe déjà (prise par un tiers, ou un autre outil).</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="tip">
+      <p><strong>Astuce.</strong> Les trois modes passent par un écran de <strong>revue avant validation</strong> : l'IA de répartition peut se tromper de question, surtout si deux questions sont proches l'une de l'autre — c'est le moment de corriger avant que la réponse ne soit enregistrée.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="kicker">Prise en main</div>
+    <h2>Premiers pas pour une première mission</h2>
+    <ol class="step-list">
+      <li><strong>Créer la mission et sa trame.</strong> Définir les thèmes et questions à la main, ou importer une trame <code>.docx</code> existante si la mission en a déjà une.</li>
+      <li><strong>Choisir un mode de capture par entretien</strong> selon le contexte (voir le tableau ci-dessus) — rien n'oblige à utiliser le même mode pour tous les entretiens d'une mission.</li>
+      <li><strong>Relire chaque entretien à l'écran de revue</strong> avant de valider, surtout pour les entretiens capturés par audio ou import — une réponse mal répartie entre deux questions se corrige là, pas après.</li>
+      <li><strong>Lancer la synthèse par thème</strong> une fois plusieurs entretiens saisis, puis la <strong>synthèse globale et les recommandations</strong> — IA si une clé est configurée, mode démo sinon.</li>
+      <li><strong>Uploader le template PowerPoint du client</strong> si disponible, pour que l'export en hérite le thème, les masters et le logo plutôt qu'un deck générique.</li>
+      <li><strong>Toujours ouvrir et regarder l'export réel</strong> avant de le livrer — un fichier qui passe le contrôle géométrique automatique n'est pas encore un fichier vérifié visuellement.</li>
+    </ol>
+
+    <div class="callout">
+      <h3>Pièges fréquents à éviter</h3>
+      <p><strong>Changer <code>AI_PROVIDER</code> en pensant garder un repli automatique sur l'ancien fournisseur.</strong> Un seul fournisseur est actif à la fois ; sans sa clé, l'erreur nomme la variable manquante plutôt que de basculer silencieusement ailleurs.</p>
+      <p><strong>Valider un entretien enregistré sans relire la répartition proposée.</strong> L'IA de structuration peut rattacher une réponse à la mauvaise question quand deux questions sont formulées de façon proche — l'écran de revue existe précisément pour ce cas.</p>
+      <p><strong>Considérer qu'un export sans erreur est un export correct visuellement.</strong> Le garde-fou géométrique détecte une forme qui sort du cadre de la slide, pas un texte qui déborde de sa propre zone à l'intérieur d'une forme bien placée.</p>
+      <p><strong>Modifier un champ dans l'aperçu web en pensant qu'il faudra « régénérer » le PPT séparément.</strong> L'aperçu et l'export lisent la même donnée : il n'y a rien à resynchroniser, seulement un nouvel export à relancer.</p>
+    </div>
+  </section>
+
+  <footer>
+    Guide de démarrage Interview-to-Deck — pour l'architecture et les conventions du projet, voir <code>docs/wiki/</code>.
+  </footer>
+
+</div>
+</body>
+</html>
