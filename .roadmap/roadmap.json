@@ -128,6 +128,21 @@
         { "label": "US6.4 pagination", "status": "todo" },
         { "label": "US6.5 regeneration", "status": "todo" }
       ]
+    },
+    {
+      "phase": "realisation",
+      "title": "9. Cinematique d'entretien libre vs parametree",
+      "description": "Bascule de mode par entretien (parametre/libre) choisie a la creation, sans possibilite de repartir vers la trame en mode libre. Mise en forme IA des tours de parole (interlocuteur/question/remarque), revue editable, contribution a la synthese globale de mission (pas a la synthese par theme), export Markdown.",
+      "status": "todo",
+      "tokens": { "estimate": 100000 },
+      "subItems": [
+        { "label": "US9.1 mode + bascule creation (+ degating dashboard)", "status": "todo" },
+        { "label": "US9.2 capture libre texte/audio (patron notes-libres)", "status": "todo" },
+        { "label": "US9.3 mise en forme IA + revue editable des tours", "status": "todo" },
+        { "label": "US9.4 integration synthese globale de mission", "status": "todo" },
+        { "label": "US9.5 export markdown des tours", "status": "todo" },
+        { "label": "US9.6 finitions transverses (couverture, doc, wiki)", "status": "todo" }
+      ]
     }
   ]
 }

@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Interview-to-Deck — Wiki d'onboarding</title>
+<style>
+  :root {
+    --bg: #eeece3;
+    --bg-raised: #f6f4ec;
+    --surface: #f6f4ec;
+    --surface-2: #e6e2d3;
+    --ink: #201f1a;
+    --ink-soft: #55534a;
+    --ink-faint: #8c897c;
+    --line: #cac6b6;
+    --line-strong: #a9a494;
+    --accent: #1c4a6b;
+    --accent-soft: #dde6ea;
+    --accent-ink: #0d2c40;
+    --rust: #a2582c;
+    --rust-soft: #f0e0d0;
+    --done: #3e7a53;
+    --done-soft: #dbe9de;
+    --wip: #b48417;
+    --wip-soft: #f2e6c9;
+    --serif: Iowan Old Style, "Source Serif Pro", Georgia, "Noto Serif", serif;
+    --sans: -apple-system, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Consolas, monospace;
+    --sidebar-w: 260px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #171a1c;
+      --bg-raised: #1f2326;
+      --surface: #1f2326;
+      --surface-2: #262b2e;
+      --ink: #eae7dd;
+      --ink-soft: #b7b3a4;
+      --ink-faint: #7c7a70;
+      --line: #34383a;
+      --line-strong: #454a4c;
+      --accent: #6fa3c4;
+      --accent-soft: #223642;
+      --accent-ink: #cfe4ef;
+      --rust: #d0895a;
+      --rust-soft: #372a20;
+      --done: #7fbd93;
+      --done-soft: #1f3327;
+      --wip: #e0b256;
+      --wip-soft: #382c14;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #171a1c; --bg-raised: #1f2326; --surface: #1f2326; --surface-2: #262b2e;
+    --ink: #eae7dd; --ink-soft: #b7b3a4; --ink-faint: #7c7a70;
+    --line: #34383a; --line-strong: #454a4c;
+    --accent: #6fa3c4; --accent-soft: #223642; --accent-ink: #cfe4ef;
+    --rust: #d0895a; --rust-soft: #372a20;
+    --done: #7fbd93; --done-soft: #1f3327;
+    --wip: #e0b256; --wip-soft: #382c14;
+  }
+  :root[data-theme="light"] {
+    --bg: #eeece3; --bg-raised: #f6f4ec; --surface: #f6f4ec; --surface-2: #e6e2d3;
+    --ink: #201f1a; --ink-soft: #55534a; --ink-faint: #8c897c;
+    --line: #cac6b6; --line-strong: #a9a494;
+    --accent: #1c4a6b; --accent-soft: #dde6ea; --accent-ink: #0d2c40;
+    --rust: #a2582c; --rust-soft: #f0e0d0;
+    --done: #3e7a53; --done-soft: #dbe9de;
+    --wip: #b48417; --wip-soft: #f2e6c9;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--ink); font-family: var(--sans);
+    font-size: 16px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent-ink); }
+  a:focus-visible, .toc-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  .wiki { display: flex; align-items: flex-start; max-width: 1160px; margin: 0 auto; }
+
+  .sidebar {
+    position: sticky; top: 0; width: var(--sidebar-w); flex: 0 0 var(--sidebar-w);
+    height: 100vh; overflow-y: auto; padding: 26px 18px 40px;
+    border-right: 1px solid var(--line); background: var(--surface);
+  }
+  .brand { font-family: var(--serif); font-size: 1.2rem; font-weight: 700; margin: 0 0 2px; }
+  .brand-sub {
+    font-family: var(--mono); font-size: 0.68rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--ink-faint); margin: 0 0 20px;
+  }
+  .toc-group { margin-bottom: 16px; }
+  .toc-group-label {
+    font-family: var(--mono); font-size: 0.66rem; text-transform: uppercase;
+    letter-spacing: 0.08em; color: var(--ink-faint); margin: 0 0 6px; padding-left: 10px;
+  }
+  .toc-link {
+    display: block; font-size: 0.86rem; color: var(--ink-soft); text-decoration: none;
+    padding: 5px 10px; border-radius: 6px; border-left: 2px solid transparent; line-height: 1.3;
+  }
+  .toc-link:hover { background: var(--surface-2); color: var(--ink); }
+
+  .content { flex: 1 1 auto; min-width: 0; padding: 36px 52px 120px; max-width: 840px; }
+
+  .doc-header { margin-bottom: 8px; }
+  .doc-header h1 { font-family: var(--serif); font-size: 2rem; margin: 0 0 6px; text-wrap: balance; }
+  .doc-meta {
+    display: flex; flex-wrap: wrap; gap: 6px 16px; font-family: var(--mono);
+    font-size: 0.76rem; color: var(--ink-faint); margin-bottom: 20px;
+  }
+
+  .staleness {
+    border-left: 3px solid var(--wip); background: var(--wip-soft); border-radius: 0 10px 10px 0;
+    padding: 12px 16px; margin: 0 0 24px; font-size: 0.86rem; color: var(--ink);
+  }
+  .staleness p { margin: 0; max-width: none; }
+
+  .legend {
+    display: flex; flex-wrap: wrap; gap: 10px; margin: 0 0 34px; padding: 14px 16px;
+    border: 1px solid var(--line); border-radius: 10px; background: var(--surface);
+    font-size: 0.82rem; color: var(--ink-soft); align-items: center;
+  }
+  .legend strong { color: var(--ink); font-weight: 600; }
+
+  .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 10px; margin: 0 0 36px; }
+  .stat-card {
+    border: 1px solid var(--line); border-radius: 10px; padding: 12px 12px; background: var(--surface);
+    display: flex; flex-direction: column; gap: 3px; text-align: center;
+  }
+  .stat-num { font-family: var(--serif); font-size: 1.5rem; color: var(--accent-ink); font-variant-numeric: tabular-nums; }
+  .stat-label { font-size: 0.72rem; color: var(--ink-soft); line-height: 1.3; }
+
+  section.doc { margin-bottom: 64px; scroll-margin-top: 20px; }
+  section.doc + section.doc { border-top: 1px solid var(--line); padding-top: 44px; }
+  .eyebrow {
+    font-family: var(--mono); font-size: 0.68rem; text-transform: uppercase;
+    letter-spacing: 0.09em; color: var(--accent-ink); margin: 0 0 6px;
+  }
+  h2 { font-family: var(--serif); font-size: 1.5rem; margin: 0 0 6px; text-wrap: balance; }
+  .file-meta {
+    font-family: var(--mono); font-size: 0.72rem; color: var(--ink-faint);
+    margin: 0 0 20px; display: flex; gap: 14px; flex-wrap: wrap;
+  }
+  h3 { font-family: var(--serif); font-size: 1.12rem; margin: 26px 0 10px; }
+  p { margin: 0 0 10px; max-width: 66ch; color: var(--ink); }
+  ul, ol { margin: 0 0 10px; padding-left: 1.25em; max-width: 66ch; }
+  li { margin-bottom: 6px; }
+  strong { font-weight: 600; }
+  code {
+    font-family: var(--mono); font-size: 0.86em; background: var(--surface-2);
+    padding: 0.08em 0.38em; border-radius: 4px; color: var(--accent-ink);
+  }
+
+  .fact { margin: 0 0 16px; padding-left: 12px; border-left: 2px solid var(--line); }
+  .tag {
+    display: inline-flex; align-items: center; gap: 6px; font-family: var(--mono);
+    font-size: 0.7rem; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+    margin-top: 4px; letter-spacing: 0.02em;
+  }
+  .tag-confirme { background: var(--done-soft); color: var(--done); }
+  .tag-deduit { background: var(--wip-soft); color: var(--wip); }
+  .tag-incertain { background: var(--rust-soft); color: var(--rust); }
+  .tag-source { font-family: var(--mono); font-size: 0.74rem; color: var(--ink-faint); margin-top: 5px; }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; margin: 12px 0 20px; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.86rem; min-width: 420px; }
+  thead th {
+    text-align: left; font-family: var(--mono); font-size: 0.66rem; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--ink-faint); background: var(--surface-2);
+    padding: 9px 13px; border-bottom: 1px solid var(--line); white-space: nowrap;
+  }
+  tbody td { padding: 9px 13px; border-bottom: 1px solid var(--line-strong); vertical-align: top; color: var(--ink); }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--surface-2); }
+
+  .critical {
+    border-left: 3px solid var(--rust); background: var(--rust-soft);
+    border-radius: 0 10px 10px 0; padding: 12px 16px; margin: 8px 0 20px;
+  }
+  .critical p:last-child { margin-bottom: 0; }
+
+  .shadow-list { list-style: none; padding-left: 0; }
+  .shadow-list li { padding-left: 22px; position: relative; color: var(--ink-soft); }
+  .shadow-list li::before { content: "?"; position: absolute; left: 2px; color: var(--ink-faint); font-family: var(--mono); }
+
+  pre {
+    font-family: var(--mono); font-size: 0.82rem; background: var(--surface-2);
+    border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px;
+    overflow-x: auto; line-height: 1.6; color: var(--ink); margin: 12px 0 20px;
+  }
+
+  footer.doc-footer {
+    border-top: 1px solid var(--line); padding-top: 16px; margin-top: 50px;
+    font-family: var(--mono); font-size: 0.72rem; color: var(--ink-faint);
+  }
+
+  @media (max-width: 860px) {
+    .wiki { flex-direction: column; }
+    .sidebar { position: relative; width: 100%; height: auto; flex-basis: auto; border-right: none; border-bottom: 1px solid var(--line); }
+    .content { padding: 28px 20px 80px; max-width: 100%; }
+  }
+  @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+</head>
+<body>
+
+<div class="wiki">
+  <aside class="sidebar">
+    <p class="brand">Interview-to-Deck</p>
+    <p class="brand-sub">Wiki d'onboarding · onboarder</p>
+    <nav>
+      <div class="toc-group">
+        <p class="toc-group-label">Vue d'ensemble</p>
+        <a class="toc-link" href="#index">Index</a>
+      </div>
+      <div class="toc-group">
+        <p class="toc-group-label">Métier</p>
+        <a class="toc-link" href="#business">Domaines métier</a>
+      </div>
+      <div class="toc-group">
+        <p class="toc-group-label">Technique</p>
+        <a class="toc-link" href="#architecture">Architecture</a>
+        <a class="toc-link" href="#stack">Stack</a>
+        <a class="toc-link" href="#conventions">Conventions</a>
+        <a class="toc-link" href="#tests">Tests</a>
+        <a class="toc-link" href="#todo-session">TODO — reprise de session</a>
+      </div>
+    </nav>
+  </aside>
+
+  <main class="content">
+    <div class="doc-header">
+      <h1>Wiki d'onboarding — Interview-to-Deck</h1>
+      <div class="doc-meta">
+        <span>Généré par : onboarder</span>
+        <span>Mis à jour : 2026-07-10</span>
+        <span>Source : docs/wiki/*.md</span>
+      </div>
+    </div>
+
+    <div class="staleness">
+      <p><strong>Fraîcheur partielle.</strong> Les sections ci-dessous datent en grande partie du 30 juin 2026 (seule la section Tests a été vérifiée le 10 juillet). Le projet a avancé depuis (nouveaux services, incréments PPT, nouveaux skills) — voir <code>.roadmap/roadmap.json</code> et <code>git log</code> pour l'état courant avant de s'appuyer sur un fait précis ici.</p>
+    </div>
+
+    <div class="legend">
+      <strong>Tags de confiance :</strong>
+      <span class="tag tag-confirme">CONFIRMÉ</span>
+      <span class="tag tag-deduit">DÉDUIT</span>
+      <span class="tag tag-incertain">INCERTAIN</span>
+      <span>— chaque assertion cite agent · date · fichier source</span>
+    </div>
+
+    <div class="stat-grid">
+      <div class="stat-card"><span class="stat-num">17</span><span class="stat-label">Commits git</span></div>
+      <div class="stat-card"><span class="stat-num">56</span><span class="stat-label">Tests automatisés</span></div>
+      <div class="stat-card"><span class="stat-num">5</span><span class="stat-label">Fichiers de test</span></div>
+      <div class="stat-card"><span class="stat-num">0</span><span class="stat-label">Pipeline CI/CD</span></div>
+      <div class="stat-card"><span class="stat-num">~5,4k</span><span class="stat-label">Lignes app/*.py</span></div>
+    </div>
+
+    <!-- ============ INDEX ============ -->
+    <section class="doc" id="index">
+      <p class="eyebrow">Vue d'ensemble</p>
+      <h2>Interview-to-Deck — Index Wiki</h2>
+      <p class="file-meta"><span>docs/wiki/index.md</span><span>confidence: confirmed</span></p>
+
+      <h3>Stack critique</h3>
+      <div class="fact">
+        <p>Python 3.12+ · FastAPI 0.115+ · SQLAlchemy 2.0 / SQLite · Jinja2 + HTMX 2.0 · Anthropic Claude Opus 4.8.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · requirements.txt</div>
+      </div>
+
+      <h3>Architecture (résumé)</h3>
+      <div class="fact">
+        <p>Monolithe Python SSR. FastAPI route → Service → Template Jinja2 + HTMX. Modèle <code>Mission</code> → <code>Trame</code> → <code>Theme</code> → <code>Question</code> ; entités <code>Interview</code>/<code>Answer</code>/<code>Verbatim</code>/<code>Synthesis</code>/<code>AgentResult</code>. Import <code>.docx</code> non-destructif, synthèse IA ou mode démo, intégration OpenHub pour invoquer des agents.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30</div>
+      </div>
+
+      <h3>God nodes — concepts les plus connectés</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Concept</th><th>Pages liées</th><th>Criticité</th></tr></thead>
+          <tbody>
+            <tr><td>Mission</td><td><a href="#architecture">Architecture</a>, <a href="#business">Domaines métier</a></td><td>Critique</td></tr>
+            <tr><td>Synthèse IA</td><td><a href="#architecture">Architecture</a>, <a href="#stack">Stack</a></td><td>Haute</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Carte des domaines métier</h3>
+      <ul>
+        <li><a href="#business">Entretien &amp; Synthèse</a> — Capture d'interviews sur trame, synthèse transverse, génération PPT</li>
+      </ul>
+
+      <h3>Points critiques actifs</h3>
+      <div class="critical">
+        <p>Secret Anthropic dans <code>.env:9</code> : commentée et <code>.env</code> gitignoré (<code>.gitignore:7</code>) → exposition improbable ; vigilance seulement si dé-commentée en local.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30</div>
+      </div>
+      <div class="critical">
+        <p>Aucune authentification — accessible sans restriction.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30</div>
+      </div>
+      <div class="critical">
+        <p>Pas de CI/CD ni de pipeline de déploiement.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30</div>
+      </div>
+
+      <h3>Zones d'ombre</h3>
+      <ul class="shadow-list">
+        <li>Déploiement : aucun runbook ni CI/CD détecté</li>
+        <li>Tests : pas de seuil de couverture configuré</li>
+        <li>Conventions de code : pas de linting/formatting imposé</li>
+        <li>Environnements : dev local seulement (pas de staging/prod)</li>
+      </ul>
+    </section>
+
+    <!-- ============ BUSINESS ============ -->
+    <section class="doc" id="business">
+      <p class="eyebrow">Métier</p>
+      <h2>Domaines métier — Interview-to-Deck</h2>
+      <p class="file-meta"><span>docs/wiki/business/index.md</span><span>confidence: confirmed</span></p>
+
+      <h3>Vue d'ensemble</h3>
+      <div class="fact">
+        <p>Application de saisie d'entretiens qualitatifs sur trame structurée, synthèse transverse des réponses (IA ou règles), et génération de présentations PPT de restitution sur template corporate. Destinée aux consultants et équipes projet réalisant des interviews dans le cadre d'audits ou d'études.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · README.md</div>
+      </div>
+
+      <h3>Domaines documentés</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Domaine</th><th>Fichier</th><th>Concepts clés</th></tr></thead>
+          <tbody>
+            <tr><td>Entretien &amp; Synthèse</td><td><em>page unique — ce fichier</em></td><td>Mission, Trame, Thème, Question, Interview, Synthèse</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Concepts transversaux</h3>
+      <div class="fact">
+        <p><strong>Mission</strong> — conteneur racine qui agrège trame, entretiens et synthèses.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · app/models.py:56</div>
+      </div>
+
+      <h3>Utilisateurs cibles</h3>
+      <div class="fact">
+        <p><strong>Consultant·e</strong> — crée une mission, importe/édite la trame, mène les entretiens, génère la synthèse et le deck.</p>
+        <span class="tag tag-deduit">DÉDUIT</span>
+        <div class="tag-source">onboarder · 2026-06-30</div>
+      </div>
+    </section>
+
+    <!-- ============ ARCHITECTURE ============ -->
+    <section class="doc" id="architecture">
+      <p class="eyebrow">Technique</p>
+      <h2>Architecture — Interview-to-Deck</h2>
+      <p class="file-meta"><span>docs/wiki/technical/architecture.md</span><span>confidence: confirmed</span></p>
+
+      <h3>Structure globale</h3>
+      <div class="fact">
+        <p>Monolithe Python backend avec rendu serveur. Pas de séparation API/SPA — FastAPI produit directement du HTML via Jinja2.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30</div>
+      </div>
+
+      <h3>Découpage en couches</h3>
+      <div class="fact">
+        <p>Router FastAPI (validation HTTP) → Service (logique métier) → Template Jinja2 (rendu). Les sessions SQLAlchemy sont injectées par <code>Depends(get_session)</code>.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · app/routers/, app/services/</div>
+      </div>
+
+      <h3>Modèle de données</h3>
+      <div class="fact">
+        <p>Hiérarchie <code>Mission</code> → <code>Trame</code> → <code>Theme</code> → <code>Question</code>. Entités satellites : <code>Interview</code> → <code>Answer</code> + <code>Verbatim</code>, <code>Synthesis</code> (par thème), <code>AgentResult</code>.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · app/models.py</div>
+      </div>
+
+      <h3>Communication entre modules</h3>
+      <div class="fact">
+        <p>Appels synchrones en Python — pas de queue, pas d'événements. L'appel à l'API Anthropic est synchrone (bloquant).</p>
+        <span class="tag tag-deduit">DÉDUIT</span>
+        <div class="tag-source">onboarder · 2026-06-30</div>
+      </div>
+
+      <h3>Décisions architecturales notables</h3>
+      <div class="fact">
+        <p><strong>Import non destructif</strong> : fusion par titre de thème, questions ajoutées sans écrasement (préserve les réponses existantes).</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · app/routers/trames.py:97</div>
+      </div>
+      <div class="fact">
+        <p><strong>Synthèse IA avec fallback</strong> : SDK Anthropic avec sortie JSON structurée, mode démo heuristique si clé absente.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · app/services/synthese_ai.py</div>
+      </div>
+      <div class="fact">
+        <p><strong>Migrations additives à chaud</strong> : les nouvelles colonnes sont ajoutées via <code>ALTER TABLE</code> au démarrage (pas de migration versionnée).</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · app/db.py:33</div>
+      </div>
+      <div class="fact">
+        <p><strong>HTMX pour l'interactivité</strong> : autosave par champ, navigation entre thèmes, pas de JS framework.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · app/templates/</div>
+      </div>
+
+      <h3>Points de fragilité connus</h3>
+      <div class="critical">
+        <p>Secret Anthropic dans <code>.env:9</code> : commentée et <code>.env</code> gitignoré (<code>.gitignore:7</code>), exposition improbable.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30</div>
+      </div>
+      <div class="critical">
+        <p>Absence d'authentification.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · app/main.py</div>
+      </div>
+      <div class="critical">
+        <p>Pas de CI/CD.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30</div>
+      </div>
+    </section>
+
+    <!-- ============ STACK ============ -->
+    <section class="doc" id="stack">
+      <p class="eyebrow">Technique</p>
+      <h2>Stack — Interview-to-Deck</h2>
+      <p class="file-meta"><span>docs/wiki/technical/stack.md</span><span>confidence: confirmed</span></p>
+
+      <h3>Dépendances principales</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Catégorie</th><th>Technologie</th><th>Version</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>Langage</td><td>Python</td><td>3.12+</td><td><code>.venv</code> attendu à la racine</td></tr>
+            <tr><td>Framework Web</td><td>FastAPI</td><td>≥0.115</td><td>SSR, pas de séparation API/SPA</td></tr>
+            <tr><td>Templating</td><td>Jinja2</td><td>≥3.1</td><td>Templates par domaine dans <code>app/templates/</code></td></tr>
+            <tr><td>ORM</td><td>SQLAlchemy</td><td>≥2.0</td><td>Déclarative, sessions injectées via FastAPI</td></tr>
+            <tr><td>Base de données</td><td>SQLite</td><td>—</td><td>Fichier <code>data/app.db</code> (gitignoré)</td></tr>
+            <tr><td>Frontend dynamique</td><td>HTMX</td><td>2.0.3</td><td>Chargé depuis unpkg CDN, pas de SRI</td></tr>
+            <tr><td>Import .docx</td><td>python-docx</td><td>≥1.1</td><td>Analyse des niveaux de liste Word</td></tr>
+            <tr><td>IA</td><td>Anthropic SDK</td><td>≥0.69</td><td>Importé en lazy, mode démo disponible</td></tr>
+            <tr><td>Environnement</td><td>python-dotenv</td><td>≥1.0</td><td>Chargement du <code>.env</code> au démarrage</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="tag-source" style="margin-bottom:20px;">CONFIRMÉ · onboarder · 2026-06-30 · requirements.txt</p>
+
+      <h3>Librairies clés</h3>
+      <ul>
+        <li><code>uvicorn[standard]</code> — Serveur ASGI, ≥0.30</li>
+        <li><code>python-multipart</code> — Support multipart/form-data pour les uploads, ≥0.0.9</li>
+      </ul>
+
+      <h3>Variables d'environnement requises</h3>
+      <ul>
+        <li><code>SYNTHESE_DEMO</code> — Mode démo hors-ligne (1 = activé, 0 = désactivé)</li>
+        <li><code>ANTHROPIC_API_KEY</code> — Clé API Anthropic (optionnelle si mode démo)</li>
+        <li><code>SYNTHESE_MODEL</code> — Modèle Claude (défaut : <code>claude-opus-4-8</code>, optionnel)</li>
+      </ul>
+      <p class="tag-source" style="margin-bottom:20px;">CONFIRMÉ · onboarder · 2026-06-30 · .env.example</p>
+
+      <h3>Contraintes de version</h3>
+      <ul class="shadow-list">
+        <li>Aucune version figée dans <code>requirements.txt</code> (&gt;=) — risque de régression silencieuse</li>
+        <li>Pas de <code>pyproject.toml</code> — la gestion de projet n'est pas centralisée</li>
+        <li>Pas de <code>.python-version</code> — incohérence de runtime possible</li>
+      </ul>
+    </section>
+
+    <!-- ============ CONVENTIONS ============ -->
+    <section class="doc" id="conventions">
+      <p class="eyebrow">Technique</p>
+      <h2>Conventions — Interview-to-Deck</h2>
+      <p class="file-meta"><span>docs/wiki/technical/conventions.md</span><span>confidence: mixed</span></p>
+
+      <h3>Linting &amp; formatage</h3>
+      <div class="fact">
+        <p>Aucun outil de linting/formatage configuré (pas de ruff, black, ESLint, prettier).</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30</div>
+      </div>
+      <div class="fact">
+        <p>Pas de pre-commit hooks.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30</div>
+      </div>
+
+      <h3>Nommage</h3>
+      <div class="fact">
+        <p>Fichiers Python : <code>snake_case.py</code>.</p>
+        <span class="tag tag-deduit">DÉDUIT</span>
+        <div class="tag-source">onboarder · 2026-06-30 · app/</div>
+      </div>
+      <div class="fact">
+        <p>Fonctions/variables : <code>snake_case</code>.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · app/*.py</div>
+      </div>
+      <div class="fact">
+        <p>Classes : <code>PascalCase</code>.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · app/models.py</div>
+      </div>
+      <div class="fact">
+        <p>Routers : imports relatifs avec <code>from __future__ import annotations</code>.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · app/routers/*.py</div>
+      </div>
+      <div class="fact">
+        <p>Templates HTML : <code>snake_case.html</code>.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · app/templates/</div>
+      </div>
+      <div class="fact">
+        <p>CSS : classes BEM-lite (<code>.card-head</code>, <code>.theme-block</code>, <code>.btn-primary</code>).</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · app/static/app.css</div>
+      </div>
+
+      <h3>Git</h3>
+      <div class="fact">
+        <p>Pas de format de commit clairement identifiable (un seul fichier dans git, pas d'historique visible au moment de la rédaction).</p>
+        <span class="tag tag-incertain">INCERTAIN</span>
+        <div class="tag-source">onboarder · 2026-06-30</div>
+      </div>
+      <div class="fact">
+        <p><code>.gitignore</code> exclut : <code>.venv/</code>, <code>__pycache__/</code>, <code>*.pyc</code>, <code>data/</code>, <code>.roadmap/*.svg</code>, <code>.env</code>, <code>.DS_Store</code>.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · .gitignore</div>
+      </div>
+
+      <h3>Configuration &amp; secrets</h3>
+      <div class="fact">
+        <p><code>.env.example</code> documente les variables requises ; <code>.env</code> réel est gitignoré.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30</div>
+      </div>
+      <div class="fact">
+        <p>Clé API Anthropic présente (commentée) dans <code>.env</code> — ne pas committer dé-commenté.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · .env:9</div>
+      </div>
+
+      <h3>Patterns spécifiques à l'équipe</h3>
+      <div class="fact">
+        <p><code>from __future__ import annotations</code> systématique en tête de fichier.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · app/*.py</div>
+      </div>
+      <div class="fact">
+        <p>Docstrings en français (triple quotes).</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · app/*.py</div>
+      </div>
+      <div class="fact">
+        <p>Fonctions helpers privées préfixées par <code>_</code>.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · app/*.py</div>
+      </div>
+    </section>
+
+    <!-- ============ TESTS ============ -->
+    <section class="doc" id="tests">
+      <p class="eyebrow">Technique</p>
+      <h2>Stratégie de tests — Interview-to-Deck</h2>
+      <p class="file-meta"><span>docs/wiki/technical/tests.md</span><span>confidence: confirmed</span></p>
+
+      <h3>Frameworks</h3>
+      <div class="fact">
+        <p>Unitaires : pytest + FastAPI TestClient.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · tests/test_mission_trame_flow.py</div>
+      </div>
+      <div class="fact">
+        <p>E2E : Aucun.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30</div>
+      </div>
+
+      <h3>Organisation</h3>
+      <div class="fact">
+        <p>Dossier <code>tests/</code> séparé, 5 fichiers : <code>test_mission_trame_flow.py</code>, <code>test_ai_common.py</code>, <code>test_interview_extract_ai.py</code>, <code>test_pptx_deck.py</code>, <code>conftest.py</code>.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-07-10</div>
+      </div>
+
+      <h3>Seuil de couverture</h3>
+      <div class="fact">
+        <p>Non configuré — pas de <code>pytest.ini</code> ou <code>pyproject.toml</code> avec seuil.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30</div>
+      </div>
+
+      <h3>Philosophie</h3>
+      <div class="fact">
+        <p>Test-after : les tests sont écrits après l'implémentation (aucun label Beads TDD, pas de mention TDD dans README).</p>
+        <span class="tag tag-deduit">DÉDUIT</span>
+        <div class="tag-source">onboarder · 2026-06-30</div>
+      </div>
+
+      <h3>Tests existants (56 tests)</h3>
+      <ul>
+        <li><code>test_mission_trame_flow.py</code> (32 tests) — flux mission/trame/entretien de bout en bout : création mission, thèmes/questions, import <code>.docx</code>, saisie d'entretien et réponses, export PPT, page agents</li>
+        <li><code>test_ai_common.py</code> (11 tests) — abstraction <code>call_ai_json</code> et sélection de provider IA</li>
+        <li><code>test_interview_extract_ai.py</code> (8 tests) — extraction IA de trame/réponses depuis une transcription d'entretien</li>
+        <li><code>test_pptx_deck.py</code> (5 tests) — helpers de mise en page du générateur PPT (<code>pptx_deck.py</code>)</li>
+      </ul>
+      <p class="tag-source" style="margin-bottom:20px;">CONFIRMÉ · onboarder · 2026-07-10 · tests/</p>
+
+      <h3>Commandes</h3>
+      <pre>pytest -q                                                                      # Tests unitaires
+pytest tests/test_mission_trame_flow.py::test_export_pptx_produces_valid_file  # Test unique
+pytest -k "pptx or export"                                                     # Sous-ensemble par mot-clé</pre>
+
+      <h3>Conventions de nommage</h3>
+      <div class="fact">
+        <p>Fichiers test : <code>test_*.py</code>. Fonctions test : <code>test_*</code> (convention pytest par défaut).</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">onboarder · 2026-06-30 · tests/test_mission_trame_flow.py</div>
+      </div>
+    </section>
+
+    <section class="doc" id="todo-session">
+      <p class="eyebrow">Projet</p>
+      <h2>TODO — reprise de session</h2>
+      <p>Pense-bête git-versionné, complémentaire à la mémoire auto de Claude Code (<code>~/.claude/projects/.../memory/</code>) : la mémoire survit d'une session à l'autre mais n'est pas visible dans le dépôt ni relue par un humain qui ouvre juste <code>docs/wiki.html</code>. Cette section est la version « lisible dans le repo » du même besoin de continuité. Pattern repris tel quel d'un projet frère (VSCode3, <code>export/claude-code-setup-export.md</code> §6.3, lui-même dérivé du pattern wiki de ce projet).</p>
+
+      <div class="critical">
+        <span class="fact-label">Quand mettre à jour cette section</span>
+        <ul style="margin:6px 0 0; padding-left:18px;">
+          <li>En fin de session, si le quota d'usage approche ou atteint 100 % et que la session s'arrête avant d'avoir pu conclure une tâche — noter l'état exact d'avancement, pas juste « en cours ».</li>
+          <li>Avant toute fin de session laissant un fichier modifié mais non committé (voir <code>git status</code>), ou une décision prise à l'oral sans être écrite nulle part ailleurs.</li>
+          <li>En reprise de session : lire cette table <em>avant</em> de redemander à l'utilisateur où en était le travail — c'est tout l'intérêt de la section.</li>
+        </ul>
+      </div>
+
+      <h3>Items ouverts</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Item</th><th>État</th><th>Contexte / prochaine action</th></tr></thead>
+          <tbody id="todo-session-rows">
+            <tr><td colspan="3" style="color:var(--ink-faint); font-style:italic;">Aucun item ouvert actuellement.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="color:var(--ink-faint); font-size:0.85rem;">Table volontairement courte — un item qui traîne sans propriétaire ni prochaine action clairement identifiable ne doit pas y rester : soit il est résolu, soit il migre vers un mécanisme de suivi dédié (issue tracker, roadmap).</p>
+    </section>
+
+    <footer class="doc-footer">
+      Wiki d'onboarding statique — pas d'étape de build, ouvrable directement dans un navigateur. Sources éditables dans <code>docs/wiki/*.md</code> ; ce fichier est un rendu figé à synchroniser manuellement si les sources changent.
+    </footer>
+  </main>
+</div>
+
+</body>
+</html>
