@@ -181,6 +181,18 @@
   }
   .critical p:last-child { margin-bottom: 0; }
 
+  .mvp-timeline { border-left: 2px solid var(--line); margin-left: 6px; padding-left: 22px; }
+  .mvp-step { position: relative; padding-bottom: 22px; }
+  .mvp-step:last-child { padding-bottom: 0; }
+  .mvp-step::before {
+    content: ""; position: absolute; left: -27px; top: 4px; width: 9px; height: 9px;
+    border-radius: 50%; background: var(--accent); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--accent);
+  }
+  .mvp-step.future::before { background: var(--surface); box-shadow: 0 0 0 1px var(--ink-faint); }
+  .mvp-label { font-family: var(--mono); font-size: 0.7rem; color: var(--accent-ink); text-transform: uppercase; letter-spacing: 0.05em; }
+  .mvp-step.future .mvp-label { color: var(--ink-faint); }
+  .mvp-step h4 { margin: 2px 0 4px; font-family: var(--serif); font-size: 1rem; }
+
   .shadow-list { list-style: none; padding-left: 0; }
   .shadow-list li { padding-left: 22px; position: relative; color: var(--ink-soft); }
   .shadow-list li::before { content: "?"; position: absolute; left: 2px; color: var(--ink-faint); font-family: var(--mono); }
@@ -225,6 +237,10 @@
         <a class="toc-link" href="#stack">Stack</a>
         <a class="toc-link" href="#conventions">Conventions</a>
         <a class="toc-link" href="#tests">Tests</a>
+      </div>
+      <div class="toc-group">
+        <p class="toc-group-label">Projet</p>
+        <a class="toc-link" href="#projet-roadmap">Roadmap du projet</a>
         <a class="toc-link" href="#todo-session">TODO — reprise de session</a>
       </div>
     </nav>
@@ -235,7 +251,7 @@
       <h1>Wiki d'onboarding — Interview-to-Deck</h1>
       <div class="doc-meta">
         <span>Généré par : onboarder</span>
-        <span>Mis à jour : 2026-07-10</span>
+        <span>Mis à jour : 2026-07-15</span>
         <span>Source : docs/wiki/*.md</span>
       </div>
     </div>
@@ -634,6 +650,92 @@ pytest -k "pptx or export"                                                     #
       </div>
     </section>
 
+    <!-- ============ PROJECT ROADMAP (pattern VSCode1/VSCode3 .roadmap/roadmap-keeper) ============ -->
+    <section class="doc" id="projet-roadmap">
+      <p class="eyebrow">Projet</p>
+      <h2>Roadmap du projet</h2>
+      <p>Suivi visuel en trois phases — <strong>Réflexion</strong> (cadrage, étude technique), <strong>Conception</strong> (architecture, backlog), <strong>Réalisation</strong> (livraisons, un incrément à la fois) — maintenu par le skill <code>roadmap-keeper</code>. Pattern repris tel quel d'un projet frère (VSCode3, <code>docs/vscode1-export/claude-code-setup-export.md</code>-like recipe, lui-même dérivé du pattern wiki de ce projet).</p>
+
+      <div class="critical">
+        <span class="fact-label">Fichier régénéré, pas une source figée</span>
+        <p><code>.roadmap/roadmap.svg</code> est gitignoré et régénéré à la demande — l'image ci-dessous peut être absente juste après un clone frais, ou en retard sur <code>.roadmap/roadmap.json</code> (source de vérité versionnée) si personne ne l'a relancé récemment via le skill <code>roadmap-keeper</code>. Vérifier contre <code>git log</code>/<code>git status</code> avant de lui faire confiance.</p>
+      </div>
+
+      <p style="text-align:center; margin: 18px 0;">
+        <img src="../.roadmap/roadmap.svg" alt="Roadmap visuelle Interview-to-Deck — phases Réflexion/Conception/Réalisation" style="max-width:100%; border:1px solid var(--line); border-radius:10px; background:var(--surface);">
+      </p>
+
+      <h3>Repère texte (au cas où l'image est absente)</h3>
+      <div class="mvp-timeline">
+        <div class="mvp-step">
+          <p class="mvp-label">Réflexion</p>
+          <h4>Brief produit &amp; cadrage</h4>
+          <p>Besoin clarifié : capture sur trame, synthèse, génération PPT type restitution.</p>
+        </div>
+        <div class="mvp-step">
+          <p class="mvp-label">Réflexion</p>
+          <h4>Étude technique &amp; solutions</h4>
+          <p>Choix : Python/python-pptx, Claude API, Whisper local, boucle de vérif rendu.</p>
+        </div>
+        <div class="mvp-step">
+          <p class="mvp-label">Conception</p>
+          <h4>Architecture &amp; modèle de données</h4>
+          <p>Pipeline modulaire ; modèle Mission/Trame/Interview/Synthèse/Deck en SQLite.</p>
+        </div>
+        <div class="mvp-step">
+          <p class="mvp-label">Conception</p>
+          <h4>Backlog Epics/US &amp; phasage MVP</h4>
+          <p>9 epics découpés en US ; MVP manuel d'abord, audio + narration en v2.</p>
+        </div>
+        <div class="mvp-step">
+          <p class="mvp-label">Réalisation 1</p>
+          <h4>Socle + Mission &amp; Trame</h4>
+          <p>Backend, modèle de données, gestion de mission, édition de la trame et import .docx.</p>
+        </div>
+        <div class="mvp-step">
+          <p class="mvp-label">Réalisation 2</p>
+          <h4>Saisie manuelle des interviews</h4>
+          <p>Formulaire suivant la trame, métadonnées interviewé, verbatims, brouillon.</p>
+        </div>
+        <div class="mvp-step">
+          <p class="mvp-label">Réalisation 3</p>
+          <h4>Synthèse transverse IA</h4>
+          <p>Vue par thème cross-interviews, génération IA (Opus 4.8, sortie JSON), édition autosave.</p>
+        </div>
+        <div class="mvp-step">
+          <p class="mvp-label">Réalisation 4</p>
+          <h4>Template &amp; plan de deck</h4>
+          <p>Upload template corporate (hérite thème/masters), plan de deck avant export.</p>
+        </div>
+        <div class="mvp-step">
+          <p class="mvp-label">Réalisation 5</p>
+          <h4>Génération PPT + vérif rendu</h4>
+          <p>Rendu sur layouts du template ; garde-fou <code>verifier_geometrie()</code> + rendu réel PowerPoint COM.</p>
+        </div>
+        <div class="mvp-step">
+          <p class="mvp-label">Réalisation 6</p>
+          <h4>Export &amp; finitions MVP</h4>
+          <p>Export .pptx fonctionnel (avec/sans template, sélection de slides), chaîne bout en bout vérifiée.</p>
+        </div>
+        <div class="mvp-step">
+          <p class="mvp-label">Réalisation 7</p>
+          <h4>Capture audio + structuration IA (v2)</h4>
+          <p>Enregistrement navigateur, transcription locale faster-whisper, pré-remplissage par extraction IA.</p>
+        </div>
+        <div class="mvp-step">
+          <p class="mvp-label">Réalisation 8 · en cours</p>
+          <h4>Narration exemples + pagination (v2)</h4>
+          <p>Apprentissage du squelette narratif depuis les decks exemples, pagination auto, régénération.</p>
+        </div>
+        <div class="mvp-step future">
+          <p class="mvp-label">Réalisation 9 · à faire</p>
+          <h4>Cinématique d'entretien libre vs paramétrée</h4>
+          <p>Bascule de mode par entretien, mise en forme IA des tours de parole, export Markdown.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ TODO / REPRISE DE SESSION ============ -->
     <section class="doc" id="todo-session">
       <p class="eyebrow">Projet</p>
       <h2>TODO — reprise de session</h2>
