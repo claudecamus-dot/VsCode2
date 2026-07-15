@@ -7,21 +7,49 @@
 
 <div class="page-head"><h1>Revue avant enregistrement</h1></div>
 <p class="muted">
-  L'IA a structuré la transcription en tours de parole et proposé une
-  répartition dans la synthèse de mission. Corrige ce qui doit l'être — rien
-  n'est enregistré avant validation. La mission se précise à l'étape suivante.
+  L'IA a structuré la transcription en tours de parole, proposé une
+  répartition dans la synthèse de mission, et relevé l'identité de
+  l'interviewé·e si elle a été dite à l'oral. Corrige ce qui doit l'être —
+  rien n'est enregistré avant validation. La mission se précise à l'étape
+  suivante.
 </p>
 
 <form method="post" action="/missions/{{ mission.id }}/interviews/record-libre/confirm" class="card form">
-  <input type="hidden" name="proposed" value="{{ proposed_json }}">
+  <input type="hidden" name="audio_backup_path" value="{{ identity.audio_backup_path or '' }}">
+
+  <section class="card">
+    <h2>Identité</h2>
+    <p class="muted">Pré-rempli automatiquement quand l'interviewé·e s'est présenté·e à l'oral — à vérifier.</p>
+    <label>
+      Nom &amp; prénom de l'interviewé·e
+      <input type="text" name="interviewee_name" value="{{ identity.interviewee_name or '' }}">
+    </label>
+    <label>
+      Rôle / fonction
+      <input type="text" name="interviewee_role" value="{{ identity.interviewee_role or '' }}">
+    </label>
+    <label>
+      Équipe / département
+      <input type="text" name="interviewee_entity" value="{{ identity.interviewee_entity or '' }}">
+    </label>
+    <label>
+      Date de l'entretien
+      <input type="date" name="interview_date" value="{{ identity.interview_date or '' }}">
+    </label>
+  </section>
 
   <section class="card">
     <h2>Tours de parole</h2>
+    <p class="muted">« Titre de section » marque le début d'un nouveau sujet — laisse vide si le tour continue le sujet précédent. Ça structure l'écran Analyse en sections, comme une transcription éditée.</p>
     {% for turn in turns %}
     <div class="turn-row">
       <label>
         Interlocuteur
         <input type="text" name="turn_interlocuteur" value="{{ turn.interlocuteur }}">
+      </label>
+      <label>
+        Titre de section (si nouveau sujet)
+        <input type="text" name="turn_section_title" value="{{ turn.section_title or '' }}">
       </label>
       <label>
         Question
@@ -33,6 +61,14 @@
       </label>
     </div>
     {% endfor %}
+  </section>
+
+  <section class="card">
+    <h2>Résumé</h2>
+    <label>
+      Message central (1 à 3 phrases)
+      <textarea name="resume" rows="2">{{ resume or '' }}</textarea>
+    </label>
   </section>
 
   <section class="card">

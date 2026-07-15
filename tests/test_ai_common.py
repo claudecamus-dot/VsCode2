@@ -122,3 +122,54 @@ def test_call_ai_json_invalid_json_response_raises_error_cls(monkeypatch: pytest
 
     with pytest.raises(MyError, match="JSON"):
         ai_common.call_ai_json("sys", "prompt", {}, "", error_cls=MyError)
+
+
+# --------------------------------------------------------------------------- #
+# Ollama (2026-07-15) — fournisseur local, sans clé API. is_configured()/
+# call_ai_json() ne doivent jamais exiger OLLAMA_HOST (optionnel, défaut
+# localhost:11434), contrairement aux fournisseurs cloud.
+# --------------------------------------------------------------------------- #
+def test_ollama_is_configured_without_any_env_var(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AI_PROVIDER", "ollama")
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    assert ai_common.is_configured() is True
+
+
+def test_ollama_host_defaults_to_localhost(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+    assert ai_common.ollama_host() == "http://localhost:11434"
+    monkeypatch.setenv("OLLAMA_HOST", "http://localhost:12345/")
+    assert ai_common.ollama_host() == "http://localhost:12345"
+
+
+def test_ollama_active_model_defaults_to_llama(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AI_PROVIDER", "ollama")
+    monkeypatch.delenv("SYNTHESE_MODEL", raising=False)
+    assert ai_common.active_model() == "llama3.1"
+
+
+def test_call_ai_json_dispatches_to_ollama_without_key_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AI_PROVIDER", "ollama")
+    monkeypatch.delenv("OLLAMA_HOST", raising=False)
+
+    def fake_ollama_call(system, prompt, schema, json_hint, model, max_tokens):
+        assert model == "llama3.1"
+        return '{"answer": "ok"}'
+
+    monkeypatch.setitem(ai_common._CALLERS, "ollama", fake_ollama_call)
+    result = ai_common.call_ai_json("sys", "prompt", {"type": "object"}, "\nJSON only.")
+    assert result == {"answer": "ok"}
+
+
+def test_call_ai_json_ollama_unreachable_raises_friendly_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Serveur Ollama injoignable (pas installé/pas démarré) : message clair
+    plutôt qu'une exception réseau brute — même contrat que les autres
+    fournisseurs (clé absente, SDK manquant)."""
+    monkeypatch.setenv("AI_PROVIDER", "ollama")
+    monkeypatch.setenv("OLLAMA_HOST", "http://127.0.0.1:1")  # port improbable
+
+    class MyError(ai_common.AIError):
+        pass
+
+    with pytest.raises(MyError, match="Ollama"):
+        ai_common.call_ai_json("sys", "prompt", {}, "", error_cls=MyError, max_tokens=10)

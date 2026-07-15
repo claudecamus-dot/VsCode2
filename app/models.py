@@ -193,6 +193,9 @@ class Interview(Base):
     # `_build_global_prompt` comme matière supplémentaire (canal
     # `material_libre`, à côté de `material_by_theme`).
     repartition: Mapped[dict] = mapped_column(JSON, default=dict)
+    # Résumé court (1-3 phrases, mode libre) produit par la même extraction
+    # IA que les tours/la répartition — sert d'intro à l'écran Synthèse.
+    resume: Mapped[str | None] = mapped_column(Text, default=None)
     # Protocole / infos de référence à introduire pendant l'entretien (évol).
     reference_text: Mapped[str | None] = mapped_column(Text, default=None)
     free_notes: Mapped[str | None] = mapped_column(Text, default=None)
@@ -235,6 +238,12 @@ class InterviewTurn(Base):
     interlocuteur: Mapped[str] = mapped_column(String(200), default="")
     question: Mapped[str | None] = mapped_column(Text, default=None)
     remarque: Mapped[str | None] = mapped_column(Text, default=None)
+    # Titre de section (incr.9, écran Analyse) : posé sur le tour qui ouvre
+    # un nouveau sujet dans la conversation, vide sur les tours suivants qui
+    # continuent la section en cours — reconstitué à l'affichage par
+    # regroupement séquentiel (voir interviews.py::_group_turns_into_sections),
+    # pas stocké de façon dénormalisée sur chaque tour.
+    section_title: Mapped[str | None] = mapped_column(String(300), default=None)
 
     interview: Mapped["Interview"] = relationship(back_populates="turns")
 

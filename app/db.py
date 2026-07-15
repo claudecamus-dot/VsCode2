@@ -62,10 +62,12 @@ def _add_missing_columns() -> None:
             "audio_backup_path": "TEXT",
             "mode": "TEXT DEFAULT 'parametre'",
             "repartition": "JSON",
+            "resume": "TEXT",
         },
         "trames": {"intro_text": "TEXT"},
         "questions": {"help_text": "TEXT"},
         "missions": {"pptx_template_path": "TEXT", "is_draft": "BOOLEAN DEFAULT 0"},
+        "interview_turns": {"section_title": "TEXT"},
     }
     with engine.begin() as conn:
         for table, cols in additions.items():

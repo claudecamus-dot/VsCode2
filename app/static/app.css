@@ -103,7 +103,7 @@ h2 { font-size: 1.1rem; margin: 0; }
 
 .turn-row {
   display: grid;
-  grid-template-columns: minmax(160px, 1fr) 2fr 2fr;
+  grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) 2fr 2fr;
   gap: 12px;
   padding: 12px 0;
   border-bottom: 1px solid var(--border);
@@ -395,6 +395,7 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #bcd0fb; outline-
 
 .record-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
 .rec-timer { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
+.record-audio-player { max-width: 100%; vertical-align: middle; margin-right: 10px; }
 #rec-preview { display: block; width: 100%; margin-bottom: 10px; }
 
 /* Protocole / infos de référence (encadré par entretien) */
@@ -687,6 +688,14 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #bcd0fb; outline-
 .preview-empty { color: var(--muted); font-style: italic; }
 .preview-verbatims { margin: 6px 0 0; padding-left: 18px; color: #5b6470; font-size: .92rem; }
 .preview-verbatims li { margin-bottom: 2px; }
+.preview-note { font-size: .85rem; color: var(--muted); font-style: italic; margin: 6px 0 0; }
+.preview-turn { margin: 0 0 12px; white-space: pre-wrap; }
+.preview-turn-speaker { font-weight: 600; }
+.preview-resume {
+  background: var(--surface-subtle); border-radius: var(--radius);
+  padding: 14px 18px; margin-bottom: 28px;
+}
+.preview-resume p:last-child { margin: 0; }
 
 @media print {
   .no-print, .topbar { display: none !important; }

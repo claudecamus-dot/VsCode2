@@ -16,9 +16,12 @@
   Pas de trame à suivre ici : enregistre la conversation librement. La
   transcription se fait au fil de l'eau par segments d'environ une minute,
   affichés ci-dessous. Une fois arrêté, relis le texte puis envoie-le : l'IA
-  structure les tours de parole et propose une répartition dans la synthèse —
-  rien n'est enregistré avant validation sur l'écran de revue suivant. La
-  mission à laquelle rattacher cet entretien se précise juste après.
+  structure les tours de parole, propose une répartition dans la synthèse,
+  et relève le nom, le rôle et l'équipe/département de l'interviewé·e si
+  cette identité a été dite à l'oral (inutile de la retaper ci-dessous dans
+  ce cas) — rien n'est enregistré avant validation sur l'écran de revue
+  suivant. La mission à laquelle rattacher cet entretien se précise juste
+  après.
 </p>
 
 {% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
@@ -34,6 +37,10 @@
     <span class="muted" id="rec-status"></span>
   </div>
   <div class="autosave-line"><span class="muted" id="rec-backup-status"></span></div>
+  <div class="autosave-line" id="rec-audio-playback" hidden>
+    <audio controls id="rec-audio-player" class="record-audio-player"></audio>
+    <a class="btn-link" id="rec-audio-download" download>Télécharger l'enregistrement</a>
+  </div>
 
   <textarea class="record-transcript" id="rec-transcript" rows="10" readonly
     placeholder="Le texte transcrit apparaîtra ici au fil de l'enregistrement…"></textarea>
@@ -80,6 +87,9 @@
   var timerEl = document.getElementById('rec-timer');
   var statusEl = document.getElementById('rec-status');
   var backupStatusEl = document.getElementById('rec-backup-status');
+  var audioPlaybackEl = document.getElementById('rec-audio-playback');
+  var audioPlayerEl = document.getElementById('rec-audio-player');
+  var audioDownloadEl = document.getElementById('rec-audio-download');
   var transcriptEl = document.getElementById('rec-transcript');
   var transcriptHidden = document.getElementById('rec-transcript-hidden');
   var backupPathHidden = document.getElementById('rec-backup-path');
@@ -183,6 +193,10 @@
         if (result.ok && result.data.path) {
           backupPathHidden.value = result.data.path;
           backupStatusEl.textContent = '✓ sauvegarde audio complète effectuée.';
+          var backupUrl = '/missions/{{ mission.id }}/interviews/record/backup/' + encodeURIComponent(result.data.path);
+          audioPlayerEl.src = backupUrl;
+          audioDownloadEl.href = backupUrl;
+          audioPlaybackEl.hidden = false;
         } else {
           console.error('sauvegarde audio échouée', result.data);
           backupStatusEl.textContent = '⚠ échec de la sauvegarde audio (le texte transcrit reste disponible).';
@@ -202,6 +216,7 @@
       transcriptHidden.value = '';
       backupPathHidden.value = '';
       backupStatusEl.textContent = '';
+      audioPlaybackEl.hidden = true;
 
       startSegment();
       startBackupRecorder();
@@ -244,6 +259,7 @@
     transcriptHidden.value = '';
     backupPathHidden.value = '';
     backupStatusEl.textContent = '';
+    audioPlaybackEl.hidden = true;
     resetBtn.hidden = true;
     statusEl.textContent = '';
     timerEl.textContent = '00:00';

@@ -13,3 +13,10 @@ data/
 # agents/ qui eux restent versionnes pour toute l'equipe.
 .claude/settings.local.json
 CLAUDE.local.md
+
+# Echantillons reels (audio + docx) utilises pour valider la qualite Whisper
+# le 2026-07-15 — .weba de 105 Mo, contenu d'une session interne reelle :
+# trop volumineux et pas destine a etre partage tel quel. Voir le TODO
+# "Fixtures de test a partir de tests/exemple/" dans docs/wiki.html pour le
+# decoupage en extraits courts a committer separement.
+tests/exemple/

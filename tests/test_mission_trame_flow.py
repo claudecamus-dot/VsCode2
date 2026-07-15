@@ -977,6 +977,56 @@ def test_record_interview_backup_saves_file_to_disk(client: TestClient) -> None:
         saved_file.unlink(missing_ok=True)
 
 
+def test_record_backup_download_serves_saved_file(client: TestClient) -> None:
+    """Le lien « réécouter/télécharger » ajouté suite à une régression
+    signalée (le fichier était sauvegardé côté serveur mais jamais servi) —
+    sert le fichier, rejette une tentative de traversée de chemin, 404 sur
+    un fichier absent."""
+    from app.db import RECORDINGS_DIR
+
+    response = client.post(
+        "/missions", data={"name": "Mission Backup DL", "description": ""},
+        follow_redirects=False,
+    )
+    mission_id = response.headers["location"].rsplit("/", 1)[-1]
+
+    response = client.post(
+        f"/missions/{mission_id}/interviews/record/backup",
+        files={"file": ("entretien.webm", b"contenu-audio-de-test", "audio/webm")},
+    )
+    filename = response.json()["path"]
+    saved_file = RECORDINGS_DIR / filename
+    try:
+        response = client.get(f"/missions/{mission_id}/interviews/record/backup/{filename}")
+        assert response.status_code == 200
+        assert response.content == b"contenu-audio-de-test"
+
+        # Starlette route un {filename} sur un seul segment : une tentative
+        # de traversée avec "/" encodés ne matche même pas la route (404,
+        # bloquée avant d'atteindre le handler). Le garde-fou explicite du
+        # handler (".."/"/"/"\\" dans filename) est une défense en profondeur
+        # pour un nom de fichier à un seul segment qui contiendrait quand
+        # même ces caractères — les deux issues sont sûres (jamais un 200
+        # avec un contenu de fichier arbitraire hors RECORDINGS_DIR).
+        response = client.get(
+            f"/missions/{mission_id}/interviews/record/backup/..%2F..%2Fapp%2Fmain.py"
+        )
+        assert response.status_code in (400, 404)
+        assert response.status_code != 200
+
+        response = client.get(
+            f"/missions/{mission_id}/interviews/record/backup/inexistant.webm"
+        )
+        assert response.status_code == 404
+
+        # Nom de fichier à un seul segment (matche la route) mais contenant
+        # ".." — exerce vraiment le garde-fou explicite du handler.
+        response = client.get(f"/missions/{mission_id}/interviews/record/backup/..name")
+        assert response.status_code == 400
+    finally:
+        saved_file.unlink(missing_ok=True)
+
+
 def test_global_synthesis_generate_and_autosave(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Analyse — {{ interview.interviewee_name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb no-print">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> /
+  <a href="/interviews/{{ interview.id }}">{{ interview.interviewee_name }}</a> / Analyse
+</div>
+
+<div class="capture-head no-print">
+  <div>
+    <h1>Analyse — {{ interview.interviewee_name }}</h1>
+    <div class="meta">
+      {% if interview.interviewee_role %}<span>{{ interview.interviewee_role }}</span>{% endif %}
+      {% if interview.interviewee_entity %}<span>{{ interview.interviewee_entity }}</span>{% endif %}
+      {% if interview.interview_date %}<span>{{ interview.interview_date.strftime('%d/%m/%Y') }}</span>{% endif %}
+    </div>
+  </div>
+  <div class="coverage-box">
+    <a class="btn" href="/interviews/{{ interview.id }}">← Retour à l'entretien</a>
+    <a class="btn btn-primary" href="/interviews/{{ interview.id }}/analyse/synthese">Voir la synthèse →</a>
+    <button class="btn" type="button" onclick="window.print()">🖨️ Imprimer</button>
+  </div>
+</div>
+
+<article class="preview-doc">
+  <header class="preview-doc-head">
+    <h1>{{ interview.interviewee_name }}</h1>
+    <p class="muted">
+      {% if interview.interviewee_role %}{{ interview.interviewee_role }}{% endif %}
+      {% if interview.interviewee_entity %} — {{ interview.interviewee_entity }}{% endif %}
+      {% if interview.interview_date %} · {{ interview.interview_date.strftime('%d/%m/%Y') }}{% endif %}
+    </p>
+    <p class="preview-note">
+      Transcription structurée par IA depuis un entretien libre — pas un
+      verbatim mot à mot, à vérifier contre l'enregistrement en cas de doute
+      (lien ci-dessous sur la fiche entretien).
+    </p>
+  </header>
+
+  {% if not sections %}
+  <p class="preview-empty">Aucun tour de parole.</p>
+  {% endif %}
+
+  {% for section in sections %}
+  <section class="preview-theme">
+    {% if section.title %}<h2>{{ section.title }}</h2>{% endif %}
+    {% for turn in section.turns %}
+    <p class="preview-turn">
+      <span class="preview-turn-speaker">{{ turn.interlocuteur }} :</span>
+      {% if turn.question %}{{ turn.question }}{% endif %}
+      {% if turn.remarque %}{{ turn.remarque }}{% endif %}
+    </p>
+    {% endfor %}
+  </section>
+  {% endfor %}
+</article>
+{% endblock %}

@@ -8,16 +8,27 @@
 
 <div class="page-head">
   <h1>{{ interview.interviewee_name }} <span class="muted">— entretien libre</span></h1>
-  <form method="post" action="/interviews/{{ interview.id }}/delete"
-        onsubmit="return confirm('Supprimer cet entretien ?');">
-    <button class="btn btn-danger btn-sm" type="submit">Supprimer</button>
-  </form>
+  <div class="head-actions">
+    <a class="btn btn-primary" href="/interviews/{{ interview.id }}/analyse">Voir l'analyse</a>
+    <form method="post" action="/interviews/{{ interview.id }}/delete"
+          onsubmit="return confirm('Supprimer cet entretien ?');">
+      <button class="btn btn-danger btn-sm" type="submit">Supprimer</button>
+    </form>
+  </div>
 </div>
 <div class="meta">
   {% if interview.interviewee_role %}<span>{{ interview.interviewee_role }}</span>{% endif %}
   {% if interview.interviewee_entity %}<span>{{ interview.interviewee_entity }}</span>{% endif %}
   {% if interview.interview_date %}<span>{{ interview.interview_date.strftime("%d/%m/%Y") }}</span>{% endif %}
 </div>
+
+{% if interview.audio_backup_path %}
+<div class="card">
+  <audio controls class="record-audio-player"
+    src="/missions/{{ mission.id }}/interviews/record/backup/{{ interview.audio_backup_path }}"></audio>
+  <a class="btn-link" href="/missions/{{ mission.id }}/interviews/record/backup/{{ interview.audio_backup_path }}" download>Télécharger l'enregistrement</a>
+</div>
+{% endif %}
 
 <form method="post" action="/interviews/{{ interview.id }}/libre" class="card form">
   <section class="card">
@@ -33,6 +44,10 @@
         <input type="text" name="turn_interlocuteur" value="{{ turn.interlocuteur }}">
       </label>
       <label>
+        Titre de section (si nouveau sujet)
+        <input type="text" name="turn_section_title" value="{{ turn.section_title or '' }}">
+      </label>
+      <label>
         Question
         <textarea name="turn_question" rows="2">{{ turn.question or '' }}</textarea>
       </label>
@@ -42,6 +57,14 @@
       </label>
     </div>
     {% endfor %}
+  </section>
+
+  <section class="card">
+    <h2>Résumé</h2>
+    <label>
+      Message central (1 à 3 phrases)
+      <textarea name="resume" rows="2">{{ interview.resume or '' }}</textarea>
+    </label>
   </section>
 
   <section class="card">

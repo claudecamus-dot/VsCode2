@@ -132,9 +132,9 @@
     {
       "phase": "realisation",
       "title": "9. Entree unifiee entretien (libre/structure) + mission differee",
-      "description": "Ecran d'entree a 3 choix (entretien libre / entretien structure sur trame / nouvelle mission) remplacant la liste missions comme point d'entree. Pour les 2 premiers choix, la mission (nouvelle ou existante sans trame) est rattachee apres l'entretien plutot qu'avant ; le structure exige la trame avant l'entretien, le libre n'en a pas. Libre : reutilise le pipeline audio existant (US3.1/3.2), puis un seul appel IA post-transcription structure les tours de parole (interlocuteur/question/remarque) ET repartit le contenu dans les 5 categories de la synthese globale (meme forme que GLOBAL_SCHEMA), le tout revu/edite ensemble par le consultant avant validation. Alimente generate_global_synthesis via un nouveau canal (material_libre, a cote de material_by_theme). Mode verrouille en base des la creation (irreversible cote serveur). Reste a faire : export Markdown par entretien (US9.7), finitions doc/wiki (US9.8).",
+      "description": "Ecran d'entree a 3 choix (entretien libre / entretien structure sur trame / nouvelle mission). Libre : reutilise le pipeline audio existant (US3.1/3.2, qualite Whisper relevee le 2026-07-15 : model medium + beam_size=2, valide sur un enregistrement reel), un seul appel IA post-transcription structure les tours de parole en sections thematiques, repartit le contenu dans les 5 categories de la synthese globale, resume et identite. Ecrans Analyse (transcription structuree en sections, lecture) et Synthese (5 categories + resume, lecture), boutons Voir l'analyse/Voir la synthese, facon docs d'exemple fournis. Ollama ajoute comme fournisseur IA local (ai_common.py) pour une analyse sans IA externe. Lien reecoute/telechargement de l'enregistrement (regression signalee corrigee). Reste a faire : export Markdown par entretien (US9.7), finitions doc/wiki (US9.8), revue UX/UI independante (agent lance le 2026-07-15, echoue par limite de session Claude a 20h50 Europe/Paris -- a relancer).",
       "status": "current",
-      "tokens": { "estimate": 120000 },
+      "tokens": { "estimate": 160000 },
       "subItems": [
         { "label": "US9.1 ecran d'entree 3 choix", "status": "done" },
         { "label": "US9.2 mission brouillon + rattachement (nouvelle/existante)", "status": "done" },
@@ -143,7 +143,11 @@
         { "label": "US9.5 IA post-transcription : tours + repartition 5 categories (revue unique)", "status": "done" },
         { "label": "US9.6 injection material_libre dans generate_global_synthesis", "status": "done" },
         { "label": "US9.7 export markdown par entretien", "status": "todo" },
-        { "label": "US9.8 finitions transverses (couverture, doc, wiki)", "status": "todo" }
+        { "label": "US9.8 finitions transverses (couverture, doc, wiki)", "status": "todo" },
+        { "label": "US9.9 ecrans Analyse + Synthese (rendu type transcription editee)", "status": "done" },
+        { "label": "US9.10 qualite Whisper (medium/beam=2) + lien reecoute audio", "status": "done" },
+        { "label": "US9.11 fournisseur IA local Ollama (analyse sans IA externe)", "status": "done" },
+        { "label": "US9.12 revue UX/UI independante", "status": "todo" }
       ]
     }
   ]

@@ -5,22 +5,42 @@ Factorisé depuis `synthese_ai.py` : `trame_extract_ai.py` et
 (configuration, appel SDK, parsing JSON, messages d'erreur lisibles).
 
 Le fournisseur est choisi par la variable d'environnement `AI_PROVIDER`
-(`anthropic` par défaut, ou `openai` / `mistral`) — un seul fournisseur actif
-à la fois, pas de repli automatique de l'un vers l'autre : si la clé du
-fournisseur configuré manque, l'appelant obtient un message clair plutôt
-qu'un essai silencieux sur un autre fournisseur (comportement surprenant,
-coût/latence doublés). `call_ai_json()` est le point d'entrée unique : les
-3 modules appelants ne connaissent plus le SDK sous-jacent.
+(`anthropic` par défaut, ou `openai` / `mistral` / `ollama`) — un seul
+fournisseur actif à la fois, pas de repli automatique de l'un vers l'autre :
+si la clé du fournisseur configuré manque, l'appelant obtient un message
+clair plutôt qu'un essai silencieux sur un autre fournisseur (comportement
+surprenant, coût/latence doublés). `call_ai_json()` est le point d'entrée
+unique : les modules appelants ne connaissent plus le SDK sous-jacent.
+
+`ollama` (2026-07-15) tourne en local (serveur HTTP sur la machine, aucune
+donnée envoyée à l'extérieur) — seul fournisseur qui rend possible une
+analyse d'entretien libre (`interview_libre_extract_ai.py`) sans connexion à
+une IA externe, en complément de la transcription déjà locale
+(`audio_transcribe.py`, faster-whisper). Nécessite qu'Ollama tourne sur le
+poste (https://ollama.com) et qu'un modèle soit déjà tiré (`ollama pull
+<modèle>`) — sinon `call_ai_json()` échoue avec un message explicite plutôt
+qu'un plantage brut. Pas de SDK à proprement parler : requêtes HTTP via
+`urllib` (stdlib), donc zéro dépendance Python supplémentaire. Qualité
+d'extraction JSON structurée nettement en retrait par rapport à
+Claude/GPT-4/Mistral-large sur un modèle 7-8B — à valider en pratique,
+un modèle plus costaud (14B+) donne de meilleurs résultats si le poste suit.
 """
 from __future__ import annotations
 
 import json
 import os
+import urllib.error
+import urllib.request
 
 _API_KEY_ENV = {
     "anthropic": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
     "mistral": "MISTRAL_API_KEY",
+    # Pas un vrai secret (serveur local sans authentification) — adresse du
+    # serveur Ollama, optionnelle (défaut http://localhost:11434). Traité à
+    # part dans is_configured()/call_ai_json(), qui ne l'exigent pas comme
+    # ils exigeraient une vraie clé API.
+    "ollama": "OLLAMA_HOST",
 }
 
 # Modèles par défaut, surchargeables par la variable d'environnement
@@ -29,6 +49,7 @@ _DEFAULT_MODELS = {
     "anthropic": "claude-opus-4-8",
     "openai": "gpt-4o",
     "mistral": "mistral-large-latest",
+    "ollama": "llama3.1",
 }
 
 
@@ -63,7 +84,19 @@ def _mistral():
         return None
 
 
-_SDK_LOADERS = {"anthropic": _anthropic, "openai": _openai, "mistral": _mistral}
+def _ollama():
+    """Toujours "disponible" : pas de SDK à installer (requêtes HTTP via la
+    stdlib). La vraie question — le serveur répond-il ? — se vérifie à
+    l'appel (voir `_call_ollama`), pas ici, comme pour les autres
+    fournisseurs (dont la clé est vérifiée statiquement mais pas testée)."""
+    return True
+
+
+_SDK_LOADERS = {"anthropic": _anthropic, "openai": _openai, "mistral": _mistral, "ollama": _ollama}
+
+
+def ollama_host() -> str:
+    return os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 
 
 def active_provider() -> str:
@@ -88,9 +121,13 @@ def api_key_env_name() -> str:
 
 def is_configured() -> bool:
     """Vrai si une génération IA réelle est possible (SDK du fournisseur actif
-    installé + sa clé API présente)."""
+    installé + sa clé API présente). Ollama n'a pas de clé à proprement
+    parler (serveur local) — seul le SDK (toujours "installé") compte ; la
+    disponibilité réelle du serveur n'est vérifiée qu'à l'appel."""
     provider = active_provider()
     sdk = _SDK_LOADERS[provider]()
+    if provider == "ollama":
+        return sdk is not None
     return sdk is not None and bool(os.environ.get(_API_KEY_ENV[provider]))
 
 
@@ -179,7 +216,48 @@ def _call_mistral(system: str, prompt: str, schema: dict, json_hint: str, model:
     return resp.choices[0].message.content or ""
 
 
-_CALLERS = {"anthropic": _call_anthropic, "openai": _call_openai, "mistral": _call_mistral}
+def _call_ollama(system: str, prompt: str, schema: dict, json_hint: str, model: str, max_tokens: int) -> str:
+    payload = json.dumps({
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system + json_hint},
+            {"role": "user", "content": prompt},
+        ],
+        "format": "json",
+        "stream": False,
+        "options": {"num_predict": max_tokens},
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{ollama_host()}/api/chat",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=180) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.URLError as exc:
+        raise AIError(
+            f"Impossible de joindre Ollama sur {ollama_host()} — vérifiez qu'il "
+            f"tourne (`ollama serve`) et qu'un modèle est disponible "
+            f"(`ollama pull {model}`)."
+        ) from exc
+    except TimeoutError as exc:
+        raise AIError(
+            "Ollama n'a pas répondu à temps — le modèle est peut-être trop "
+            "gros pour ce poste, ou en cours de chargement (premier appel)."
+        ) from exc
+    if "error" in data:
+        raise AIError(f"Erreur Ollama : {data['error']}")
+    return (data.get("message") or {}).get("content") or ""
+
+
+_CALLERS = {
+    "anthropic": _call_anthropic,
+    "openai": _call_openai,
+    "mistral": _call_mistral,
+    "ollama": _call_ollama,
+}
 
 
 def call_ai_json(
@@ -202,9 +280,10 @@ def call_ai_json(
     sdk = _SDK_LOADERS[provider]()
     if sdk is None:
         raise error_cls(f"Le SDK « {provider} » n'est pas installé.")
-    key_env = _API_KEY_ENV[provider]
-    if not os.environ.get(key_env):
-        raise error_cls(f"Clé absente : définissez {key_env} pour activer la génération IA.")
+    if provider != "ollama":
+        key_env = _API_KEY_ENV[provider]
+        if not os.environ.get(key_env):
+            raise error_cls(f"Clé absente : définissez {key_env} pour activer la génération IA.")
 
     try:
         text = _CALLERS[provider](system, prompt, schema, json_hint, active_model(), max_tokens)

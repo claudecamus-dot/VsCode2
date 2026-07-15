@@ -49,8 +49,8 @@ def test_extract_libre_returns_turns_and_repartition(monkeypatch: pytest.MonkeyP
         interview_libre_extract_ai, "call_ai_json",
         lambda *a, **k: {
             "turns": [
-                {"interlocuteur": "Consultant·e", "question": "Comment ça se passe ?", "remarque": ""},
-                {"interlocuteur": "Marc Dupont", "question": "", "remarque": "On travaille en silo."},
+                {"interlocuteur": "Consultant·e", "question": "Comment ça se passe ?", "remarque": "", "section_title": "Ouverture"},
+                {"interlocuteur": "Marc Dupont", "question": "", "remarque": "On travaille en silo.", "section_title": ""},
             ],
             "repartition": {
                 "contexte": "- Contexte évoqué",
@@ -59,15 +59,17 @@ def test_extract_libre_returns_turns_and_repartition(monkeypatch: pytest.MonkeyP
                 "points_amelioration": "- Silos entre équipes",
                 "aspirations": "",
             },
+            "resume": "- Résumé de l'entretien.",
         },
     )
     result = interview_libre_extract_ai.extract_libre_from_text("transcription brute")
     assert result["turns"] == [
-        {"interlocuteur": "Consultant·e", "question": "Comment ça se passe ?", "remarque": None},
-        {"interlocuteur": "Marc Dupont", "question": None, "remarque": "On travaille en silo."},
+        {"interlocuteur": "Consultant·e", "question": "Comment ça se passe ?", "remarque": None, "section_title": "Ouverture"},
+        {"interlocuteur": "Marc Dupont", "question": None, "remarque": "On travaille en silo.", "section_title": None},
     ]
     assert result["repartition"]["points_amelioration"] == "- Silos entre équipes"
     assert result["repartition"]["forces_succes"] == ""
+    assert result["resume"] == "- Résumé de l'entretien."
 
 
 def test_extract_libre_empty_transcript_raises() -> None:
@@ -127,10 +129,10 @@ def test_entree_screen_lists_three_choices(client: TestClient) -> None:
 # Flux entretien libre bout en bout : mission brouillon -> enregistrement ->
 # revue éditable -> confirmation -> finalisation (nouvelle mission).
 # --------------------------------------------------------------------------- #
-def _fake_libre_extract(turns=None, repartition=None):
+def _fake_libre_extract(turns=None, repartition=None, identity=None, resume=None):
     turns = turns or [
-        {"interlocuteur": "Consultant·e", "question": "Comment ça se passe ?", "remarque": None},
-        {"interlocuteur": "Claire Rousseau", "question": None, "remarque": "Beaucoup de silos entre équipes."},
+        {"interlocuteur": "Consultant·e", "question": "Comment ça se passe ?", "remarque": None, "section_title": "Ouverture"},
+        {"interlocuteur": "Claire Rousseau", "question": None, "remarque": "Beaucoup de silos entre équipes.", "section_title": None},
     ]
     repartition = repartition or {
         "contexte": "- Contexte de test",
@@ -139,7 +141,13 @@ def _fake_libre_extract(turns=None, repartition=None):
         "points_amelioration": "- Silos entre équipes",
         "aspirations": "- Aspiration de test",
     }
-    return lambda text: {"turns": turns, "repartition": repartition}
+    identity = identity if identity is not None else {
+        "interviewee_name": "", "interviewee_role": "", "interviewee_entity": "",
+    }
+    resume = "- Résumé de test" if resume is None else resume
+    return lambda text: {
+        "turns": turns, "repartition": repartition, "identity": identity, "resume": resume,
+    }
 
 
 def test_libre_flow_creates_draft_then_finalise_as_new_mission(
@@ -183,7 +191,8 @@ def test_libre_flow_creates_draft_then_finalise_as_new_mission(
     response = client.post(
         f"/missions/{mission_id}/interviews/record-libre/confirm",
         data={
-            "proposed": '{"identity": {"interviewee_name": "Claire Rousseau", "interviewee_role": "RSSI"}}',
+            "interviewee_name": "Claire Rousseau",
+            "interviewee_role": "RSSI",
             "turn_interlocuteur": ["Consultant·e", "Claire Rousseau"],
             "turn_question": ["Comment ça se passe ?", ""],
             "turn_remarque": ["", "Beaucoup de silos entre équipes."],
@@ -250,6 +259,95 @@ def test_libre_flow_creates_draft_then_finalise_as_new_mission(
         session.close()
 
 
+def test_libre_flow_fills_identity_from_transcript_when_left_blank(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Le cœur de la demande : si le nom/prénom, le rôle et l'équipe/
+    département sont identifiés dans la transcription, ils doivent remplir
+    les champs — sans que le consultant les ait tapés à la main avant
+    l'enregistrement (US9.5)."""
+    response = client.post("/entretiens/libre/nouveau", follow_redirects=False)
+    mission_id = int(response.headers["location"].split("/")[2])
+
+    monkeypatch.setattr(
+        "app.routers.interviews.extract_libre_from_text",
+        _fake_libre_extract(identity={
+            "interviewee_name": "Farida Benali",
+            "interviewee_role": "Responsable RH",
+            "interviewee_entity": "Direction des Ressources Humaines",
+        }),
+    )
+    response = client.post(
+        f"/missions/{mission_id}/interviews/record-libre",
+        data={"transcript": "Bonjour, je suis Farida Benali, responsable RH..."},
+        # Champs identité volontairement absents : rien de saisi à la main.
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert 'value="Farida Benali"' in response.text
+    assert 'value="Responsable RH"' in response.text
+    assert 'value="Direction des Ressources Humaines"' in response.text
+
+    response = client.post(
+        f"/missions/{mission_id}/interviews/record-libre/confirm",
+        data={
+            "interviewee_name": "Farida Benali",
+            "interviewee_role": "Responsable RH",
+            "interviewee_entity": "Direction des Ressources Humaines",
+            "turn_interlocuteur": ["Consultant·e", "Farida Benali"],
+            "turn_question": ["Comment ça se passe ?", ""],
+            "turn_remarque": ["", "Beaucoup de silos entre équipes."],
+            "repartition_contexte": "- Contexte de test",
+            "repartition_culture_adn": "- Culture de test",
+            "repartition_forces_succes": "- Force de test",
+            "repartition_points_amelioration": "- Silos entre équipes",
+            "repartition_aspirations": "- Aspiration de test",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
+    session = SessionLocal()
+    try:
+        interview = session.scalars(
+            select(Interview).where(Interview.mission_id == mission_id)
+        ).one()
+        assert interview.interviewee_name == "Farida Benali"
+        assert interview.interviewee_role == "Responsable RH"
+        assert interview.interviewee_entity == "Direction des Ressources Humaines"
+    finally:
+        session.close()
+
+
+def test_libre_flow_manual_identity_wins_over_transcript_detection(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Une saisie manuelle explicite n'est jamais écrasée par ce que l'IA a
+    cru comprendre de la transcription."""
+    response = client.post("/entretiens/libre/nouveau", follow_redirects=False)
+    mission_id = int(response.headers["location"].split("/")[2])
+
+    monkeypatch.setattr(
+        "app.routers.interviews.extract_libre_from_text",
+        _fake_libre_extract(identity={
+            "interviewee_name": "Nom Mal Compris",
+            "interviewee_role": "",
+            "interviewee_entity": "",
+        }),
+    )
+    response = client.post(
+        f"/missions/{mission_id}/interviews/record-libre",
+        data={
+            "transcript": "Transcription ambiguë.",
+            "interviewee_name": "Farida Benali",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert 'value="Farida Benali"' in response.text
+    assert "Nom Mal Compris" not in response.text
+
+
 def test_libre_detail_edit_updates_turns_and_repartition(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -265,7 +363,7 @@ def test_libre_detail_edit_updates_turns_and_repartition(
     client.post(
         f"/missions/{mission_id}/interviews/record-libre/confirm",
         data={
-            "proposed": '{"identity": {"interviewee_name": "Denis Roche"}}',
+            "interviewee_name": "Denis Roche",
             "turn_interlocuteur": ["Consultant·e", "Denis Roche"],
             "turn_question": ["Comment ça se passe ?", ""],
             "turn_remarque": ["", "Beaucoup de silos entre équipes."],
@@ -336,7 +434,7 @@ def _create_and_finish_libre_mission(
     client.post(
         f"/missions/{mission_id}/interviews/record-libre/confirm",
         data={
-            "proposed": f'{{"identity": {{"interviewee_name": "{interviewee}"}}}}',
+            "interviewee_name": interviewee,
             "turn_interlocuteur": ["Consultant·e"],
             "turn_question": ["Une question ?"],
             "turn_remarque": [""],
@@ -461,3 +559,131 @@ def test_synthese_globale_generate_uses_libre_material(
     interview, repartition = captured["material_libre"][0]
     assert interview.interviewee_name == "Interviewé Synthèse"
     assert repartition["contexte"] == "- Contexte"
+
+
+# --------------------------------------------------------------------------- #
+# Écrans Analyse / Synthèse (sections thématiques + résumé, US "à suivre" du
+# 2026-07-15) et verrou de mode sur l'édition post-enregistrement.
+# --------------------------------------------------------------------------- #
+def test_libre_analyse_groups_turns_into_sections(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mission_id = _create_and_finish_libre_mission(client, monkeypatch, "Analyse Test")
+    session = SessionLocal()
+    try:
+        interview = session.scalars(
+            select(Interview).where(Interview.mission_id == mission_id)
+        ).one()
+        interview_id = interview.id
+        # _create_and_finish_libre_mission n'envoie qu'un seul tour ; on en
+        # ajoute d'autres directement pour tester le regroupement par section.
+        session.add_all([
+            InterviewTurn(
+                interview_id=interview_id, position=1,
+                interlocuteur="Analyse Test", question=None,
+                remarque="Réponse sans nouvelle section.", section_title=None,
+            ),
+            InterviewTurn(
+                interview_id=interview_id, position=2,
+                interlocuteur="Consultant·e", question="Autre sujet ?", remarque=None,
+                section_title="Deuxième thème",
+            ),
+        ])
+        session.commit()
+    finally:
+        session.close()
+
+    response = client.get(f"/interviews/{interview_id}/analyse")
+    assert response.status_code == 200
+    assert "Réponse sans nouvelle section." in response.text
+    assert "Deuxième thème" in response.text
+    # Le premier tour (sans section_title) crée une section par défaut,
+    # celui qui porte "Deuxième thème" en ouvre une nouvelle.
+    assert response.text.index("Réponse sans nouvelle section.") < response.text.index("Deuxième thème")
+
+
+def test_libre_synthese_shows_resume_and_repartition(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mission_id = _create_and_finish_libre_mission(client, monkeypatch, "Synthese Test")
+    session = SessionLocal()
+    try:
+        interview = session.scalars(
+            select(Interview).where(Interview.mission_id == mission_id)
+        ).one()
+        interview_id = interview.id
+    finally:
+        session.close()
+
+    response = client.get(f"/interviews/{interview_id}/analyse/synthese")
+    assert response.status_code == 200
+    assert "- Contexte" in response.text
+    assert "- Point" in response.text
+
+
+def test_libre_analyse_and_synthese_reject_structured_interview(client: TestClient) -> None:
+    response = client.post(
+        "/missions", data={"name": "Mission Structuree Analyse", "description": ""},
+        follow_redirects=False,
+    )
+    mission_id = response.headers["location"].rsplit("/", 1)[-1]
+    response = client.post(
+        f"/missions/{mission_id}/interviews",
+        data={"interviewee_name": "Interviewé Structuré"},
+        follow_redirects=False,
+    )
+    interview_id = response.headers["location"].rsplit("/", 1)[-1]
+
+    assert client.get(f"/interviews/{interview_id}/analyse").status_code == 400
+    assert client.get(f"/interviews/{interview_id}/analyse/synthese").status_code == 400
+
+
+def test_save_libre_detail_rejects_structured_interview(client: TestClient) -> None:
+    """Verrou serveur (US9.1) : l'édition post-enregistrement propre au mode
+    libre ne doit jamais s'appliquer à un entretien structuré."""
+    response = client.post(
+        "/missions", data={"name": "Mission Structuree Verrou", "description": ""},
+        follow_redirects=False,
+    )
+    mission_id = response.headers["location"].rsplit("/", 1)[-1]
+    response = client.post(
+        f"/missions/{mission_id}/interviews",
+        data={"interviewee_name": "Interviewé Verrou"},
+        follow_redirects=False,
+    )
+    interview_id = response.headers["location"].rsplit("/", 1)[-1]
+
+    response = client.post(
+        f"/interviews/{interview_id}/libre",
+        data={"repartition_contexte": "Tentative d'injection"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+
+
+def test_finaliser_rejects_action_on_already_named_mission(client: TestClient) -> None:
+    response = client.post(
+        "/missions", data={"name": "Mission Deja Nommee", "description": ""},
+        follow_redirects=False,
+    )
+    mission_id = response.headers["location"].rsplit("/", 1)[-1]
+
+    assert client.get(f"/missions/{mission_id}/finaliser", follow_redirects=False).status_code == 303
+    response = client.post(
+        f"/missions/{mission_id}/finaliser",
+        data={"action": "nommer", "name": "Nouveau nom"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+
+
+def test_finaliser_rejects_unknown_action(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mission_id = _create_and_finish_libre_mission(client, monkeypatch, "Action Inconnue")
+    response = client.post(
+        f"/missions/{mission_id}/finaliser",
+        data={"action": "autre-chose"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400

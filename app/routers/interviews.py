@@ -10,9 +10,10 @@ import json
 import logging
 import time
 from datetime import date
+from itertools import zip_longest
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -356,20 +357,13 @@ def record_interview(
 # globale (voir interview_libre_extract_ai.py). Revue éditable unique avant
 # enregistrement, comme pour l'import/enregistrement en mode paramétré.
 # --------------------------------------------------------------------------- #
-def _libre_proposed_to_json(identity: dict, turns: list[dict], repartition: dict) -> str:
-    return json.dumps({"identity": identity, "turns": turns, "repartition": repartition})
-
-
-def _build_libre_review_context(
-    mission: Mission, turns: list[dict], repartition: dict, identity: dict
-) -> dict:
+def _merge_identity(manual: dict, detected: dict) -> dict:
+    """Une saisie manuelle explicite l'emporte ; sinon on prend ce que l'IA a
+    identifié dans la transcription (auto-présentation typiquement) — évite
+    de ressaisir à la main une identité déjà dite à l'oral (US9.5)."""
     return {
-        "mission": mission,
-        "turns": turns,
-        "repartition": repartition,
-        "repartition_keys": REPARTITION_KEYS,
-        "identity": identity,
-        "proposed_json": _libre_proposed_to_json(identity, turns, repartition),
+        key: (manual.get(key) or "").strip() or (detected.get(key) or "").strip()
+        for key in ("interviewee_name", "interviewee_role", "interviewee_entity")
     }
 
 
@@ -433,22 +427,37 @@ def record_libre(
             },
         )
 
+    merged_identity = _merge_identity(identity, extracted["identity"])
+    merged_identity["interview_date"] = interview_date
+    merged_identity["audio_backup_path"] = audio_backup_path
+
     return templates.TemplateResponse(
         request,
         "interviews/libre_review.html",
-        _build_libre_review_context(
-            mission, extracted["turns"], extracted["repartition"], identity
-        ),
+        {
+            "mission": mission,
+            "turns": extracted["turns"],
+            "repartition": extracted["repartition"],
+            "repartition_keys": REPARTITION_KEYS,
+            "resume": extracted["resume"],
+            "identity": merged_identity,
+        },
     )
 
 
 @router.post("/missions/{mission_id}/interviews/record-libre/confirm")
 def record_libre_confirm(
     mission_id: int,
-    proposed: str = Form(...),
+    interviewee_name: str = Form(""),
+    interviewee_role: str = Form(""),
+    interviewee_entity: str = Form(""),
+    interview_date: str = Form(""),
+    audio_backup_path: str = Form(""),
+    resume: str = Form(""),
     turn_interlocuteur: list[str] = Form([]),
     turn_question: list[str] = Form([]),
     turn_remarque: list[str] = Form([]),
+    turn_section_title: list[str] = Form([]),
     repartition_contexte: str = Form(""),
     repartition_culture_adn: str = Form(""),
     repartition_forces_succes: str = Form(""),
@@ -457,15 +466,9 @@ def record_libre_confirm(
     db: Session = Depends(get_session),
 ):
     mission = _get_mission(db, mission_id)
-    data = json.loads(proposed)
-    identity = data.get("identity") or {}
 
     try:
-        parsed_date = (
-            date.fromisoformat(identity.get("interview_date"))
-            if identity.get("interview_date")
-            else None
-        )
+        parsed_date = date.fromisoformat(interview_date) if interview_date else None
     except ValueError:
         parsed_date = None
 
@@ -480,11 +483,12 @@ def record_libre_confirm(
         mission_id=mission_id,
         mode="libre",
         status="done",
-        interviewee_name=(identity.get("interviewee_name") or "").strip() or "Sans nom",
-        interviewee_role=(identity.get("interviewee_role") or "").strip() or None,
-        interviewee_entity=(identity.get("interviewee_entity") or "").strip() or None,
+        interviewee_name=interviewee_name.strip() or "Sans nom",
+        interviewee_role=interviewee_role.strip() or None,
+        interviewee_entity=interviewee_entity.strip() or None,
         interview_date=parsed_date,
-        audio_backup_path=identity.get("audio_backup_path") or None,
+        audio_backup_path=audio_backup_path or None,
+        resume=resume.strip() or None,
         repartition={
             key: value.strip()
             for key, value in zip(REPARTITION_KEYS, repartition_values)
@@ -493,12 +497,16 @@ def record_libre_confirm(
     db.add(interview)
     db.flush()  # attribue interview.id avant de créer les tours liés
 
-    for position, (interlocuteur, question, remarque) in enumerate(
-        zip(turn_interlocuteur, turn_question, turn_remarque)
+    for position, (interlocuteur, question, remarque, section_title) in enumerate(
+        zip_longest(
+            turn_interlocuteur, turn_question, turn_remarque, turn_section_title,
+            fillvalue="",
+        )
     ):
         interlocuteur = interlocuteur.strip()
         question = question.strip() or None
         remarque = remarque.strip() or None
+        section_title = section_title.strip() or None
         if not interlocuteur or (question is None and remarque is None):
             continue
         db.add(
@@ -508,6 +516,7 @@ def record_libre_confirm(
                 interlocuteur=interlocuteur,
                 question=question,
                 remarque=remarque,
+                section_title=section_title,
             )
         )
 
@@ -547,6 +556,22 @@ async def save_record_backup(mission_id: int, file: UploadFile = File(...)):
         logger.exception("Échec de la sauvegarde audio de secours")
         return JSONResponse({"error": str(exc)}, status_code=500)
     return JSONResponse({"path": filename})
+
+
+@router.get("/missions/{mission_id}/interviews/record/backup/{filename}")
+def get_record_backup(mission_id: int, filename: str):
+    """Sert un enregistrement audio sauvegardé (écoute/téléchargement) — le
+    fichier était déjà écrit sur disque (`save_record_backup`) mais jamais
+    exposé par une route ; il n'y avait donc rien à lier depuis le
+    formulaire d'enregistrement. Ajouté suite à un signalement utilisateur
+    ("le lien pour réécouter/télécharger a disparu") — l'historique git ne
+    montre aucune trace d'un tel lien ayant existé dans ce dépôt."""
+    if "/" in filename or "\\" in filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Nom de fichier invalide.")
+    path = RECORDINGS_DIR / filename
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Enregistrement introuvable.")
+    return FileResponse(path, media_type="audio/webm", filename=filename)
 
 
 @router.post("/missions/{mission_id}/interviews/import/confirm")
@@ -611,6 +636,56 @@ def delete_interview(interview_id: int, db: Session = Depends(get_session)):
         db.commit()
     target = f"/missions/{mission_id}" if mission_id else "/missions"
     return RedirectResponse(target, status_code=303)
+
+
+# --------------------------------------------------------------------------- #
+# Écran Analyse + Synthèse (incr.9) — rendu lecture d'un entretien libre,
+# façon transcription structurée/éditée : regroupe les tours de parole en
+# sections thématiques (section_title porté par le tour qui ouvre le sujet,
+# hérité par les suivants) plutôt que de les afficher en formulaire brut
+# comme le fait /interviews/{id} (revue/édition). La Synthèse (bouton depuis
+# l'écran Analyse) reprend la répartition déjà enregistrée, en lecture.
+# --------------------------------------------------------------------------- #
+def _group_turns_into_sections(turns: list[InterviewTurn]) -> list[dict]:
+    sections: list[dict] = []
+    for turn in turns:
+        if turn.section_title or not sections:
+            sections.append({"title": turn.section_title, "turns": []})
+        sections[-1]["turns"].append(turn)
+    return sections
+
+
+@router.get("/interviews/{interview_id}/analyse")
+def libre_analyse(interview_id: int, request: Request, db: Session = Depends(get_session)):
+    interview = _get_interview(db, interview_id)
+    if interview.mode != "libre":
+        raise HTTPException(status_code=400, detail="Cet entretien n'est pas en mode libre.")
+    return templates.TemplateResponse(
+        request,
+        "interviews/libre_analyse.html",
+        {
+            "interview": interview,
+            "mission": interview.mission,
+            "sections": _group_turns_into_sections(interview.turns),
+        },
+    )
+
+
+@router.get("/interviews/{interview_id}/analyse/synthese")
+def libre_synthese(interview_id: int, request: Request, db: Session = Depends(get_session)):
+    interview = _get_interview(db, interview_id)
+    if interview.mode != "libre":
+        raise HTTPException(status_code=400, detail="Cet entretien n'est pas en mode libre.")
+    return templates.TemplateResponse(
+        request,
+        "interviews/libre_synthese.html",
+        {
+            "interview": interview,
+            "mission": interview.mission,
+            "repartition": interview.repartition or {},
+            "repartition_keys": REPARTITION_KEYS,
+        },
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -695,6 +770,8 @@ def save_libre_detail(
     turn_interlocuteur: list[str] = Form([]),
     turn_question: list[str] = Form([]),
     turn_remarque: list[str] = Form([]),
+    turn_section_title: list[str] = Form([]),
+    resume: str = Form(""),
     repartition_contexte: str = Form(""),
     repartition_culture_adn: str = Form(""),
     repartition_forces_succes: str = Form(""),
@@ -710,8 +787,9 @@ def save_libre_detail(
         raise HTTPException(status_code=400, detail="Cet entretien n'est pas en mode libre.")
 
     existing_turns = {str(t.id): t for t in interview.turns}
-    for tid, interlocuteur, question, remarque in zip(
-        turn_id, turn_interlocuteur, turn_question, turn_remarque
+    for tid, interlocuteur, question, remarque, section_title in zip_longest(
+        turn_id, turn_interlocuteur, turn_question, turn_remarque, turn_section_title,
+        fillvalue="",
     ):
         turn = existing_turns.get(tid)
         if turn is None:
@@ -719,6 +797,7 @@ def save_libre_detail(
         turn.interlocuteur = interlocuteur.strip()
         turn.question = question.strip() or None
         turn.remarque = remarque.strip() or None
+        turn.section_title = section_title.strip() or None
 
     repartition_values = (
         repartition_contexte,
@@ -730,6 +809,7 @@ def save_libre_detail(
     interview.repartition = {
         key: value.strip() for key, value in zip(REPARTITION_KEYS, repartition_values)
     }
+    interview.resume = resume.strip() or None
     db.commit()
     return RedirectResponse(f"/interviews/{interview.id}", status_code=303)
 

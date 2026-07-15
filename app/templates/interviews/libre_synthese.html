@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Synthèse — {{ interview.interviewee_name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb no-print">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> /
+  <a href="/interviews/{{ interview.id }}">{{ interview.interviewee_name }}</a> /
+  <a href="/interviews/{{ interview.id }}/analyse">Analyse</a> / Synthèse
+</div>
+
+<div class="capture-head no-print">
+  <div>
+    <h1>Synthèse — {{ interview.interviewee_name }}</h1>
+  </div>
+  <div class="coverage-box">
+    <a class="btn" href="/interviews/{{ interview.id }}/analyse">← Retour à l'analyse</a>
+    <button class="btn" type="button" onclick="window.print()">🖨️ Imprimer</button>
+  </div>
+</div>
+
+<article class="preview-doc">
+  <header class="preview-doc-head">
+    <h1>Synthèse de l'entretien</h1>
+    <p class="muted">
+      {{ interview.interviewee_name }}
+      {% if interview.interviewee_role %} — {{ interview.interviewee_role }}{% endif %}
+      {% if interview.interviewee_entity %} ({{ interview.interviewee_entity }}){% endif %}
+    </p>
+  </header>
+
+  {% if interview.resume %}
+  <section class="preview-resume">
+    <p><strong>Message central</strong></p>
+    <p>{{ interview.resume }}</p>
+  </section>
+  {% endif %}
+
+  <section class="preview-theme">
+    <h2>Contexte</h2>
+    {% if repartition.contexte %}<p class="preview-answer">{{ repartition.contexte }}</p>
+    {% else %}<p class="preview-empty">— pas de matière sur cette catégorie —</p>{% endif %}
+  </section>
+
+  <section class="preview-theme">
+    <h2>Culture &amp; ADN</h2>
+    {% if repartition.culture_adn %}<p class="preview-answer">{{ repartition.culture_adn }}</p>
+    {% else %}<p class="preview-empty">— pas de matière sur cette catégorie —</p>{% endif %}
+  </section>
+
+  <section class="preview-theme">
+    <h2>Forces / succès</h2>
+    {% if repartition.forces_succes %}<p class="preview-answer">{{ repartition.forces_succes }}</p>
+    {% else %}<p class="preview-empty">— pas de matière sur cette catégorie —</p>{% endif %}
+  </section>
+
+  <section class="preview-theme">
+    <h2>Points d'amélioration</h2>
+    {% if repartition.points_amelioration %}<p class="preview-answer">{{ repartition.points_amelioration }}</p>
+    {% else %}<p class="preview-empty">— pas de matière sur cette catégorie —</p>{% endif %}
+  </section>
+
+  <section class="preview-theme">
+    <h2>Aspirations</h2>
+    {% if repartition.aspirations %}<p class="preview-answer">{{ repartition.aspirations }}</p>
+    {% else %}<p class="preview-empty">— pas de matière sur cette catégorie —</p>{% endif %}
+  </section>
+
+  <p class="preview-note">
+    Contribue à la synthèse globale de la mission (5 catégories), à côté des
+    entretiens structurés — pas une synthèse par thème, cet entretien n'a pas
+    de trame.
+  </p>
+</article>
+{% endblock %}

@@ -38,6 +38,10 @@
     <span class="muted" id="rec-status"></span>
   </div>
   <div class="autosave-line"><span class="muted" id="rec-backup-status"></span></div>
+  <div class="autosave-line" id="rec-audio-playback" hidden>
+    <audio controls id="rec-audio-player" class="record-audio-player"></audio>
+    <a class="btn-link" id="rec-audio-download" download>Télécharger l'enregistrement</a>
+  </div>
 
   <textarea class="record-transcript" id="rec-transcript" rows="10" readonly
     placeholder="Le texte transcrit apparaîtra ici au fil de l'enregistrement…"></textarea>
@@ -84,6 +88,9 @@
   var timerEl = document.getElementById('rec-timer');
   var statusEl = document.getElementById('rec-status');
   var backupStatusEl = document.getElementById('rec-backup-status');
+  var audioPlaybackEl = document.getElementById('rec-audio-playback');
+  var audioPlayerEl = document.getElementById('rec-audio-player');
+  var audioDownloadEl = document.getElementById('rec-audio-download');
   var transcriptEl = document.getElementById('rec-transcript');
   var transcriptHidden = document.getElementById('rec-transcript-hidden');
   var backupPathHidden = document.getElementById('rec-backup-path');
@@ -187,6 +194,10 @@
         if (result.ok && result.data.path) {
           backupPathHidden.value = result.data.path;
           backupStatusEl.textContent = '✓ sauvegarde audio complète effectuée.';
+          var backupUrl = '/missions/{{ mission.id }}/interviews/record/backup/' + encodeURIComponent(result.data.path);
+          audioPlayerEl.src = backupUrl;
+          audioDownloadEl.href = backupUrl;
+          audioPlaybackEl.hidden = false;
         } else {
           console.error('sauvegarde audio échouée', result.data);
           backupStatusEl.textContent = '⚠ échec de la sauvegarde audio (le texte transcrit reste disponible).';
@@ -206,6 +217,7 @@
       transcriptHidden.value = '';
       backupPathHidden.value = '';
       backupStatusEl.textContent = '';
+      audioPlaybackEl.hidden = true;
 
       startSegment();
       startBackupRecorder();
@@ -248,6 +260,7 @@
     transcriptHidden.value = '';
     backupPathHidden.value = '';
     backupStatusEl.textContent = '';
+    audioPlaybackEl.hidden = true;
     resetBtn.hidden = true;
     statusEl.textContent = '';
     timerEl.textContent = '00:00';

@@ -7,6 +7,19 @@ machine de l'interviewer·euse. Même convention de dégradation gracieuse que
 `ai_common.py` (`is_configured()`/`_anthropic()`) : `is_available()` renvoie
 False si `faster-whisper` n'est pas installé, et `transcribe_audio()` lève
 `TranscriptionError` avec un message destiné à l'UI.
+
+Compromis vitesse/qualité (WHISPER_MODEL/WHISPER_BEAM_SIZE, 2026-07-15) :
+la transcription se fait au fil de l'eau par segments d'~1 min pendant
+l'enregistrement (voir record.html), donc chaque segment doit rester
+sensiblement plus rapide à transcrire qu'à enregistrer. Le réglage d'origine
+(model="small", beam_size=1/greedy) privilégiait la vitesse CPU au prix
+d'erreurs de transcription notables sur un entretien réel (accents,
+vocabulaire métier, recouvrements de parole). Défaut relevé à
+model="medium" + beam_size=2 : nette amélioration de qualité, encore
+raisonnable au fil de l'eau sur un CPU correct — à ajuster via les variables
+d'environnement selon la machine (WHISPER_MODEL=large-v3 pour la meilleure
+qualité possible en local, si le CPU suit ; WHISPER_MODEL=small pour
+revenir à l'ancien compromis si medium est trop lent).
 """
 from __future__ import annotations
 
@@ -15,7 +28,8 @@ import os
 
 from .ai_common import AIError
 
-MODEL_SIZE = os.environ.get("WHISPER_MODEL", "small")
+MODEL_SIZE = os.environ.get("WHISPER_MODEL", "medium")
+BEAM_SIZE = int(os.environ.get("WHISPER_BEAM_SIZE", "2"))
 
 _model = None
 
