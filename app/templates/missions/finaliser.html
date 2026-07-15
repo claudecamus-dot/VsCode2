@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Finaliser la mission — Interview-to-Deck{% endblock %}
+{% block content %}
+<div class="breadcrumb"><a href="/">Nouvel entretien</a> / Finaliser la mission</div>
+
+<div class="page-head"><h1>À quelle mission rattacher cet entretien ?</h1></div>
+<p class="muted">
+  L'entretien est enregistré. Il te reste à décider s'il s'agit d'une
+  nouvelle mission (donne-lui un nom) ou s'il doit rejoindre une mission
+  existante.
+</p>
+
+<section class="card">
+  <h2>Nouvelle mission</h2>
+  <form method="post" action="/missions/{{ mission.id }}/finaliser" class="form">
+    <input type="hidden" name="action" value="nommer">
+    <label>
+      Nom de la mission
+      <input type="text" name="name" autofocus placeholder="Ex. Audit SI — Client X">
+    </label>
+    <label>
+      Description
+      <textarea name="description" rows="2"></textarea>
+    </label>
+    <div class="form-actions">
+      <button class="btn btn-primary" type="submit">Garder comme nouvelle mission</button>
+    </div>
+  </form>
+</section>
+
+<section class="card">
+  <h2>Mission existante</h2>
+  {% if eligible %}
+  <form method="post" action="/missions/{{ mission.id }}/finaliser" class="form">
+    <input type="hidden" name="action" value="rattacher">
+    <label>
+      Mission
+      <select name="target_mission_id">
+        {% for m in eligible %}
+        <option value="{{ m.id }}">{{ m.name }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <div class="form-actions">
+      <button class="btn" type="submit">Rattacher à cette mission</button>
+    </div>
+  </form>
+  {% else %}
+  <p class="muted">
+    {% if mission.trame %}
+    Aucune mission existante sans trame déjà définie — le rattachement n'est
+    proposé que dans ce cas, pour éviter un conflit entre deux trames.
+    {% else %}
+    Aucune mission existante disponible.
+    {% endif %}
+  </p>
+  {% endif %}
+</section>
+{% endblock %}

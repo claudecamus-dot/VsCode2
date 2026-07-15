@@ -5,7 +5,6 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -21,7 +20,7 @@ except ModuleNotFoundError:
     pass
 
 from .db import init_db  # noqa: E402
-from .routers import agents, export, interviews, missions, synthese, trames  # noqa: E402
+from .routers import agents, entretiens, export, interviews, missions, synthese, trames  # noqa: E402
 from .services import audio_transcribe  # noqa: E402
 
 
@@ -42,14 +41,10 @@ app.mount(
     name="static",
 )
 
+app.include_router(entretiens.router)
 app.include_router(missions.router)
 app.include_router(trames.router)
 app.include_router(interviews.router)
 app.include_router(synthese.router)
 app.include_router(export.router)
 app.include_router(agents.router)
-
-
-@app.get("/")
-def home() -> RedirectResponse:
-    return RedirectResponse("/missions")

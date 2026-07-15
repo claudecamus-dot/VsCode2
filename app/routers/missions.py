@@ -3,14 +3,21 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..db import get_session
-from ..models import Mission, Trame
+from ..models import Interview, Mission, Trame
 from ..templating import templates
 
 router = APIRouter(prefix="/missions", tags=["missions"])
+
+
+def _get_mission(db: Session, mission_id: int) -> Mission:
+    mission = db.get(Mission, mission_id)
+    if mission is None:
+        raise HTTPException(status_code=404, detail="Mission introuvable.")
+    return mission
 
 
 @router.get("")
@@ -47,15 +54,97 @@ def create_mission(
     return RedirectResponse(f"/missions/{mission.id}", status_code=303)
 
 
+@router.get("/{mission_id}/finaliser")
+def finaliser_mission_form(
+    mission_id: int, request: Request, db: Session = Depends(get_session)
+):
+    """Mission brouillon (incr.9, US9.2) née d'un entretien libre ou
+    structuré à mission différée : on la nomme maintenant, ou on rattache
+    ses entretiens/sa trame à une mission existante. Le rattachement n'est
+    proposé que vers des missions sans trame déjà définie quand cette
+    mission brouillon en porte une — évite le conflit « deux trames »
+    (`Mission.trame` reste 1:1)."""
+    mission = _get_mission(db, mission_id)
+    if not mission.is_draft:
+        return RedirectResponse(f"/missions/{mission.id}", status_code=303)
+
+    query = select(Mission).where(Mission.is_draft.is_(False), Mission.id != mission.id)
+    if mission.trame is not None:
+        query = query.where(~Mission.trame.has())
+    eligible = db.scalars(query.order_by(Mission.created_at.desc())).all()
+
+    return templates.TemplateResponse(
+        request,
+        "missions/finaliser.html",
+        {"mission": mission, "eligible": eligible},
+    )
+
+
+@router.post("/{mission_id}/finaliser")
+def finaliser_mission(
+    mission_id: int,
+    action: str = Form(...),
+    name: str = Form(""),
+    description: str = Form(""),
+    target_mission_id: int | None = Form(None),
+    db: Session = Depends(get_session),
+):
+    mission = _get_mission(db, mission_id)
+    if not mission.is_draft:
+        raise HTTPException(status_code=400, detail="Cette mission est déjà finalisée.")
+
+    if action == "nommer":
+        name = name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Le nom est obligatoire.")
+        mission.name = name
+        mission.description = description.strip() or None
+        mission.is_draft = False
+        db.commit()
+        return RedirectResponse(f"/missions/{mission.id}", status_code=303)
+
+    if action == "rattacher":
+        target = db.get(Mission, target_mission_id) if target_mission_id else None
+        if target is None or target.is_draft or target.id == mission.id:
+            raise HTTPException(status_code=400, detail="Mission cible invalide.")
+        if mission.trame is not None and target.trame is not None:
+            raise HTTPException(
+                status_code=400,
+                detail="La mission cible a déjà une trame — rattachement impossible.",
+            )
+
+        db.execute(
+            update(Interview)
+            .where(Interview.mission_id == mission.id)
+            .values(mission_id=target.id)
+        )
+        if mission.trame is not None:
+            db.execute(
+                update(Trame)
+                .where(Trame.id == mission.trame.id)
+                .values(mission_id=target.id)
+            )
+        db.commit()
+
+        # Ré-interroge à froid : la mission brouillon n'a alors plus aucun
+        # enfant rattaché, donc la supprimer ne déclenche aucune cascade sur
+        # la trame/les entretiens qu'on vient de reparenter.
+        db.expire_all()
+        orphan = db.get(Mission, mission.id)
+        db.delete(orphan)
+        db.commit()
+        return RedirectResponse(f"/missions/{target.id}", status_code=303)
+
+    raise HTTPException(status_code=400, detail="Action inconnue.")
+
+
 @router.get("/{mission_id}")
 def mission_detail(
     mission_id: int,
     request: Request,
     db: Session = Depends(get_session),
 ):
-    mission = db.get(Mission, mission_id)
-    if mission is None:
-        raise HTTPException(status_code=404, detail="Mission introuvable.")
+    mission = _get_mission(db, mission_id)
     return templates.TemplateResponse(
         request, "missions/detail.html", {"mission": mission}
     )

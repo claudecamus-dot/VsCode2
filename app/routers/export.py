@@ -51,7 +51,7 @@ def _synthese_context(mission: Mission, error: str | None = None) -> dict:
     material_by_theme = _all_theme_material(mission)
     return {
         "mission": mission,
-        "themes": mission.trame.themes,
+        "themes": mission.trame.themes if mission.trame else [],
         "global_synthesis": mission.global_synthesis,
         "axes": mission.recommendation_axes,
         "error": error,

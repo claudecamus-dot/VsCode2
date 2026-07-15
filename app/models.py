@@ -66,9 +66,17 @@ class Mission(Base):
     # Chemin (relatif à data/pptx_templates/) du template PPT client uploadé,
     # utilisé comme base pour l'export PPT (évol) — hérite thème/masters.
     pptx_template_path: Mapped[str | None] = mapped_column(String(500), default=None)
+    # Mission créée implicitement depuis l'écran d'entrée « entretien libre »
+    # ou « entretien structuré » (incr.9) avant que son identité réelle ne
+    # soit connue — nom provisoire, à compléter ou à rattacher à une mission
+    # existante via /missions/{id}/finaliser. Une mission "classique" (choix
+    # « nouvelle mission ») ne passe jamais par cet état.
+    is_draft: Mapped[bool] = mapped_column(Boolean, default=False)
 
-    # Une mission possède une trame (1:1 au MVP), créée avec la mission.
-    trame: Mapped["Trame"] = relationship(
+    # Une mission possède au plus une trame (1:1). Absente pour une mission
+    # brouillon née d'un entretien libre (incr.9, `is_draft`) tant qu'aucune
+    # trame ne lui a été rattachée.
+    trame: Mapped["Trame | None"] = relationship(
         back_populates="mission",
         cascade="all, delete-orphan",
         uselist=False,
@@ -174,6 +182,17 @@ class Interview(Base):
     interviewee_entity: Mapped[str | None] = mapped_column(String(200), default=None)
     interview_date: Mapped[date | None] = mapped_column(Date, default=None)
     status: Mapped[str] = mapped_column(String(20), default="draft")  # draft|done
+    # parametre : suit la trame de la mission (Answer/Question), comme avant
+    # incr.9. libre : pas de trame, structuré en InterviewTurn (incr.9). Fixé
+    # à la création, jamais exposé en modification ensuite (verrou serveur —
+    # aucune route de mise à jour n'accepte ce champ).
+    mode: Mapped[str] = mapped_column(String(20), default="parametre")
+    # Répartition IA (mode libre uniquement) dans les 5 catégories de
+    # `GlobalSynthesis` — mêmes clés que `synthese_ai.GLOBAL_SCHEMA`, éditée
+    # par le consultant avant enregistrement. Consommée par
+    # `_build_global_prompt` comme matière supplémentaire (canal
+    # `material_libre`, à côté de `material_by_theme`).
+    repartition: Mapped[dict] = mapped_column(JSON, default=dict)
     # Protocole / infos de référence à introduire pendant l'entretien (évol).
     reference_text: Mapped[str | None] = mapped_column(Text, default=None)
     free_notes: Mapped[str | None] = mapped_column(Text, default=None)
@@ -193,6 +212,31 @@ class Interview(Base):
         cascade="all, delete-orphan",
         order_by="Verbatim.created_at",
     )
+    turns: Mapped[list["InterviewTurn"]] = relationship(
+        back_populates="interview",
+        cascade="all, delete-orphan",
+        order_by="InterviewTurn.position",
+    )
+
+
+class InterviewTurn(Base):
+    """Un tour de parole d'un entretien en mode libre (incr.9, US9.4) —
+    interlocuteur/question/remarque, mis en forme par IA depuis la
+    transcription puis revu/édité par le consultant. Indépendant de
+    Trame/Theme/Question : un entretien libre n'a pas de trame."""
+
+    __tablename__ = "interview_turns"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    interview_id: Mapped[int] = mapped_column(
+        ForeignKey("interviews.id", ondelete="CASCADE")
+    )
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    interlocuteur: Mapped[str] = mapped_column(String(200), default="")
+    question: Mapped[str | None] = mapped_column(Text, default=None)
+    remarque: Mapped[str | None] = mapped_column(Text, default=None)
+
+    interview: Mapped["Interview"] = relationship(back_populates="turns")
 
 
 class Answer(Base):

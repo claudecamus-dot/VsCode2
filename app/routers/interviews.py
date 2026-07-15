@@ -18,13 +18,21 @@ from sqlalchemy.orm import Session
 
 from ..db import RECORDINGS_DIR, get_session
 from ..importers.docx_trame import extract_text_bytes
-from ..models import Answer, Interview, Mission, Question, Verbatim
+from ..models import Answer, Interview, InterviewTurn, Mission, Question, Verbatim
 from ..services import audio_transcribe
 from ..services.interview_extract_ai import (
     InterviewExtractAIError,
     extract_answers_from_text,
 )
+from ..services.interview_libre_extract_ai import (
+    InterviewLibreExtractAIError,
+    extract_libre_from_text,
+)
 from ..templating import templates
+
+REPARTITION_KEYS = (
+    "contexte", "culture_adn", "forces_succes", "points_amelioration", "aspirations",
+)
 
 logger = logging.getLogger(__name__)
 
@@ -339,6 +347,177 @@ def record_interview(
     )
 
 
+# --------------------------------------------------------------------------- #
+# Entretien libre (incr.9, US9.4/US9.5) — même capture audio que le mode
+# paramétré (US3.1/3.2, routes /audio/transcribe-segment et .../record/backup
+# réutilisées telles quelles, indépendantes de toute trame), mais extraction
+# IA différente : pas de questions à remplir, un seul appel produit à la fois
+# les tours de parole et la répartition dans les 5 catégories de synthèse
+# globale (voir interview_libre_extract_ai.py). Revue éditable unique avant
+# enregistrement, comme pour l'import/enregistrement en mode paramétré.
+# --------------------------------------------------------------------------- #
+def _libre_proposed_to_json(identity: dict, turns: list[dict], repartition: dict) -> str:
+    return json.dumps({"identity": identity, "turns": turns, "repartition": repartition})
+
+
+def _build_libre_review_context(
+    mission: Mission, turns: list[dict], repartition: dict, identity: dict
+) -> dict:
+    return {
+        "mission": mission,
+        "turns": turns,
+        "repartition": repartition,
+        "repartition_keys": REPARTITION_KEYS,
+        "identity": identity,
+        "proposed_json": _libre_proposed_to_json(identity, turns, repartition),
+    }
+
+
+@router.get("/missions/{mission_id}/interviews/record-libre")
+def record_libre_form(
+    mission_id: int, request: Request, db: Session = Depends(get_session)
+):
+    mission = _get_mission(db, mission_id)
+    return templates.TemplateResponse(
+        request,
+        "interviews/record_libre.html",
+        {"mission": mission, "recording_available": audio_transcribe.is_available()},
+    )
+
+
+@router.post("/missions/{mission_id}/interviews/record-libre")
+def record_libre(
+    mission_id: int,
+    request: Request,
+    transcript: str = Form(""),
+    interviewee_name: str = Form(""),
+    interviewee_role: str = Form(""),
+    interviewee_entity: str = Form(""),
+    interview_date: str = Form(""),
+    audio_backup_path: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    mission = _get_mission(db, mission_id)
+    identity = {
+        "interviewee_name": interviewee_name,
+        "interviewee_role": interviewee_role,
+        "interviewee_entity": interviewee_entity,
+        "interview_date": interview_date,
+        "audio_backup_path": audio_backup_path,
+        "transcript": transcript,
+    }
+
+    if not transcript.strip():
+        return templates.TemplateResponse(
+            request,
+            "interviews/record_libre.html",
+            {
+                "mission": mission,
+                "recording_available": audio_transcribe.is_available(),
+                "error": "Aucun texte transcrit.",
+                "identity": identity,
+            },
+        )
+
+    try:
+        extracted = extract_libre_from_text(transcript)
+    except InterviewLibreExtractAIError as exc:
+        return templates.TemplateResponse(
+            request,
+            "interviews/record_libre.html",
+            {
+                "mission": mission,
+                "recording_available": audio_transcribe.is_available(),
+                "error": str(exc),
+                "identity": identity,
+            },
+        )
+
+    return templates.TemplateResponse(
+        request,
+        "interviews/libre_review.html",
+        _build_libre_review_context(
+            mission, extracted["turns"], extracted["repartition"], identity
+        ),
+    )
+
+
+@router.post("/missions/{mission_id}/interviews/record-libre/confirm")
+def record_libre_confirm(
+    mission_id: int,
+    proposed: str = Form(...),
+    turn_interlocuteur: list[str] = Form([]),
+    turn_question: list[str] = Form([]),
+    turn_remarque: list[str] = Form([]),
+    repartition_contexte: str = Form(""),
+    repartition_culture_adn: str = Form(""),
+    repartition_forces_succes: str = Form(""),
+    repartition_points_amelioration: str = Form(""),
+    repartition_aspirations: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    mission = _get_mission(db, mission_id)
+    data = json.loads(proposed)
+    identity = data.get("identity") or {}
+
+    try:
+        parsed_date = (
+            date.fromisoformat(identity.get("interview_date"))
+            if identity.get("interview_date")
+            else None
+        )
+    except ValueError:
+        parsed_date = None
+
+    repartition_values = (
+        repartition_contexte,
+        repartition_culture_adn,
+        repartition_forces_succes,
+        repartition_points_amelioration,
+        repartition_aspirations,
+    )
+    interview = Interview(
+        mission_id=mission_id,
+        mode="libre",
+        status="done",
+        interviewee_name=(identity.get("interviewee_name") or "").strip() or "Sans nom",
+        interviewee_role=(identity.get("interviewee_role") or "").strip() or None,
+        interviewee_entity=(identity.get("interviewee_entity") or "").strip() or None,
+        interview_date=parsed_date,
+        audio_backup_path=identity.get("audio_backup_path") or None,
+        repartition={
+            key: value.strip()
+            for key, value in zip(REPARTITION_KEYS, repartition_values)
+        },
+    )
+    db.add(interview)
+    db.flush()  # attribue interview.id avant de créer les tours liés
+
+    for position, (interlocuteur, question, remarque) in enumerate(
+        zip(turn_interlocuteur, turn_question, turn_remarque)
+    ):
+        interlocuteur = interlocuteur.strip()
+        question = question.strip() or None
+        remarque = remarque.strip() or None
+        if not interlocuteur or (question is None and remarque is None):
+            continue
+        db.add(
+            InterviewTurn(
+                interview_id=interview.id,
+                position=position,
+                interlocuteur=interlocuteur,
+                question=question,
+                remarque=remarque,
+            )
+        )
+
+    db.commit()
+
+    if mission.is_draft:
+        return RedirectResponse(f"/missions/{mission.id}/finaliser", status_code=303)
+    return RedirectResponse(f"/interviews/{interview.id}", status_code=303)
+
+
 @router.post("/audio/transcribe-segment")
 async def transcribe_segment(file: UploadFile = File(...)):
     """Transcrit un segment audio autonome (utilisé par la rotation de
@@ -445,6 +624,18 @@ def capture(
     db: Session = Depends(get_session),
 ):
     interview = _get_interview(db, interview_id)
+    if interview.mode == "libre":
+        return templates.TemplateResponse(
+            request,
+            "interviews/libre_detail.html",
+            {
+                "interview": interview,
+                "mission": interview.mission,
+                "turns": interview.turns,
+                "repartition": interview.repartition or {},
+                "repartition_keys": REPARTITION_KEYS,
+            },
+        )
     themes = interview.mission.trame.themes
     answers = {a.question_id: a for a in interview.answers}
     verbatims_by_q: dict[int, list[Verbatim]] = {}
@@ -495,6 +686,52 @@ def capture(
             "recording_available": audio_transcribe.is_available(),
         },
     )
+
+
+@router.post("/interviews/{interview_id}/libre")
+def save_libre_detail(
+    interview_id: int,
+    turn_id: list[str] = Form([]),
+    turn_interlocuteur: list[str] = Form([]),
+    turn_question: list[str] = Form([]),
+    turn_remarque: list[str] = Form([]),
+    repartition_contexte: str = Form(""),
+    repartition_culture_adn: str = Form(""),
+    repartition_forces_succes: str = Form(""),
+    repartition_points_amelioration: str = Form(""),
+    repartition_aspirations: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    """Édition d'un entretien libre déjà enregistré : tours de parole et
+    répartition, révisables après coup (ex. un ajustement suite à relecture).
+    Ne touche jamais `mode` — verrou serveur (US9.1)."""
+    interview = _get_interview(db, interview_id)
+    if interview.mode != "libre":
+        raise HTTPException(status_code=400, detail="Cet entretien n'est pas en mode libre.")
+
+    existing_turns = {str(t.id): t for t in interview.turns}
+    for tid, interlocuteur, question, remarque in zip(
+        turn_id, turn_interlocuteur, turn_question, turn_remarque
+    ):
+        turn = existing_turns.get(tid)
+        if turn is None:
+            continue
+        turn.interlocuteur = interlocuteur.strip()
+        turn.question = question.strip() or None
+        turn.remarque = remarque.strip() or None
+
+    repartition_values = (
+        repartition_contexte,
+        repartition_culture_adn,
+        repartition_forces_succes,
+        repartition_points_amelioration,
+        repartition_aspirations,
+    )
+    interview.repartition = {
+        key: value.strip() for key, value in zip(REPARTITION_KEYS, repartition_values)
+    }
+    db.commit()
+    return RedirectResponse(f"/interviews/{interview.id}", status_code=303)
 
 
 @router.post("/interviews/{interview_id}/answers/{question_id}")

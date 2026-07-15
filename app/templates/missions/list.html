@@ -14,7 +14,10 @@
   <tbody>
     {% for m in missions %}
     <tr>
-      <td><a href="/missions/{{ m.id }}">{{ m.name }}</a></td>
+      <td>
+        <a href="/missions/{{ m.id }}">{{ m.name }}</a>
+        {% if m.is_draft %}<span class="pill pill-draft">Brouillon</span>{% endif %}
+      </td>
       <td>{{ m.created_at.strftime("%d/%m/%Y") }}</td>
       <td class="row-actions">
         <form method="post" action="/missions/{{ m.id }}/delete"

@@ -57,10 +57,15 @@ def _add_missing_columns() -> None:
     existante — on ajoute donc à la main les colonnes introduites après coup.
     """
     additions = {
-        "interviews": {"reference_text": "TEXT", "audio_backup_path": "TEXT"},
+        "interviews": {
+            "reference_text": "TEXT",
+            "audio_backup_path": "TEXT",
+            "mode": "TEXT DEFAULT 'parametre'",
+            "repartition": "JSON",
+        },
         "trames": {"intro_text": "TEXT"},
         "questions": {"help_text": "TEXT"},
-        "missions": {"pptx_template_path": "TEXT"},
+        "missions": {"pptx_template_path": "TEXT", "is_draft": "BOOLEAN DEFAULT 0"},
     }
     with engine.begin() as conn:
         for table, cols in additions.items():

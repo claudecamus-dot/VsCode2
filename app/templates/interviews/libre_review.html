@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Revue de l'entretien libre — Interview-to-Deck{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/">Nouvel entretien</a> / Revue de l'entretien libre
+</div>
+
+<div class="page-head"><h1>Revue avant enregistrement</h1></div>
+<p class="muted">
+  L'IA a structuré la transcription en tours de parole et proposé une
+  répartition dans la synthèse de mission. Corrige ce qui doit l'être — rien
+  n'est enregistré avant validation. La mission se précise à l'étape suivante.
+</p>
+
+<form method="post" action="/missions/{{ mission.id }}/interviews/record-libre/confirm" class="card form">
+  <input type="hidden" name="proposed" value="{{ proposed_json }}">
+
+  <section class="card">
+    <h2>Tours de parole</h2>
+    {% for turn in turns %}
+    <div class="turn-row">
+      <label>
+        Interlocuteur
+        <input type="text" name="turn_interlocuteur" value="{{ turn.interlocuteur }}">
+      </label>
+      <label>
+        Question
+        <textarea name="turn_question" rows="2">{{ turn.question or '' }}</textarea>
+      </label>
+      <label>
+        Remarque
+        <textarea name="turn_remarque" rows="2">{{ turn.remarque or '' }}</textarea>
+      </label>
+    </div>
+    {% endfor %}
+  </section>
+
+  <section class="card">
+    <h2>Répartition dans la synthèse globale de mission</h2>
+    <p class="muted">Alimente les 5 catégories de la synthèse globale, à côté des entretiens structurés — pas la synthèse par thème.</p>
+    <label>
+      Contexte
+      <textarea name="repartition_contexte" rows="3">{{ repartition.contexte }}</textarea>
+    </label>
+    <label>
+      Culture &amp; ADN
+      <textarea name="repartition_culture_adn" rows="3">{{ repartition.culture_adn }}</textarea>
+    </label>
+    <label>
+      Forces / succès
+      <textarea name="repartition_forces_succes" rows="3">{{ repartition.forces_succes }}</textarea>
+    </label>
+    <label>
+      Points d'amélioration
+      <textarea name="repartition_points_amelioration" rows="3">{{ repartition.points_amelioration }}</textarea>
+    </label>
+    <label>
+      Aspirations
+      <textarea name="repartition_aspirations" rows="3">{{ repartition.aspirations }}</textarea>
+    </label>
+  </section>
+
+  <div class="form-actions">
+    <a class="btn" href="/missions/{{ mission.id }}/interviews/record-libre">Annuler</a>
+    <button class="btn btn-primary" type="submit">Enregistrer l'entretien</button>
+  </div>
+</form>
+{% endblock %}

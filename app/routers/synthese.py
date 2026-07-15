@@ -134,9 +134,22 @@ def _answer_count(by_question: dict[int, list[dict]]) -> int:
 def _all_theme_material(mission: Mission) -> list[tuple[Theme, dict, list]]:
     """Matière (réponses + verbatims) de tous les thèmes de la trame — pour
     la synthèse globale, qui recoupe l'ensemble de la mission plutôt qu'un
-    seul thème."""
+    seul thème. Une mission brouillon née d'un entretien libre (incr.9) n'a
+    pas de trame du tout."""
+    if mission.trame is None:
+        return []
     return [
         (theme, *_theme_material(mission, theme)) for theme in mission.trame.themes
+    ]
+
+
+def _libre_material(mission: Mission) -> list[tuple]:
+    """Répartition (5 catégories) de chaque entretien en mode libre (incr.9,
+    US9.6) — matière indépendante des thèmes, injectée à côté de
+    `material_by_theme` dans `generate_global_synthesis`."""
+    return [
+        (iv, iv.repartition) for iv in mission.interviews
+        if iv.mode == "libre" and iv.repartition
     ]
 
 
@@ -311,6 +324,7 @@ def global_synthese_view(
 ):
     mission = _get_mission(db, mission_id)
     material_by_theme = _all_theme_material(mission)
+    material_libre = _libre_material(mission)
     global_synthesis = _get_or_create_global_synthesis(db, mission)
     db.commit()
 
@@ -319,13 +333,14 @@ def global_synthese_view(
         "synthese/globale.html",
         {
             "mission": mission,
-            "themes": mission.trame.themes,
+            "themes": mission.trame.themes if mission.trame else [],
             "global_synthesis": global_synthesis,
             "axes": mission.recommendation_axes,
             "ai_ready": is_configured(),
             "api_key_env": api_key_env_name(),
             "interview_count": len(mission.interviews),
             "answer_count": _total_answer_count(material_by_theme),
+            "libre_count": len(material_libre),
         },
     )
 
@@ -338,6 +353,7 @@ def generate_global(
 ):
     mission = _get_mission(db, mission_id)
     material_by_theme = _all_theme_material(mission)
+    material_libre = _libre_material(mission)
     global_synthesis = _get_or_create_global_synthesis(db, mission)
 
     error = None
@@ -346,11 +362,11 @@ def generate_global(
             "Service IA indisponible — utilisez l'export pour lancer une "
             "analyse externe, puis importez le résultat."
         )
-    elif _total_answer_count(material_by_theme) == 0:
+    elif _total_answer_count(material_by_theme) == 0 and not material_libre:
         error = "Aucune réponse saisie sur la mission — rien à synthétiser."
     else:
         try:
-            result = generate_global_synthesis(mission, material_by_theme)
+            result = generate_global_synthesis(mission, material_by_theme, material_libre)
             _apply_global_synthesis_result(global_synthesis, result)
             db.commit()
         except SynthesisAIError as exc:

@@ -203,10 +203,16 @@ GLOBAL_SCHEMA = {
 }
 
 
-def _build_global_prompt(mission, material_by_theme) -> str:
+def _build_global_prompt(mission, material_by_theme, material_libre=None) -> str:
     """material_by_theme : liste de (theme, by_question, verbatims), un
     triplet par thème — même matière que `_theme_material` (synthese.py),
-    mais pour tous les thèmes de la trame plutôt qu'un seul."""
+    mais pour tous les thèmes de la trame plutôt qu'un seul.
+
+    material_libre (incr.9, US9.6) : liste de (interview, repartition), la
+    répartition déjà produite par `interview_libre_extract_ai.py` pour
+    chaque entretien en mode libre (pas de trame, donc pas de thème/question
+    à traverser) — injectée comme section à part, à côté de celles par
+    thème, pour que la synthèse globale tienne compte des deux."""
     lines = [f"MISSION : {mission.name}", ""]
     for theme, by_question, verbatims in material_by_theme:
         if not by_question and not verbatims:
@@ -228,12 +234,27 @@ def _build_global_prompt(mission, material_by_theme) -> str:
             for v in verbatims:
                 lines.append(f"  « {v['quote']} » — {v['interviewee']}")
         lines.append("")
+    for interview, repartition in material_libre or []:
+        if not any((repartition or {}).values()):
+            continue
+        lines.append(f"=== ENTRETIEN LIBRE : {interview.interviewee_name} ===")
+        for key, label in (
+            ("contexte", "Contexte"),
+            ("culture_adn", "Culture & ADN"),
+            ("forces_succes", "Forces / succès"),
+            ("points_amelioration", "Points d'amélioration"),
+            ("aspirations", "Aspirations"),
+        ):
+            value = (repartition or {}).get(key)
+            if value:
+                lines.append(f"{label} : {value}")
+        lines.append("")
     return "\n".join(lines)
 
 
-def generate_global_synthesis(mission, material_by_theme) -> dict:
+def generate_global_synthesis(mission, material_by_theme, material_libre=None) -> dict:
     """Retourne un dict aux 5 clés de `GlobalSynthesis`. Lève SynthesisAIError."""
-    prompt = _build_global_prompt(mission, material_by_theme)
+    prompt = _build_global_prompt(mission, material_by_theme, material_libre)
     data = _call_claude(GLOBAL_SYSTEM, prompt, GLOBAL_SCHEMA, GLOBAL_JSON_HINT)
     return {
         "contexte": (data.get("contexte") or "").strip(),
@@ -244,7 +265,7 @@ def generate_global_synthesis(mission, material_by_theme) -> dict:
     }
 
 
-def generate_demo_global_synthesis(mission, material_by_theme) -> dict:
+def generate_demo_global_synthesis(mission, material_by_theme, material_libre=None) -> dict:
     """Version heuristique hors-ligne (mode démo), même principe que
     `generate_demo_synthesis` mais à l'échelle de la mission entière."""
     rows = []  # (interviewee, texte)
@@ -271,13 +292,21 @@ def generate_demo_global_synthesis(mission, material_by_theme) -> dict:
     forces_succes = "\n".join(f"- « {w} » évoqué par {n} personnes" for n, w in shared[:5]) or \
         "- Aucun point commun net détecté automatiquement."
 
-    return {
+    result = {
         "contexte": contexte,
         "culture_adn": "- Mode démo : pas d'analyse de culture sans IA réelle.",
         "forces_succes": forces_succes,
         "points_amelioration": "- Mode démo : pas de détection de douleurs sans IA réelle.",
         "aspirations": "- Mode démo : pas d'analyse d'aspirations sans IA réelle.",
     }
+    # Entretiens libres (incr.9) : pas de mode démo dédié pour la répartition
+    # elle-même (déjà produite par extract_libre_from_text, IA réelle
+    # requise) — on se contente de la reprendre telle quelle par catégorie.
+    for _interview, repartition in material_libre or []:
+        for key, value in (repartition or {}).items():
+            if value:
+                result[key] = f"{result[key]}\n- {value}"
+    return result
 
 
 # --------------------------------------------------------------------------- #
