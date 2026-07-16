@@ -13,7 +13,7 @@ from datetime import date
 from itertools import zip_longest
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,7 @@ from ..db import RECORDINGS_DIR, get_session
 from ..importers.docx_trame import extract_text_bytes
 from ..models import Answer, Interview, InterviewTurn, Mission, Question, Verbatim
 from ..services import audio_transcribe
+from ..services.interview_export import build_interview_markdown, group_turns_into_sections, slugify
 from ..services.interview_extract_ai import (
     InterviewExtractAIError,
     extract_answers_from_text,
@@ -646,15 +647,6 @@ def delete_interview(interview_id: int, db: Session = Depends(get_session)):
 # comme le fait /interviews/{id} (revue/édition). La Synthèse (bouton depuis
 # l'écran Analyse) reprend la répartition déjà enregistrée, en lecture.
 # --------------------------------------------------------------------------- #
-def _group_turns_into_sections(turns: list[InterviewTurn]) -> list[dict]:
-    sections: list[dict] = []
-    for turn in turns:
-        if turn.section_title or not sections:
-            sections.append({"title": turn.section_title, "turns": []})
-        sections[-1]["turns"].append(turn)
-    return sections
-
-
 @router.get("/interviews/{interview_id}/analyse")
 def libre_analyse(interview_id: int, request: Request, db: Session = Depends(get_session)):
     interview = _get_interview(db, interview_id)
@@ -666,7 +658,7 @@ def libre_analyse(interview_id: int, request: Request, db: Session = Depends(get
         {
             "interview": interview,
             "mission": interview.mission,
-            "sections": _group_turns_into_sections(interview.turns),
+            "sections": group_turns_into_sections(interview.turns),
         },
     )
 
@@ -1098,6 +1090,24 @@ def preview(interview_id: int, request: Request, db: Session = Depends(get_sessi
             "answered": answered,
             "total": total,
         },
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Export Markdown d'un entretien (incr.9, US9.7) — un seul entretien,
+# structuré ou libre, à la différence de l'export mission-wide
+# (`export.py::export_interviews`) qui agrège tous les entretiens d'une
+# mission pour le circuit export -> analyse externe -> réimport.
+# --------------------------------------------------------------------------- #
+@router.get("/interviews/{interview_id}/export/markdown")
+def export_interview_markdown(interview_id: int, db: Session = Depends(get_session)):
+    interview = _get_interview(db, interview_id)
+    content = build_interview_markdown(interview)
+    filename = f"entretien_{slugify(interview.interviewee_name)}.md"
+    return Response(
+        content=content,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

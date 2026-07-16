@@ -26,7 +26,11 @@ from ..routers.synthese import (
     _total_answer_count,
 )
 from ..services.ai_common import api_key_env_name, is_configured
-from ..services.analyse_import import AnalysisParseError, parse_analysis_markdown
+from ..services.analyse_import import (
+    AnalysisParseError,
+    decode_text_upload,
+    parse_analysis_markdown,
+)
 from ..services.mission_export import build_export_markdown, slugify
 from ..services.pptx_export import build_presentation
 from ..templating import templates
@@ -107,7 +111,7 @@ async def import_analyse(
     db.commit()
     try:
         raw = await file.read()
-        text = raw.decode("utf-8", errors="replace")
+        text = decode_text_upload(raw)
         parsed = parse_analysis_markdown(text)
 
         if any((v or "").strip() for v in parsed["global_synthesis"].values()):

@@ -241,8 +241,9 @@ class InterviewTurn(Base):
     # Titre de section (incr.9, écran Analyse) : posé sur le tour qui ouvre
     # un nouveau sujet dans la conversation, vide sur les tours suivants qui
     # continuent la section en cours — reconstitué à l'affichage par
-    # regroupement séquentiel (voir interviews.py::_group_turns_into_sections),
-    # pas stocké de façon dénormalisée sur chaque tour.
+    # regroupement séquentiel (voir
+    # interview_export.py::group_turns_into_sections), pas stocké de façon
+    # dénormalisée sur chaque tour.
     section_title: Mapped[str | None] = mapped_column(String(300), default=None)
 
     interview: Mapped["Interview"] = relationship(back_populates="turns")

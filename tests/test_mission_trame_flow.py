@@ -455,6 +455,23 @@ def test_interview_preview_shows_all_themes_answers_verbatims_and_notes(
     assert "<textarea" not in text
     assert "hx-post" not in text
 
+    response = client.get(f"/interviews/{interview_id}/export/markdown")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/markdown")
+    assert 'attachment; filename="entretien_marie_dupont.md"' in response.headers["content-disposition"]
+    md = response.text
+
+    assert "# Entretien — Marie Dupont" in md
+    assert "DRH" in md
+    assert "## Organisation" in md
+    assert "## Culture" in md
+    assert "**Question ouverte ?**" in md
+    assert "Réponse ouverte détaillée." in md
+    assert "> « On adapte tout en continu. »" in md
+    assert "_— sans réponse —_" in md
+    assert "## Notes libres" in md
+    assert "Note libre hors trame." in md
+
 
 def test_interview_preview_without_trame_or_answers_does_not_crash(client: TestClient) -> None:
     """Garde-fou : ni une trame vide, ni un entretien sans aucune réponse, ne

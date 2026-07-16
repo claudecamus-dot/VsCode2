@@ -621,6 +621,34 @@ def test_libre_synthese_shows_resume_and_repartition(
     assert "- Point" in response.text
 
 
+def test_export_interview_markdown_libre(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mission_id = _create_and_finish_libre_mission(client, monkeypatch, "Export Libre")
+    session = SessionLocal()
+    try:
+        interview = session.scalars(
+            select(Interview).where(Interview.mission_id == mission_id)
+        ).one()
+        interview_id = interview.id
+    finally:
+        session.close()
+
+    response = client.get(f"/interviews/{interview_id}/export/markdown")
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/markdown")
+    assert 'attachment; filename="entretien_export_libre.md"' in response.headers["content-disposition"]
+    md = response.text
+
+    assert "# Entretien — Export Libre" in md
+    assert "## Transcription structurée" in md
+    assert "**Consultant·e** : Une question ?" in md
+    assert "## Répartition par catégorie" in md
+    assert "### Contexte" in md
+    assert "- Contexte" in md
+    assert "- Point" in md
+
+
 def test_libre_analyse_and_synthese_reject_structured_interview(client: TestClient) -> None:
     response = client.post(
         "/missions", data={"name": "Mission Structuree Analyse", "description": ""},

@@ -18,6 +18,26 @@ from __future__ import annotations
 
 import re
 
+
+def decode_text_upload(raw: bytes) -> str:
+    """Décode un fichier texte téléversé sans corrompre le contenu métier.
+
+    `bytes.decode("utf-8", errors="replace")` remplaçait silencieusement tout
+    octet non-UTF-8 par « � » (U+FFFD) — un « · », un « œ » ou un accent perdu
+    au décodage se retrouvait figé en base, illisible et non réparable a
+    posteriori. Ici on essaie les encodages plausibles dans l'ordre avant de
+    céder au remplacement destructeur : UTF-8 (avec BOM éventuel), puis
+    cp1252 (défaut Windows — Word/Excel/Bloc-notes FR exportent souvent en
+    cp1252), puis en dernier recours seulement le remplacement, pour ne jamais
+    lever d'erreur sur un import utilisateur."""
+    for encoding in ("utf-8-sig", "cp1252"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
 GLOBAL_FIELD_KEYWORDS = {
     "contexte": "contexte",
     "culture": "culture_adn",

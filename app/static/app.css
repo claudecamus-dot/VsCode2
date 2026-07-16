@@ -53,6 +53,7 @@ body {
   border-bottom: 1px solid var(--border);
 }
 .brand { font-weight: 700; font-size: 1.05rem; color: var(--text); text-decoration: none; }
+.topbar nav { display: flex; align-items: center; gap: 20px; }
 .topbar nav a { color: var(--muted); text-decoration: none; font-size: .92rem; }
 .topbar nav a:hover { color: var(--text); }
 

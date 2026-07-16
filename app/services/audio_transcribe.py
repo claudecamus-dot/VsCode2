@@ -79,11 +79,12 @@ def transcribe_audio(content: bytes) -> str:
 
     try:
         model = _get_model()
-        # beam_size=1 (greedy) au lieu du défaut 5 : le principal poste de
-        # coût CPU pour un gain de précision marginal sur des notes/entretiens.
-        # vad_filter saute les silences plutôt que de les faire décoder.
+        # beam_size piloté par BEAM_SIZE (défaut 2, relevé depuis 1 le
+        # 2026-07-15 : gain de précision net sur les noms propres/vocabulaire
+        # métier d'un entretien réel, cf. l'en-tête du module). vad_filter
+        # saute les silences plutôt que de les faire décoder.
         segments, _info = model.transcribe(
-            io.BytesIO(content), language="fr", beam_size=1, vad_filter=True
+            io.BytesIO(content), language="fr", beam_size=BEAM_SIZE, vad_filter=True
         )
         text = " ".join(seg.text.strip() for seg in segments).strip()
     except TranscriptionError:
