@@ -12,6 +12,18 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py .claude/hooks/remind_revue_increment.py",
+            "timeout": 10,
+            "statusMessage": "Rappel discipline revue-increment..."
+          }
+        ]
+      }
     ]
   },
   "permissions": {

@@ -103,9 +103,28 @@ sortie, mode dossier, crop, erreur de taille, effet du seuil) — tous verts.
 ## 7. À explorer (reprise de session)
 
 - POC `params.json` + aperçu non-LLM pour l'itération design du deck.
-- Évaluer le coût des sous-agents sur les dernières sessions (inline vs délégué).
+- ~~Évaluer le coût des sous-agents sur les dernières sessions (inline vs délégué).~~
+  Partiellement répondu par §8 (hiérarchie de modèles) — reste à mesurer en
+  pratique sur ce projet.
 - Mesurer sur le chantier PPT en cours le gain réel de `render_diff.py`
   (nombre de slides évitées à l'eye-check sur les prochaines itérations).
+- Installer `codeburn` (§8, Recette 5) pour un monitoring coût **modèle**, en
+  complément de `rtk gain` (qui ne couvre que le coût **outils**).
+
+## 8. Recoupement — OCTO Playbook Agentique (2026-07-16)
+
+Le *Playbook Agentique OCTO* (Tribu AI Engineering, v0.9) consacre une partie
+à « Optimiser la consommation Tokens », 5 recettes. Recoupement avec ce
+document et actions prises sur les 4 projets VSCode outillés (VSCode/1/2/3) :
+
+| # | Recette du playbook | Déjà couvert ici (§) | Action prise le 2026-07-16 |
+| --- | --- | --- | --- |
+| 1 | Gestion du contexte (compaction ≥40 %, subagents pour sorties volumineuses, 1 session/sujet, bootfile CLAUDE.md) | §2 (postes de dépense), §5 | Bloc « Discipline de gestion des tokens » ajouté au `CLAUDE.md` des 4 projets — règles de *navigation* uniquement (dossiers à ignorer, grep ciblé, sous-agent pour sortie volumineuse, `/compact` à 40 %). Les règles de *style de sortie* du playbook (phrases courtes, pas de tirets cadratins) **volontairement pas reprises** : changeraient le ton des réponses, hors périmètre de cette passe. |
+| 2 | Optimisation des outils (proxy type RTK, −80 % sur les commandes shell) | §3 (déjà en place) | Rien à faire — déjà opérationnel et mesuré (§6) |
+| 3 | Skills avec cache (précalcul structure/deps, évite de ré-analyser à chaque session) | §7 (idée `params.json`) | Pas implémenté cette passe — rejoint le POC déjà noté en §7 |
+| 4 | Hiérarchie de modèles (top-tier planification, mid-tier construction, léger pour les sous-agents mécaniques) | Non couvert avant aujourd'hui | **Appliqué** : `model: haiku` ajouté à `auditor-subagent` (`.claude/agents/`, VSCode1) — sous-agent lecture-seule à rapport templaté, profil « exploration » du playbook. **Volontairement pas appliqué** à `developer*`, `qa-engineer`, `documentarian`, `debugger`, `onboarder`, `ui/ux-designer` (VSCode1) ni `ppt-designer` (VSCode3) : ce sont des rôles de jugement (diagnostic, tests, refactor sans casser la logique, design) où un modèle plus léger risquerait de dégrader le résultat — pas de bascule automatique là où la qualité prime sur le coût. `orchestrator*`/`pathfinder`/`planner` (déjà `sonnet`) et `reviewer` (déjà `opus`) étaient déjà bien réglés. Pas de mécanisme équivalent trouvé côté VSCode/VSCode2/VSCode4 (pas de `.claude/agents/` custom) ni côté `.opencode/` (pas de fichier de config `opencode.json` existant à étendre — le playbook montre un exemple pour un outil tiers, `opencode`, non vérifiable ici sans ce fichier). |
+| 5 | Monitoring des coûts (`codeburn` sur les logs d'agent) | Non couvert — `rtk gain` ne mesure que le poste outils, pas le poste modèle | Pas installé cette passe — ajouté à la liste « à explorer » ci-dessus |
 
 *Lié : `~/.claude/RTK.md` (référence RTK), [`../docs/wiki.html`](../docs/wiki.html),
-[`points-amelioration-ppt.md`](points-amelioration-ppt.md).*
+[`points-amelioration-ppt.md`](points-amelioration-ppt.md),
+`docs/wiki/todo.md` (rubrique « Dispositif Claude Code »).*

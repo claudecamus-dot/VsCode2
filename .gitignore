@@ -14,6 +14,10 @@ data/
 .claude/settings.local.json
 CLAUDE.local.md
 
+# BMAD — sorties generees (planning/implementation artifacts), pas du
+# contenu source ; _bmad/ (le moteur, ~138K) reste versionne a part.
+_bmad-output/
+
 # Echantillons reels (audio + docx) utilises pour valider la qualite Whisper
 # le 2026-07-15 — .weba de 105 Mo, contenu d'une session interne reelle :
 # trop volumineux et pas destine a etre partage tel quel. Voir le TODO
