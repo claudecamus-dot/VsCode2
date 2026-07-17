@@ -9,7 +9,7 @@ que soit la source.
 Dégradation gracieuse : pas d'heuristique de repli fiable pour du texte libre
 non structuré — sans IA configurée, `extract_trame_from_text()` lève
 `TrameExtractAIError` (le routeur affiche un message lisible). Fournisseur IA
-actif = `AI_PROVIDER` (voir `ai_common.py`), anthropic par défaut.
+actif = `AI_PROVIDER` (voir `ai_common.py`), ollama par défaut.
 """
 from __future__ import annotations
 

@@ -22,13 +22,15 @@ from ..importers.docx_trame import extract_text_bytes
 from ..models import Answer, Interview, InterviewTurn, Mission, Question, Verbatim
 from ..services import audio_transcribe
 from ..services.interview_export import build_interview_markdown, group_turns_into_sections, slugify
+from ..services.interview_pdf_export import build_interview_pdf
 from ..services.interview_extract_ai import (
     InterviewExtractAIError,
     extract_answers_from_text,
 )
 from ..services.interview_libre_extract_ai import (
     InterviewLibreExtractAIError,
-    extract_libre_from_text,
+    extract_turns_from_text,
+    generate_repartition_from_turns,
 )
 from ..templating import templates
 
@@ -415,7 +417,7 @@ def record_libre(
         )
 
     try:
-        extracted = extract_libre_from_text(transcript)
+        extracted = extract_turns_from_text(transcript)
     except InterviewLibreExtractAIError as exc:
         return templates.TemplateResponse(
             request,
@@ -434,14 +436,111 @@ def record_libre(
 
     return templates.TemplateResponse(
         request,
-        "interviews/libre_review.html",
+        "interviews/libre_turns_review.html",
         {
             "mission": mission,
             "turns": extracted["turns"],
-            "repartition": extracted["repartition"],
-            "repartition_keys": REPARTITION_KEYS,
-            "resume": extracted["resume"],
             "identity": merged_identity,
+        },
+    )
+
+
+def _parse_turns_from_form(
+    turn_interlocuteur: list[str],
+    turn_question: list[str],
+    turn_remarque: list[str],
+    turn_section_title: list[str],
+) -> list[dict]:
+    """Reconstruit la liste de tours de parole depuis les champs de
+    formulaire répétés (même filtrage que `extract_turns_from_text` : un
+    tour sans interlocuteur, ou ni question ni remarque, n'est pas gardé)."""
+    turns = []
+    for interlocuteur, question, remarque, section_title in zip_longest(
+        turn_interlocuteur, turn_question, turn_remarque, turn_section_title,
+        fillvalue="",
+    ):
+        interlocuteur = interlocuteur.strip()
+        question = question.strip() or None
+        remarque = remarque.strip() or None
+        section_title = section_title.strip() or None
+        if not interlocuteur or (question is None and remarque is None):
+            continue
+        turns.append({
+            "interlocuteur": interlocuteur,
+            "question": question,
+            "remarque": remarque,
+            "section_title": section_title,
+        })
+    return turns
+
+
+@router.post("/missions/{mission_id}/interviews/record-libre/synthese")
+def record_libre_synthese(
+    mission_id: int,
+    request: Request,
+    interviewee_name: str = Form(""),
+    interviewee_role: str = Form(""),
+    interviewee_entity: str = Form(""),
+    interview_date: str = Form(""),
+    audio_backup_path: str = Form(""),
+    turn_interlocuteur: list[str] = Form([]),
+    turn_question: list[str] = Form([]),
+    turn_remarque: list[str] = Form([]),
+    turn_section_title: list[str] = Form([]),
+    db: Session = Depends(get_session),
+):
+    """Étape 2 (US9.16) : à partir des tours de parole validés à l'étape
+    précédente (pas de la transcription brute), génère la répartition dans
+    les 5 catégories de synthèse + le résumé, puis affiche l'écran de revue
+    de la synthèse avant enregistrement définitif."""
+    mission = _get_mission(db, mission_id)
+    identity = {
+        "interviewee_name": interviewee_name,
+        "interviewee_role": interviewee_role,
+        "interviewee_entity": interviewee_entity,
+        "interview_date": interview_date,
+        "audio_backup_path": audio_backup_path,
+    }
+    turns = _parse_turns_from_form(
+        turn_interlocuteur, turn_question, turn_remarque, turn_section_title
+    )
+
+    if not turns:
+        return templates.TemplateResponse(
+            request,
+            "interviews/libre_turns_review.html",
+            {
+                "mission": mission,
+                "turns": [],
+                "identity": identity,
+                "error": "Aucun tour de parole à synthétiser — corrige au moins un tour.",
+            },
+        )
+
+    try:
+        synth = generate_repartition_from_turns(turns)
+    except InterviewLibreExtractAIError as exc:
+        return templates.TemplateResponse(
+            request,
+            "interviews/libre_turns_review.html",
+            {
+                "mission": mission,
+                "turns": turns,
+                "identity": identity,
+                "error": str(exc),
+            },
+        )
+
+    return templates.TemplateResponse(
+        request,
+        "interviews/libre_review.html",
+        {
+            "mission": mission,
+            "turns": turns,
+            "repartition": synth["repartition"],
+            "repartition_keys": REPARTITION_KEYS,
+            "resume": synth["resume"],
+            "identity": identity,
         },
     )
 
@@ -649,6 +748,10 @@ def delete_interview(interview_id: int, db: Session = Depends(get_session)):
 # --------------------------------------------------------------------------- #
 @router.get("/interviews/{interview_id}/analyse")
 def libre_analyse(interview_id: int, request: Request, db: Session = Depends(get_session)):
+    """Aperçu lecture-seule d'un entretien libre — tours de parole par
+    section puis résumé/répartition, sur un seul écran (fusion 2026-07-17 de
+    l'ancien libre_synthese.html, pour converger vers le modèle à 2 écrans
+    édition/aperçu déjà utilisé côté entretien sur trame, cf. preview.html)."""
     interview = _get_interview(db, interview_id)
     if interview.mode != "libre":
         raise HTTPException(status_code=400, detail="Cet entretien n'est pas en mode libre.")
@@ -659,25 +762,19 @@ def libre_analyse(interview_id: int, request: Request, db: Session = Depends(get
             "interview": interview,
             "mission": interview.mission,
             "sections": group_turns_into_sections(interview.turns),
+            "repartition": interview.repartition or {},
+            "repartition_keys": REPARTITION_KEYS,
         },
     )
 
 
 @router.get("/interviews/{interview_id}/analyse/synthese")
-def libre_synthese(interview_id: int, request: Request, db: Session = Depends(get_session)):
-    interview = _get_interview(db, interview_id)
-    if interview.mode != "libre":
-        raise HTTPException(status_code=400, detail="Cet entretien n'est pas en mode libre.")
-    return templates.TemplateResponse(
-        request,
-        "interviews/libre_synthese.html",
-        {
-            "interview": interview,
-            "mission": interview.mission,
-            "repartition": interview.repartition or {},
-            "repartition_keys": REPARTITION_KEYS,
-        },
-    )
+def libre_synthese(interview_id: int):
+    """Ancienne URL (contenu désormais fusionné dans /analyse, cf.
+    libre_analyse ci-dessus) — conservée en redirection pour ne pas casser un
+    lien existant. Le contrôle du mode (400 si pas 'libre') est fait par la
+    cible de la redirection."""
+    return RedirectResponse(f"/interviews/{interview_id}/analyse", status_code=308)
 
 
 # --------------------------------------------------------------------------- #
@@ -1107,6 +1204,21 @@ def export_interview_markdown(interview_id: int, db: Session = Depends(get_sessi
     return Response(
         content=content,
         media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/interviews/{interview_id}/export/pdf")
+def export_interview_pdf(interview_id: int, db: Session = Depends(get_session)):
+    """Même matière que l'export Markdown ci-dessus, mais typeset (US9.20) —
+    voir `interview_pdf_export.py` pour la mise en forme (inspirée d'un
+    exemple de transcription éditée fourni par l'utilisateur)."""
+    interview = _get_interview(db, interview_id)
+    content = build_interview_pdf(interview)
+    filename = f"entretien_{slugify(interview.interviewee_name)}.pdf"
+    return Response(
+        content=content,
+        media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 

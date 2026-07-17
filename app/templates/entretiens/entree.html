@@ -2,18 +2,14 @@
 {% block title %}Nouvel entretien — Interview-to-Deck{% endblock %}
 {% block content %}
 <div class="page-head"><h1>Nouvel entretien</h1></div>
-<p class="muted">
-  Choisis comment démarrer. Pour les deux premiers, pas besoin de savoir à
-  quelle mission ça se rattache tout de suite — ça se précise à la fin.
-</p>
+<p class="muted">Choisis comment démarrer — pour les deux premiers, la mission se précise à la fin.</p>
 
 <div class="entree-choices">
   <form method="post" action="/entretiens/libre/nouveau" class="card entree-choice">
     <h2>Entretien libre</h2>
     <p class="muted">
-      Enregistre une conversation sans trame prédéfinie. L'IA structure les
-      tours de parole et répartit le contenu dans la synthèse une fois la
-      transcription terminée. Idéal pour un entretien exploratoire.
+      Enregistre sans trame prédéfinie — l'IA structure les tours de parole et
+      les répartit dans la synthèse une fois transcrits.
     </p>
     <button class="btn btn-primary" type="submit">Démarrer un entretien libre</button>
   </form>
@@ -21,19 +17,15 @@
   <form method="post" action="/entretiens/structure/nouveau" class="card entree-choice">
     <h2>Entretien structuré</h2>
     <p class="muted">
-      Définis d'abord une trame de questions, puis mène l'entretien dessus —
-      comme aujourd'hui. La mission se nomme à la fin, ou l'entretien peut
-      être rattaché à une mission existante qui n'a pas encore de trame.
+      Définis une trame de questions puis mène l'entretien dessus — rattachable
+      à une mission existante sans trame, sinon nommée à la fin.
     </p>
     <button class="btn" type="submit">Définir une trame et démarrer</button>
   </form>
 
   <div class="card entree-choice">
     <h2>Nouvelle mission</h2>
-    <p class="muted">
-      Tu sais déjà à quelle mission ça se rattache : nomme-la d'abord, puis
-      définis sa trame et ses entretiens.
-    </p>
+    <p class="muted">Tu sais déjà à quelle mission ça se rattache : nomme-la, puis définis sa trame et ses entretiens.</p>
     <a class="btn" href="/missions/new">Créer une mission</a>
   </div>
 </div>

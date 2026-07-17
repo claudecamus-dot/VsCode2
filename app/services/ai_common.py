@@ -5,7 +5,7 @@ Factorisé depuis `synthese_ai.py` : `trame_extract_ai.py` et
 (configuration, appel SDK, parsing JSON, messages d'erreur lisibles).
 
 Le fournisseur est choisi par la variable d'environnement `AI_PROVIDER`
-(`anthropic` par défaut, ou `openai` / `mistral` / `ollama`) — un seul
+(`ollama` par défaut — local, gratuit — ou `openai` / `mistral`) — un seul
 fournisseur actif à la fois, pas de repli automatique de l'un vers l'autre :
 si la clé du fournisseur configuré manque, l'appelant obtient un message
 clair plutôt qu'un essai silencieux sur un autre fournisseur (comportement
@@ -33,7 +33,6 @@ import urllib.error
 import urllib.request
 
 _API_KEY_ENV = {
-    "anthropic": "ANTHROPIC_API_KEY",
     "openai": "OPENAI_API_KEY",
     "mistral": "MISTRAL_API_KEY",
     # Pas un vrai secret (serveur local sans authentification) — adresse du
@@ -46,7 +45,6 @@ _API_KEY_ENV = {
 # Modèles par défaut, surchargeables par la variable d'environnement
 # SYNTHESE_MODEL quel que soit le fournisseur actif.
 _DEFAULT_MODELS = {
-    "anthropic": "claude-opus-4-8",
     "openai": "gpt-4o",
     "mistral": "mistral-large-latest",
     "ollama": "llama3.1",
@@ -55,15 +53,6 @@ _DEFAULT_MODELS = {
 
 class AIError(RuntimeError):
     """Erreur fonctionnelle d'appel IA — le message est destiné à l'UI."""
-
-
-def _anthropic():
-    try:
-        import anthropic
-
-        return anthropic
-    except ModuleNotFoundError:
-        return None
 
 
 def _openai():
@@ -92,20 +81,56 @@ def _ollama():
     return True
 
 
-_SDK_LOADERS = {"anthropic": _anthropic, "openai": _openai, "mistral": _mistral, "ollama": _ollama}
+_SDK_LOADERS = {"openai": _openai, "mistral": _mistral, "ollama": _ollama}
 
 
 def ollama_host() -> str:
     return os.environ.get("OLLAMA_HOST", "http://localhost:11434").rstrip("/")
 
 
+def ollama_num_ctx() -> int:
+    """Fenêtre de contexte Ollama (tokens) — 8192 par défaut. Sans ce réglage
+    explicite, Ollama retombe sur son défaut de 2048 tokens, qui tronque
+    silencieusement (sans erreur) tout prompt plus long — un piège réel sur
+    une transcription d'entretien un peu longue. Surchargeable par
+    `OLLAMA_NUM_CTX` si un modèle/poste supporte plus."""
+    try:
+        return int(os.environ.get("OLLAMA_NUM_CTX", "8192"))
+    except ValueError:
+        return 8192
+
+
+def ollama_timeout() -> int:
+    """Délai HTTP (secondes) avant abandon d'un appel Ollama — 300s par
+    défaut. Un `num_ctx` plus grand ou un CPU sans GPU dédié peuvent pousser
+    un appel bien au-delà de l'ancien délai fixe de 180s. Surchargeable par
+    `OLLAMA_TIMEOUT`."""
+    try:
+        return int(os.environ.get("OLLAMA_TIMEOUT", "300"))
+    except ValueError:
+        return 300
+
+
+def ollama_chunk_max_words() -> int:
+    """Taille de tronçon (mots) pour le découpage map-reduce de
+    `interview_libre_extract_ai.py` — 1800 par défaut. Sur un poste CPU sans
+    GPU dédié, un tronçon de cette taille peut dépasser `ollama_timeout()`
+    avec un gros modèle ; réduire cette valeur diminue le temps par appel (au
+    prix de plus d'appels). Surchargeable par `OLLAMA_CHUNK_MAX_WORDS`."""
+    try:
+        return int(os.environ.get("OLLAMA_CHUNK_MAX_WORDS", "1800"))
+    except ValueError:
+        return 1800
+
+
 def active_provider() -> str:
-    """Fournisseur configuré — `AI_PROVIDER`, replié sur `anthropic` si absent
-    ou non reconnu (ne jamais planter sur une variable mal renseignée). Lu à
-    chaque appel (pas mis en cache au chargement du module) pour rester
-    testable et pour refléter un changement d'environnement à chaud."""
-    provider = os.environ.get("AI_PROVIDER", "anthropic").strip().lower()
-    return provider if provider in _SDK_LOADERS else "anthropic"
+    """Fournisseur configuré — `AI_PROVIDER`, replié sur `ollama` (local,
+    gratuit) si absent ou non reconnu (ne jamais planter sur une variable mal
+    renseignée). Lu à chaque appel (pas mis en cache au chargement du module)
+    pour rester testable et pour refléter un changement d'environnement à
+    chaud."""
+    provider = os.environ.get("AI_PROVIDER", "ollama").strip().lower()
+    return provider if provider in _SDK_LOADERS else "ollama"
 
 
 def active_model() -> str:
@@ -165,24 +190,6 @@ def _parse_json(text: str) -> dict:
     raise AIError("Réponse IA non exploitable (JSON invalide).")
 
 
-def _call_anthropic(system: str, prompt: str, schema: dict, json_hint: str, model: str, max_tokens: int) -> str:
-    anthropic = _anthropic()
-    common = dict(model=model, max_tokens=max_tokens, messages=[{"role": "user", "content": prompt}])
-    client = anthropic.Anthropic()
-    try:
-        resp = client.messages.create(
-            system=system,
-            output_config={"format": {"type": "json_schema", "schema": schema}},
-            **common,
-        )
-    except TypeError:
-        # SDK antérieur à output_config : repli sur consigne JSON + parsing.
-        resp = client.messages.create(system=system + json_hint, **common)
-    if getattr(resp, "stop_reason", None) == "refusal":
-        raise AIError("Génération refusée par le modèle.")
-    return next((b.text for b in resp.content if getattr(b, "type", None) == "text"), "")
-
-
 def _call_openai(system: str, prompt: str, schema: dict, json_hint: str, model: str, max_tokens: int) -> str:
     openai = _openai()
     client = openai.OpenAI()
@@ -225,7 +232,7 @@ def _call_ollama(system: str, prompt: str, schema: dict, json_hint: str, model: 
         ],
         "format": "json",
         "stream": False,
-        "options": {"num_predict": max_tokens},
+        "options": {"num_predict": max_tokens, "num_ctx": ollama_num_ctx()},
     }).encode("utf-8")
     req = urllib.request.Request(
         f"{ollama_host()}/api/chat",
@@ -234,7 +241,7 @@ def _call_ollama(system: str, prompt: str, schema: dict, json_hint: str, model: 
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=180) as resp:
+        with urllib.request.urlopen(req, timeout=ollama_timeout()) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.URLError as exc:
         raise AIError(
@@ -253,7 +260,6 @@ def _call_ollama(system: str, prompt: str, schema: dict, json_hint: str, model: 
 
 
 _CALLERS = {
-    "anthropic": _call_anthropic,
     "openai": _call_openai,
     "mistral": _call_mistral,
     "ollama": _call_ollama,

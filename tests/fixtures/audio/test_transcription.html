@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test transcription audio</title>
+<style>
+  body { font-family: sans-serif; max-width: 640px; margin: 40px auto; }
+  button { padding: 8px 16px; margin-left: 8px; }
+  pre { background: #f0f0f0; padding: 12px; white-space: pre-wrap; }
+  .fixtures { margin: 16px 0; }
+  .fixtures a { display: block; margin: 4px 0; }
+</style>
+</head>
+<body>
+<h1>Test manuel — /audio/transcribe-segment</h1>
+<p>Choisis un des fichiers audio de test (dossier <code>tests/fixtures/audio/</code> et <code>synthetiques/</code>), puis clique Transcrire. Nécessite que le serveur dev tourne sur <code>http://127.0.0.1:8010</code>.</p>
+
+<div class="fixtures">
+  <strong>Fichiers de test :</strong>
+  <ul>
+    <li>tts_anglais_synthetique.webm — vraie parole TTS, doit donner du texte</li>
+    <li>synthetiques/silence_tres_court.webm — doit donner "Aucune parole détectée"</li>
+    <li>synthetiques/bruit_faible_amplitude.webm — bruit, comportement VAD à observer</li>
+    <li>synthetiques/ton_sinusoidal.webm — ton pur 440Hz, comportement VAD à observer</li>
+    <li>synthetiques/corrompu.webm — doit échouer proprement (422), pas de crash 500</li>
+  </ul>
+</div>
+
+<!-- Soumission via <form> classique (pas fetch) : les envois de formulaire
+     ne sont pas soumis à CORS, contrairement à fetch/XHR — indispensable ici
+     car cette page est ouverte en file:// (origine "null") et l'API tourne
+     sur http://127.0.0.1:8010 sans middleware CORS. La réponse JSON s'ouvre
+     dans un nouvel onglet. -->
+<form action="http://127.0.0.1:8010/audio/transcribe-segment" method="post" enctype="multipart/form-data" target="_blank">
+  <label for="fileInput">Fichier audio :</label>
+  <input type="file" id="fileInput" name="file" accept="audio/*" required>
+  <button type="submit">Transcrire (ouvre le résultat JSON dans un nouvel onglet)</button>
+</form>
+</body>
+</html>

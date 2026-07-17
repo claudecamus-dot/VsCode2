@@ -18,8 +18,8 @@
   </div>
   <div class="coverage-box">
     <a class="btn" href="/interviews/{{ interview.id }}">← Retour à l'entretien</a>
-    <a class="btn btn-primary" href="/interviews/{{ interview.id }}/analyse/synthese">Voir la synthèse →</a>
     <a class="btn" href="/interviews/{{ interview.id }}/export/markdown">⬇️ Télécharger (.md)</a>
+    <a class="btn" href="/interviews/{{ interview.id }}/export/pdf">⬇️ Télécharger (PDF)</a>
     <button class="btn" type="button" onclick="window.print()">🖨️ Imprimer</button>
   </div>
 </div>
@@ -55,5 +55,56 @@
     {% endfor %}
   </section>
   {% endfor %}
+
+  <div class="notice notice-info">
+    <p>
+      La répartition ci-dessous montre l'apport <strong>de ce seul entretien</strong> aux 5 catégories
+      transverses — ce n'est pas une synthèse à elle seule. Elle sera combinée à celle
+      des autres entretiens dans la
+      <a href="/missions/{{ mission.id }}/synthese/globale">synthèse globale de la mission</a>.
+    </p>
+  </div>
+
+  {% if interview.resume %}
+  <section class="preview-resume">
+    <p class="preview-resume-kicker">Message central — cet entretien</p>
+    <p class="preview-resume-text">{{ interview.resume }}</p>
+  </section>
+  {% endif %}
+
+  <h2 class="preview-group-title">Répartition par catégorie</h2>
+  <p class="muted preview-group-sub">
+    Ce que <strong>cet entretien seul</strong> apporte à chacune des 5 catégories transverses.
+  </p>
+
+  <section class="preview-theme">
+    <h3>Contexte</h3>
+    {% if repartition.contexte %}<p class="preview-answer">{{ repartition.contexte }}</p>
+    {% else %}<p class="preview-empty">— pas de matière sur cette catégorie —</p>{% endif %}
+  </section>
+
+  <section class="preview-theme">
+    <h3>Culture &amp; ADN</h3>
+    {% if repartition.culture_adn %}<p class="preview-answer">{{ repartition.culture_adn }}</p>
+    {% else %}<p class="preview-empty">— pas de matière sur cette catégorie —</p>{% endif %}
+  </section>
+
+  <section class="preview-theme">
+    <h3>Forces / succès</h3>
+    {% if repartition.forces_succes %}<p class="preview-answer">{{ repartition.forces_succes }}</p>
+    {% else %}<p class="preview-empty">— pas de matière sur cette catégorie —</p>{% endif %}
+  </section>
+
+  <section class="preview-theme">
+    <h3>Points d'amélioration</h3>
+    {% if repartition.points_amelioration %}<p class="preview-answer">{{ repartition.points_amelioration }}</p>
+    {% else %}<p class="preview-empty">— pas de matière sur cette catégorie —</p>{% endif %}
+  </section>
+
+  <section class="preview-theme">
+    <h3>Aspirations</h3>
+    {% if repartition.aspirations %}<p class="preview-answer">{{ repartition.aspirations }}</p>
+    {% else %}<p class="preview-empty">— pas de matière sur cette catégorie —</p>{% endif %}
+  </section>
 </article>
 {% endblock %}

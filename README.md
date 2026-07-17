@@ -20,8 +20,8 @@ corporate.
   autosave) — pas de SPA ni d'étape de build front
 - **SQLAlchemy 2.0** + **SQLite** (`data/app.db`, créé au démarrage)
 - **python-pptx** pour la génération de deck
-- IA multi-fournisseur (`AI_PROVIDER` : anthropic / openai / mistral /
-  ollama-local), transcription audio locale **faster-whisper**
+- IA multi-fournisseur (`AI_PROVIDER` : ollama-local par défaut / openai /
+  mistral), transcription audio locale **faster-whisper**
 - Python 3.12+
 
 ## Périmètre couvert

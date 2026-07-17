@@ -8,10 +8,10 @@
 
 <div class="capture-head"><div><h1>Export PPT</h1></div></div>
 
-{% if not themes %}
+{% if not mission.interviews %}
   <div class="card empty">
-    <p>La trame est vide — aucun thème à synthétiser.</p>
-    <a class="btn btn-primary" href="/missions/{{ mission.id }}/trame">Éditer la trame</a>
+    <p>Aucun entretien pour l'instant — saisis ou enregistre au moins un entretien avant de synthétiser.</p>
+    <a class="btn btn-primary" href="/missions/{{ mission.id }}">Retour à la mission</a>
   </div>
 {% else %}
 {% set active = 'export_ppt' %}
@@ -82,13 +82,13 @@
   comment le texte tiendra réellement à l'export (police retenue, troncature éventuelle).
 </p>
 
-{% macro fit_hint(elem_id) %}<span id="{{ elem_id }}" class="fit-hint"></span>{% endmacro %}
+{% macro fit_hint(elem_id, fit_key='', value='') %}<span id="{{ elem_id }}" class="fit-hint">{{ field_fit_hint(fit_key, value) if fit_key else '' }}</span>{% endmacro %}
 
 {# Même palette catégorielle que l'export réel (pptx_deck.PALETTE) — pour que
    l'aperçu web parle le même langage couleur que le .pptx généré. #}
 {% set ppt_palette = ['#2c5cc5', '#1e6b34', '#b3261e', '#b8860b', '#6a3d9a', '#138086'] %}
 
-{% macro text_field(label, post_url, field_name, value, hint_id, preview_id, target_id, rows=2) %}
+{% macro text_field(label, post_url, field_name, value, hint_id, preview_id, target_id, rows=2, fit_key=none) %}
 <label class="synth-field">
   <span>{{ label }}</span>
   <textarea name="value" rows="{{ rows }}"
@@ -98,10 +98,10 @@
     data-preview-target="{{ preview_id }}" data-preview-mode="text"
     oninput="i2dLivePreview(this)">{{ value or '' }}</textarea>
 </label>
-{{ fit_hint(hint_id) }}
+{{ fit_hint(hint_id, fit_key or field_name, value) }}
 {% endmacro %}
 
-{% macro bullet_field(label, post_url, field_name, value, hint_id, preview_id, target_id, rows=4) %}
+{% macro bullet_field(label, post_url, field_name, value, hint_id, preview_id, target_id, rows=4, fit_key=none) %}
 <label class="synth-field">
   <span>{{ label }}</span>
   <textarea name="value" rows="{{ rows }}"
@@ -111,7 +111,7 @@
     data-preview-target="{{ preview_id }}" data-preview-mode="bullets"
     oninput="i2dLivePreview(this)">{{ value or '' }}</textarea>
 </label>
-{{ fit_hint(hint_id) }}
+{{ fit_hint(hint_id, fit_key or field_name, value) }}
 {% endmacro %}
 
 <div class="deck-editor" data-tabs>
@@ -175,7 +175,8 @@
     <section class="tab-panel two-col" data-panel="synth-{{ key }}">
       <div class="deck-pane deck-pane-form">
         {{ bullet_field(label, '/syntheses/globale/' ~ mission.id ~ '/field', key, global_synthesis[key],
-                         'fit-hint-global-' ~ key, 'preview-global-' ~ key, 'global-saved-' ~ key, rows=6) }}
+                         'fit-hint-global-' ~ key, 'preview-global-' ~ key, 'global-saved-' ~ key, rows=6,
+                         fit_key='synthese_categorie') }}
         <span id="global-saved-{{ key }}" class="saved"></span>
       </div>
       <div class="deck-pane deck-pane-preview">
@@ -201,7 +202,7 @@
             data-preview-target="preview-axis-title-{{ axis.id }}" data-preview-mode="text"
             oninput="i2dLivePreview(this)">
         </label>
-        {{ fit_hint('fit-hint-axis-' ~ axis.id) }}
+        {{ fit_hint('fit-hint-axis-' ~ axis.id, 'axis_title', axis.title) }}
         <span id="axis-saved-{{ axis.id }}" class="saved"></span>
         {% endfor %}
       </div>
@@ -247,36 +248,44 @@
       <section class="tab-panel two-col" data-panel="reco-{{ reco.id }}">
         <div class="deck-pane deck-pane-form">
           {{ text_field('Titre', '/recommandations/' ~ reco.id ~ '/field', 'title', reco.title,
-                         'fit-hint-reco-' ~ reco.id ~ '-title', 'preview-reco-title-' ~ reco.id, 'reco-saved-' ~ reco.id, rows=1) }}
+                         'fit-hint-reco-' ~ reco.id ~ '-title', 'preview-reco-title-' ~ reco.id, 'reco-saved-' ~ reco.id ~ '-title', rows=1,
+                         fit_key='reco_title') }}
+          <span id="reco-saved-{{ reco.id }}-title" class="saved"></span>
           {{ text_field('Objectif', '/recommandations/' ~ reco.id ~ '/field', 'objectif', reco.objectif,
-                         'fit-hint-reco-' ~ reco.id ~ '-objectif', 'preview-reco-objectif-' ~ reco.id, 'reco-saved-' ~ reco.id) }}
+                         'fit-hint-reco-' ~ reco.id ~ '-objectif', 'preview-reco-objectif-' ~ reco.id, 'reco-saved-' ~ reco.id ~ '-objectif') }}
+          <span id="reco-saved-{{ reco.id }}-objectif" class="saved"></span>
           {{ text_field('Acteurs', '/recommandations/' ~ reco.id ~ '/field', 'acteurs', reco.acteurs,
-                         'fit-hint-reco-' ~ reco.id ~ '-acteurs', 'preview-reco-acteurs-' ~ reco.id, 'reco-saved-' ~ reco.id, rows=1) }}
+                         'fit-hint-reco-' ~ reco.id ~ '-acteurs', 'preview-reco-acteurs-' ~ reco.id, 'reco-saved-' ~ reco.id ~ '-acteurs', rows=1) }}
+          <span id="reco-saved-{{ reco.id }}-acteurs" class="saved"></span>
           <div class="reco-meta">
             <label>Valeur
               <select name="value"
                 hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "valeur"}'
-                hx-trigger="change" hx-target="#reco-saved-{{ reco.id }}" hx-swap="innerHTML"
+                hx-trigger="change" hx-target="#reco-saved-{{ reco.id }}-valeur" hx-swap="innerHTML"
                 data-preview-target="preview-reco-valeur-{{ reco.id }}" onchange="i2dLiveScore(this)">
                 {% for n in range(1, 6) %}<option value="{{ n }}" {% if reco.valeur == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
               </select>
+              <span id="reco-saved-{{ reco.id }}-valeur" class="saved"></span>
             </label>
             <label>Complexité
               <select name="value"
                 hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "complexite"}'
-                hx-trigger="change" hx-target="#reco-saved-{{ reco.id }}" hx-swap="innerHTML"
+                hx-trigger="change" hx-target="#reco-saved-{{ reco.id }}-complexite" hx-swap="innerHTML"
                 data-preview-target="preview-reco-complexite-{{ reco.id }}" onchange="i2dLiveScore(this)">
                 {% for n in range(1, 6) %}<option value="{{ n }}" {% if reco.complexite == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
               </select>
+              <span id="reco-saved-{{ reco.id }}-complexite" class="saved"></span>
             </label>
           </div>
           {{ text_field('Proposition de valeur', '/recommandations/' ~ reco.id ~ '/field', 'proposition_valeur', reco.proposition_valeur,
-                         'fit-hint-reco-' ~ reco.id ~ '-proposition_valeur', 'preview-reco-proposition_valeur-' ~ reco.id, 'reco-saved-' ~ reco.id) }}
+                         'fit-hint-reco-' ~ reco.id ~ '-proposition_valeur', 'preview-reco-proposition_valeur-' ~ reco.id, 'reco-saved-' ~ reco.id ~ '-proposition_valeur') }}
+          <span id="reco-saved-{{ reco.id }}-proposition_valeur" class="saved"></span>
           {{ bullet_field("Plan d'actions", '/recommandations/' ~ reco.id ~ '/field', 'plan_actions', reco.plan_actions,
-                           'fit-hint-reco-' ~ reco.id ~ '-plan_actions', 'preview-reco-plan_actions-' ~ reco.id, 'reco-saved-' ~ reco.id) }}
+                           'fit-hint-reco-' ~ reco.id ~ '-plan_actions', 'preview-reco-plan_actions-' ~ reco.id, 'reco-saved-' ~ reco.id ~ '-plan_actions') }}
+          <span id="reco-saved-{{ reco.id }}-plan_actions" class="saved"></span>
           {{ bullet_field('Résultats attendus', '/recommandations/' ~ reco.id ~ '/field', 'resultats_attendus', reco.resultats_attendus,
-                           'fit-hint-reco-' ~ reco.id ~ '-resultats_attendus', 'preview-reco-resultats_attendus-' ~ reco.id, 'reco-saved-' ~ reco.id) }}
-          <span id="reco-saved-{{ reco.id }}" class="saved"></span>
+                           'fit-hint-reco-' ~ reco.id ~ '-resultats_attendus', 'preview-reco-resultats_attendus-' ~ reco.id, 'reco-saved-' ~ reco.id ~ '-resultats_attendus') }}
+          <span id="reco-saved-{{ reco.id }}-resultats_attendus" class="saved"></span>
         </div>
         <div class="deck-pane deck-pane-preview">
           {% set accent = ppt_palette[(axis_index - 1) % ppt_palette|length] %}

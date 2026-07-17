@@ -41,10 +41,10 @@ def client() -> TestClient:
 
 
 # --------------------------------------------------------------------------- #
-# interview_libre_extract_ai.extract_libre_from_text — unitaire, call_ai_json
-# monkeypatché (pas d'appel réseau).
+# interview_libre_extract_ai — deux étapes distinctes (US9.16), unitaire,
+# call_ai_json monkeypatché (pas d'appel réseau).
 # --------------------------------------------------------------------------- #
-def test_extract_libre_returns_turns_and_repartition(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_extract_turns_returns_turns_and_identity(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         interview_libre_extract_ai, "call_ai_json",
         lambda *a, **k: {
@@ -52,32 +52,25 @@ def test_extract_libre_returns_turns_and_repartition(monkeypatch: pytest.MonkeyP
                 {"interlocuteur": "Consultant·e", "question": "Comment ça se passe ?", "remarque": "", "section_title": "Ouverture"},
                 {"interlocuteur": "Marc Dupont", "question": "", "remarque": "On travaille en silo.", "section_title": ""},
             ],
-            "repartition": {
-                "contexte": "- Contexte évoqué",
-                "culture_adn": "- Culture évoquée",
-                "forces_succes": "",
-                "points_amelioration": "- Silos entre équipes",
-                "aspirations": "",
+            "identite": {
+                "interviewee_name": "Marc Dupont", "interviewee_role": "", "interviewee_entity": "",
             },
-            "resume": "- Résumé de l'entretien.",
         },
     )
-    result = interview_libre_extract_ai.extract_libre_from_text("transcription brute")
+    result = interview_libre_extract_ai.extract_turns_from_text("transcription brute")
     assert result["turns"] == [
         {"interlocuteur": "Consultant·e", "question": "Comment ça se passe ?", "remarque": None, "section_title": "Ouverture"},
         {"interlocuteur": "Marc Dupont", "question": None, "remarque": "On travaille en silo.", "section_title": None},
     ]
-    assert result["repartition"]["points_amelioration"] == "- Silos entre équipes"
-    assert result["repartition"]["forces_succes"] == ""
-    assert result["resume"] == "- Résumé de l'entretien."
+    assert result["identity"]["interviewee_name"] == "Marc Dupont"
 
 
-def test_extract_libre_empty_transcript_raises() -> None:
+def test_extract_turns_empty_transcript_raises() -> None:
     with pytest.raises(interview_libre_extract_ai.InterviewLibreExtractAIError):
-        interview_libre_extract_ai.extract_libre_from_text("   ")
+        interview_libre_extract_ai.extract_turns_from_text("   ")
 
 
-def test_extract_libre_drops_incomplete_turns(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_extract_turns_drops_incomplete_turns(monkeypatch: pytest.MonkeyPatch) -> None:
     """Un tour sans interlocuteur, ou ni question ni remarque, n'est pas un
     vrai tour de parole exploitable — écarté plutôt que gardé à moitié vide."""
     monkeypatch.setattr(
@@ -88,30 +81,215 @@ def test_extract_libre_drops_incomplete_turns(monkeypatch: pytest.MonkeyPatch) -
                 {"interlocuteur": "Alice", "question": "", "remarque": ""},
                 {"interlocuteur": "Bruno", "question": "Une vraie question", "remarque": ""},
             ],
-            "repartition": {
-                "contexte": "", "culture_adn": "", "forces_succes": "",
-                "points_amelioration": "", "aspirations": "",
-            },
+            "identite": {"interviewee_name": "", "interviewee_role": "", "interviewee_entity": ""},
         },
     )
-    result = interview_libre_extract_ai.extract_libre_from_text("texte")
+    result = interview_libre_extract_ai.extract_turns_from_text("texte")
     assert len(result["turns"]) == 1
     assert result["turns"][0]["interlocuteur"] == "Bruno"
 
 
-def test_extract_libre_no_turns_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_extract_turns_no_turns_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         interview_libre_extract_ai, "call_ai_json",
         lambda *a, **k: {
             "turns": [],
-            "repartition": {
-                "contexte": "", "culture_adn": "", "forces_succes": "",
-                "points_amelioration": "", "aspirations": "",
-            },
+            "identite": {"interviewee_name": "", "interviewee_role": "", "interviewee_entity": ""},
         },
     )
     with pytest.raises(interview_libre_extract_ai.InterviewLibreExtractAIError):
-        interview_libre_extract_ai.extract_libre_from_text("texte sans tour détectable")
+        interview_libre_extract_ai.extract_turns_from_text("texte sans tour détectable")
+
+
+def test_extract_turns_recovers_from_bare_json_array(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Régression (crash réel `'list' object has no attribute 'get'` sur
+    `split_03.weba`, 2026-07-17) : Ollama peut renvoyer un tableau JSON nu au
+    lieu de `{"turns": [...]}`. On le traite comme la liste des tours plutôt
+    que de planter."""
+    monkeypatch.setattr(
+        interview_libre_extract_ai, "call_ai_json",
+        lambda *a, **k: [
+            {"interlocuteur": "Consultant·e", "question": "Ça va ?", "remarque": "", "section_title": "Ouverture"},
+            {"interlocuteur": "Léa Martin", "question": "", "remarque": "Tout roule.", "section_title": ""},
+        ],
+    )
+    result = interview_libre_extract_ai.extract_turns_from_text("transcription brute")
+    assert [t["interlocuteur"] for t in result["turns"]] == ["Consultant·e", "Léa Martin"]
+    assert result["identity"]["interviewee_name"] == ""
+
+
+def test_extract_turns_survives_malformed_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ollama peut glisser des éléments non-dict (chaîne, liste) dans `turns`
+    ou renvoyer `repartition`/`identite` sous une forme inattendue — coercés
+    plutôt que de faire planter `row.get(...)`."""
+    monkeypatch.setattr(
+        interview_libre_extract_ai, "call_ai_json",
+        lambda *a, **k: {
+            "turns": [
+                "ceci n'est pas un objet de tour",
+                ["non plus"],
+                {"interlocuteur": "Bruno", "question": "Une vraie question", "remarque": ""},
+            ],
+            "identite": ["forme inattendue"],
+        },
+    )
+    result = interview_libre_extract_ai.extract_turns_from_text("texte")
+    assert len(result["turns"]) == 1
+    assert result["turns"][0]["interlocuteur"] == "Bruno"
+    assert result["identity"]["interviewee_name"] == ""
+
+
+def test_generate_repartition_from_turns_returns_repartition_and_resume(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        interview_libre_extract_ai, "call_ai_json",
+        lambda *a, **k: {
+            "repartition": {
+                "contexte": "- Contexte évoqué",
+                "culture_adn": "- Culture évoquée",
+                "forces_succes": "",
+                "points_amelioration": "- Silos entre équipes",
+                "aspirations": "",
+            },
+            "resume": "- Résumé de l'entretien.",
+        },
+    )
+    turns = [
+        {"interlocuteur": "Consultant·e", "question": "Comment ça se passe ?", "remarque": None, "section_title": "Ouverture"},
+        {"interlocuteur": "Marc Dupont", "question": None, "remarque": "On travaille en silo.", "section_title": None},
+    ]
+    result = interview_libre_extract_ai.generate_repartition_from_turns(turns)
+    assert result["repartition"]["points_amelioration"] == "- Silos entre équipes"
+    assert result["repartition"]["forces_succes"] == ""
+    assert result["resume"] == "- Résumé de l'entretien."
+
+
+def test_generate_repartition_from_turns_empty_raises() -> None:
+    with pytest.raises(interview_libre_extract_ai.InterviewLibreExtractAIError):
+        interview_libre_extract_ai.generate_repartition_from_turns([])
+
+
+def test_generate_repartition_survives_bare_list_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Même classe de bug côté étape 2 : si Ollama renvoie une liste (ou une
+    `repartition` non-dict) au lieu de `{"repartition": {...}, "resume": ...}`,
+    on dégrade proprement vers une répartition vide (éditable à la main) au
+    lieu de planter."""
+    monkeypatch.setattr(
+        interview_libre_extract_ai, "call_ai_json",
+        lambda *a, **k: ["forme totalement inattendue"],
+    )
+    turns = [{"interlocuteur": "Marc", "question": None, "remarque": "Un constat.", "section_title": None}]
+    result = interview_libre_extract_ai.generate_repartition_from_turns(turns)
+    assert result["repartition"] == {key: "" for key in interview_libre_extract_ai.REPARTITION_KEYS}
+    assert result["resume"] == ""
+
+
+# --------------------------------------------------------------------------- #
+# Map-reduce (US9.17) : un texte/une liste de tours trop longs pour un seul
+# appel IA (fenêtre de contexte Ollama) doivent être découpés, traités par
+# tronçon, puis fusionnés — vérifié ici en comptant les appels IA réels
+# plutôt qu'en supposant que le découpage a eu lieu.
+# --------------------------------------------------------------------------- #
+def test_extract_turns_chunks_long_transcript_and_merges_results(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OLLAMA_CHUNK_MAX_WORDS", "50")
+    # Deux paragraphes de ~60 mots chacun -> dépasse la limite de 50 mots
+    # par tronçon -> doit produire 2 tronçons distincts.
+    paragraphe_1 = "Consultant : " + ("mot " * 60)
+    paragraphe_2 = "Interviewé : " + ("mot " * 60)
+    transcript = paragraphe_1 + "\n\n" + paragraphe_2
+
+    calls = []
+
+    def fake_call_ai_json(system, prompt, schema, json_hint, **kwargs):
+        calls.append(prompt)
+        index = len(calls)
+        return {
+            "turns": [
+                {"interlocuteur": f"Personne{index}", "question": "", "remarque": f"Propos {index}", "section_title": ""},
+            ],
+            "identite": (
+                {"interviewee_name": "Trouvé au 2e tronçon", "interviewee_role": "", "interviewee_entity": ""}
+                if index == 2 else
+                {"interviewee_name": "", "interviewee_role": "", "interviewee_entity": ""}
+            ),
+        }
+
+    monkeypatch.setattr(interview_libre_extract_ai, "call_ai_json", fake_call_ai_json)
+
+    result = interview_libre_extract_ai.extract_turns_from_text(transcript)
+
+    assert len(calls) == 2, "le texte doit être découpé en 2 tronçons (2 appels IA)"
+    assert [t["interlocuteur"] for t in result["turns"]] == ["Personne1", "Personne2"]
+    # L'identité du 2e tronçon doit remonter puisque le 1er tronçon n'en a pas trouvé.
+    assert result["identity"]["interviewee_name"] == "Trouvé au 2e tronçon"
+
+
+def test_generate_repartition_chunks_many_turns_and_reduces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(interview_libre_extract_ai, "_CHUNK_MAX_TURNS", 2)
+    turns = [
+        {"interlocuteur": f"Personne{i}", "question": None, "remarque": f"Propos {i}", "section_title": None}
+        for i in range(5)  # 5 tours, tronçons de 2 -> 3 groupes -> 3 appels map + 1 appel reduce
+    ]
+
+    calls = []
+
+    def fake_call_ai_json(system, prompt, schema, json_hint, **kwargs):
+        calls.append(prompt)
+        if prompt.startswith("SYNTHÈSES PARTIELLES"):
+            return {
+                "repartition": {
+                    "contexte": "- Contexte fusionné",
+                    "culture_adn": "", "forces_succes": "",
+                    "points_amelioration": "", "aspirations": "",
+                },
+                "resume": "- Résumé final fusionné.",
+            }
+        return {
+            "repartition": {
+                "contexte": "- Contexte partiel",
+                "culture_adn": "", "forces_succes": "",
+                "points_amelioration": "", "aspirations": "",
+            },
+            "resume": "- Résumé partiel.",
+        }
+
+    monkeypatch.setattr(interview_libre_extract_ai, "call_ai_json", fake_call_ai_json)
+
+    result = interview_libre_extract_ai.generate_repartition_from_turns(turns)
+
+    assert len(calls) == 4, "3 tronçons (map) + 1 fusion (reduce) attendus"
+    assert result["repartition"]["contexte"] == "- Contexte fusionné"
+    assert result["resume"] == "- Résumé final fusionné."
+
+
+def test_generate_repartition_single_group_skips_reduce_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un nombre de tours qui tient dans un seul tronçon ne doit déclencher
+    qu'un seul appel IA — pas de coût de fusion inutile."""
+    turns = [
+        {"interlocuteur": "Personne", "question": None, "remarque": "Propos", "section_title": None},
+    ]
+    calls = []
+
+    def fake_call_ai_json(system, prompt, schema, json_hint, **kwargs):
+        calls.append(prompt)
+        return {
+            "repartition": {
+                "contexte": "- Contexte", "culture_adn": "", "forces_succes": "",
+                "points_amelioration": "", "aspirations": "",
+            },
+            "resume": "- Résumé.",
+        }
+
+    monkeypatch.setattr(interview_libre_extract_ai, "call_ai_json", fake_call_ai_json)
+    interview_libre_extract_ai.generate_repartition_from_turns(turns)
+    assert len(calls) == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -127,27 +305,68 @@ def test_entree_screen_lists_three_choices(client: TestClient) -> None:
 
 # --------------------------------------------------------------------------- #
 # Flux entretien libre bout en bout : mission brouillon -> enregistrement ->
-# revue éditable -> confirmation -> finalisation (nouvelle mission).
+# revue des questions/réponses -> synthèse -> confirmation -> finalisation
+# (nouvelle mission). Deux appels IA distincts (US9.16) : extract_turns_from_text
+# (étape 1) puis generate_repartition_from_turns (étape 2).
 # --------------------------------------------------------------------------- #
-def _fake_libre_extract(turns=None, repartition=None, identity=None, resume=None):
-    turns = turns or [
-        {"interlocuteur": "Consultant·e", "question": "Comment ça se passe ?", "remarque": None, "section_title": "Ouverture"},
-        {"interlocuteur": "Claire Rousseau", "question": None, "remarque": "Beaucoup de silos entre équipes.", "section_title": None},
-    ]
-    repartition = repartition or {
-        "contexte": "- Contexte de test",
-        "culture_adn": "- Culture de test",
-        "forces_succes": "- Force de test",
-        "points_amelioration": "- Silos entre équipes",
-        "aspirations": "- Aspiration de test",
-    }
+_DEFAULT_TURNS = [
+    {"interlocuteur": "Consultant·e", "question": "Comment ça se passe ?", "remarque": None, "section_title": "Ouverture"},
+    {"interlocuteur": "Claire Rousseau", "question": None, "remarque": "Beaucoup de silos entre équipes.", "section_title": None},
+]
+
+_DEFAULT_REPARTITION = {
+    "contexte": "- Contexte de test",
+    "culture_adn": "- Culture de test",
+    "forces_succes": "- Force de test",
+    "points_amelioration": "- Silos entre équipes",
+    "aspirations": "- Aspiration de test",
+}
+
+
+def _fake_extract_turns(turns=None, identity=None):
+    turns = turns or _DEFAULT_TURNS
     identity = identity if identity is not None else {
         "interviewee_name": "", "interviewee_role": "", "interviewee_entity": "",
     }
+    return lambda text: {"turns": turns, "identity": identity}
+
+
+def _fake_generate_repartition(repartition=None, resume=None):
+    repartition = repartition or _DEFAULT_REPARTITION
     resume = "- Résumé de test" if resume is None else resume
-    return lambda text: {
-        "turns": turns, "repartition": repartition, "identity": identity, "resume": resume,
-    }
+    return lambda turns: {"repartition": repartition, "resume": resume}
+
+
+def _patch_libre_extract_ai(
+    monkeypatch: pytest.MonkeyPatch, turns=None, identity=None, repartition=None, resume=None,
+) -> None:
+    """Patche les deux étapes IA du flux libre d'un coup — le cas courant où
+    les tests ne veulent pas distinguer les deux appels."""
+    monkeypatch.setattr(
+        "app.routers.interviews.extract_turns_from_text",
+        _fake_extract_turns(turns=turns, identity=identity),
+    )
+    monkeypatch.setattr(
+        "app.routers.interviews.generate_repartition_from_turns",
+        _fake_generate_repartition(repartition=repartition, resume=resume),
+    )
+
+
+def _post_libre_synthese(client: TestClient, mission_id: int, *, interviewee_name: str = "", turns=None):
+    """Étape 2 du flux : POST vers /synthese avec les tours (déjà validés à
+    l'étape 1) pour obtenir l'écran de synthèse avant confirmation."""
+    turns = turns or _DEFAULT_TURNS
+    return client.post(
+        f"/missions/{mission_id}/interviews/record-libre/synthese",
+        data={
+            "interviewee_name": interviewee_name,
+            "turn_interlocuteur": [t["interlocuteur"] for t in turns],
+            "turn_question": [t["question"] or "" for t in turns],
+            "turn_remarque": [t["remarque"] or "" for t in turns],
+            "turn_section_title": [t["section_title"] or "" for t in turns],
+        },
+        follow_redirects=False,
+    )
 
 
 def test_libre_flow_creates_draft_then_finalise_as_new_mission(
@@ -171,9 +390,7 @@ def test_libre_flow_creates_draft_then_finalise_as_new_mission(
     assert response.status_code == 200
     assert "Entretien libre" in response.text
 
-    monkeypatch.setattr(
-        "app.routers.interviews.extract_libre_from_text", _fake_libre_extract()
-    )
+    _patch_libre_extract_ai(monkeypatch)
     response = client.post(
         record_url,
         data={
@@ -184,8 +401,12 @@ def test_libre_flow_creates_draft_then_finalise_as_new_mission(
         follow_redirects=False,
     )
     assert response.status_code == 200
-    assert "Revue avant enregistrement" in response.text
+    assert "Revue des questions/réponses" in response.text
     assert "Beaucoup de silos entre équipes." in response.text
+
+    response = _post_libre_synthese(client, mission_id, interviewee_name="Claire Rousseau")
+    assert response.status_code == 200
+    assert "Synthèse avant enregistrement" in response.text
     assert "Silos entre équipes" in response.text
 
     response = client.post(
@@ -269,14 +490,11 @@ def test_libre_flow_fills_identity_from_transcript_when_left_blank(
     response = client.post("/entretiens/libre/nouveau", follow_redirects=False)
     mission_id = int(response.headers["location"].split("/")[2])
 
-    monkeypatch.setattr(
-        "app.routers.interviews.extract_libre_from_text",
-        _fake_libre_extract(identity={
-            "interviewee_name": "Farida Benali",
-            "interviewee_role": "Responsable RH",
-            "interviewee_entity": "Direction des Ressources Humaines",
-        }),
-    )
+    _patch_libre_extract_ai(monkeypatch, identity={
+        "interviewee_name": "Farida Benali",
+        "interviewee_role": "Responsable RH",
+        "interviewee_entity": "Direction des Ressources Humaines",
+    })
     response = client.post(
         f"/missions/{mission_id}/interviews/record-libre",
         data={"transcript": "Bonjour, je suis Farida Benali, responsable RH..."},
@@ -287,6 +505,9 @@ def test_libre_flow_fills_identity_from_transcript_when_left_blank(
     assert 'value="Farida Benali"' in response.text
     assert 'value="Responsable RH"' in response.text
     assert 'value="Direction des Ressources Humaines"' in response.text
+
+    response = _post_libre_synthese(client, mission_id, interviewee_name="Farida Benali")
+    assert response.status_code == 200
 
     response = client.post(
         f"/missions/{mission_id}/interviews/record-libre/confirm",
@@ -327,14 +548,11 @@ def test_libre_flow_manual_identity_wins_over_transcript_detection(
     response = client.post("/entretiens/libre/nouveau", follow_redirects=False)
     mission_id = int(response.headers["location"].split("/")[2])
 
-    monkeypatch.setattr(
-        "app.routers.interviews.extract_libre_from_text",
-        _fake_libre_extract(identity={
-            "interviewee_name": "Nom Mal Compris",
-            "interviewee_role": "",
-            "interviewee_entity": "",
-        }),
-    )
+    _patch_libre_extract_ai(monkeypatch, identity={
+        "interviewee_name": "Nom Mal Compris",
+        "interviewee_role": "",
+        "interviewee_entity": "",
+    })
     response = client.post(
         f"/missions/{mission_id}/interviews/record-libre",
         data={
@@ -353,13 +571,12 @@ def test_libre_detail_edit_updates_turns_and_repartition(
 ) -> None:
     response = client.post("/entretiens/libre/nouveau", follow_redirects=False)
     mission_id = int(response.headers["location"].split("/")[2])
-    monkeypatch.setattr(
-        "app.routers.interviews.extract_libre_from_text", _fake_libre_extract()
-    )
+    _patch_libre_extract_ai(monkeypatch)
     client.post(
         f"/missions/{mission_id}/interviews/record-libre",
         data={"transcript": "Transcription.", "interviewee_name": "Denis Roche"},
     )
+    _post_libre_synthese(client, mission_id, interviewee_name="Denis Roche")
     client.post(
         f"/missions/{mission_id}/interviews/record-libre/confirm",
         data={
@@ -424,13 +641,12 @@ def _create_and_finish_libre_mission(
     et retourne son id — sans la finaliser."""
     response = client.post("/entretiens/libre/nouveau", follow_redirects=False)
     mission_id = int(response.headers["location"].split("/")[2])
-    monkeypatch.setattr(
-        "app.routers.interviews.extract_libre_from_text", _fake_libre_extract()
-    )
+    _patch_libre_extract_ai(monkeypatch)
     client.post(
         f"/missions/{mission_id}/interviews/record-libre",
         data={"transcript": "Transcription.", "interviewee_name": interviewee},
     )
+    _post_libre_synthese(client, mission_id, interviewee_name=interviewee)
     client.post(
         f"/missions/{mission_id}/interviews/record-libre/confirm",
         data={
@@ -602,9 +818,11 @@ def test_libre_analyse_groups_turns_into_sections(
     assert response.text.index("Réponse sans nouvelle section.") < response.text.index("Deuxième thème")
 
 
-def test_libre_synthese_shows_resume_and_repartition(
+def test_libre_analyse_shows_resume_and_repartition(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Depuis la fusion du 2026-07-17, résumé + répartition s'affichent sur
+    /analyse (même écran que les tours de parole, plus de page séparée)."""
     mission_id = _create_and_finish_libre_mission(client, monkeypatch, "Synthese Test")
     session = SessionLocal()
     try:
@@ -615,10 +833,31 @@ def test_libre_synthese_shows_resume_and_repartition(
     finally:
         session.close()
 
-    response = client.get(f"/interviews/{interview_id}/analyse/synthese")
+    response = client.get(f"/interviews/{interview_id}/analyse")
     assert response.status_code == 200
     assert "- Contexte" in response.text
     assert "- Point" in response.text
+
+
+def test_libre_analyse_synthese_redirects_to_analyse(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ancienne URL /analyse/synthese — conservée en redirection permanente
+    vers /analyse (contenu désormais fusionné) pour ne pas casser un lien
+    existant."""
+    mission_id = _create_and_finish_libre_mission(client, monkeypatch, "Redirect Test")
+    session = SessionLocal()
+    try:
+        interview = session.scalars(
+            select(Interview).where(Interview.mission_id == mission_id)
+        ).one()
+        interview_id = interview.id
+    finally:
+        session.close()
+
+    response = client.get(f"/interviews/{interview_id}/analyse/synthese", follow_redirects=False)
+    assert response.status_code == 308
+    assert response.headers["location"] == f"/interviews/{interview_id}/analyse"
 
 
 def test_export_interview_markdown_libre(

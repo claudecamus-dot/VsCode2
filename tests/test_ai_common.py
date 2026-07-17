@@ -8,19 +8,19 @@ import pytest
 from app.services import ai_common
 
 
-def test_active_provider_defaults_to_anthropic(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_active_provider_defaults_to_ollama(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AI_PROVIDER", raising=False)
-    assert ai_common.active_provider() == "anthropic"
+    assert ai_common.active_provider() == "ollama"
 
 
 def test_active_provider_falls_back_on_unknown_value(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AI_PROVIDER", "not-a-real-provider")
-    assert ai_common.active_provider() == "anthropic"
+    assert ai_common.active_provider() == "ollama"
 
 
 @pytest.mark.parametrize(
     "provider,expected_env",
-    [("anthropic", "ANTHROPIC_API_KEY"), ("openai", "OPENAI_API_KEY"), ("mistral", "MISTRAL_API_KEY")],
+    [("openai", "OPENAI_API_KEY"), ("mistral", "MISTRAL_API_KEY"), ("ollama", "OLLAMA_HOST")],
 )
 def test_api_key_env_name_matches_provider(
     monkeypatch: pytest.MonkeyPatch, provider: str, expected_env: str
@@ -79,14 +79,14 @@ def test_call_ai_json_dispatches_to_configured_provider_only(monkeypatch: pytest
         assert model == "mistral-large-latest"
         return '{"answer": "ok"}'
 
-    def fake_anthropic_call(*args, **kwargs):
-        calls.append("anthropic")
+    def fake_openai_call(*args, **kwargs):
+        calls.append("openai")
         return "{}"
 
     monkeypatch.setattr(ai_common, "_call_mistral", fake_mistral_call)
-    monkeypatch.setattr(ai_common, "_call_anthropic", fake_anthropic_call)
+    monkeypatch.setattr(ai_common, "_call_openai", fake_openai_call)
     monkeypatch.setitem(ai_common._CALLERS, "mistral", fake_mistral_call)
-    monkeypatch.setitem(ai_common._CALLERS, "anthropic", fake_anthropic_call)
+    monkeypatch.setitem(ai_common._CALLERS, "openai", fake_openai_call)
     monkeypatch.setitem(ai_common._SDK_LOADERS, "mistral", lambda: object())
 
     result = ai_common.call_ai_json("sys", "prompt", {"type": "object"}, "\nJSON only.")
@@ -95,14 +95,14 @@ def test_call_ai_json_dispatches_to_configured_provider_only(monkeypatch: pytest
 
 
 def test_call_ai_json_wraps_unexpected_exception_in_error_cls(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("AI_PROVIDER", "anthropic")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
-    monkeypatch.setitem(ai_common._SDK_LOADERS, "anthropic", lambda: object())
+    monkeypatch.setenv("AI_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "fake-key")
+    monkeypatch.setitem(ai_common._SDK_LOADERS, "openai", lambda: object())
 
     def boom(*args, **kwargs):
         raise ConnectionError("réseau coupé")
 
-    monkeypatch.setitem(ai_common._CALLERS, "anthropic", boom)
+    monkeypatch.setitem(ai_common._CALLERS, "openai", boom)
 
     class MyError(ai_common.AIError):
         pass
@@ -112,10 +112,10 @@ def test_call_ai_json_wraps_unexpected_exception_in_error_cls(monkeypatch: pytes
 
 
 def test_call_ai_json_invalid_json_response_raises_error_cls(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("AI_PROVIDER", "anthropic")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key")
-    monkeypatch.setitem(ai_common._SDK_LOADERS, "anthropic", lambda: object())
-    monkeypatch.setitem(ai_common._CALLERS, "anthropic", lambda *a, **k: "pas du json")
+    monkeypatch.setenv("AI_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_API_KEY", "fake-key")
+    monkeypatch.setitem(ai_common._SDK_LOADERS, "openai", lambda: object())
+    monkeypatch.setitem(ai_common._CALLERS, "openai", lambda *a, **k: "pas du json")
 
     class MyError(ai_common.AIError):
         pass
@@ -159,6 +159,57 @@ def test_call_ai_json_dispatches_to_ollama_without_key_env(monkeypatch: pytest.M
     monkeypatch.setitem(ai_common._CALLERS, "ollama", fake_ollama_call)
     result = ai_common.call_ai_json("sys", "prompt", {"type": "object"}, "\nJSON only.")
     assert result == {"answer": "ok"}
+
+
+def test_ollama_num_ctx_defaults_to_8192(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sans ce réglage explicite, Ollama retombe sur son défaut de 2048
+    tokens, qui tronque silencieusement (sans erreur) toute transcription
+    d'entretien un peu longue — bug de correctness corrigé le 2026-07-16."""
+    monkeypatch.delenv("OLLAMA_NUM_CTX", raising=False)
+    assert ai_common.ollama_num_ctx() == 8192
+    monkeypatch.setenv("OLLAMA_NUM_CTX", "16384")
+    assert ai_common.ollama_num_ctx() == 16384
+
+
+def test_ollama_timeout_defaults_to_300(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OLLAMA_TIMEOUT", raising=False)
+    assert ai_common.ollama_timeout() == 300
+    monkeypatch.setenv("OLLAMA_TIMEOUT", "60")
+    assert ai_common.ollama_timeout() == 60
+
+
+def test_call_ollama_payload_includes_num_ctx(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Vérifie que `_call_ollama` transmet bien `num_ctx` à Ollama — pas
+    seulement que la fonction existe (le bug corrigé était précisément une
+    clé absente du payload envoyé)."""
+    import json as json_module
+
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return b'{"message": {"content": "{}"}}'
+
+    def fake_urlopen(req, timeout=None):
+        captured["payload"] = json_module.loads(req.data.decode("utf-8"))
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(ai_common.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.delenv("OLLAMA_NUM_CTX", raising=False)
+    monkeypatch.delenv("OLLAMA_TIMEOUT", raising=False)
+
+    ai_common._call_ollama("sys", "prompt", {}, "\nJSON.", "llama3.1", 4000)
+
+    assert captured["payload"]["options"]["num_ctx"] == 8192
+    assert captured["payload"]["options"]["num_predict"] == 4000
+    assert captured["timeout"] == 300
 
 
 def test_call_ai_json_ollama_unreachable_raises_friendly_error(monkeypatch: pytest.MonkeyPatch) -> None:

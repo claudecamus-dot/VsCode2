@@ -1,6 +1,6 @@
 """Génération IA de la synthèse d'un thème (US4.2).
 
-Appelle le fournisseur IA actif (`AI_PROVIDER` — anthropic par défaut, ou
+Appelle le fournisseur IA actif (`AI_PROVIDER` — ollama par défaut, ou
 openai/mistral) via `ai_common.call_ai_json()`, en sortie structurée JSON.
 
 Dégradation gracieuse : si la clé API du fournisseur actif est absente ou son
@@ -141,7 +141,7 @@ def _call_claude(system: str, prompt: str, schema: dict, json_hint: str, max_tok
     globale et la génération de recommandations — seuls system/prompt/schema
     changent. Le nom historique (`_call_claude`) est conservé pour limiter le
     diff des 3 sites d'appel ci-dessous ; le fournisseur réel dépend d'
-    `AI_PROVIDER` (anthropic par défaut).
+    `AI_PROVIDER` (ollama par défaut).
     """
     return call_ai_json(system, prompt, schema, json_hint, max_tokens=max_tokens, error_cls=SynthesisAIError)
 
@@ -300,7 +300,7 @@ def generate_demo_global_synthesis(mission, material_by_theme, material_libre=No
         "aspirations": "- Mode démo : pas d'analyse d'aspirations sans IA réelle.",
     }
     # Entretiens libres (incr.9) : pas de mode démo dédié pour la répartition
-    # elle-même (déjà produite par extract_libre_from_text, IA réelle
+    # elle-même (déjà produite par generate_repartition_from_turns, IA réelle
     # requise) — on se contente de la reprendre telle quelle par catégorie.
     for _interview, repartition in material_libre or []:
         for key, value in (repartition or {}).items():

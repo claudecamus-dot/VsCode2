@@ -36,6 +36,13 @@
 
 * { box-sizing: border-box; }
 
+/* [hidden] et .btn (et toute classe display:*) ont la même spécificité CSS
+   (0,0,1,0) — sans ce !important, un bouton .btn masqué via l'attribut
+   hidden reste visible dès que .btn est déclaré après dans la feuille de
+   style (cas réel : Démarrer/Arrêter visibles simultanément sur
+   record_libre.html). */
+[hidden] { display: none !important; }
+
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -101,16 +108,6 @@ h2 { font-size: 1.1rem; margin: 0; }
   padding: 20px; margin-bottom: 18px;
 }
 .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
-
-.turn-row {
-  display: grid;
-  grid-template-columns: minmax(140px, 1fr) minmax(140px, 1fr) 2fr 2fr;
-  gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid var(--border);
-}
-.turn-row:last-child { border-bottom: none; }
-.turn-row label { margin-bottom: 0; }
 
 .entree-choices {
   display: grid;
@@ -235,6 +232,80 @@ h2 { font-size: 1.1rem; margin: 0; }
 .form input[type=text], .form textarea { width: 100%; margin-top: 6px; }
 input:focus, textarea:focus, select:focus { outline: 2px solid #bcd0fb; outline-offset: 0; border-color: var(--accent); }
 .form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
+
+/* ---- Tours de parole (entretien libre) — bloc "transcription éditable" ----
+   Remplace l'ancienne grille .turn-row à 4 colonnes égales (illisible sur des
+   dizaines de tours, et le champ "Titre de section" y était trop étroit et
+   tronquait sa propre valeur). Mise en page en deux colonnes façon script :
+   interlocuteur à gauche (repérable d'un coup d'oeil en descendant l'écran),
+   contenu (question/remarque) à droite — le titre de section, lui, court
+   pleine largeur au-dessus et se comporte comme un sous-titre de section
+   quand il est rempli (repris de la hiérarchie typographique du document
+   modèle : titres de section distincts du corps du texte). Les sélecteurs
+   `input[type=text].xxx` / `textarea.xxx` égalent (à dessein) la spécificité
+   des règles génériques `.form input[type=text]` / `.form textarea`
+   ci-dessus ; venant après elles dans la feuille, ils l'emportent sans
+   `!important`. */
+.turns-list { margin-top: 4px; }
+
+.turn-block {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  grid-template-areas:
+    "section section"
+    "speaker content";
+  column-gap: 20px;
+  row-gap: 6px;
+  padding: 20px 4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.turn-block:first-child { padding-top: 4px; }
+.turn-block:last-child { border-bottom: none; padding-bottom: 4px; }
+
+/* Tour qui ouvre une nouvelle section : rupture visuelle façon H2 de
+   transcription éditée. Dégradation gracieuse si :has() n'est pas
+   supporté — le champ titre garde son propre style "rempli" tout seul. */
+.turn-block:not(:first-child):has(.turn-section-input:not(:placeholder-shown)) {
+  margin-top: 12px; padding-top: 22px; border-top: 2px solid var(--border);
+}
+
+.turn-section-field { grid-area: section; margin-bottom: 0; }
+.turn-speaker-field { grid-area: speaker; margin-bottom: 0; align-self: start; }
+.turn-content { grid-area: content; display: flex; flex-direction: column; gap: 10px; margin-bottom: 0; }
+.turn-content label { margin-bottom: 0; }
+
+.turn-field-caption {
+  display: block; font-size: .72rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .03em; color: var(--muted); margin-bottom: 4px;
+}
+
+/* Interlocuteur mis en avant (gras, fond léger) pour scanner "qui parle"
+   d'un coup d'oeil en descendant la colonne de gauche, comme un script. */
+input[type=text].turn-speaker-input {
+  font-weight: 700; background: var(--surface-subtle);
+}
+
+textarea.turn-textarea { resize: vertical; line-height: 1.4; }
+
+/* Titre de section : pleine largeur (corrige la troncature), sobre et en
+   retrait tant qu'il est vide (placeholder invitant), puis promu en
+   sous-titre de section (accent, gras, plus grand) dès qu'il est rempli —
+   sans JS, juste :placeholder-shown qui suit la présence d'une valeur. */
+input[type=text].turn-section-input {
+  font-size: 1.05rem; font-weight: 700; color: var(--accent-dark);
+  margin-bottom: 2px;
+}
+input[type=text].turn-section-input:placeholder-shown {
+  font-size: .85rem; font-weight: 400; font-style: italic; color: var(--muted);
+  border-color: var(--border-subtle); background: var(--surface-subtle);
+}
+
+@media (max-width: 620px) {
+  .turn-block {
+    grid-template-columns: 1fr;
+    grid-template-areas: "section" "speaker" "content";
+  }
+}
 
 .inline { display: inline; }
 .inline-form { display: flex; gap: 10px; }
@@ -450,6 +521,9 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #bcd0fb; outline-
   border-radius: 8px; padding: 10px 14px; margin-bottom: 18px; }
 .notice p { margin: 0; }
 .notice a { color: inherit; text-decoration: underline; }
+/* Variante neutre/informative (rappel de portée plutôt qu'avertissement) —
+   même gabarit que .notice, tokens "info" au lieu de "warning". */
+.notice-info { background: var(--info-bg); color: var(--accent-dark); border-color: var(--border); }
 .ai-hint code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: .85em; }
 
 .material { background: var(--surface-subtle); }
@@ -488,6 +562,11 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #bcd0fb; outline-
   border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; resize: vertical;
 }
 .score-dots { margin-left: 6px; letter-spacing: 1px; color: var(--accent); font-size: .85rem; }
+/* Complexité (défavorable si élevée) doit se distinguer visuellement de la
+   valeur (favorable si élevée) — sans ça les deux pastilles pleines à 5/5
+   se lisent comme également positives (revue UX du 2026-07-16). */
+.score-dots-complexite { color: var(--warning-text); }
+.score-number { margin-left: 4px; font-size: .8rem; color: var(--muted); }
 .reco-field { display: block; margin-bottom: 10px; }
 .reco-field > span { display: block; font-weight: 600; font-size: .85rem; margin-bottom: 4px; }
 .reco-field textarea {
@@ -667,6 +746,15 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #bcd0fb; outline-
 .htmx-request .htmx-indicator { display: inline; }
 .htmx-request.htmx-indicator { display: inline; }
 
+/* Champ en cours de sauvegarde (autosave) — htmx ajoute .htmx-request à
+   l'élément qui déclenche la requête tant qu'elle est en vol, sans avoir à
+   déclarer hx-indicator sur chacun des dizaines de champs autosave de l'app. */
+textarea.htmx-request, input.htmx-request, select.htmx-request {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.saved.error { color: var(--danger); font-weight: 500; }
+
 /* ---- Aperçu lecture seule d'un entretien (évol) ---- */
 .preview-doc {
   max-width: 820px; margin: 0 auto; background: var(--panel);
@@ -677,10 +765,15 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #bcd0fb; outline-
 .preview-doc-head h1 { margin: 0 0 4px; }
 .preview-theme { margin-bottom: 28px; }
 .preview-theme:last-child { margin-bottom: 0; }
-.preview-theme h2 {
+.preview-theme h2, .preview-theme h3 {
   font-size: 1.1rem; border-bottom: 1px solid var(--border-subtle);
-  padding-bottom: 6px; margin-bottom: 14px;
+  padding-bottom: 6px; margin: 0 0 14px;
 }
+/* Titre de regroupement au-dessus d'une série de .preview-theme (ex : les 5
+   catégories d'un entretien libre) — un cran au-dessus des h3 de chaque
+   catégorie, pour une hiérarchie H1 > H2(groupe) > H3(catégorie) lisible. */
+.preview-group-title { font-size: 1.05rem; margin: 0 0 4px; }
+.preview-group-sub { margin: 0 0 18px; }
 .preview-qa { padding: 10px 0; border-bottom: 1px dashed var(--border-subtle); }
 .preview-qa:last-child { border-bottom: none; }
 .preview-question { font-weight: 600; margin: 0 0 6px; display: flex; align-items: center; gap: 8px; }
@@ -692,11 +785,19 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #bcd0fb; outline-
 .preview-note { font-size: .85rem; color: var(--muted); font-style: italic; margin: 6px 0 0; }
 .preview-turn { margin: 0 0 12px; white-space: pre-wrap; }
 .preview-turn-speaker { font-weight: 600; }
+/* Callout ambré pour le "message central" d'un entretien (repris du
+   traitement du document modèle / interview_pdf_export.py) — distinct de
+   .notice-info au-dessus : ici c'est LE contenu à retenir, pas un rappel
+   de portée. */
 .preview-resume {
-  background: var(--surface-subtle); border-radius: var(--radius);
-  padding: 14px 18px; margin-bottom: 28px;
+  background: var(--warning-bg); border-left: 4px solid var(--warning-border);
+  border-radius: var(--radius); padding: 16px 20px; margin-bottom: 28px;
 }
-.preview-resume p:last-child { margin: 0; }
+.preview-resume-kicker {
+  margin: 0 0 6px; text-transform: uppercase; letter-spacing: .04em;
+  font-size: .74rem; font-weight: 700; color: var(--warning-text);
+}
+.preview-resume-text { margin: 0; font-size: 1.02rem; }
 
 @media print {
   .no-print, .topbar { display: none !important; }

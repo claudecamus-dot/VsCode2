@@ -39,8 +39,8 @@ agents: [onboarder]
 
 - `.env.example` documente les variables requises ; `.env` réel est gitignoré
   — `CONFIRMÉ` · onboarder · 2026-06-30
-- Clé API Anthropic présente (commentée) dans `.env` — ne pas committer dé-commenté
-  — `CONFIRMÉ` · onboarder · 2026-06-30 · `.env:9`
+- Clé API du fournisseur IA actif (`OPENAI_API_KEY`/`MISTRAL_API_KEY` — sans objet pour `ollama`, le défaut) présente en commentaire dans `.env.example` — ne pas committer dé-commentée
+  — `CONFIRMÉ` · claude · 2026-07-17 · `.env.example`
 
 ## Patterns spécifiques à l'équipe
 

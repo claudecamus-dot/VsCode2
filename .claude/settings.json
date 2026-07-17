@@ -21,6 +21,37 @@
             "command": "py .claude/hooks/remind_revue_increment.py",
             "timeout": 10,
             "statusMessage": "Rappel discipline revue-increment..."
+          },
+          {
+            "type": "command",
+            "command": "py .claude/supervision/scan_transcripts.py",
+            "timeout": 60,
+            "statusMessage": "Supervision agents : scan incremental des transcripts..."
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py .claude/hooks/orchestrator_gate.py",
+            "timeout": 10,
+            "statusMessage": "Grille de qualification orchestrateur..."
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Skill|Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py .claude/supervision/log_usage.py",
+            "timeout": 10,
+            "statusMessage": "Journal usage agents..."
           }
         ]
       }

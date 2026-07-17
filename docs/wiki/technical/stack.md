@@ -17,10 +17,12 @@ agents: [onboarder]
 | Base de données | SQLite | — | Fichier `data/app.db` (gitignoré) |
 | Frontend dynamique | HTMX | 2.0.3 | Chargé depuis unpkg CDN, pas de SRI |
 | Import .docx | python-docx | ≥1.1 | Analyse des niveaux de liste Word |
-| IA | Anthropic SDK | ≥0.69 | Importé en lazy, mode démo disponible |
+| IA | Ollama (local, sans SDK) | — | Fournisseur par défaut depuis le 2026-07-17 (urllib vers un serveur local, aucune clé) ; OpenAI/Mistral SDK restent en fournisseurs alternatifs. SDK Anthropic retiré. |
+| Transcription audio | faster-whisper | ≥1.0 | Locale, modèle `medium` par défaut |
+| Export PDF | reportlab | ≥4.0 | Par entretien, pure Python (pas de dépendance système) |
 | Environnement | python-dotenv | ≥1.0 | Chargement du `.env` au démarrage |
 
-— `CONFIRMÉ` · onboarder · 2026-06-30 · `requirements.txt`
+— `CONFIRMÉ` · claude · 2026-07-17 · `requirements.txt`
 
 ## Librairies clés
 
@@ -30,10 +32,12 @@ agents: [onboarder]
 ## Variables d'environnement requises
 
 - `SYNTHESE_DEMO` — Mode démo hors-ligne (1 = activé, 0 = désactivé)
-- `ANTHROPIC_API_KEY` — Clé API Anthropic (optionnelle si mode démo)
-- `SYNTHESE_MODEL` — Modèle Claude (défaut : `claude-opus-4-8`, optionnel)
+- `AI_PROVIDER` — Fournisseur IA actif : `ollama` (défaut, local), `openai` ou `mistral`
+- `OPENAI_API_KEY` / `MISTRAL_API_KEY` — Clé du fournisseur choisi (sans objet pour `ollama`)
+- `OLLAMA_HOST` — Serveur Ollama (défaut : `http://localhost:11434`, optionnel)
+- `SYNTHESE_MODEL` — Modèle utilisé (défaut par fournisseur : `llama3.1` pour ollama, optionnel)
 
-— `CONFIRMÉ` · onboarder · 2026-06-30 · `.env.example`
+— `CONFIRMÉ` · claude · 2026-07-17 · `.env.example`
 
 ## Contraintes de version
 

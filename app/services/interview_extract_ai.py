@@ -5,7 +5,7 @@ d'entretien).
 Même plomberie que `synthese_ai.py`/`trame_extract_ai.py` (`ai_common.py`).
 Pas d'heuristique de repli fiable pour un texte libre non structuré : sans IA
 configurée, `extract_answers_from_text()` lève `InterviewExtractAIError`.
-Fournisseur IA actif = `AI_PROVIDER` (voir `ai_common.py`), anthropic par défaut.
+Fournisseur IA actif = `AI_PROVIDER` (voir `ai_common.py`), ollama par défaut.
 """
 from __future__ import annotations
 

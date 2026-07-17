@@ -75,7 +75,7 @@
   {% elif mission.trame and theme_count == 0 %}
     <p class="muted">Définis d'abord la trame pour pouvoir saisir des entretiens.</p>
   {% else %}
-    <p class="muted">Aucun entretien pour le moment.</p>
+    <p class="muted">Aucun entretien pour le moment — commence par en enregistrer un.</p>
   {% endif %}
 </div>
 
@@ -87,7 +87,7 @@
     {% endif %}
   </div>
   {% if mission.interviews %}
-    <p class="muted">Synthèse transverse à tous les thèmes, recommandations et export PPT.</p>
+    <p class="muted">Agrège tous les entretiens de la mission (structurés et libres) — synthèse, recommandations et export PPT.</p>
   {% else %}
     <p class="muted">Saisis des entretiens avant de synthétiser.</p>
   {% endif %}

@@ -9,9 +9,10 @@ from fastapi.staticfiles import StaticFiles
 
 BASE_DIR = Path(__file__).resolve().parent
 
-# Charge un éventuel fichier .env à la racine du projet (clé ANTHROPIC_API_KEY,
-# SYNTHESE_MODEL, …) avant tout import qui lit l'environnement. Sans effet si le
-# paquet python-dotenv ou le fichier .env sont absents.
+# Charge un éventuel fichier .env à la racine du projet (clé OPENAI_API_KEY /
+# MISTRAL_API_KEY selon AI_PROVIDER, SYNTHESE_MODEL, …) avant tout import qui
+# lit l'environnement. Sans effet si le paquet python-dotenv ou le fichier
+# .env sont absents.
 try:
     from dotenv import load_dotenv
 

@@ -1,0 +1,18 @@
+{# Repère d'avancement du parcours "entretien libre" (3 étapes) — pas de
+   navigation cliquable : contrairement au parcours synthèse (_nav.html), les
+   étapes précédentes ne sont pas rejouables via une URL stable (le contenu en
+   cours de revue n'est jamais persisté avant la validation finale). #}
+<nav class="wizard-steps" aria-label="Étapes de l'entretien libre">
+  <span class="wizard-step {% if active == 'transcription' %}active{% elif step_num > 1 %}done{% endif %}">
+    <span class="wizard-step-num">{% if step_num > 1 %}✓{% else %}1{% endif %}</span>
+    <span class="wizard-step-label">Transcription</span>
+  </span>
+  <span class="wizard-step {% if active == 'tours' %}active{% elif step_num > 2 %}done{% endif %}">
+    <span class="wizard-step-num">{% if step_num > 2 %}✓{% else %}2{% endif %}</span>
+    <span class="wizard-step-label">Tours de parole</span>
+  </span>
+  <span class="wizard-step {% if active == 'synthese' %}active{% endif %}">
+    <span class="wizard-step-num">3</span>
+    <span class="wizard-step-label">Synthèse</span>
+  </span>
+</nav>

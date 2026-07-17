@@ -1327,6 +1327,15 @@ def test_recommendations_require_global_synthesis_first(client: TestClient) -> N
     )
     assert response.status_code == 303
 
+    # Un entretien doit exister pour dépasser le garde-fou "aucun entretien"
+    # (sinon la page invite juste à en saisir un, sans même atteindre le
+    # message testé ci-dessous).
+    response = client.post(
+        f"/missions/{mission_id}/interviews", data={"interviewee_name": "Interviewé Test"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+
     response = client.post(f"/missions/{mission_id}/recommandations/generate")
     assert response.status_code == 200
     # Apostrophe HTML-échappée par l'autoescape Jinja (d&#39;abord).

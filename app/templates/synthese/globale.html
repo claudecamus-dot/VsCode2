@@ -8,24 +8,27 @@
 
 <div class="capture-head">
   <div>
-    <h1>Synthèse transverse</h1>
-    <div class="meta"><span>{{ interview_count }} entretien(s)</span></div>
+    <h1>Synthèse transverse <span class="pill pill-done">Vue consolidée — mission</span></h1>
+    <div class="meta">
+      <span>{{ interview_count }} entretien(s){% if libre_count %} (dont {{ libre_count }} libre{{ 's' if libre_count > 1 else '' }}){% endif %}</span>
+    </div>
   </div>
 </div>
 
-{% if not themes %}
+{% if not mission.interviews %}
   <div class="card empty">
-    <p>La trame est vide — aucun thème à synthétiser.</p>
-    <a class="btn btn-primary" href="/missions/{{ mission.id }}/trame">Éditer la trame</a>
+    <p>Aucun entretien pour l'instant — saisis ou enregistre au moins un entretien avant de synthétiser.</p>
+    <a class="btn btn-primary" href="/missions/{{ mission.id }}">Retour à la mission</a>
   </div>
 {% else %}
 {% set active = 'globale' %}
 {% include "synthese/_nav.html" %}
 
 <p class="muted">
-  Regroupe le contenu de <strong>tous les thèmes</strong> de la mission en 5
-  catégories transverses (pas thème par thème) — c'est cette synthèse qui
-  alimente ensuite les recommandations.
+  Agrège <strong>tous les entretiens de la mission</strong> — réponses des
+  entretiens structurés, thème par thème, et répartition de chaque entretien
+  libre — en 5 catégories transverses. C'est la conclusion consolidée qui
+  alimente ensuite les recommandations, pas la contribution d'un entretien pris isolément.
 </p>
 
 {% include "synthese/_global_panel.html" %}

@@ -6,6 +6,8 @@
 </div>
 
 <div class="page-head"><h1>Enregistrer un entretien libre</h1></div>
+{% set step_num = 1 %}{% set active = 'transcription' %}
+{% include "interviews/_libre_wizard.html" %}
 
 {% if not recording_available %}
 <p class="ai-error">⚠ La transcription locale n'est pas installée sur ce poste
@@ -15,13 +17,13 @@
 <p class="muted">
   Pas de trame à suivre ici : enregistre la conversation librement. La
   transcription se fait au fil de l'eau par segments d'environ une minute,
-  affichés ci-dessous. Une fois arrêté, relis le texte puis envoie-le : l'IA
-  structure les tours de parole, propose une répartition dans la synthèse,
-  et relève le nom, le rôle et l'équipe/département de l'interviewé·e si
-  cette identité a été dite à l'oral (inutile de la retaper ci-dessous dans
-  ce cas) — rien n'est enregistré avant validation sur l'écran de revue
-  suivant. La mission à laquelle rattacher cet entretien se précise juste
-  après.
+  affichés ci-dessous. Une fois arrêté, relis le texte puis extrais les
+  questions/réponses : l'IA structure les tours de parole et relève le nom,
+  le rôle et l'équipe/département de l'interviewé·e si cette identité a été
+  dite à l'oral — à vérifier et compléter sur l'écran suivant, avant de
+  passer à la synthèse (répartition + résumé) puis à l'enregistrement
+  définitif. Rien n'est enregistré avant validation finale. La mission à
+  laquelle rattacher cet entretien se précise juste après.
 </p>
 
 {% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
@@ -36,6 +38,16 @@
     <span class="rec-timer" id="rec-timer">00:00</span>
     <span class="muted" id="rec-status"></span>
   </div>
+
+  <!-- Bloc temporaire de test — à retirer une fois la campagne de test de la
+       transcription terminée. Permet de transcrire un fichier audio existant
+       (au lieu du micro) via le même endpoint /audio/transcribe-segment. -->
+  <div class="record-controls" style="border: 1px dashed #999; padding: 8px; margin-top: 8px;">
+    <span class="muted">🧪 Test (temporaire) :</span>
+    <label for="rec-test-upload" class="visually-hidden">Fichier audio à transcrire</label>
+    <input type="file" id="rec-test-upload" accept="audio/*">
+    <button class="btn" type="button" id="rec-test-upload-btn">Transcrire ce fichier</button>
+  </div>
   <div class="autosave-line"><span class="muted" id="rec-backup-status"></span></div>
   <div class="autosave-line" id="rec-audio-playback" hidden>
     <audio controls id="rec-audio-player" class="record-audio-player"></audio>
@@ -43,36 +55,12 @@
   </div>
 
   <textarea class="record-transcript" id="rec-transcript" rows="10" readonly
-    placeholder="Le texte transcrit apparaîtra ici au fil de l'enregistrement…"></textarea>
-  <button class="btn-link" type="button" id="rec-reset" hidden>Recommencer</button>
-
-  <label>
-    Nom &amp; prénom de l'interviewé·e
-    <input type="text" name="interviewee_name"
-           value="{{ identity.interviewee_name if identity else '' }}"
-           placeholder="Ex. Marc Dupont — modifiable ensuite">
-  </label>
-  <label>
-    Rôle / fonction
-    <input type="text" name="interviewee_role"
-           value="{{ identity.interviewee_role if identity else '' }}"
-           placeholder="Ex. RSSI, DSI, Product Owner…">
-  </label>
-  <label>
-    Entité / direction
-    <input type="text" name="interviewee_entity"
-           value="{{ identity.interviewee_entity if identity else '' }}"
-           placeholder="Ex. DSI, Métier Assurance…">
-  </label>
-  <label>
-    Date de l'entretien
-    <input type="date" name="interview_date"
-           value="{{ identity.interview_date if identity else '' }}">
-  </label>
+    placeholder="Le texte transcrit apparaîtra ici au fil de l'enregistrement…">{{ identity.transcript if identity else '' }}</textarea>
+  <button class="btn-link" type="button" id="rec-reset" {% if not (identity and identity.transcript) %}hidden{% endif %}>Recommencer</button>
 
   <div class="form-actions">
     <a class="btn" href="/">Annuler</a>
-    <button class="btn btn-primary" type="submit" id="rec-submit" disabled>Envoyer pour extraction</button>
+    <button class="btn btn-primary" type="submit" id="rec-submit" disabled>Extraire questions/réponses</button>
   </div>
 </form>
 
@@ -105,7 +93,7 @@
   var backupRecorder, backupChunks;
   var recordingActive = false;
   var pendingSegments = 0;
-  var transcriptSoFar = '';
+  var transcriptSoFar = {{ (identity.transcript if identity else '') | tojson }};
 
   function formatElapsed(ms) {
     var s = Math.floor(ms / 1000);
@@ -205,6 +193,45 @@
       .catch(function (err) {
         backupStatusEl.textContent = '⚠ échec de la sauvegarde audio : ' + err.message;
       });
+  }
+
+  var testUploadInput = document.getElementById('rec-test-upload');
+  var testUploadBtn = document.getElementById('rec-test-upload-btn');
+  testUploadBtn.addEventListener('click', function () {
+    if (!testUploadInput.files.length) {
+      statusEl.textContent = 'Choisis d\'abord un fichier audio.';
+      return;
+    }
+    var file = testUploadInput.files[0];
+    pendingSegments++;
+    updateSubmitState();
+    statusEl.textContent = 'Transcription du fichier « ' + file.name + ' » en cours…';
+    var formData = new FormData();
+    formData.append('file', file);
+    fetch('/audio/transcribe-segment', { method: 'POST', body: formData })
+      .then(function (res) {
+        return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+      })
+      .then(function (result) {
+        if (result.ok && result.data.text) {
+          appendTranscript(result.data.text);
+        } else {
+          appendTranscript('⚠ [fichier test : ' + (result.data.error || result.data.detail || 'erreur inconnue') + ']');
+        }
+      })
+      .catch(function (err) {
+        appendTranscript('⚠ [fichier test : ' + err.message + ']');
+      })
+      .finally(function () {
+        pendingSegments--;
+        updateSubmitState();
+      });
+  });
+
+  if (transcriptSoFar.trim()) {
+    transcriptEl.value = transcriptSoFar;
+    statusEl.textContent = 'Transcription précédente conservée suite à une erreur — prêt à réessayer.';
+    updateSubmitState();
   }
 
   startBtn.addEventListener('click', function () {

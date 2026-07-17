@@ -8,10 +8,10 @@
 
 <div class="capture-head"><div><h1>Analyse</h1></div></div>
 
-{% if not themes %}
+{% if not mission.interviews %}
   <div class="card empty">
-    <p>La trame est vide — aucun thème à synthétiser.</p>
-    <a class="btn btn-primary" href="/missions/{{ mission.id }}/trame">Éditer la trame</a>
+    <p>Aucun entretien pour l'instant — saisis ou enregistre au moins un entretien avant de synthétiser.</p>
+    <a class="btn btn-primary" href="/missions/{{ mission.id }}">Retour à la mission</a>
   </div>
 {% else %}
 {% set active = 'export_import' %}

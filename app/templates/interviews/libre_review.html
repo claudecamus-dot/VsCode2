@@ -1,25 +1,32 @@
 {% extends "base.html" %}
-{% block title %}Revue de l'entretien libre — Interview-to-Deck{% endblock %}
+{% block title %}Synthèse de l'entretien libre — Interview-to-Deck{% endblock %}
 {% block content %}
 <div class="breadcrumb">
-  <a href="/">Nouvel entretien</a> / Revue de l'entretien libre
+  <a href="/">Nouvel entretien</a> / Synthèse de l'entretien libre
 </div>
 
-<div class="page-head"><h1>Revue avant enregistrement</h1></div>
+<div class="page-head"><h1>Synthèse avant enregistrement</h1></div>
+{% set step_num = 3 %}{% set active = 'synthese' %}
+{% include "interviews/_libre_wizard.html" %}
 <p class="muted">
-  L'IA a structuré la transcription en tours de parole, proposé une
-  répartition dans la synthèse de mission, et relevé l'identité de
-  l'interviewé·e si elle a été dite à l'oral. Corrige ce qui doit l'être —
-  rien n'est enregistré avant validation. La mission se précise à l'étape
-  suivante.
+  À partir des tours de parole validés à l'étape précédente, l'IA propose un
+  résumé et une répartition dans la synthèse de mission. Corrige ce qui doit
+  l'être — rien n'est enregistré avant validation. La mission se précise à
+  l'étape suivante.
 </p>
 
 <form method="post" action="/missions/{{ mission.id }}/interviews/record-libre/confirm" class="card form">
   <input type="hidden" name="audio_backup_path" value="{{ identity.audio_backup_path or '' }}">
+  {% for turn in turns %}
+  <input type="hidden" name="turn_interlocuteur" value="{{ turn.interlocuteur }}">
+  <input type="hidden" name="turn_question" value="{{ turn.question or '' }}">
+  <input type="hidden" name="turn_remarque" value="{{ turn.remarque or '' }}">
+  <input type="hidden" name="turn_section_title" value="{{ turn.section_title or '' }}">
+  {% endfor %}
 
   <section class="card">
     <h2>Identité</h2>
-    <p class="muted">Pré-rempli automatiquement quand l'interviewé·e s'est présenté·e à l'oral — à vérifier.</p>
+    <p class="muted">Validée à l'étape précédente — modifiable si besoin.</p>
     <label>
       Nom &amp; prénom de l'interviewé·e
       <input type="text" name="interviewee_name" value="{{ identity.interviewee_name or '' }}">
@@ -36,31 +43,6 @@
       Date de l'entretien
       <input type="date" name="interview_date" value="{{ identity.interview_date or '' }}">
     </label>
-  </section>
-
-  <section class="card">
-    <h2>Tours de parole</h2>
-    <p class="muted">« Titre de section » marque le début d'un nouveau sujet — laisse vide si le tour continue le sujet précédent. Ça structure l'écran Analyse en sections, comme une transcription éditée.</p>
-    {% for turn in turns %}
-    <div class="turn-row">
-      <label>
-        Interlocuteur
-        <input type="text" name="turn_interlocuteur" value="{{ turn.interlocuteur }}">
-      </label>
-      <label>
-        Titre de section (si nouveau sujet)
-        <input type="text" name="turn_section_title" value="{{ turn.section_title or '' }}">
-      </label>
-      <label>
-        Question
-        <textarea name="turn_question" rows="2">{{ turn.question or '' }}</textarea>
-      </label>
-      <label>
-        Remarque
-        <textarea name="turn_remarque" rows="2">{{ turn.remarque or '' }}</textarea>
-      </label>
-    </div>
-    {% endfor %}
   </section>
 
   <section class="card">

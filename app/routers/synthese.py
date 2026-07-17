@@ -1,9 +1,10 @@
-"""Synthèse transverse par thème — incrément 3.
+"""Synthèse transverse — mission (incr.3, étendue incr.9 aux missions sans trame).
 
-US4.1 : vue agrégée d'un thème (toutes les réponses des entretiens côte à côte
-        + verbatims), pour préparer la synthèse.
-US4.2 : génération IA d'un brouillon (convergences / divergences) via Claude.
-US4.3 : édition humaine des champs de synthèse (autosave HTMX).
+Synthèse globale (5 catégories) + recommandations, agrégeant tous les
+entretiens de la mission (structurés par thème et/ou libres). L'ancienne vue
+de synthèse par thème (US4.1-4.3) a été retirée le 2026-07-17 : superflue
+depuis l'écran unifié Analyse/Synthèse globale/Recommandations/Export PPT
+d'incr.9, elle plantait de toute façon sur une mission sans trame.
 """
 from __future__ import annotations
 
@@ -14,23 +15,19 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from ..db import get_session
-from ..models import GlobalSynthesis, Mission, Recommendation, RecommendationAxis, Synthesis, Theme
+from ..models import GlobalSynthesis, Mission, Recommendation, RecommendationAxis, Theme
 from ..services.ai_common import api_key_env_name
 from ..services.pptx_export import field_fit_hint
 from ..services.synthese_ai import (
     SynthesisAIError,
-    demo_enabled,
-    generate_demo_synthesis,
     generate_global_synthesis,
     generate_recommendations,
-    generate_theme_synthesis,
     is_configured,
 )
 from ..templating import templates
 
 router = APIRouter(tags=["synthese"])
 
-SYNTH_FIELDS = ("summary", "convergences", "divergences")
 GLOBAL_SYNTH_FIELDS = (
     "contexte", "culture_adn", "forces_succes", "points_amelioration", "aspirations",
 )
@@ -48,20 +45,6 @@ def _get_mission(db: Session, mission_id: int) -> Mission:
     if mission is None:
         raise HTTPException(status_code=404, detail="Mission introuvable.")
     return mission
-
-
-def _get_theme(db: Session, theme_id: int) -> Theme:
-    theme = db.get(Theme, theme_id)
-    if theme is None:
-        raise HTTPException(status_code=404, detail="Thème introuvable.")
-    return theme
-
-
-def _get_or_create_synthesis(db: Session, theme: Theme) -> Synthesis:
-    if theme.synthesis is None:
-        theme.synthesis = Synthesis(theme_id=theme.id)
-        db.add(theme.synthesis)
-    return theme.synthesis
 
 
 def _get_or_create_global_synthesis(db: Session, mission: Mission) -> GlobalSynthesis:
@@ -186,132 +169,6 @@ def _apply_recommendations_result(db: Session, mission: Mission, axes_data: list
 
 
 # --------------------------------------------------------------------------- #
-# US4.1 — vue par thème
-# --------------------------------------------------------------------------- #
-@router.get("/missions/{mission_id}/synthese")
-def synthese_view(
-    mission_id: int,
-    request: Request,
-    theme: str | None = None,
-    db: Session = Depends(get_session),
-):
-    mission = _get_mission(db, mission_id)
-    themes = mission.trame.themes
-
-    current = None
-    if themes:
-        ids = [t.id for t in themes]
-        try:
-            idx = ids.index(int(theme)) if theme is not None else 0
-        except (ValueError, TypeError):
-            idx = 0
-        current = themes[idx]
-
-    by_question = verbatims = None
-    synthesis = None
-    if current is not None:
-        by_question, verbatims = _theme_material(mission, current)
-        synthesis = _get_or_create_synthesis(db, current)
-        db.commit()
-
-    return templates.TemplateResponse(
-        request,
-        "synthese/theme.html",
-        {
-            "mission": mission,
-            "themes": themes,
-            "current": current,
-            "by_question": by_question or {},
-            "verbatims": verbatims or [],
-            "synthesis": synthesis,
-            "ai_ready": is_configured(),
-            "api_key_env": api_key_env_name(),
-            "demo_ready": demo_enabled(),
-            "interview_count": len(mission.interviews),
-            "answer_count": _answer_count(by_question or {}),
-        },
-    )
-
-
-# --------------------------------------------------------------------------- #
-# US4.2 — génération IA
-# --------------------------------------------------------------------------- #
-@router.post("/syntheses/theme/{theme_id}/generate")
-def generate(
-    theme_id: int,
-    request: Request,
-    db: Session = Depends(get_session),
-):
-    theme = _get_theme(db, theme_id)
-    mission = theme.trame.mission
-    by_question, verbatims = _theme_material(mission, theme)
-    synthesis = _get_or_create_synthesis(db, theme)
-
-    error = None
-    if _answer_count(by_question) == 0:
-        error = "Aucune réponse saisie sur ce thème — rien à synthétiser."
-    else:
-        try:
-            # Clé valide -> vraie IA ; sinon mode démo si activé ; sinon erreur.
-            if is_configured():
-                result = generate_theme_synthesis(theme, by_question, verbatims)
-            elif demo_enabled():
-                result = generate_demo_synthesis(theme, by_question, verbatims)
-            else:
-                raise SynthesisAIError(
-                    f"Génération indisponible : définissez {api_key_env_name()} "
-                    "ou activez SYNTHESE_DEMO=1."
-                )
-            synthesis.summary = result["summary"]
-            synthesis.convergences = result["convergences"]
-            synthesis.divergences = result["divergences"]
-            synthesis.status = "generated"
-            synthesis.generated_at = datetime.now(timezone.utc)
-            db.commit()
-        except SynthesisAIError as exc:
-            error = str(exc)
-
-    return templates.TemplateResponse(
-        request,
-        "synthese/_panel.html",
-        {
-            "synthesis": synthesis,
-            "theme": theme,
-            "ai_ready": is_configured(),
-            "api_key_env": api_key_env_name(),
-            "demo_ready": demo_enabled(),
-            "error": error,
-            "answer_count": _answer_count(by_question),
-        },
-    )
-
-
-# --------------------------------------------------------------------------- #
-# US4.3 — édition (autosave)
-# --------------------------------------------------------------------------- #
-@router.post("/syntheses/theme/{theme_id}/field")
-def save_field(
-    theme_id: int,
-    field: str = Form(...),
-    value: str = Form(""),
-    db: Session = Depends(get_session),
-):
-    if field not in SYNTH_FIELDS:
-        raise HTTPException(status_code=400, detail="Champ inconnu.")
-    theme = _get_theme(db, theme_id)
-    synthesis = _get_or_create_synthesis(db, theme)
-    setattr(synthesis, field, value)
-    if synthesis.has_content:
-        synthesis.status = "edited"
-    db.commit()
-    badge = (
-        f'<span class="badge badge-synth-{synthesis.status}" id="synth-status" '
-        f'hx-swap-oob="true">{synthesis.status_label}</span>'
-    )
-    return HTMLResponse(f'<span class="saved">✓ enregistré</span>{badge}')
-
-
-# --------------------------------------------------------------------------- #
 # Synthèse globale (évol) : mêmes entretiens, mais transverse à tous les
 # thèmes de la trame — regroupés en 5 catégories fixes (contexte, culture,
 # forces, points d'amélioration, aspirations).
@@ -425,7 +282,7 @@ def recommendations_view(
         "synthese/recommandations.html",
         {
             "mission": mission,
-            "themes": mission.trame.themes,
+            "themes": mission.trame.themes if mission.trame else [],
             "axes": mission.recommendation_axes,
             "global_synthesis": mission.global_synthesis,
             "ai_ready": is_configured(),
@@ -465,7 +322,7 @@ def generate_recommendations_view(
         "synthese/recommandations.html",
         {
             "mission": mission,
-            "themes": mission.trame.themes,
+            "themes": mission.trame.themes if mission.trame else [],
             "axes": mission.recommendation_axes,
             "global_synthesis": mission.global_synthesis,
             "ai_ready": is_configured(),

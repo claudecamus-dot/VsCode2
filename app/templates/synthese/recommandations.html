@@ -8,10 +8,10 @@
 
 <div class="capture-head"><div><h1>Recommandations</h1></div></div>
 
-{% if not themes %}
+{% if not mission.interviews %}
   <div class="card empty">
-    <p>La trame est vide — aucun thème à synthétiser.</p>
-    <a class="btn btn-primary" href="/missions/{{ mission.id }}/trame">Éditer la trame</a>
+    <p>Aucun entretien pour l'instant — saisis ou enregistre au moins un entretien avant de synthétiser.</p>
+    <a class="btn btn-primary" href="/missions/{{ mission.id }}">Retour à la mission</a>
   </div>
 {% else %}
 {% set active = 'recommandations' %}
@@ -57,7 +57,7 @@
     </div>
   </div>
   {% endfor %}
-  <p class="muted reco-summary-subheading">Vue d'ensemble de toutes les recommandations — cliquez une ligne pour aller à sa fiche détaillée :</p>
+  <p class="muted reco-summary-subheading">Vue d'ensemble de toutes les recommandations — cliquez une ligne pour aller à sa fiche détaillée. Valeur : plus c'est rempli, plus fort l'impact attendu. Complexité : plus c'est rempli, plus l'effort de mise en œuvre est important.</p>
   <table class="table reco-summary-table">
     <thead>
       <tr><th>Axe</th><th>Recommandation</th><th>Valeur</th><th>Complexité</th></tr>
@@ -68,8 +68,8 @@
       <tr>
         <td class="muted">{{ axis_index }}.{{ loop.index }} — {{ axis.title }}</td>
         <td><a href="#reco-card-{{ reco.id }}">{{ reco.title or '—' }}</a></td>
-        <td><span class="score-dots">{{ '●' * reco.valeur }}{{ '○' * (5 - reco.valeur) }}</span></td>
-        <td><span class="score-dots">{{ '●' * reco.complexite }}{{ '○' * (5 - reco.complexite) }}</span></td>
+        <td><span class="score-dots">{{ '●' * reco.valeur }}{{ '○' * (5 - reco.valeur) }}</span><span class="score-number">{{ reco.valeur }}/5</span></td>
+        <td><span class="score-dots score-dots-complexite">{{ '●' * reco.complexite }}{{ '○' * (5 - reco.complexite) }}</span><span class="score-number">{{ reco.complexite }}/5</span></td>
       </tr>
       {% endfor %}
       {% endfor %}
@@ -94,7 +94,8 @@
         <input type="text" name="value" value="{{ reco.title }}" aria-label="Titre de la recommandation"
           hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "title"}'
           hx-trigger="keyup changed delay:700ms, blur"
-          hx-target="#reco-saved-{{ reco.id }}" hx-swap="innerHTML">
+          hx-target="#reco-saved-{{ reco.id }}-title" hx-swap="innerHTML">
+        <span id="reco-saved-{{ reco.id }}-title" class="saved"></span>
       </label>
 
       <div class="reco-meta">
@@ -102,29 +103,33 @@
           <textarea name="value" rows="2"
             hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "objectif"}'
             hx-trigger="keyup changed delay:700ms, blur"
-            hx-target="#reco-saved-{{ reco.id }}" hx-swap="innerHTML">{{ reco.objectif }}</textarea>
+            hx-target="#reco-saved-{{ reco.id }}-objectif" hx-swap="innerHTML">{{ reco.objectif }}</textarea>
+          <span id="reco-saved-{{ reco.id }}-objectif" class="saved"></span>
         </label>
         <label>Acteurs
           <input type="text" name="value" value="{{ reco.acteurs }}"
             hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "acteurs"}'
             hx-trigger="keyup changed delay:700ms, blur"
-            hx-target="#reco-saved-{{ reco.id }}" hx-swap="innerHTML">
+            hx-target="#reco-saved-{{ reco.id }}-acteurs" hx-swap="innerHTML">
+          <span id="reco-saved-{{ reco.id }}-acteurs" class="saved"></span>
         </label>
         <label>Valeur
           <select name="value"
             hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "valeur"}'
-            hx-trigger="change" hx-target="#reco-saved-{{ reco.id }}" hx-swap="innerHTML">
+            hx-trigger="change" hx-target="#reco-saved-{{ reco.id }}-valeur" hx-swap="innerHTML">
             {% for n in range(1, 6) %}<option value="{{ n }}" {% if reco.valeur == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
           </select>
           <span class="score-dots">{{ '●' * reco.valeur }}{{ '○' * (5 - reco.valeur) }}</span>
+          <span id="reco-saved-{{ reco.id }}-valeur" class="saved"></span>
         </label>
         <label>Complexité
           <select name="value"
             hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "complexite"}'
-            hx-trigger="change" hx-target="#reco-saved-{{ reco.id }}" hx-swap="innerHTML">
+            hx-trigger="change" hx-target="#reco-saved-{{ reco.id }}-complexite" hx-swap="innerHTML">
             {% for n in range(1, 6) %}<option value="{{ n }}" {% if reco.complexite == n %}selected{% endif %}>{{ n }}</option>{% endfor %}
           </select>
-          <span class="score-dots">{{ '●' * reco.complexite }}{{ '○' * (5 - reco.complexite) }}</span>
+          <span class="score-dots score-dots-complexite">{{ '●' * reco.complexite }}{{ '○' * (5 - reco.complexite) }}</span>
+          <span id="reco-saved-{{ reco.id }}-complexite" class="saved"></span>
         </label>
       </div>
 
@@ -133,23 +138,25 @@
         <textarea name="value" rows="2"
           hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "proposition_valeur"}'
           hx-trigger="keyup changed delay:700ms, blur"
-          hx-target="#reco-saved-{{ reco.id }}" hx-swap="innerHTML">{{ reco.proposition_valeur }}</textarea>
+          hx-target="#reco-saved-{{ reco.id }}-proposition_valeur" hx-swap="innerHTML">{{ reco.proposition_valeur }}</textarea>
+        <span id="reco-saved-{{ reco.id }}-proposition_valeur" class="saved"></span>
       </label>
       <label class="reco-field">
         <span>Plan d'actions</span>
         <textarea name="value" rows="4"
           hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "plan_actions"}'
           hx-trigger="keyup changed delay:700ms, blur"
-          hx-target="#reco-saved-{{ reco.id }}" hx-swap="innerHTML">{{ reco.plan_actions }}</textarea>
+          hx-target="#reco-saved-{{ reco.id }}-plan_actions" hx-swap="innerHTML">{{ reco.plan_actions }}</textarea>
+        <span id="reco-saved-{{ reco.id }}-plan_actions" class="saved"></span>
       </label>
       <label class="reco-field">
         <span>Résultats attendus</span>
         <textarea name="value" rows="2"
           hx-post="/recommandations/{{ reco.id }}/field" hx-vals='{"field": "resultats_attendus"}'
           hx-trigger="keyup changed delay:700ms, blur"
-          hx-target="#reco-saved-{{ reco.id }}" hx-swap="innerHTML">{{ reco.resultats_attendus }}</textarea>
+          hx-target="#reco-saved-{{ reco.id }}-resultats_attendus" hx-swap="innerHTML">{{ reco.resultats_attendus }}</textarea>
+        <span id="reco-saved-{{ reco.id }}-resultats_attendus" class="saved"></span>
       </label>
-      <div class="autosave-line"><span id="reco-saved-{{ reco.id }}" class="saved"></span></div>
     </div>
     {% endfor %}
   </section>

@@ -241,6 +241,7 @@
       <div class="toc-group">
         <p class="toc-group-label">Projet</p>
         <a class="toc-link" href="#projet-roadmap">Roadmap du projet</a>
+        <a class="toc-link" href="#agents-supervision">Supervision des agents</a>
         <a class="toc-link" href="#todo-session">TODO — reprise de session</a>
       </div>
     </nav>
@@ -250,14 +251,14 @@
     <div class="doc-header">
       <h1>Wiki d'onboarding — Interview-to-Deck</h1>
       <div class="doc-meta">
-        <span>Généré par : onboarder</span>
-        <span>Mis à jour : 2026-07-15</span>
+        <span>Généré par : onboarder (corrections ponctuelles : claude)</span>
+        <span>Mis à jour : 2026-07-15 (corrections ciblées 2026-07-17)</span>
         <span>Source : docs/wiki/*.md</span>
       </div>
     </div>
 
     <div class="staleness">
-      <p><strong>Fraîcheur partielle.</strong> Les sections ci-dessous datent en grande partie du 30 juin 2026 (seule la section Tests a été vérifiée le 10 juillet). Le projet a avancé depuis (nouveaux services, incréments PPT, nouveaux skills) — voir <code>.roadmap/roadmap.json</code> et <code>git log</code> pour l'état courant avant de s'appuyer sur un fait précis ici.</p>
+      <p><strong>Fraîcheur partielle.</strong> Les sections ci-dessous datent en grande partie du 30 juin 2026 (seule la section Tests a été vérifiée le 10 juillet). Le 2026-07-17, les mentions Anthropic/Opus devenues fausses ont été corrigées ponctuellement (Ollama est maintenant le fournisseur IA par défaut) et la table « TODO — reprise de session » mise à jour — mais aucune passe de fond n'a été refaite sur le reste du contenu. Le projet a avancé depuis le 30 juin (nouveaux services, incrément 9 entier, nouveaux skills) — voir <code>.roadmap/roadmap.json</code>, <code>CLAUDE.md</code> et <code>git log</code> pour l'état courant avant de s'appuyer sur un fait précis ici.</p>
     </div>
 
     <div class="legend">
@@ -284,9 +285,9 @@
 
       <h3>Stack critique</h3>
       <div class="fact">
-        <p>Python 3.12+ · FastAPI 0.115+ · SQLAlchemy 2.0 / SQLite · Jinja2 + HTMX 2.0 · Anthropic Claude Opus 4.8.</p>
+        <p>Python 3.12+ · FastAPI 0.115+ · SQLAlchemy 2.0 / SQLite · Jinja2 + HTMX 2.0 · Ollama (local, llama3.1, fournisseur IA par défaut depuis le 2026-07-17 — le SDK Anthropic a été retiré du code et des dépendances suite à une limite de crédit atteinte par l'utilisateur ; OpenAI/Mistral restent disponibles comme fournisseurs alternatifs) · reportlab (export PDF par entretien).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">onboarder · 2026-06-30 · requirements.txt</div>
+        <div class="tag-source">claude · 2026-07-17 · requirements.txt, app/services/ai_common.py</div>
       </div>
 
       <h3>Architecture (résumé)</h3>
@@ -312,16 +313,23 @@
         <li><a href="#business">Entretien &amp; Synthèse</a> — Capture d'interviews sur trame, synthèse transverse, génération PPT</li>
       </ul>
 
-      <h3>Points critiques actifs</h3>
-      <div class="critical">
-        <p>Secret Anthropic dans <code>.env:9</code> : commentée et <code>.env</code> gitignoré (<code>.gitignore:7</code>) → exposition improbable ; vigilance seulement si dé-commentée en local.</p>
+      <h3>Incrément 9 (2026-07 — non couvert en détail par ce wiki, voir CLAUDE.md à la racine)</h3>
+      <div class="fact">
+        <p>Entrée unifiée entretien libre/structuré + mission différée. Entretien libre : capture audio locale (faster-whisper) → extraction IA en 2 étapes (tours de parole puis répartition/résumé) → écrans Analyse/Synthèse dédiés, redesignés le 2026-07-17 pour clarifier qu'ils montrent l'apport d'<strong>un seul</strong> entretien, distinct de la synthèse globale de mission qui agrège tous les entretiens. Export PDF par entretien (reportlab). Fournisseur IA par défaut passé d'Anthropic à Ollama (local) le 2026-07-17.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">onboarder · 2026-06-30</div>
+        <div class="tag-source">claude · 2026-07-17 · .roadmap/roadmap.json, CLAUDE.md</div>
       </div>
+
+      <h3>Points critiques actifs</h3>
       <div class="critical">
         <p>Aucune authentification — accessible sans restriction.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">onboarder · 2026-06-30</div>
+      </div>
+      <div class="critical">
+        <p>Synthèse globale de mission (<code>generate_global_synthesis</code>) construit un seul prompt sans découpage — contrairement à l'extraction par entretien libre (map-reduce depuis le 2026-07-16), une mission avec beaucoup d'entretiens/matière risque un dépassement silencieux de la fenêtre de contexte Ollama (8192 tokens par défaut, troncature documentée sans erreur) ; pas encore de garde-fou pour ce chemin.</p>
+        <span class="tag tag-deduit">DÉDUIT</span>
+        <div class="tag-source">claude · 2026-07-17 · app/services/synthese_ai.py:206-252</div>
       </div>
       <div class="critical">
         <p>Pas de CI/CD ni de pipeline de déploiement.</p>
@@ -405,9 +413,9 @@
 
       <h3>Communication entre modules</h3>
       <div class="fact">
-        <p>Appels synchrones en Python — pas de queue, pas d'événements. L'appel à l'API Anthropic est synchrone (bloquant).</p>
+        <p>Appels synchrones en Python — pas de queue, pas d'événements. L'appel au fournisseur IA actif (Ollama par défaut depuis le 2026-07-17, ou OpenAI/Mistral) est synchrone (bloquant).</p>
         <span class="tag tag-deduit">DÉDUIT</span>
-        <div class="tag-source">onboarder · 2026-06-30</div>
+        <div class="tag-source">claude · 2026-07-17</div>
       </div>
 
       <h3>Décisions architecturales notables</h3>
@@ -417,9 +425,14 @@
         <div class="tag-source">onboarder · 2026-06-30 · app/routers/trames.py:97</div>
       </div>
       <div class="fact">
-        <p><strong>Synthèse IA avec fallback</strong> : SDK Anthropic avec sortie JSON structurée, mode démo heuristique si clé absente.</p>
+        <p><strong>Synthèse IA avec fallback</strong> : fournisseur actif (Ollama par défaut, ou OpenAI/Mistral) avec sortie JSON structurée, mode démo heuristique si clé absente.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">onboarder · 2026-06-30 · app/services/synthese_ai.py</div>
+        <div class="tag-source">claude · 2026-07-17 · app/services/synthese_ai.py</div>
+      </div>
+      <div class="fact">
+        <p><strong>Entretien libre vs synthèse de mission, décorrélés (2026-07-17)</strong> : l'écran de synthèse d'un entretien libre (<code>libre_synthese.html</code>) affiche l'apport d'<strong>un seul</strong> entretien aux 5 catégories transverses ; la synthèse globale de mission (<code>synthese/globale.html</code>) agrège tous les entretiens (structurés + libres). Les deux écrans montraient les mêmes 5 libellés sans distinction visuelle forte — corrigé par un bandeau explicite + traitement visuel distinct sur le premier.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">claude · 2026-07-17 · app/templates/interviews/libre_synthese.html, app/templates/synthese/globale.html</div>
       </div>
       <div class="fact">
         <p><strong>Migrations additives à chaud</strong> : les nouvelles colonnes sont ajoutées via <code>ALTER TABLE</code> au démarrage (pas de migration versionnée).</p>
@@ -434,11 +447,6 @@
 
       <h3>Points de fragilité connus</h3>
       <div class="critical">
-        <p>Secret Anthropic dans <code>.env:9</code> : commentée et <code>.env</code> gitignoré (<code>.gitignore:7</code>), exposition improbable.</p>
-        <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">onboarder · 2026-06-30</div>
-      </div>
-      <div class="critical">
         <p>Absence d'authentification.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">onboarder · 2026-06-30 · app/main.py</div>
@@ -447,6 +455,11 @@
         <p>Pas de CI/CD.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">onboarder · 2026-06-30</div>
+      </div>
+      <div class="critical">
+        <p><code>generate_global_synthesis()</code> (synthèse de mission) n'a pas de découpage map-reduce, contrairement à l'extraction d'entretien libre — risque de troncature silencieuse du prompt par Ollama sur une mission avec beaucoup de matière (voir Index).</p>
+        <span class="tag tag-deduit">DÉDUIT</span>
+        <div class="tag-source">claude · 2026-07-17 · app/services/synthese_ai.py:206-252</div>
       </div>
     </section>
 
@@ -468,12 +481,14 @@
             <tr><td>Base de données</td><td>SQLite</td><td>—</td><td>Fichier <code>data/app.db</code> (gitignoré)</td></tr>
             <tr><td>Frontend dynamique</td><td>HTMX</td><td>2.0.3</td><td>Chargé depuis unpkg CDN, pas de SRI</td></tr>
             <tr><td>Import .docx</td><td>python-docx</td><td>≥1.1</td><td>Analyse des niveaux de liste Word</td></tr>
-            <tr><td>IA</td><td>Anthropic SDK</td><td>≥0.69</td><td>Importé en lazy, mode démo disponible</td></tr>
+            <tr><td>IA</td><td>Ollama (local, sans SDK)</td><td>—</td><td>Fournisseur par défaut depuis le 2026-07-17 (urllib vers un serveur local, aucune clé) ; OpenAI/Mistral SDK restent en fournisseurs alternatifs. SDK Anthropic retiré.</td></tr>
+            <tr><td>Transcription audio</td><td>faster-whisper</td><td>≥1.0</td><td>Locale, modèle <code>medium</code> par défaut</td></tr>
+            <tr><td>Export PDF</td><td>reportlab</td><td>≥4.0</td><td>Par entretien, pure Python (pas de dépendance système)</td></tr>
             <tr><td>Environnement</td><td>python-dotenv</td><td>≥1.0</td><td>Chargement du <code>.env</code> au démarrage</td></tr>
           </tbody>
         </table>
       </div>
-      <p class="tag-source" style="margin-bottom:20px;">CONFIRMÉ · onboarder · 2026-06-30 · requirements.txt</p>
+      <p class="tag-source" style="margin-bottom:20px;">CONFIRMÉ · claude · 2026-07-17 · requirements.txt</p>
 
       <h3>Librairies clés</h3>
       <ul>
@@ -484,10 +499,12 @@
       <h3>Variables d'environnement requises</h3>
       <ul>
         <li><code>SYNTHESE_DEMO</code> — Mode démo hors-ligne (1 = activé, 0 = désactivé)</li>
-        <li><code>ANTHROPIC_API_KEY</code> — Clé API Anthropic (optionnelle si mode démo)</li>
-        <li><code>SYNTHESE_MODEL</code> — Modèle Claude (défaut : <code>claude-opus-4-8</code>, optionnel)</li>
+        <li><code>AI_PROVIDER</code> — Fournisseur IA actif : <code>ollama</code> (défaut, local), <code>openai</code> ou <code>mistral</code></li>
+        <li><code>OPENAI_API_KEY</code> / <code>MISTRAL_API_KEY</code> — Clé du fournisseur choisi (sans objet pour <code>ollama</code>)</li>
+        <li><code>OLLAMA_HOST</code> — Serveur Ollama (défaut : <code>http://localhost:11434</code>, optionnel)</li>
+        <li><code>SYNTHESE_MODEL</code> — Modèle utilisé (défaut par fournisseur : <code>llama3.1</code> pour ollama, optionnel)</li>
       </ul>
-      <p class="tag-source" style="margin-bottom:20px;">CONFIRMÉ · onboarder · 2026-06-30 · .env.example</p>
+      <p class="tag-source" style="margin-bottom:20px;">CONFIRMÉ · claude · 2026-07-17 · .env.example</p>
 
       <h3>Contraintes de version</h3>
       <ul class="shadow-list">
@@ -566,9 +583,9 @@
         <div class="tag-source">onboarder · 2026-06-30</div>
       </div>
       <div class="fact">
-        <p>Clé API Anthropic présente (commentée) dans <code>.env</code> — ne pas committer dé-commenté.</p>
+        <p>Clé API du fournisseur IA actif (<code>OPENAI_API_KEY</code>/<code>MISTRAL_API_KEY</code> — sans objet pour <code>ollama</code>, le défaut) présente en commentaire dans <code>.env.example</code> — ne pas committer dé-commentée.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">onboarder · 2026-06-30 · .env:9</div>
+        <div class="tag-source">claude · 2026-07-17 · .env.example</div>
       </div>
 
       <h3>Patterns spécifiques à l'équipe</h3>
@@ -735,6 +752,75 @@ pytest -k "pptx or export"                                                     #
       </div>
     </section>
 
+    <!-- ============ SUPERVISION AGENTS (bloc auto-généré) ============ -->
+    <!-- TODO-AGENTS-HTML:START — bloc généré par .claude/supervision/scan_transcripts.py, ne pas éditer à la main -->
+    <section class="doc" id="agents-supervision">
+      <p class="eyebrow">Projet</p>
+      <h2>Supervision des agents — tableau de bord d'usage</h2>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-17T22:11:35+02:00</span></p>
+
+      <div class="fact">
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>18 sessions</strong> couvertes · <strong>30</strong> invocations de skills · <strong>28</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 — diagnostic qualitatif LLM — pas encore construit).</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">scan_transcripts.py · 2026-07-17 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
+      </div>
+
+      <h3>Skills — usage réel</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Skill</th><th>Famille</th><th>Invocations</th><th>Première</th><th>Dernière</th></tr></thead>
+          <tbody>
+            <tr><td><code>run-dev-server</code></td><td>projet</td><td>9</td><td>2026-07-03</td><td>2026-07-17</td></tr>
+            <tr><td><code>update-config</code></td><td>(builtin/session)</td><td>6</td><td>2026-07-03</td><td>2026-07-16</td></tr>
+            <tr><td><code>roadmap-keeper</code></td><td>global</td><td>5</td><td>2026-06-25</td><td>2026-07-15</td></tr>
+            <tr><td><code>run</code></td><td>(builtin/session)</td><td>3</td><td>2026-06-29</td><td>2026-07-03</td></tr>
+            <tr><td><code>pptx-deck</code></td><td>global</td><td>2</td><td>2026-07-02</td><td>2026-07-03</td></tr>
+            <tr><td><code>skill-creator</code></td><td>global</td><td>2</td><td>2026-07-03</td><td>2026-07-03</td></tr>
+            <tr><td><code>claude-api</code></td><td>(builtin/session)</td><td>1</td><td>2026-06-29</td><td>2026-06-29</td></tr>
+            <tr><td><code>init</code></td><td>(builtin/session)</td><td>1</td><td>2026-07-03</td><td>2026-07-03</td></tr>
+            <tr><td><code>pptx-verify</code></td><td>global</td><td>1</td><td>2026-07-03</td><td>2026-07-03</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Sous-agents</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Sous-agent</th><th>Lancements</th><th>Premier</th><th>Dernier</th></tr></thead>
+          <tbody>
+            <tr><td><code>Explore</code></td><td>12</td><td>2026-06-30</td><td>2026-07-17</td></tr>
+            <tr><td><code>general-purpose</code></td><td>8</td><td>2026-07-15</td><td>2026-07-17</td></tr>
+            <tr><td><code>claude</code></td><td>4</td><td>2026-07-16</td><td>2026-07-16</td></tr>
+            <tr><td><code>Plan</code></td><td>3</td><td>2026-07-06</td><td>2026-07-17</td></tr>
+            <tr><td><code>claude-code-guide</code></td><td>1</td><td>2026-07-03</td><td>2026-07-03</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Jamais utilisés</h3>
+      <p><strong>projet</strong> — 4/5 jamais invoqués : <code>agent-orchestrator</code>, <code>pptx-framed-image</code>, <code>revue-increment</code>, <code>slide-text-polish</code></p>
+      <p><strong>BMAD</strong> — 46/46 jamais invoqués : <details><summary>Voir la liste (46)</summary><p><code>bmad-advanced-elicitation</code>, <code>bmad-agent-analyst</code>, <code>bmad-agent-architect</code>, <code>bmad-agent-dev</code>, <code>bmad-agent-pm</code>, <code>bmad-agent-tech-writer</code>, <code>bmad-agent-ux-designer</code>, <code>bmad-architecture</code>, <code>bmad-brainstorming</code>, <code>bmad-check-implementation-readiness</code>, <code>bmad-checkpoint-preview</code>, <code>bmad-code-review</code>, <code>bmad-correct-course</code>, <code>bmad-create-architecture</code>, <code>bmad-create-epics-and-stories</code>, <code>bmad-create-prd</code>, <code>bmad-create-story</code>, <code>bmad-customize</code>, <code>bmad-dev-auto</code>, <code>bmad-dev-story</code>, <code>bmad-document-project</code>, <code>bmad-domain-research</code>, <code>bmad-edit-prd</code>, <code>bmad-editorial-review-prose</code>, <code>bmad-editorial-review-structure</code>, <code>bmad-forge-idea</code>, <code>bmad-generate-project-context</code>, <code>bmad-help</code>, <code>bmad-index-docs</code>, <code>bmad-market-research</code>, <code>bmad-party-mode</code>, <code>bmad-prd</code>, <code>bmad-prfaq</code>, <code>bmad-product-brief</code>, <code>bmad-qa-generate-e2e-tests</code>, <code>bmad-quick-dev</code>, <code>bmad-retrospective</code>, <code>bmad-review-adversarial-general</code>, <code>bmad-review-edge-case-hunter</code>, <code>bmad-shard-doc</code>, <code>bmad-spec</code>, <code>bmad-sprint-planning</code>, <code>bmad-sprint-status</code>, <code>bmad-technical-research</code>, <code>bmad-ux</code>, <code>bmad-validate-prd</code></p></details></p>
+      <p><strong>global</strong> — 1/5 jamais invoqués : <code>restitution-deck-design</code></p>
+
+      <h3>TODO agents — chantiers à lancer (constats automatiques)</h3>
+      <div class="critical">
+        <p><strong>Trier les skills BMAD</strong> : 46 installés, 0 invocation à ce jour — décider lesquels garder, customiser ou désinstaller.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">scan_transcripts.py · 2026-07-17 · transcripts de session</div>
+      </div>
+      <div class="critical">
+        <p><strong><code>revue-increment</code> jamais invoquée</strong> malgré le rappel SessionStart à chaque session — revoir son déclencheur (l'ancrer au flux de commit ?) ou la simplifier.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">scan_transcripts.py · 2026-07-17 · transcripts de session</div>
+      </div>
+      <div class="critical">
+        <p><strong>Skills projet sans usage</strong> : <code>agent-orchestrator</code>, <code>pptx-framed-image</code>, <code>slide-text-polish</code> — vérifier pertinence et déclencheurs.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">scan_transcripts.py · 2026-07-17 · transcripts de session</div>
+      </div>
+    </section>
+<!-- TODO-AGENTS-HTML:END -->
+
     <!-- ============ TODO / REPRISE DE SESSION ============ -->
     <section class="doc" id="todo-session">
       <p class="eyebrow">Projet</p>
@@ -756,39 +842,19 @@ pytest -k "pptx or export"                                                     #
           <thead><tr><th>Item</th><th>État</th><th>Contexte / prochaine action</th></tr></thead>
           <tbody id="todo-session-rows">
             <tr>
-              <td>Remplacer l'IA externe par du 100 % local (Ollama)</td>
-              <td>À faire</td>
-              <td><code>ai_common.py</code> a déjà un provider <code>ollama</code> (2026-07-15, sans clé, sans nouvelle dépendance) mais jamais testé contre un vrai serveur local, et <code>AI_PROVIDER</code> reste <code>anthropic</code> par défaut pour toute la chaîne (synthèse, recommandations, extraction trame/entretien) — seul l'entretien libre peut l'utiliser aujourd'hui. Prochaine action : installer Ollama + tirer un modèle sur le poste, valider en conditions réelles, puis décider si <code>ollama</code> devient le défaut applicatif partout (regrouper avec l'item wiki ci-dessous).</td>
+              <td>Vitesse d'inférence CPU (Ollama) sur ce poste</td>
+              <td>Ouvert — contournements en place, pas de solution définitive</td>
+              <td>Pas de GPU dédié : <code>llama3.1:8b</code> mesuré ~55-70s pour un tout petit extrait, <code>qwen2.5:1.5b-instruct</code> ~4x plus rapide (qualité d'extraction moindre, à valider). Timeout réel observé le 2026-07-17 sur un entretien de ~37min (<code>OLLAMA_TIMEOUT</code>, 300s par défaut, dépassé). <code>OLLAMA_TIMEOUT</code> et <code>OLLAMA_CHUNK_MAX_WORDS</code> sont maintenant tous deux surchargeables par env var (<code>.env.example</code>) pour ajuster sans coder. Prochaine action : décider si <code>qwen2.5:1.5b-instruct</code> devient le défaut sur poste CPU, ou si le chantier perf (map-reduce déjà en place pour l'extraction par entretien, absent pour <code>generate_global_synthesis()</code>) se poursuit.</td>
             </tr>
             <tr>
-              <td>Revoir la cinématique UX selon l'agent UX/UI</td>
-              <td>Bloqué — en attente</td>
-              <td>Agent de revue relancé le 2026-07-15 (1ʳᵉ tentative échouée sur une limite de session Claude) ; résultat pas encore disponible au moment de la rédaction. Prochaine action : récupérer ses findings, les trier par sévérité, corriger l'enchaînement entrée → enregistrement → revue → finalisation → détail → analyse → synthèse en conséquence.</td>
-            </tr>
-            <tr>
-              <td>Fixtures de test à partir de <code>tests/exemple/</code></td>
-              <td>À faire</td>
-              <td>Le fichier <code>tests/exemple/45016ed7-....weba</code> (105 Mo, entretien réel ~114 min, avec transcription/synthèse de référence en <code>.docx</code>) a servi à valider manuellement la qualité Whisper le 2026-07-15 mais n'est câblé dans aucun test automatisé — trop volumineux pour une fixture pytest telle quelle. Prochaine action : découper 2-3 extraits courts (30 s à 2 min) représentatifs, les committer comme fixtures légères, écrire des tests qui exercent réellement <code>audio_transcribe.transcribe_audio()</code>/<code>interview_libre_extract_ai.extract_libre_from_text()</code> dessus plutôt que des mocks.</td>
-            </tr>
-            <tr>
-              <td>Bouton d'analyse locale de la transcription</td>
+              <td>Bouton de génération de synthèse par entretien (pas seulement consultation)</td>
               <td>À préciser avant de coder</td>
-              <td>Aujourd'hui l'extraction IA se lance en soumettant le formulaire d'enregistrement (<code>record_libre</code>, un seul bouton « Envoyer pour extraction »), pas de bouton dédié à une analyse spécifiquement locale. Prochaine action : clarifier avec l'utilisateur si c'est un bouton alternatif « Analyser en local » à côté de l'existant, ou si le bouton actuel doit simplement utiliser Ollama une fois que ce sera le fournisseur par défaut (item ci-dessus).</td>
+              <td><code>/interviews/{id}/analyse</code> est en lecture seule — affiche la répartition déjà enregistrée à l'extraction, ne (re)génère rien. Prochaine action : clarifier le besoin avec l'utilisateur (régénérer la répartition via un nouvel appel IA ? déclencher la synthèse globale de la mission depuis cet écran ?) avant d'implémenter.</td>
             </tr>
             <tr>
-              <td>Bouton de génération de synthèse (pas seulement consultation)</td>
-              <td>À préciser avant de coder</td>
-              <td><code>/interviews/{id}/analyse/synthese</code> (ajouté le 2026-07-15) est en lecture seule — affiche la répartition déjà enregistrée à l'extraction, ne (re)génère rien. Prochaine action : clarifier le besoin exact avec l'utilisateur (régénérer la répartition de cet entretien via un nouvel appel IA ? déclencher la synthèse globale de la mission depuis cet écran ?) avant d'implémenter.</td>
-            </tr>
-            <tr>
-              <td>Réimport des travaux PPT de VSCode3</td>
-              <td>Déjà vérifié — rien trouvé</td>
-              <td><code>VSCode3/export/claude-code-setup-export.md</code> §9 (lu le 2026-07-15) déclare explicitement que VSCode2 « a son propre système d'export PPT réel ... rien à répliquer de ce côté » — VSCode2 est la source, pas le récepteur. Prochaine action si le sujet revient : demander à l'utilisateur ce qu'il pense précisément trouver (peut-être <code>VSCode3/docs/cadrage-ppt/</code>, mais ce dossier est lui-même dérivé du skill <code>pptx-deck</code> de VSCode2, pas une contribution en retour) avant de relancer une recherche.</td>
-            </tr>
-            <tr>
-              <td>Revue des tags DÉDUIT/INCERTAIN + mentions Anthropic/Opus</td>
-              <td>À faire</td>
-              <td>Ce wiki tague chaque assertion CONFIRMÉ/DÉDUIT/INCERTAIN ; certaines mentionnent Claude/Anthropic Opus (§Stack) qui deviendraient obsolètes si l'IA locale (item en tête de liste) est adoptée. Prochaine action : parcourir <code>docs/wiki.html</code>, lister les tags DÉDUIT/INCERTAIN et les mentions Anthropic/Opus, proposer une action par item (confirmer, corriger, ou mettre à jour post-migration Ollama).</td>
+              <td>Polish restant, non bloquant</td>
+              <td>Connu, pas encore actionné</td>
+              <td>Messages d'erreur IA conviviaux pour les cas restants ; nettoyage des missions brouillon abandonnées (polluent <code>/missions</code>) ; bouton « Annuler » du parcours libre qui détruit le travail au lieu de revenir à l'étape précédente.</td>
             </tr>
           </tbody>
         </table>
