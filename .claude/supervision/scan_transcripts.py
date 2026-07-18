@@ -6,14 +6,24 @@ fichier pour ne relire que le nouveau), puis régénère :
   - docs/wiki/technical/agents-supervision.md  (tableau de bord + TODO agents)
   - la section entre marqueurs TODO-AGENTS de docs/wiki/index.md
   - la section entre marqueurs TODO-AGENTS-HTML de docs/wiki.html (page rendue standalone)
+  - .claude/orchestration/routing-hints.json (incrément O-C, consommé par agent-orchestrator :
+    agents éprouvés/jamais-utilisés/en sommeil, vérifications oubliées, stats plan-vs-réel
+    croisées avec .claude/orchestration/runs.jsonl)
+
+Si .claude/supervision/diagnostic.json existe (écrit par la skill `agent-supervisor`,
+étage 2 — diagnostic LLM), ses constats qualitatifs sont fusionnés dans la section TODO
+du tableau de bord (distincts des constats déterministes) et dans routing-hints.json
+(liste "prudence"). Ce script ne produit jamais lui-même de diagnostic qualitatif — 0 token
+LLM, toujours.
 
 Lancé automatiquement par le hook SessionStart (sortie : 1 ligne, jamais bloquant).
 Usage manuel : py .claude/supervision/scan_transcripts.py [--full]
   --full : ignore l'état incrémental et rescanne tout l'historique.
 
 Env (surcharges, utilisées par les tests) : AGENT_SUPERVISION_TRANSCRIPTS,
-AGENT_SUPERVISION_STATE, AGENT_SUPERVISION_WIKI_PAGE, AGENT_SUPERVISION_WIKI_INDEX.
-Conception : docs/reflexions/agent-superviseur.md.
+AGENT_SUPERVISION_STATE, AGENT_SUPERVISION_WIKI_PAGE, AGENT_SUPERVISION_WIKI_INDEX,
+AGENT_SUPERVISION_RUNS, AGENT_SUPERVISION_ROUTING_HINTS, AGENT_SUPERVISION_DIAGNOSTIC.
+Conception : docs/reflexions/agent-superviseur.md, docs/reflexions/agent-orchestrateur.md §6.
 """
 import datetime as dt
 import glob
@@ -34,7 +44,18 @@ WIKI_INDEX = os.environ.get("AGENT_SUPERVISION_WIKI_INDEX") or os.path.join(
 WIKI_HTML = os.environ.get("AGENT_SUPERVISION_WIKI_HTML") or os.path.join(
     REPO, "docs", "wiki.html"
 )
+RUNS_PATH = os.environ.get("AGENT_SUPERVISION_RUNS") or os.path.join(
+    REPO, ".claude", "orchestration", "runs.jsonl"
+)
+ROUTING_HINTS_PATH = os.environ.get("AGENT_SUPERVISION_ROUTING_HINTS") or os.path.join(
+    REPO, ".claude", "orchestration", "routing-hints.json"
+)
+DIAGNOSTIC_PATH = os.environ.get("AGENT_SUPERVISION_DIAGNOSTIC") or os.path.join(
+    SUP_DIR, "diagnostic.json"
+)
 DORMANT_DAYS = 30
+PROVEN_MIN = 3  # invocations à partir desquelles un agent/skill est "éprouvé"
+DIAGNOSTIC_CADENCE_DAYS = 14  # au-delà : le diagnostic étage 2 est signalé "à relancer"
 MARK_START = "<!-- TODO-AGENTS:START"
 MARK_END = "<!-- TODO-AGENTS:END -->"
 HTML_MARK_START = "<!-- TODO-AGENTS-HTML:START"
@@ -166,6 +187,123 @@ def days_since(ts: str):
     return (now - t).days
 
 
+def load_jsonl(path: str) -> list:
+    out = []
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except ValueError:
+                    continue
+    except OSError:
+        pass
+    return out
+
+
+def load_diagnostic() -> dict:
+    """Constats qualitatifs de la skill agent-supervisor (étage 2) ; None si jamais lancée."""
+    try:
+        with open(DIAGNOSTIC_PATH, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def diagnostic_a_jour(diagnostic) -> bool:
+    if not diagnostic:
+        return False
+    d = days_since(diagnostic.get("generated", ""))
+    return d is not None and d <= DIAGNOSTIC_CADENCE_DAYS
+
+
+def diagnostic_todos(diagnostic) -> list:
+    """Top constats qualitatifs (étage 2), triés par priorité, pour fusion dans le TODO wiki."""
+    if not diagnostic:
+        return []
+    findings = sorted(diagnostic.get("findings", []) or [], key=lambda f: -(f.get("priorite") or 0))
+    out = []
+    for f in findings[:5]:
+        titre = (f.get("titre") or "").strip()
+        if not titre:
+            continue
+        reco = (f.get("recommandation") or "").strip()
+        out.append(f"**{titre}**" + (f" — {reco}" if reco else ""))
+    return out
+
+
+def build_runs_stats(runs: list):
+    """Plan vs réel (O-C) : taux de réussite par playbook et par agent, à partir de runs.jsonl.
+
+    Approximation assumée : un run n'enregistre qu'un résultat global (log_run.py, format
+    O-A/O-B inchangé), donc chaque agent du plan hérite du résultat et des reprises du run
+    entier — pas de granularité par étape.
+    """
+    par_playbook, par_agent = {}, {}
+    for r in runs:
+        resultat = r.get("resultat")
+        reprises = r.get("reprises") or 0
+        playbook = r.get("playbook")
+        if playbook:
+            e = par_playbook.setdefault(playbook, {"n": 0, "succes": 0, "echecs": 0, "reprises": 0})
+            e["n"] += 1
+            e["reprises"] += reprises
+            if resultat == "succes":
+                e["succes"] += 1
+            elif resultat == "echec":
+                e["echecs"] += 1
+        for etape in r.get("plan") or []:
+            agent = etape.get("agent")
+            if not agent:
+                continue
+            e = par_agent.setdefault(agent, {"n": 0, "succes": 0, "echecs": 0, "reprises": 0})
+            e["n"] += 1
+            e["reprises"] += reprises
+            if resultat == "succes":
+                e["succes"] += 1
+            elif resultat == "echec":
+                e["echecs"] += 1
+    return par_playbook, par_agent
+
+
+def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: dict, diagnostic) -> dict:
+    """Sens superviseur → orchestrateur (conception §6) : ce que le scan mesure, appliqué
+    par la skill agent-orchestrator lors de la composition d'un plan."""
+    skills = state.get("skills", {})
+    subagents = state.get("subagents", {})
+    combined = {**skills, **subagents}
+    eprouves = sorted(k for k, e in combined.items() if e["n"] >= PROVEN_MIN)
+    jamais = sorted(k for k, v in fam.items() if k not in skills)
+    en_sommeil = sorted(
+        k for k, e in combined.items()
+        if (lambda d: d is not None and d > DORMANT_DAYS)(days_since(e.get("last", "")))
+    )
+    verifs_oubliees = []
+    if "revue-increment" not in skills:
+        verifs_oubliees.append(
+            "revue-increment jamais invoquee malgre le rappel SessionStart -> l'inserer d'office en etape terminale des plans de dev"
+        )
+    prudence = []
+    if diagnostic:
+        for f in diagnostic.get("findings", []) or []:
+            if f.get("categorie") in ("ko-repete", "inefficacite") and f.get("cible"):
+                prudence.append({"cible": f["cible"], "raison": (f.get("titre") or "").strip()})
+    return {
+        "generated": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "eprouves": eprouves,
+        "jamais_utilises": jamais,
+        "en_sommeil": en_sommeil,
+        "verifications_oubliees": verifs_oubliees,
+        "playbooks": par_playbook,
+        "agents": par_agent,
+        "prudence": prudence,
+        "diagnostic_a_jour": diagnostic_a_jour(diagnostic),
+    }
+
+
 def build_todos(skills: dict, fam: dict) -> list:
     todos = []
     bmad = [k for k, v in fam.items() if v == "BMAD"]
@@ -235,7 +373,7 @@ def _usage_table(agg: dict, fam: dict = None) -> list:
     return lines
 
 
-def build_page(state: dict, fam: dict, todos: list) -> str:
+def build_page(state: dict, fam: dict, todos: list, diag_todos: list = None, diag_a_jour: bool = False) -> str:
     skills = state.get("skills", {})
     subagents = state.get("subagents", {})
     nb_files = len(state.get("files", {}))
@@ -290,12 +428,23 @@ def build_page(state: dict, fam: dict, todos: list) -> str:
         L += [f"{i}. {t}" for i, t in enumerate(todos, 1)]
     else:
         L.append("_(aucun constat — rien à signaler sur les données actuelles)_")
+    L += ["", "## Diagnostic qualitatif (étage 2 — `agent-supervisor`)", ""]
+    if diag_todos:
+        statut = "à jour" if diag_a_jour else f"⚠️ à relancer (> {DIAGNOSTIC_CADENCE_DAYS} j)"
+        L.append(f"_Diagnostic {statut}._")
+        L.append("")
+        L += [f"{i}. {t}" for i, t in enumerate(diag_todos, 1)]
+    else:
+        L.append(
+            "_Jamais lancé — invoquer la skill `agent-supervisor` (intégrée à `revue-increment`) "
+            "pour un diagnostic qualitatif (KO répétés, efficacité, interactions entre agents)._"
+        )
     L += [
         "",
         "---",
         "",
-        "_Étage 2 (diagnostic qualitatif LLM : KO répétés, efficacité, challenge des agents) : "
-        "incrément B, pas encore construit — voir la réflexion._",
+        "_Étage O-C (croisement modèle × tâche × reprises, exploitation de `runs.jsonl`) : "
+        "voir `.claude/orchestration/routing-hints.json`, régénéré à chaque session._",
         "",
     ]
     return "\n".join(L)
@@ -331,7 +480,7 @@ def _html_usage_rows(agg: dict, fam: dict = None) -> str:
     return "\n".join(rows)
 
 
-def build_html_section(state: dict, fam: dict, todos: list) -> str:
+def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = None, diag_a_jour: bool = False) -> str:
     skills = state.get("skills", {})
     subagents = state.get("subagents", {})
     nb_files = len(state.get("files", {}))
@@ -365,6 +514,23 @@ def build_html_section(state: dict, fam: dict, todos: list) -> str:
         )
     if not todo_html:
         todo_html.append("      <p><em>(aucun constat — rien à signaler sur les données actuelles)</em></p>")
+    diag_html = []
+    for t in diag_todos or []:
+        diag_html.append(
+            '      <div class="critical">\n'
+            f"        <p>{_md_inline(t)}</p>\n"
+            '        <span class="tag tag-confirme">CONFIRMÉ</span>\n'
+            f'        <div class="tag-source">agent-supervisor · étage 2</div>\n'
+            "      </div>"
+        )
+    if diag_html:
+        diag_statut = "à jour" if diag_a_jour else f"⚠️ à relancer (&gt; {DIAGNOSTIC_CADENCE_DAYS} j)"
+        diag_body = f'      <p><em>Diagnostic {diag_statut}.</em></p>\n' + chr(10).join(diag_html)
+    else:
+        diag_body = (
+            "      <p><em>Jamais lancé — invoquer la skill <code>agent-supervisor</code> "
+            "(intégrée à <code>revue-increment</code>).</em></p>"
+        )
     return f"""
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
@@ -402,11 +568,14 @@ def build_html_section(state: dict, fam: dict, todos: list) -> str:
 
       <h3>TODO agents — chantiers à lancer (constats automatiques)</h3>
 {chr(10).join(todo_html)}
+
+      <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
+{diag_body}
     </section>
 """
 
 
-def update_wiki_html(state: dict, fam: dict, todos: list) -> bool:
+def update_wiki_html(state: dict, fam: dict, todos: list, diag_todos: list = None, diag_a_jour: bool = False) -> bool:
     """Remplace le bloc entre marqueurs TODO-AGENTS-HTML de docs/wiki.html.
 
     Ne fait rien si la page ou les marqueurs n'existent pas (les marqueurs sont posés
@@ -421,7 +590,7 @@ def update_wiki_html(state: dict, fam: dict, todos: list) -> bool:
         return False
     block = (
         f"{HTML_MARK_START} — bloc généré par .claude/supervision/scan_transcripts.py, ne pas éditer à la main -->"
-        + build_html_section(state, fam, todos)
+        + build_html_section(state, fam, todos, diag_todos, diag_a_jour)
         + HTML_MARK_END
     )
     pattern = re.escape(HTML_MARK_START) + r".*?" + re.escape(HTML_MARK_END)
@@ -465,20 +634,36 @@ def main(argv) -> int:
     save_state(state)
     fam = installed_skills()
     todos = build_todos(state.get("skills", {}), fam)
+
+    runs = load_jsonl(RUNS_PATH)
+    par_playbook, par_agent = build_runs_stats(runs)
+    diagnostic = load_diagnostic()
+    diag_todos = diagnostic_todos(diagnostic)
+    diag_a_jour = diagnostic_a_jour(diagnostic)
+    hints = build_routing_hints(state, fam, par_playbook, par_agent, diagnostic)
+    hints_dir = os.path.dirname(ROUTING_HINTS_PATH)
+    if hints_dir:
+        os.makedirs(hints_dir, exist_ok=True)
+    with open(ROUTING_HINTS_PATH, "w", encoding="utf-8") as fh:
+        json.dump(hints, fh, ensure_ascii=False, indent=1)
+
     page_dir = os.path.dirname(WIKI_PAGE)
     if page_dir:
         os.makedirs(page_dir, exist_ok=True)
     with open(WIKI_PAGE, "w", encoding="utf-8") as fh:
-        fh.write(build_page(state, fam, todos))
+        fh.write(build_page(state, fam, todos, diag_todos, diag_a_jour))
     update_index(todos)
-    html_ok = update_wiki_html(state, fam, todos)
+    html_ok = update_wiki_html(state, fam, todos, diag_todos, diag_a_jour)
     missing = state.get("transcript_dir_missing")
     detail = f" (transcripts introuvables : {missing})" if missing else ""
     if not html_ok:
         detail += " (wiki.html sans marqueurs TODO-AGENTS-HTML : bloc HTML non mis a jour)"
+    if not diag_a_jour:
+        detail += " (diagnostic agent-supervisor a lancer ou perime)"
     print(
         f"Supervision agents : +{new_events} evenement(s), {len(state.get('files', {}))} sessions couvertes, "
-        f"{len(todos)} TODO -> agents-supervision.md, index.md{' et wiki.html' if html_ok else ''} a jour.{detail}"
+        f"{len(todos)} TODO, {len(runs)} run(s) orchestrateur -> agents-supervision.md, index.md"
+        f"{' et wiki.html' if html_ok else ''}, routing-hints.json a jour.{detail}"
     )
     return 0
 

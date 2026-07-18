@@ -3,11 +3,14 @@ name: agent-orchestrator
 description: Orchestrateur des agents et skills du projet — qualifie une demande de travail, compose un plan (cascade / parallèle / asynchrone, modèle par étape), l'exécute en s'appuyant sur le catalogue et les données du superviseur, puis journalise le run. À charger quand une demande de travail implique plusieurs étapes dépendantes, plusieurs agents/skills, ou des vérifications obligatoires — ou quand la grille injectée par le hook UserPromptSubmit route ici.
 ---
 
-# Agent orchestrateur (étages O-A + O-B)
+# Agent orchestrateur (étages O-A + O-B + O-C)
 
 Conception : `docs/reflexions/agent-orchestrateur.md`. Données de routage :
 `.claude/orchestration/catalogue.md` (recommandations),
-`docs/wiki/technical/agents-supervision.md` (statuts d'usage vivants, générés) et
+`.claude/orchestration/routing-hints.json` (hints générés par le superviseur à chaque
+session : `eprouves`/`jamais_utilises`/`en_sommeil`, `verifications_oubliees` à insérer
+d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic étage 2),
+`docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
 ## Méthode — 5 étapes
@@ -32,10 +35,11 @@ checkpoints**, ne garder que les étapes conditionnelles applicables. Playbooks 
 | `revue-design-parallele` | Revue multi-angles d'un livrable en fan-out puis consolidation | Éprouvé |
 | `cycle-produit-bmad` | Cycle produit BMAD complet (généré depuis le CSV) — **sur demande explicite uniquement** | Jamais joué |
 
-Sinon composition libre depuis le catalogue. Pour chaque étape : **agent/skill** (préférer
-les éprouvés, prudence explicite sur les « jamais utilisés »), **mode**, **modèle**
-(sous-agents uniquement), **contrat de sortie**. Suivre le plan avec TodoWrite. Règle de
-mode — *la dépendance de données décide* :
+Sinon composition libre depuis le catalogue + `routing-hints.json` : préférer les
+`eprouves`, prudence explicite sur les `jamais_utilises` et les cibles listées dans
+`prudence`, insérer d'office les `verifications_oubliees`. Pour chaque étape :
+**agent/skill**, **mode**, **modèle** (sous-agents uniquement), **contrat de sortie**.
+Suivre le plan avec TodoWrite. Règle de mode — *la dépendance de données décide* :
 
 | Mode | Quand | Garde-fous |
 | --- | --- | --- |
@@ -43,6 +47,28 @@ mode — *la dépendance de données décide* :
 | Parallèle (fan-out) | Étapes indépendantes en lecture/analyse | ≤ 4 sous-agents, jamais d'écritures concurrentes sur les mêmes fichiers, consolidation obligatoire |
 | Asynchrone (arrière-plan) | Long, autonome, non bloquant | Attendre la notification — ne JAMAIS anticiper/fabriquer le résultat ; 1 seul chantier async lourd à la fois |
 | Irréversible (commit, suppression, publication) | — | Toujours synchrone + confirmation utilisateur, hooks/permissions jamais contournés |
+
+**Aucun agent/skill ne couvre le besoin ?** Ne pas improviser sans le signaler — escalade
+en trois temps, dans cet ordre :
+
+1. **Mémoire git** : `py .claude/orchestration/git_agents_inventory.py` inventorie tous
+   les agents/skills que git connaît — **présents et supprimés** (un agent adapté a pu
+   être retiré lors d'un nettoyage, ex. les 26 agents `openhub_clone` supprimés le
+   2026-07-16). `--json` pour la version structurée.
+2. **Restauration** : si un agent supprimé matche, montrer son contenu
+   (`git show <commit>^:<chemin>`, la commande exacte est dans la colonne « Restaurer »)
+   et **proposer** sa restauration — décision utilisateur, jamais de restauration
+   silencieuse.
+3. **Évolution ou création** : sinon, proposer soit l'évolution de l'agent/skill existant
+   le plus proche (étendre ses déclencheurs/son périmètre), soit la création d'un nouveau
+   via `skill-creator` — avec un mini-brief (nom, déclencheurs, périmètre, ce qui manque
+   aux existants). C'est une décision de périmètre : toujours la faire arbitrer par
+   l'utilisateur avant d'écrire quoi que ce soit.
+
+Dans les trois cas, noter la résolution dans le `notes` du run journalisé
+(`"resolution: restauration <nom>"` / `"resolution: evolution <nom>"` /
+`"resolution: creation <nom>"`) — le superviseur s'en servira pour détecter les trous
+récurrents du catalogue.
 
 ### 3. Valider
 

@@ -13,8 +13,19 @@
 > chercher un playbook avant de composer à vide, catalogue et journal (`log_run.py`)
 > référencent le champ `playbook`. Tests étendus (structure, terminaison
 > `revue-increment`, régénération déterministe du playbook BMAD, résolution du DAG).
-> Incrément O-C (boucle superviseur) à lancer — dépend de l'incrément B du superviseur
-> (`agent-superviseur.md`).
+> **Incrément O-C — sens superviseur→orchestrateur livré le 2026-07-18** : le scan étage 1
+> génère `.claude/orchestration/routing-hints.json` (éprouvés/jamais-utilisés/en-sommeil,
+> vérifications oubliées, stats plan-vs-réel croisées avec `runs.jsonl`, fusion du futur
+> `diagnostic.json` étage 2 : constats dans le wiki + liste `prudence`, cadence 14 j) ; la
+> skill route désormais avec ces hints. **O-C complété le 2026-07-18** : la skill
+> `agent-supervisor` (incrément B de `agent-superviseur.md`) est livrée et a produit son
+> premier `diagnostic.json` réel — la boucle §6 tourne de bout en bout.
+> **Extension du 2026-07-18 — mémoire git des agents (§12)** :
+> `git_agents_inventory.py` + procédure « agent introuvable » dans la skill (inventaire
+> présents/supprimés → proposer restauration, sinon évolution/création via
+> `skill-creator`, résolution notée dans le journal). Tests étendus
+> (`test_agent_orchestration.py` : inventaire dans un repo git jetable ;
+> `test_agent_supervision.py` : routing-hints, stats runs, fusion/péremption diagnostic).
 > Demande d'origine : un agent orchestrateur capable de lancer tous les agents utiles en
 > cascade, en workflow ou en parallèle selon la demande, en s'assurant de la bonne
 > utilisation des skills, en cohérence avec le superviseur — et qui s'associe au superviseur
@@ -275,3 +286,35 @@ Ollama local vs fournisseur hébergé.)
    structurant, descente en gamme prouvée par les données) ? Recommandation : qualité
    d'abord sur les étapes structurantes, économe sur le fan-out — puis laisser les données
    du superviseur trancher poste par poste.
+
+## 12. Extension (demande du 2026-07-18) — mémoire git des agents : restaurer avant de créer
+
+Demande : quand l'orchestrateur ne trouve pas d'agent correspondant à la demande dans le
+projet, explorer **git** pour l'ensemble des agents présents **et supprimés** ; sinon
+proposer une **évolution** d'un agent existant ou une **création**.
+
+Le constat qui la justifie est réel : l'historique du dépôt contient déjà 26 définitions
+d'agents supprimées (le nettoyage `external/openhub_clone` du 2026-07-16 — orchestrator,
+planner, reviewer, qa-engineer, debugger…) qu'aucun catalogue ne référence plus. Sans
+mémoire git, l'orchestrateur proposerait de réécrire à vide ce que le projet a déjà
+possédé — et le tri BMAD à venir (11 skills à retirer) va grossir ce stock de supprimés
+potentiellement restaurables.
+
+Réalisation (même jour) :
+
+- **`.claude/orchestration/git_agents_inventory.py`** — déterministe, 0 token LLM, à la
+  demande (pas à chaque session : un `git log` complet n'a rien à faire dans le hook
+  SessionStart). Périmètre « agent » : `*/skills/<nom>/SKILL.md` et `*/agents/**/*.md`,
+  toutes familles (`.claude`, `.opencode`, dépôts mirrorés). Sortie markdown (tables
+  présents/supprimés) ou `--json` ; chaque supprimé porte son commit de suppression, la
+  date, le sujet du commit et la commande de restauration exacte (`git show <sha>^:<chemin>`).
+- **Procédure dans la skill (étape 2)** — escalade en trois temps : inventaire git →
+  proposition de restauration si un supprimé matche → sinon proposition d'évolution du
+  plus proche ou de création via `skill-creator` (mini-brief : nom, déclencheurs,
+  périmètre, ce qui manque). Les trois issues sont des **propositions arbitrées par
+  l'utilisateur** — jamais de restauration ni de création silencieuse — et la résolution
+  est notée dans le `notes` du run (`resolution: restauration|evolution|creation <nom>`),
+  ce qui donne au superviseur étage 2 la métrique « trous récurrents du catalogue ».
+- Tests : repo git jetable dans `test_agent_orchestration.py` (classement
+  présents/supprimés, commande de restauration vérifiée en la rejouant, un fichier recréé
+  après suppression n'est plus listé comme supprimé, rendu markdown).

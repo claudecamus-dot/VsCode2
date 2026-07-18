@@ -1,5 +1,5 @@
 ---
-updated: 2026-07-17
+updated: 2026-07-18
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -9,7 +9,7 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-17T22:11:35+02:00 · **18 sessions** (transcripts) · **30** invocations de skills · **28** lancements de sous-agents.
+Dernier scan : 2026-07-18T12:10:50+02:00 · **20 sessions** (transcripts) · **32** invocations de skills · **28** lancements de sous-agents.
 
 ## Skills — usage réel
 
@@ -21,6 +21,8 @@ Dernier scan : 2026-07-17T22:11:35+02:00 · **18 sessions** (transcripts) · **3
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
 | `pptx-deck` | global | 2 | 2026-07-02 | 2026-07-03 |
 | `skill-creator` | global | 2 | 2026-07-03 | 2026-07-03 |
+| `agent-orchestrator` | projet | 1 | 2026-07-17 | 2026-07-17 |
+| `agent-supervisor` | projet | 1 | 2026-07-18 | 2026-07-18 |
 | `claude-api` | (builtin/session) | 1 | 2026-06-29 | 2026-06-29 |
 | `init` | (builtin/session) | 1 | 2026-07-03 | 2026-07-03 |
 | `pptx-verify` | global | 1 | 2026-07-03 | 2026-07-03 |
@@ -37,9 +39,9 @@ Dernier scan : 2026-07-17T22:11:35+02:00 · **18 sessions** (transcripts) · **3
 
 ## Jamais utilisés
 
-**projet** — 4/5 jamais invoqués :
+**projet** — 3/6 jamais invoqués :
 
-`agent-orchestrator`, `pptx-framed-image`, `revue-increment`, `slide-text-polish`
+`pptx-framed-image`, `revue-increment`, `slide-text-polish`
 
 **BMAD** — 46/46 jamais invoqués :
 
@@ -57,8 +59,16 @@ Dernier scan : 2026-07-17T22:11:35+02:00 · **18 sessions** (transcripts) · **3
 
 1. **Trier les skills BMAD** : 46 installés, 0 invocation à ce jour — décider lesquels garder, customiser ou désinstaller.
 2. **`revue-increment` jamais invoquée** malgré le rappel SessionStart à chaque session — revoir son déclencheur (l'ancrer au flux de commit ?) ou la simplifier.
-3. **Skills projet sans usage** : `agent-orchestrator`, `pptx-framed-image`, `slide-text-polish` — vérifier pertinence et déclencheurs.
+3. **Skills projet sans usage** : `pptx-framed-image`, `slide-text-polish` — vérifier pertinence et déclencheurs.
+
+## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
+
+_Diagnostic à jour._
+
+1. **Tri BMAD arbitré mais jamais exécuté : 46 skills sur disque, 0 invocation** — Exécuter la suppression des 11 skills arbitrés (docs/reflexions/tri-skills-bmad.md) — désormais restaurables au besoin via git_agents_inventory.py
+2. **Changement PPT livré sans passage pptx-verify depuis le 2026-07-03** — Au prochain changement pptx_export.py/pptx_deck.py, suivre l'étape pptx-verify du playbook dev-verifie (encodée d'office depuis O-B) sur un export réel
+3. **L'orchestrateur n'a encore jamais délégué : politique de modèle jamais exercée** — À la prochaine étape parallélisable ou volumineuse, router réellement (Explore/haiku en fan-out, general-purpose/sonnet en async) pour donner des données à la boucle superviseur
 
 ---
 
-_Étage 2 (diagnostic qualitatif LLM : KO répétés, efficacité, challenge des agents) : incrément B, pas encore construit — voir la réflexion._
+_Étage O-C (croisement modèle × tâche × reprises, exploitation de `runs.jsonl`) : voir `.claude/orchestration/routing-hints.json`, régénéré à chaque session._

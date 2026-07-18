@@ -18,7 +18,9 @@ CLAUDE.local.md
 # machine (offsets de scan, journal temps reel) ; les scripts restent versionnes.
 .claude/supervision/state.json
 .claude/supervision/usage.jsonl
+.claude/supervision/diagnostic.json
 .claude/orchestration/runs.jsonl
+.claude/orchestration/routing-hints.json
 
 # BMAD — sorties generees (planning/implementation artifacts), pas du
 # contenu source ; _bmad/ (le moteur, ~138K) reste versionne a part.

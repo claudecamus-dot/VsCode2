@@ -159,3 +159,79 @@ def test_generateur_bmad_resout_le_dag(tmp_path):
         assert expected in agents
     # bmad-ux (ni required ni preceded d'un required) est exclu.
     assert "bmad-ux" not in agents
+
+
+# --- Extension O-C : inventaire git des agents (présents + supprimés) ---
+
+INVENTORY = ROOT / ".claude" / "orchestration" / "git_agents_inventory.py"
+
+
+def _git(repo, *args):
+    subprocess.run(
+        ["git", "-C", str(repo), *args], check=True, capture_output=True, timeout=30
+    )
+
+
+def _repo_avec_agent_supprime(tmp_path):
+    """Petit dépôt : une skill présente, un agent supprimé, un .md hors périmètre."""
+    repo = tmp_path / "repo"
+    (repo / ".claude" / "skills" / "ma-skill").mkdir(parents=True)
+    (repo / ".claude" / "skills" / "ma-skill" / "SKILL.md").write_text(
+        "---\nname: ma-skill\n---\n", encoding="utf-8"
+    )
+    (repo / ".opencode" / "agents").mkdir(parents=True)
+    (repo / ".opencode" / "agents" / "relecteur.md").write_text("# relecteur\n", encoding="utf-8")
+    (repo / "notes.md").write_text("pas un agent\n", encoding="utf-8")
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "t@t.local")
+    _git(repo, "config", "user.name", "t")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "ajout agents")
+    _git(repo, "rm", "-q", ".opencode/agents/relecteur.md")
+    _git(repo, "commit", "-qm", "retire relecteur")
+    return repo
+
+
+def _inventaire(repo, *args):
+    return subprocess.run(
+        [sys.executable, str(INVENTORY), *args],
+        env=dict(os.environ, AGENT_INVENTORY_REPO=str(repo)),
+        capture_output=True, text=True, timeout=60, encoding="utf-8",
+    )
+
+
+def test_inventaire_git_classe_presents_et_supprimes(tmp_path):
+    repo = _repo_avec_agent_supprime(tmp_path)
+    out = _inventaire(repo, "--json")
+    assert out.returncode == 0, out.stderr
+    inv = json.loads(out.stdout)
+    # Présent : la skill, et seulement elle (notes.md hors périmètre).
+    assert [(e["nom"], e["type"], e["famille"]) for e in inv["presents"]] == [
+        ("ma-skill", "skill", "claude")
+    ]
+    # Supprimé : l'agent, avec commit de suppression et commande de restauration qui marche.
+    (s,) = inv["supprimes"]
+    assert (s["nom"], s["type"], s["famille"]) == ("relecteur", "agent", "opencode")
+    assert s["sujet"] == "retire relecteur"
+    assert s["restaurer"] == f"git show {s['commit']}^:.opencode/agents/relecteur.md"
+    restored = subprocess.run(
+        ["git", "-C", str(repo), "show", f"{s['commit']}^:.opencode/agents/relecteur.md"],
+        capture_output=True, text=True, timeout=30, encoding="utf-8",
+    )
+    assert restored.returncode == 0 and "# relecteur" in restored.stdout
+
+
+def test_inventaire_git_ignore_les_recrees_et_rend_du_markdown(tmp_path):
+    repo = _repo_avec_agent_supprime(tmp_path)
+    # Agent recréé après suppression : présent, donc plus listé en supprimé.
+    # (git rm a aussi retiré le dossier devenu vide — le recréer.)
+    (repo / ".opencode" / "agents").mkdir(parents=True, exist_ok=True)
+    (repo / ".opencode" / "agents" / "relecteur.md").write_text("# relecteur v2\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "recree relecteur")
+    inv = json.loads(_inventaire(repo, "--json").stdout)
+    assert [e["nom"] for e in inv["supprimes"]] == []
+    assert sorted(e["nom"] for e in inv["presents"]) == ["ma-skill", "relecteur"]
+    # Rendu par défaut : markdown lisible avec les deux sections.
+    md = _inventaire(repo).stdout
+    assert "## Présents" in md and "## Supprimés" in md and "Aucun." in md

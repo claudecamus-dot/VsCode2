@@ -31,7 +31,7 @@ skill BMAD est plus outillé — ne pas réimplémenter à la main :
 - Revue de code adversariale (Blind Hunter / Edge Case / Acceptance) →
   **`bmad-code-review`** (Phase B, panier « qualité »).
 - Rétrospective de fin d'epic (leçons, succès) → **`bmad-retrospective`**
-  (recouvre la Phase A §6 « façon de travailler » à l'échelle epic).
+  (recouvre la Phase A §7 « façon de travailler » à l'échelle epic).
 - Changement de cap significatif en cours de sprint → **`bmad-correct-course`**.
 - Revue humaine guidée d'un gros diff → **`bmad-checkpoint-preview`**.
 - Perdu sur quel skill lancer → **`bmad-help`** (routeur BMAD).
@@ -99,7 +99,16 @@ ci-dessus plutôt que d'en dupliquer la logique.
 - [ ] Rien sauvegardé qui soit déjà dans le repo (structure, historique) ou
       seulement utile à cette conversation.
 
-## 6. Revue de la façon de travailler elle-même (le niveau méta)
+## 6. Supervision des agents (étage 2)
+
+- [ ] Si le hook SessionStart a signalé « diagnostic agent-supervisor a lancer ou
+      perime » (cadence 14 j), ou si l'incrément a beaucoup sollicité skills/sous-agents :
+      lancer la skill **`agent-supervisor`** (diagnostic sur les données étage 1 —
+      `state.json`, `routing-hints.json`, `runs.jsonl` — jamais les transcripts bruts),
+      puis relancer le scan pour propager wiki + hints. Les constats sont restitués à
+      l'utilisateur, qui arbitre.
+
+## 7. Revue de la façon de travailler elle-même (le niveau méta)
 
 Répondre honnêtement — c'est le cœur de cette revue, pas une formalité :
 

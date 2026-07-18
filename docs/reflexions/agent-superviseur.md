@@ -2,8 +2,23 @@
 
 > Statut : **incrément A réalisé le 2026-07-17** (collecteur `.claude/supervision/`,
 > hooks PostToolUse + SessionStart, page wiki générée `docs/wiki/technical/agents-supervision.md`,
-> tests `tests/test_agent_supervision.py`) — incréments B (diagnostic LLM) et C (challenge)
-> restent à lancer. Réflexion rédigée le 2026-07-17.
+> tests `tests/test_agent_supervision.py`).
+> **Incrément B réalisé le 2026-07-18** : skill projet **`agent-supervisor`** (étage 2 —
+> méthode de diagnostic dans la session : 4 lectures ciblées des agrégats étage 1 +
+> signaux git/mémoire, jamais les JSONL bruts, 5 constats max ancrés chacun sur une
+> `preuve` objective), writer validé `.claude/supervision/write_diagnostic.py`
+> (schéma : categorie `ko-repete|inefficacite|agent-mort|interaction|verification-manquante|autre`,
+> `titre`/`preuve` requis, priorite 1-5 ; UTF-8 forcé sur stdin/stdout — piège cp1252
+> Windows constaté au premier run réel), fusion par le scan dans le wiki (section
+> « Diagnostic qualitatif », cadence 14 j sinon « à relancer ») et dans
+> `routing-hints.json` (liste `prudence` sur les cibles `ko-repete`/`inefficacite`).
+> Intégré à `revue-increment` (§6) ; le hook SessionStart signale un diagnostic absent ou
+> périmé. Premier diagnostic réel produit le 2026-07-18 (3 constats : tri BMAD arbitré non
+> exécuté, changement PPT sans `pptx-verify` depuis le 2026-07-03, orchestrateur n'ayant
+> encore jamais délégué à un sous-agent). Tests : `test_agent_supervision.py` (validation
+> du writer, boucle écriture→scan→wiki).
+> Incrément C (challenge : diffs de customisation proposés, interactions inter-agents,
+> couverture OpenHub) reste à lancer. Réflexion rédigée le 2026-07-17.
 > Document jumeau : [agent-orchestrateur.md](agent-orchestrateur.md) (réflexion 2026-07-17) —
 > l'orchestrateur consomme les données du superviseur (hints de routage) et alimente en
 > retour son journal d'exécution (`runs.jsonl`), la métrique « plan vs réel » de l'étage 2.
