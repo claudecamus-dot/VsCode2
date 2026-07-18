@@ -954,3 +954,201 @@ def test_finaliser_rejects_unknown_action(
         follow_redirects=False,
     )
     assert response.status_code == 400
+
+
+# --------------------------------------------------------------------------- #
+# Régénération de l'analyse (TODO wiki item 2, 2026-07-18) : bouton sur
+# /interviews/{id}/analyse — relance l'IA sur les tours enregistrés, revue
+# avant écrasement, tours et identité intacts.
+# --------------------------------------------------------------------------- #
+def _libre_interview_id(mission_id: int) -> int:
+    session = SessionLocal()
+    try:
+        return session.scalars(
+            select(Interview).where(Interview.mission_id == mission_id)
+        ).one().id
+    finally:
+        session.close()
+
+
+def test_regenerer_analyse_revue_puis_confirmation(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mission_id = _create_and_finish_libre_mission(client, monkeypatch, "Regen Interviewé")
+    interview_id = _libre_interview_id(mission_id)
+
+    monkeypatch.setattr(
+        "app.routers.interviews.generate_repartition_from_turns",
+        _fake_generate_repartition(
+            repartition={
+                "contexte": "- Contexte régénéré",
+                "culture_adn": "- Culture régénérée",
+                "forces_succes": "- Force régénérée",
+                "points_amelioration": "- Point régénéré",
+                "aspirations": "- Aspiration régénérée",
+            },
+            resume="- Résumé régénéré",
+        ),
+    )
+    response = client.post(f"/interviews/{interview_id}/analyse/regenerer")
+    assert response.status_code == 200
+    assert "Nouvelle analyse proposée" in response.text
+    assert "- Résumé régénéré" in response.text
+    assert "- Contexte régénéré" in response.text
+
+    # Rien n'est écrasé tant que la revue n'est pas confirmée (le helper
+    # confirme sans champ resume : la valeur enregistrée est None).
+    session = SessionLocal()
+    try:
+        interview = session.get(Interview, interview_id)
+        assert interview.resume is None
+        assert interview.repartition["contexte"] == "- Contexte"
+        nb_turns_avant = len(interview.turns)
+    finally:
+        session.close()
+
+    response = client.post(
+        f"/interviews/{interview_id}/analyse/regenerer/confirm",
+        data={
+            "resume": "- Résumé régénéré",
+            "repartition_contexte": "- Contexte régénéré",
+            "repartition_culture_adn": "- Culture régénérée",
+            "repartition_forces_succes": "- Force régénérée",
+            "repartition_points_amelioration": "- Point régénéré",
+            "repartition_aspirations": "- Aspiration régénérée",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/interviews/{interview_id}/analyse"
+
+    session = SessionLocal()
+    try:
+        interview = session.get(Interview, interview_id)
+        assert interview.resume == "- Résumé régénéré"
+        assert interview.repartition["contexte"] == "- Contexte régénéré"
+        # Les tours de parole (la source) et l'identité ne bougent pas.
+        assert len(interview.turns) == nb_turns_avant
+        assert interview.interviewee_name == "Regen Interviewé"
+    finally:
+        session.close()
+
+
+def test_regenerer_analyse_erreur_ia_reste_sur_analyse(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mission_id = _create_and_finish_libre_mission(client, monkeypatch, "Regen KO")
+    interview_id = _libre_interview_id(mission_id)
+
+    def _boom(turns):
+        raise interview_libre_extract_ai.InterviewLibreExtractAIError("Panne IA simulée.")
+
+    monkeypatch.setattr("app.routers.interviews.generate_repartition_from_turns", _boom)
+    response = client.post(f"/interviews/{interview_id}/analyse/regenerer")
+    assert response.status_code == 200
+    assert "Panne IA simulée." in response.text
+    assert "Analyse — Regen KO" in response.text  # on reste sur l'écran Analyse
+
+
+def test_regenerer_analyse_refuse_mode_parametre(client: TestClient) -> None:
+    session = SessionLocal()
+    try:
+        mission = Mission(name="Mission Paramétrée Regen")
+        session.add(mission)
+        session.flush()
+        interview = Interview(mission_id=mission.id, mode="parametre", interviewee_name="X")
+        session.add(interview)
+        session.commit()
+        interview_id = interview.id
+    finally:
+        session.close()
+    assert client.post(f"/interviews/{interview_id}/analyse/regenerer").status_code == 400
+
+
+# --------------------------------------------------------------------------- #
+# Boutons de retour non destructifs (TODO wiki item 3, 2026-07-18) : le
+# wizard libre porte la transcription en champ caché, revenir en arrière ne
+# détruit plus le travail.
+# --------------------------------------------------------------------------- #
+def test_retour_transcription_conserve_texte_et_identite(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response = client.post("/entretiens/libre/nouveau", follow_redirects=False)
+    mission_id = int(response.headers["location"].split("/")[2])
+
+    _patch_libre_extract_ai(monkeypatch)
+    response = client.post(
+        f"/missions/{mission_id}/interviews/record-libre",
+        data={"transcript": "Texte précieux à ne pas perdre.", "interviewee_name": "Nadia"},
+    )
+    # L'écran de revue porte la transcription en champ caché.
+    assert 'name="transcript" value="Texte précieux à ne pas perdre."' in response.text
+
+    response = client.post(
+        f"/missions/{mission_id}/interviews/record-libre/retour",
+        data={"transcript": "Texte précieux à ne pas perdre.", "interviewee_name": "Nadia"},
+    )
+    assert response.status_code == 200
+    # Retour à l'étape 1 : la transcription (le travail coûteux) est re-préremplie
+    # (l'identité est saisie à l'étape 2, pas sur cet écran).
+    assert "Texte précieux à ne pas perdre." in response.text
+    assert "Entretien libre" in response.text  # bien revenu sur l'écran de transcription
+
+
+def test_retour_tours_reaffiche_les_tours_sans_appel_ia(client: TestClient) -> None:
+    response = client.post("/entretiens/libre/nouveau", follow_redirects=False)
+    mission_id = int(response.headers["location"].split("/")[2])
+
+    # Aucun patch IA : la route ne doit faire aucun appel.
+    response = client.post(
+        f"/missions/{mission_id}/interviews/record-libre/retour-tours",
+        data={
+            "transcript": "Transcription conservée.",
+            "interviewee_name": "Nadia",
+            "turn_interlocuteur": ["Consultant·e", "Nadia"],
+            "turn_question": ["Comment ça va ?", ""],
+            "turn_remarque": ["", "Tour à ne pas perdre."],
+            "turn_section_title": ["Ouverture", ""],
+        },
+    )
+    assert response.status_code == 200
+    assert "Revue des questions/réponses" in response.text
+    assert "Tour à ne pas perdre." in response.text
+    assert 'name="transcript" value="Transcription conservée."' in response.text
+
+
+# --------------------------------------------------------------------------- #
+# Nettoyage des brouillons vides (TODO wiki item 3, 2026-07-18).
+# --------------------------------------------------------------------------- #
+def test_nettoyer_brouillons_ne_supprime_que_les_vides(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Deux brouillons abandonnés sans contenu (libre, et structuré à trame vide).
+    vide_libre = int(
+        client.post("/entretiens/libre/nouveau", follow_redirects=False)
+        .headers["location"].split("/")[2]
+    )
+    vide_structure = int(
+        client.post("/entretiens/structure/nouveau", follow_redirects=False)
+        .headers["location"].split("/")[2]
+    )
+    # Un brouillon AVEC entretien, et une mission classique : intouchables.
+    avec_contenu = _create_and_finish_libre_mission(client, monkeypatch, "Gardé Interviewé")
+    client.post("/missions", data={"name": "Mission Pérenne", "description": ""})
+
+    response = client.get("/missions")
+    assert "Nettoyer" in response.text and "Reprendre" in response.text
+
+    response = client.post("/missions/brouillons/nettoyer", follow_redirects=False)
+    assert response.status_code == 303
+
+    session = SessionLocal()
+    try:
+        assert session.get(Mission, vide_libre) is None
+        assert session.get(Mission, vide_structure) is None
+        assert session.get(Mission, avec_contenu) is not None
+        assert session.scalars(
+            select(Mission).where(Mission.name == "Mission Pérenne")
+        ).one() is not None
+    finally:
+        session.close()

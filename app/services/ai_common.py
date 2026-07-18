@@ -240,20 +240,29 @@ def _call_ollama(system: str, prompt: str, schema: dict, json_hint: str, model: 
         headers={"Content-Type": "application/json"},
         method="POST",
     )
+    timeout_msg = (
+        "Ollama n'a pas répondu à temps — le modèle est peut-être trop "
+        "gros pour ce poste, ou en cours de chargement (premier appel). "
+        "Si cela se reproduit : augmentez OLLAMA_TIMEOUT ou réduisez "
+        "OLLAMA_CHUNK_MAX_WORDS (voir .env.example), ou choisissez un "
+        "modèle plus léger (SYNTHESE_MODEL)."
+    )
     try:
         with urllib.request.urlopen(req, timeout=ollama_timeout()) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.URLError as exc:
+        # Un timeout de lecture arrive enveloppé dans URLError(reason=timeout) :
+        # sans ce test, l'UI dirait « vérifiez qu'Ollama tourne » alors qu'il
+        # tourne — il est juste trop lent (cas réel sur poste CPU, 2026-07-17).
+        if isinstance(getattr(exc, "reason", None), TimeoutError):
+            raise AIError(timeout_msg) from exc
         raise AIError(
             f"Impossible de joindre Ollama sur {ollama_host()} — vérifiez qu'il "
             f"tourne (`ollama serve`) et qu'un modèle est disponible "
             f"(`ollama pull {model}`)."
         ) from exc
     except TimeoutError as exc:
-        raise AIError(
-            "Ollama n'a pas répondu à temps — le modèle est peut-être trop "
-            "gros pour ce poste, ou en cours de chargement (premier appel)."
-        ) from exc
+        raise AIError(timeout_msg) from exc
     if "error" in data:
         raise AIError(f"Erreur Ollama : {data['error']}")
     return (data.get("message") or {}).get("content") or ""

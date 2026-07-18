@@ -3,7 +3,15 @@
 {% block content %}
 <div class="page-head">
   <h1>Missions</h1>
-  <a class="btn btn-primary" href="/missions/new">+ Nouvelle mission</a>
+  <div class="row-actions">
+    {% if nb_brouillons_vides %}
+    <form method="post" action="/missions/brouillons/nettoyer"
+          onsubmit="return confirm('Supprimer les {{ nb_brouillons_vides }} brouillon(s) vide(s) — sans entretien ni trame remplie ?');">
+      <button class="btn btn-sm" type="submit">🧹 Nettoyer {{ nb_brouillons_vides }} brouillon(s) vide(s)</button>
+    </form>
+    {% endif %}
+    <a class="btn btn-primary" href="/missions/new">+ Nouvelle mission</a>
+  </div>
 </div>
 
 {% if missions %}
@@ -16,7 +24,8 @@
     <tr>
       <td>
         <a href="/missions/{{ m.id }}">{{ m.name }}</a>
-        {% if m.is_draft %}<span class="pill pill-draft">Brouillon</span>{% endif %}
+        {% if m.is_draft %}<span class="pill pill-draft">Brouillon</span>
+        <a class="btn-link" href="/missions/{{ m.id }}/finaliser">Reprendre</a>{% endif %}
       </td>
       <td>{{ m.created_at.strftime("%d/%m/%Y") }}</td>
       <td class="row-actions">

@@ -19,6 +19,7 @@
 
 <form method="post" action="/missions/{{ mission.id }}/interviews/record-libre/synthese" class="card form">
   <input type="hidden" name="audio_backup_path" value="{{ identity.audio_backup_path or '' }}">
+  <input type="hidden" name="transcript" value="{{ transcript or '' }}">
 
   <section class="card">
     <h2>Identité</h2>
@@ -73,7 +74,9 @@
   </section>
 
   <div class="form-actions">
-    <a class="btn" href="/missions/{{ mission.id }}/interviews/record-libre">Annuler</a>
+    <button class="btn" type="submit" formnovalidate
+            formaction="/missions/{{ mission.id }}/interviews/record-libre/retour"
+            title="Revient à l'écran de transcription sans perdre le texte ni l'identité">← Revenir à la transcription</button>
     <button class="btn btn-primary" type="submit">Continuer vers la synthèse</button>
   </div>
 </form>

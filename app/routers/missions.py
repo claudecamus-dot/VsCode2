@@ -20,14 +20,45 @@ def _get_mission(db: Session, mission_id: int) -> Mission:
     return mission
 
 
+def _draft_vide(mission: Mission) -> bool:
+    """Brouillon abandonné sans contenu : ni entretien enregistré, ni trame
+    remplie (la trame vide « Trame d'entretien » créée d'office par le parcours
+    structuré ne compte pas comme du contenu). Seuls ces brouillons-là sont
+    éligibles au nettoyage groupé — un brouillon avec de la matière se reprend
+    via /finaliser, il ne se supprime qu'un par un, explicitement."""
+    return (
+        mission.is_draft
+        and not mission.interviews
+        and (mission.trame is None or not mission.trame.themes)
+    )
+
+
 @router.get("")
 def list_missions(request: Request, db: Session = Depends(get_session)):
     missions = db.scalars(
         select(Mission).order_by(Mission.created_at.desc())
     ).all()
     return templates.TemplateResponse(
-        request, "missions/list.html", {"missions": missions}
+        request,
+        "missions/list.html",
+        {
+            "missions": missions,
+            "nb_brouillons_vides": sum(1 for m in missions if _draft_vide(m)),
+        },
     )
+
+
+@router.post("/brouillons/nettoyer")
+def nettoyer_brouillons(db: Session = Depends(get_session)):
+    """Supprime d'un coup les missions brouillon vides (abandonnées avant
+    toute saisie — elles s'accumulent car chaque entrée « entretien libre/
+    structuré » en crée une, cf. entretiens.py). Déclenché par un bouton
+    explicite de la liste, jamais automatiquement."""
+    for mission in db.scalars(select(Mission).where(Mission.is_draft.is_(True))).all():
+        if _draft_vide(mission):
+            db.delete(mission)
+    db.commit()
+    return RedirectResponse("/missions", status_code=303)
 
 
 @router.get("/new")

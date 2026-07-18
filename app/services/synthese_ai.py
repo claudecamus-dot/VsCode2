@@ -13,7 +13,7 @@ from __future__ import annotations
 from collections import Counter
 import re
 
-from .ai_common import AIError, call_ai_json, demo_enabled, is_configured
+from .ai_common import AIError, call_ai_json, demo_enabled, is_configured, ollama_chunk_max_words
 
 MAX_TOKENS = 2000
 
@@ -203,8 +203,16 @@ GLOBAL_SCHEMA = {
 }
 
 
-def _build_global_prompt(mission, material_by_theme, material_libre=None) -> str:
-    """material_by_theme : liste de (theme, by_question, verbatims), un
+GLOBAL_KEYS = (
+    "contexte", "culture_adn", "forces_succes", "points_amelioration", "aspirations",
+)
+
+
+def _global_material_blocks(material_by_theme, material_libre=None) -> list[str]:
+    """Un bloc de texte par thème et par entretien libre — l'unité de découpe
+    du map-reduce (on ne coupe jamais au milieu d'un thème ou d'un entretien).
+
+    material_by_theme : liste de (theme, by_question, verbatims), un
     triplet par thème — même matière que `_theme_material` (synthese.py),
     mais pour tous les thèmes de la trame plutôt qu'un seul.
 
@@ -213,11 +221,11 @@ def _build_global_prompt(mission, material_by_theme, material_libre=None) -> str
     chaque entretien en mode libre (pas de trame, donc pas de thème/question
     à traverser) — injectée comme section à part, à côté de celles par
     thème, pour que la synthèse globale tienne compte des deux."""
-    lines = [f"MISSION : {mission.name}", ""]
+    blocks = []
     for theme, by_question, verbatims in material_by_theme:
         if not by_question and not verbatims:
             continue
-        lines.append(f"=== THÈME : {theme.title} ===")
+        lines = [f"=== THÈME : {theme.title} ==="]
         for q in theme.questions:
             rows = by_question.get(q.id) or []
             if not rows:
@@ -233,11 +241,11 @@ def _build_global_prompt(mission, material_by_theme, material_libre=None) -> str
             lines.append("Verbatims :")
             for v in verbatims:
                 lines.append(f"  « {v['quote']} » — {v['interviewee']}")
-        lines.append("")
+        blocks.append("\n".join(lines))
     for interview, repartition in material_libre or []:
         if not any((repartition or {}).values()):
             continue
-        lines.append(f"=== ENTRETIEN LIBRE : {interview.interviewee_name} ===")
+        lines = [f"=== ENTRETIEN LIBRE : {interview.interviewee_name} ==="]
         for key, label in (
             ("contexte", "Contexte"),
             ("culture_adn", "Culture & ADN"),
@@ -248,21 +256,110 @@ def _build_global_prompt(mission, material_by_theme, material_libre=None) -> str
             value = (repartition or {}).get(key)
             if value:
                 lines.append(f"{label} : {value}")
+        blocks.append("\n".join(lines))
+    return blocks
+
+
+def _build_global_prompt(mission, material_by_theme, material_libre=None) -> str:
+    return "\n\n".join([f"MISSION : {mission.name}", *_global_material_blocks(material_by_theme, material_libre)])
+
+
+def _chunk_blocks(blocks: list[str], max_words: int) -> list[list[str]]:
+    """Groupe les blocs (thème/entretien) en tronçons d'environ `max_words`
+    mots sans jamais couper un bloc — même budget que le map-reduce de
+    l'extraction libre (`OLLAMA_CHUNK_MAX_WORDS`). Un bloc seul plus long que
+    le budget forme son propre tronçon."""
+    chunks: list[list[str]] = []
+    current: list[str] = []
+    current_words = 0
+    for block in blocks:
+        words = len(block.split())
+        if current and current_words + words > max_words:
+            chunks.append(current)
+            current, current_words = [], 0
+        current.append(block)
+        current_words += words
+    if current:
+        chunks.append(current)
+    return chunks or [[]]
+
+
+def _clean_global(data) -> dict:
+    """Coerce la réponse JSON vers les 5 clés attendues — une valeur du
+    mauvais type (dict imbriqué là où une chaîne était attendue, déjà observé
+    avec Ollama sur la répartition libre, cf. `_safe_str` dans
+    `interview_libre_extract_ai.py`) est traitée comme absente plutôt que de
+    planter sur `.strip()`."""
+    if not isinstance(data, dict):
+        data = {}
+    return {
+        key: (data.get(key).strip() if isinstance(data.get(key), str) else "")
+        for key in GLOBAL_KEYS
+    }
+
+
+GLOBAL_REDUCE_SYSTEM = (
+    "Tu es consultant·e senior en conduite du changement. On te donne "
+    "plusieurs synthèses PARTIELLES d'une même mission (chacune produite sur "
+    "un sous-ensemble différent des thèmes et entretiens). Fusionne-les en "
+    "UNE seule synthèse transverse cohérente, fidèlement, sans rien inventer "
+    "ni répéter deux fois la même idée : pour chacune des 5 catégories "
+    "(contexte, culture_adn, forces_succes, points_amelioration, "
+    "aspirations), fusionne le contenu de toutes les synthèses partielles en "
+    "sous-thèmes émergents nommés suivis de puces factuelles — garde tout ce "
+    "qui est factuel, élimine les doublons. Si une catégorie manque de "
+    "matière, indique-le brièvement."
+)
+
+
+def _reduce_partial_globals(mission, partials: list[dict]) -> dict:
+    """Fusionne les synthèses globales partielles (une par tronçon) en une
+    seule — un appel IA dédié, comme `_reduce_partial_syntheses` côté
+    extraction libre : la concaténation brute donnerait 5 catégories répétées
+    N fois, pas une synthèse transverse."""
+    lines = [f"MISSION : {mission.name}", ""]
+    for i, partial in enumerate(partials, start=1):
+        lines.append(f"--- Synthèse partielle {i}/{len(partials)} ---")
+        for key in GLOBAL_KEYS:
+            if partial.get(key):
+                lines.append(f"{key} : {partial[key]}")
         lines.append("")
-    return "\n".join(lines)
+    data = _call_claude(
+        GLOBAL_REDUCE_SYSTEM, "\n".join(lines), GLOBAL_SCHEMA, GLOBAL_JSON_HINT
+    )
+    return _clean_global(data)
 
 
 def generate_global_synthesis(mission, material_by_theme, material_libre=None) -> dict:
-    """Retourne un dict aux 5 clés de `GlobalSynthesis`. Lève SynthesisAIError."""
-    prompt = _build_global_prompt(mission, material_by_theme, material_libre)
-    data = _call_claude(GLOBAL_SYSTEM, prompt, GLOBAL_SCHEMA, GLOBAL_JSON_HINT)
-    return {
-        "contexte": (data.get("contexte") or "").strip(),
-        "culture_adn": (data.get("culture_adn") or "").strip(),
-        "forces_succes": (data.get("forces_succes") or "").strip(),
-        "points_amelioration": (data.get("points_amelioration") or "").strip(),
-        "aspirations": (data.get("aspirations") or "").strip(),
-    }
+    """Retourne un dict aux 5 clés de `GlobalSynthesis`. Lève SynthesisAIError.
+
+    Map-reduce (2026-07-18) : sur une mission fournie (nombreux entretiens ou
+    entretiens longs), le prompt unique dépassait la fenêtre de contexte du
+    modèle local (Ollama tronque silencieusement au-delà de `num_ctx`) et le
+    temps d'un seul appel CPU dépassait `OLLAMA_TIMEOUT` (timeout réel observé
+    le 2026-07-17 sur un entretien de ~37 min). La matière est donc découpée
+    en tronçons aux frontières de thème/entretien (map), synthétisée tronçon
+    par tronçon, puis fusionnée par un appel de réduction dédié — même
+    pattern que `interview_libre_extract_ai.generate_repartition_from_turns`.
+    Une mission qui tient dans un tronçon ne fait qu'un appel, comportement
+    inchangé."""
+    header = f"MISSION : {mission.name}"
+    blocks = _global_material_blocks(material_by_theme, material_libre)
+    groups = _chunk_blocks(blocks, ollama_chunk_max_words())
+
+    if len(groups) == 1:
+        data = _call_claude(
+            GLOBAL_SYSTEM, "\n\n".join([header, *groups[0]]), GLOBAL_SCHEMA, GLOBAL_JSON_HINT
+        )
+        return _clean_global(data)
+
+    partials = []
+    for i, group in enumerate(groups, start=1):
+        prompt = "\n\n".join([f"{header} (extrait {i}/{len(groups)})", *group])
+        partials.append(
+            _clean_global(_call_claude(GLOBAL_SYSTEM, prompt, GLOBAL_SCHEMA, GLOBAL_JSON_HINT))
+        )
+    return _reduce_partial_globals(mission, partials)
 
 
 def generate_demo_global_synthesis(mission, material_by_theme, material_libre=None) -> dict:

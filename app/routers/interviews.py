@@ -441,6 +441,83 @@ def record_libre(
             "mission": mission,
             "turns": extracted["turns"],
             "identity": merged_identity,
+            "transcript": transcript,
+        },
+    )
+
+
+@router.post("/missions/{mission_id}/interviews/record-libre/retour")
+def record_libre_retour(
+    mission_id: int,
+    request: Request,
+    transcript: str = Form(""),
+    interviewee_name: str = Form(""),
+    interviewee_role: str = Form(""),
+    interviewee_entity: str = Form(""),
+    interview_date: str = Form(""),
+    audio_backup_path: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    """Retour de l'étape 2 vers l'étape 1 SANS perdre le travail : la
+    transcription (portée en champ caché depuis l'extraction) et l'identité
+    re-préremplissent l'écran de transcription — avant ce bouton, « Annuler »
+    renvoyait sur un formulaire vierge et détruisait tout (constat US9.12,
+    TODO wiki). Aucun appel IA."""
+    mission = _get_mission(db, mission_id)
+    return templates.TemplateResponse(
+        request,
+        "interviews/record_libre.html",
+        {
+            "mission": mission,
+            "recording_available": audio_transcribe.is_available(),
+            "identity": {
+                "interviewee_name": interviewee_name,
+                "interviewee_role": interviewee_role,
+                "interviewee_entity": interviewee_entity,
+                "interview_date": interview_date,
+                "audio_backup_path": audio_backup_path,
+                "transcript": transcript,
+            },
+        },
+    )
+
+
+@router.post("/missions/{mission_id}/interviews/record-libre/retour-tours")
+def record_libre_retour_tours(
+    mission_id: int,
+    request: Request,
+    transcript: str = Form(""),
+    interviewee_name: str = Form(""),
+    interviewee_role: str = Form(""),
+    interviewee_entity: str = Form(""),
+    interview_date: str = Form(""),
+    audio_backup_path: str = Form(""),
+    turn_interlocuteur: list[str] = Form([]),
+    turn_question: list[str] = Form([]),
+    turn_remarque: list[str] = Form([]),
+    turn_section_title: list[str] = Form([]),
+    db: Session = Depends(get_session),
+):
+    """Retour de l'étape 3 vers l'étape 2 SANS perdre les tours de parole
+    (portés en champs cachés par l'écran de synthèse) — même logique que
+    `record_libre_retour`. Aucun appel IA."""
+    mission = _get_mission(db, mission_id)
+    return templates.TemplateResponse(
+        request,
+        "interviews/libre_turns_review.html",
+        {
+            "mission": mission,
+            "turns": _parse_turns_from_form(
+                turn_interlocuteur, turn_question, turn_remarque, turn_section_title
+            ),
+            "identity": {
+                "interviewee_name": interviewee_name,
+                "interviewee_role": interviewee_role,
+                "interviewee_entity": interviewee_entity,
+                "interview_date": interview_date,
+                "audio_backup_path": audio_backup_path,
+            },
+            "transcript": transcript,
         },
     )
 
@@ -478,6 +555,7 @@ def _parse_turns_from_form(
 def record_libre_synthese(
     mission_id: int,
     request: Request,
+    transcript: str = Form(""),
     interviewee_name: str = Form(""),
     interviewee_role: str = Form(""),
     interviewee_entity: str = Form(""),
@@ -513,6 +591,7 @@ def record_libre_synthese(
                 "mission": mission,
                 "turns": [],
                 "identity": identity,
+                "transcript": transcript,
                 "error": "Aucun tour de parole à synthétiser — corrige au moins un tour.",
             },
         )
@@ -527,6 +606,7 @@ def record_libre_synthese(
                 "mission": mission,
                 "turns": turns,
                 "identity": identity,
+                "transcript": transcript,
                 "error": str(exc),
             },
         )
@@ -541,6 +621,7 @@ def record_libre_synthese(
             "repartition_keys": REPARTITION_KEYS,
             "resume": synth["resume"],
             "identity": identity,
+            "transcript": transcript,
         },
     )
 
@@ -746,26 +827,102 @@ def delete_interview(interview_id: int, db: Session = Depends(get_session)):
 # comme le fait /interviews/{id} (revue/édition). La Synthèse (bouton depuis
 # l'écran Analyse) reprend la répartition déjà enregistrée, en lecture.
 # --------------------------------------------------------------------------- #
+def _get_interview_libre(db: Session, interview_id: int) -> Interview:
+    interview = _get_interview(db, interview_id)
+    if interview.mode != "libre":
+        raise HTTPException(status_code=400, detail="Cet entretien n'est pas en mode libre.")
+    return interview
+
+
+def _libre_analyse_context(interview: Interview) -> dict:
+    return {
+        "interview": interview,
+        "mission": interview.mission,
+        "sections": group_turns_into_sections(interview.turns),
+        "repartition": interview.repartition or {},
+        "repartition_keys": REPARTITION_KEYS,
+    }
+
+
 @router.get("/interviews/{interview_id}/analyse")
 def libre_analyse(interview_id: int, request: Request, db: Session = Depends(get_session)):
     """Aperçu lecture-seule d'un entretien libre — tours de parole par
     section puis résumé/répartition, sur un seul écran (fusion 2026-07-17 de
     l'ancien libre_synthese.html, pour converger vers le modèle à 2 écrans
     édition/aperçu déjà utilisé côté entretien sur trame, cf. preview.html)."""
-    interview = _get_interview(db, interview_id)
-    if interview.mode != "libre":
-        raise HTTPException(status_code=400, detail="Cet entretien n'est pas en mode libre.")
+    interview = _get_interview_libre(db, interview_id)
+    return templates.TemplateResponse(
+        request, "interviews/libre_analyse.html", _libre_analyse_context(interview)
+    )
+
+
+@router.post("/interviews/{interview_id}/analyse/regenerer")
+def libre_analyse_regenerer(
+    interview_id: int, request: Request, db: Session = Depends(get_session)
+):
+    """Relance l'IA de répartition/résumé sur les tours de parole enregistrés
+    (éventuellement édités depuis l'extraction initiale) — rien n'est écrasé
+    ici : le résultat passe par un écran de revue (libre_regen_review.html)
+    avant enregistrement, comme à la création (record_libre_synthese)."""
+    interview = _get_interview_libre(db, interview_id)
+    turns = [
+        {
+            "interlocuteur": turn.interlocuteur,
+            "question": turn.question,
+            "remarque": turn.remarque,
+            "section_title": turn.section_title,
+        }
+        for turn in interview.turns
+    ]
+    try:
+        synth = generate_repartition_from_turns(turns)
+    except InterviewLibreExtractAIError as exc:
+        context = _libre_analyse_context(interview)
+        context["error"] = str(exc)
+        return templates.TemplateResponse(
+            request, "interviews/libre_analyse.html", context
+        )
     return templates.TemplateResponse(
         request,
-        "interviews/libre_analyse.html",
+        "interviews/libre_regen_review.html",
         {
             "interview": interview,
             "mission": interview.mission,
-            "sections": group_turns_into_sections(interview.turns),
-            "repartition": interview.repartition or {},
-            "repartition_keys": REPARTITION_KEYS,
+            "resume": synth["resume"],
+            "repartition": synth["repartition"],
+            "ancien_resume": interview.resume or "",
+            "ancienne_repartition": interview.repartition or {},
         },
     )
+
+
+@router.post("/interviews/{interview_id}/analyse/regenerer/confirm")
+def libre_analyse_regenerer_confirm(
+    interview_id: int,
+    resume: str = Form(""),
+    repartition_contexte: str = Form(""),
+    repartition_culture_adn: str = Form(""),
+    repartition_forces_succes: str = Form(""),
+    repartition_points_amelioration: str = Form(""),
+    repartition_aspirations: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    """N'écrase que le résumé et la répartition — les tours de parole (la
+    source de la régénération) et l'identité ne bougent pas."""
+    interview = _get_interview_libre(db, interview_id)
+    repartition_values = (
+        repartition_contexte,
+        repartition_culture_adn,
+        repartition_forces_succes,
+        repartition_points_amelioration,
+        repartition_aspirations,
+    )
+    interview.resume = resume.strip() or None
+    interview.repartition = {
+        key: value.strip() for key, value in zip(REPARTITION_KEYS, repartition_values)
+    }
+    db.commit()
+    return RedirectResponse(f"/interviews/{interview_id}/analyse", status_code=303)
 
 
 @router.get("/interviews/{interview_id}/analyse/synthese")

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Régénération de l'analyse — {{ interview.interviewee_name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> /
+  <a href="/interviews/{{ interview.id }}/analyse">Analyse — {{ interview.interviewee_name }}</a> /
+  Régénération
+</div>
+
+<div class="page-head"><h1>Nouvelle analyse proposée</h1></div>
+<p class="muted">
+  L'IA a re-synthétisé le résumé et la répartition à partir des tours de parole
+  actuels de l'entretien. Rien n'est encore enregistré : corrige ce qui doit
+  l'être, puis valide pour remplacer l'analyse actuelle — ou annule pour la
+  conserver telle quelle. Les tours de parole et l'identité ne changent pas.
+</p>
+
+<form method="post" action="/interviews/{{ interview.id }}/analyse/regenerer/confirm" class="card form">
+  <section class="card">
+    <h2>Résumé</h2>
+    <label>
+      Message central (1 à 3 phrases)
+      <textarea name="resume" rows="2">{{ resume or '' }}</textarea>
+    </label>
+    {% if ancien_resume %}
+    <details>
+      <summary class="muted">Voir le résumé actuel (sera remplacé)</summary>
+      <p class="muted">{{ ancien_resume }}</p>
+    </details>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Répartition dans la synthèse globale de mission</h2>
+    <p class="muted">Alimente les 5 catégories de la synthèse globale — pense à relancer la synthèse globale de la mission si elle a déjà été générée.</p>
+    <label>
+      Contexte
+      <textarea name="repartition_contexte" rows="3">{{ repartition.contexte }}</textarea>
+    </label>
+    <label>
+      Culture &amp; ADN
+      <textarea name="repartition_culture_adn" rows="3">{{ repartition.culture_adn }}</textarea>
+    </label>
+    <label>
+      Forces / succès
+      <textarea name="repartition_forces_succes" rows="3">{{ repartition.forces_succes }}</textarea>
+    </label>
+    <label>
+      Points d'amélioration
+      <textarea name="repartition_points_amelioration" rows="3">{{ repartition.points_amelioration }}</textarea>
+    </label>
+    <label>
+      Aspirations
+      <textarea name="repartition_aspirations" rows="3">{{ repartition.aspirations }}</textarea>
+    </label>
+    {% if ancienne_repartition %}
+    <details>
+      <summary class="muted">Voir la répartition actuelle (sera remplacée)</summary>
+      {% for key, value in ancienne_repartition.items() %}
+      {% if value %}<p class="muted"><strong>{{ key }}</strong> — {{ value }}</p>{% endif %}
+      {% endfor %}
+    </details>
+    {% endif %}
+  </section>
+
+  <div class="form-actions">
+    <a class="btn" href="/interviews/{{ interview.id }}/analyse">Annuler (conserver l'analyse actuelle)</a>
+    <button class="btn btn-primary" type="submit">Remplacer l'analyse</button>
+  </div>
+</form>
+{% endblock %}

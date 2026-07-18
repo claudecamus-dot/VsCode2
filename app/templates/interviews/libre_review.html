@@ -17,6 +17,7 @@
 
 <form method="post" action="/missions/{{ mission.id }}/interviews/record-libre/confirm" class="card form">
   <input type="hidden" name="audio_backup_path" value="{{ identity.audio_backup_path or '' }}">
+  <input type="hidden" name="transcript" value="{{ transcript or '' }}">
   {% for turn in turns %}
   <input type="hidden" name="turn_interlocuteur" value="{{ turn.interlocuteur }}">
   <input type="hidden" name="turn_question" value="{{ turn.question or '' }}">
@@ -79,7 +80,9 @@
   </section>
 
   <div class="form-actions">
-    <a class="btn" href="/missions/{{ mission.id }}/interviews/record-libre">Annuler</a>
+    <button class="btn" type="submit" formnovalidate
+            formaction="/missions/{{ mission.id }}/interviews/record-libre/retour-tours"
+            title="Revient à la revue des questions/réponses sans perdre les tours de parole">← Revenir aux questions/réponses</button>
     <button class="btn btn-primary" type="submit">Enregistrer l'entretien</button>
   </div>
 </form>
