@@ -44,7 +44,7 @@
 
 | Famille | Règle de routage |
 | --- | --- |
-| **BMAD (35 skills après tri arbitré le 2026-07-17)** | Tri arbitré (`docs/reflexions/tri-skills-bmad.md`) : 11 retirés (4 dépréciés + 7 redondants dev/qualité), 35 conservés dont les 5 dépendances de `revue-increment` et le cycle produit (futur playbook O-B). Ne router que sur demande explicite de l'utilisateur, en passant par `bmad-help`. |
+| **BMAD (39 skills après tri exécuté le 2026-07-18)** | Tri ré-arbitré après vérification pré-suppression par fan-out (`docs/reflexions/tri-skills-bmad.md`, addendum) : 7 retirés (4 dépréciés + `quick-dev`/`spec`/`qa-generate-e2e-tests`), 39 conservés dont les dépendances de `revue-increment` (y compris `bmad-review-*` invoqués par `bmad-code-review`) et le cycle produit. Ne router que sur demande explicite de l'utilisateur, en passant par `bmad-help`. |
 | **OpenHub (`.opencode/`)** | Hors périmètre O-A (décision n°4 de la réflexion) — ne pas router. |
 
 ## Playbooks (incrément O-B)

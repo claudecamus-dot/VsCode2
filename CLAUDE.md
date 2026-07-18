@@ -57,7 +57,7 @@ There is no linter/formatter configured (no ruff/black/eslint) and no pre-commit
 
 ## Skills & agents — comment ça se lance (post-BMAD, 2026-07-16)
 
-Depuis l'install de **BMAD-METHOD v6.10.0** (`_bmad/`, config `_bmad/config.toml`), `.claude/skills/` contient ~46 skills `bmad-*` **en plus** des skills projet. Repères pour ne pas se perdre parmi la cinquantaine de skills :
+Depuis l'install de **BMAD-METHOD v6.10.0** (`_bmad/`, config `_bmad/config.toml`), `.claude/skills/` contient 39 skills `bmad-*` **en plus** des skills projet (46 à l'install, 7 retirés par le tri exécuté le 2026-07-18 — `docs/reflexions/tri-skills-bmad.md`, restaurables via l'inventaire git). Repères pour ne pas se perdre parmi la quarantaine de skills :
 
 - **Routeur BMAD** : en cas de doute sur quel skill BMAD lancer, invoquer **`bmad-help`** (analyse l'état et recommande le prochain skill).
 - **Agents BMAD (personas)** : se lancent par nom — « parle à Amelia » (dev), « John » (PM), « Winston » (architecte), « Sally » (UX), « Mary » (analyste), « Paige » (tech writer). Ce sont les skills `bmad-agent-*`.
@@ -74,6 +74,6 @@ Le contexte est un cache actif facturé à chaque tour, pas une mémoire gratuit
 
 - **Ne pas parcourir** `_bmad/`, `_bmad-output/`, `.venv/`, `__pycache__/`, `.git/`, `data/`, `.pytest_cache/` sauf demande explicite — hors du périmètre utile à 99 % des tâches.
 - **Lire avant d'écrire, grep les appelants avant de modifier** une fonction/un champ partagé (déjà la pratique de ce projet — l'expliciter la rend systématique).
-- **Préférer un grep/read ciblé à un dump récursif** — surtout sur `.claude/skills/bmad-*` (~46 skills) qui gonfle vite le contexte si parcouru en entier.
+- **Préférer un grep/read ciblé à un dump récursif** — surtout sur `.claude/skills/bmad-*` (39 skills) qui gonfle vite le contexte si parcouru en entier.
 - **Sous-agent pour toute sortie volumineuse** (exploration large, longs logs) plutôt que de la laisser polluer le contexte principal.
 - **`/compact` dès ~40 %** de fenêtre de contexte utilisée si la conversation doit continuer longtemps sur le même sujet.

@@ -97,7 +97,7 @@ Voice the personas yourself by default. Spawn separate agents only when a branch
 
 The session can end in three valid states:
 
-- **Hardened** — the idea is stronger and specific enough to use. Distill the memlog into `{workspace}/forged-idea.md`. Keep it extremely short: only the decisions, rejected options, and reasons that matter downstream, in the user's meaning. Do not write a prose summary, template, or conversation recap. If it reads like a document, it is too long. Note that it can feed `bmad-spec`, `bmad-prd`, or `bmad-prfaq`.
+- **Hardened** — the idea is stronger and specific enough to use. Distill the memlog into `{workspace}/forged-idea.md`. Keep it extremely short: only the decisions, rejected options, and reasons that matter downstream, in the user's meaning. Do not write a prose summary, template, or conversation recap. If it reads like a document, it is too long. Note that it can feed `bmad-prd` or `bmad-prfaq`.
 - **Killed** — the idea does not hold up. Say so plainly and record why. Finding that out early is a valid outcome.
 - **Clearer** — the user understands the idea better, but there is no hardened idea to hand off. Leave the memlog as the record; no `forged-idea.md` is needed.
 

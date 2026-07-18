@@ -53,7 +53,7 @@ Entrée unifiée entretien libre/structuré + mission différée. Entretien libr
 
 Constats automatiques du superviseur d'agents (usage mesuré dans les transcripts de session) :
 
-- **Trier les skills BMAD** : 46 installés, 0 invocation à ce jour — décider lesquels garder, customiser ou désinstaller.
+- **Trier les skills BMAD** : 39 installés, 0 invocation à ce jour — décider lesquels garder, customiser ou désinstaller.
 - **Skills projet sans usage** : `pptx-framed-image`, `slide-text-polish` — vérifier pertinence et déclencheurs.
 
 Tableau de bord complet : [technical/agents-supervision.md](technical/agents-supervision.md) — régénéré à chaque session.

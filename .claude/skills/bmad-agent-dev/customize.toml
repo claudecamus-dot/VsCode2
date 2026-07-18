@@ -60,16 +60,6 @@ description = "Write the next or specified story's tests and code"
 skill = "bmad-dev-story"
 
 [[agent.menu]]
-code = "QD"
-description = "Unified quick flow — clarify intent, plan, implement, review, present"
-skill = "bmad-quick-dev"
-
-[[agent.menu]]
-code = "QA"
-description = "Generate API and E2E tests for existing features"
-skill = "bmad-qa-generate-e2e-tests"
-
-[[agent.menu]]
 code = "CR"
 description = "Initiate a comprehensive code review across multiple quality facets"
 skill = "bmad-code-review"

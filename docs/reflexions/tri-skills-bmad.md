@@ -1,16 +1,17 @@
 # Tri des skills BMAD — proposition d'arbitrage
 
-> Statut : **arbitré le 2026-07-17** — l'utilisateur retient le tri recommandé **amendé** :
-> conserver aussi personas/animation, recherche/idéation et docs/édition. Décision finale :
-> **retirer 11** (4 dépréciés + 7 « dev/qualité redondants »), **conserver 35**.
-> **Exécution en attente** : la suppression des dossiers n'a pas pu être appliquée dans la
-> session du 2026-07-17 (shell bloqué par un incident hook/cwd, voir mémoire
-> `feedback_hook_relative_paths_cwd_deadlock`). Commande à exécuter (racine du projet) :
-> `rm -rf .claude/skills/bmad-create-prd .claude/skills/bmad-edit-prd .claude/skills/bmad-validate-prd .claude/skills/bmad-create-architecture .claude/skills/bmad-quick-dev .claude/skills/bmad-spec .claude/skills/bmad-ux .claude/skills/bmad-check-implementation-readiness .claude/skills/bmad-qa-generate-e2e-tests .claude/skills/bmad-review-adversarial-general .claude/skills/bmad-review-edge-case-hunter`
-> puis `py .claude/supervision/scan_transcripts.py` pour rafraîchir les pages générées.
-> Données : `docs/wiki/technical/agents-supervision.md` (usage), vérifications du 2026-07-17.
-> ⚠️ **Addendum 2026-07-18 — NE PAS exécuter cette commande telle quelle** : voir la
-> vérification pré-suppression ci-dessous, la liste des 11 doit être ré-arbitrée.
+> Statut : arbitré le 2026-07-17 (retirer 11, conserver 35 — exécution alors bloquée par
+> un incident hook/cwd), **ré-arbitré et exécuté le 2026-07-18** après la vérification
+> pré-suppression ci-dessous (addendum) qui a invalidé une partie de la liste :
+> **7 retirés** (`bmad-create-prd`, `bmad-edit-prd`, `bmad-validate-prd`,
+> `bmad-create-architecture`, `bmad-quick-dev`, `bmad-spec`, `bmad-qa-generate-e2e-tests`),
+> **39 conservés** (dont `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`,
+> `bmad-check-implementation-readiness`, `bmad-ux` réintégrés — voir addendum), toutes les
+> références restantes recalées (menus `bmad-agent-dev`, `bmad-architecture`,
+> mentions passives `bmad-prd`/`bmad-forge-idea`/`bmad-brainstorming`).
+> Les 7 restent restaurables via `py .claude/orchestration/git_agents_inventory.py`.
+> Données : `docs/wiki/technical/agents-supervision.md` (usage), vérifications des
+> 2026-07-17 et 2026-07-18.
 
 ## Addendum 2026-07-18 — vérification pré-suppression (invalide partiellement l'arbitrage)
 
@@ -57,7 +58,8 @@ chaînes dans les tests (`test_agent_supervision.py` — donnée fabriquée ;
   `bmad-check-implementation-readiness` (checkpoint du cycle produit),
   `bmad-ux` (cohérence avec la persona UX et les prérequis epics conservés).
 
-Décision à arbitrer avant toute suppression.
+**Arbitrage rendu et exécuté le 2026-07-18** (validation utilisateur explicite) : les 7
+retirés, les 4 réintégrés conservés, recalages appliqués.
 
 ## Faits
 
