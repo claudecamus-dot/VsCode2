@@ -9,6 +9,55 @@
 > `rm -rf .claude/skills/bmad-create-prd .claude/skills/bmad-edit-prd .claude/skills/bmad-validate-prd .claude/skills/bmad-create-architecture .claude/skills/bmad-quick-dev .claude/skills/bmad-spec .claude/skills/bmad-ux .claude/skills/bmad-check-implementation-readiness .claude/skills/bmad-qa-generate-e2e-tests .claude/skills/bmad-review-adversarial-general .claude/skills/bmad-review-edge-case-hunter`
 > puis `py .claude/supervision/scan_transcripts.py` pour rafraîchir les pages générées.
 > Données : `docs/wiki/technical/agents-supervision.md` (usage), vérifications du 2026-07-17.
+> ⚠️ **Addendum 2026-07-18 — NE PAS exécuter cette commande telle quelle** : voir la
+> vérification pré-suppression ci-dessous, la liste des 11 doit être ré-arbitrée.
+
+## Addendum 2026-07-18 — vérification pré-suppression (invalide partiellement l'arbitrage)
+
+Vérification par fan-out orchestré (3 × sous-agent `Explore`/haiku en parallèle : périmètre
+`.claude/`+tests, contenu des 35 skills gardés, `_bmad/_config`+docs — première délégation
+réelle de l'orchestrateur, journalisée dans `runs.jsonl`). Constats :
+
+**La prémisse du groupe « dev/qualité redondants » est fausse sur 2 skills** :
+`bmad-code-review` n'« embarque » pas les couches adversariale et edge-case — il **invoque**
+les skills standalone (`steps/step-02-review.md:19,24` → `bmad-review-adversarial-general`,
+`bmad-review-edge-case-hunter`), tout comme `bmad-dev-auto` (`step-04-review.md:28,32`).
+Ces 2 skills sont donc des dépendances transitives de `revue-increment` (via
+`bmad-code-review`) : les supprimer casserait la definition-of-done.
+
+**Autres références bloquantes depuis des skills conservés** :
+
+- `bmad-check-implementation-readiness` : codé en dur dans
+  `generate_bmad_playbook.py:30` (checkpoint du playbook `cycle-produit-bmad` — le CSV
+  est propre, mais le générateur le réinjecterait), et dans les menus
+  `customize.toml` des personas gardées `bmad-agent-pm:70` / `bmad-agent-architect:65`.
+- `bmad-ux` : prérequis lu par `bmad-create-epics-and-stories`
+  (`steps/step-01-validate-prerequisites.md:69,73,147`) et cœur du menu de la persona
+  gardée `bmad-agent-ux-designer` (`customize.toml:60`) — garder la persona UX sans son
+  workflow serait incohérent.
+- `bmad-spec` : proposé par `bmad-architecture` (`SKILL.md:75`).
+- `bmad-quick-dev` / `bmad-qa-generate-e2e-tests` : menus de `bmad-agent-dev`
+  (`customize.toml:65,70`) — recalage de 2 lignes si suppression.
+
+**Requalifiés non bloquants** : les références internes des 11 à eux-mêmes
+(`customize.toml` de `bmad-edit-prd`/`bmad-validate-prd`), les noms utilisés comme simples
+chaînes dans les tests (`test_agent_supervision.py` — donnée fabriquée ;
+`test_agent_orchestration.py` — assertion d'*absence* de `bmad-ux` du playbook),
+`bmad-help.csv` (aucun `preceded-by`/`required` d'un gardé vers les 11), et les compteurs
+« 46 » des pages générées (recalés automatiquement au prochain scan).
+
+**Proposition de ré-arbitrage — retirer 7 au lieu de 11** :
+
+- Retirer : les 4 dépréciés (`bmad-create-prd`, `bmad-edit-prd`, `bmad-validate-prd`,
+  `bmad-create-architecture`) + `bmad-quick-dev`, `bmad-qa-generate-e2e-tests`,
+  `bmad-spec` — avec 3 recalages d'une ligne (`bmad-agent-dev/customize.toml:65,70`,
+  `bmad-architecture/SKILL.md:75`).
+- **Conserver** (réintégrés au tri) : `bmad-review-adversarial-general`,
+  `bmad-review-edge-case-hunter` (dépendances de `bmad-code-review`/`bmad-dev-auto`),
+  `bmad-check-implementation-readiness` (checkpoint du cycle produit),
+  `bmad-ux` (cohérence avec la persona UX et les prérequis epics conservés).
+
+Décision à arbitrer avant toute suppression.
 
 ## Faits
 

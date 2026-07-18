@@ -757,10 +757,10 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-18T12:24:40+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-18T12:40:18+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>20 sessions</strong> couvertes · <strong>33</strong> invocations de skills · <strong>28</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>20 sessions</strong> couvertes · <strong>33</strong> invocations de skills · <strong>31</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">scan_transcripts.py · 2026-07-18 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
@@ -791,7 +791,7 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Sous-agent</th><th>Lancements</th><th>Premier</th><th>Dernier</th></tr></thead>
           <tbody>
-            <tr><td><code>Explore</code></td><td>12</td><td>2026-06-30</td><td>2026-07-17</td></tr>
+            <tr><td><code>Explore</code></td><td>15</td><td>2026-06-30</td><td>2026-07-18</td></tr>
             <tr><td><code>general-purpose</code></td><td>8</td><td>2026-07-15</td><td>2026-07-17</td></tr>
             <tr><td><code>claude</code></td><td>4</td><td>2026-07-16</td><td>2026-07-16</td></tr>
             <tr><td><code>Plan</code></td><td>3</td><td>2026-07-06</td><td>2026-07-17</td></tr>
@@ -821,17 +821,12 @@ pytest -k "pptx or export"                                                     #
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
       <p><em>Diagnostic à jour.</em></p>
       <div class="critical">
-        <p><strong>Tri BMAD arbitré mais jamais exécuté : 46 skills sur disque, 0 invocation</strong> — Exécuter la suppression des 11 skills arbitrés (docs/reflexions/tri-skills-bmad.md) — désormais restaurables au besoin via git_agents_inventory.py</p>
+        <p><strong>Tri BMAD à ré-arbitrer : la prémisse « bmad-code-review embarque les couches de revue » est fausse</strong> — Ré-arbitrer avant suppression · <strong>Proposition</strong> : Retirer 7 au lieu de 11 (4 dépréciés + quick-dev + qa-generate-e2e-tests + spec, avec 3 recalages d'une ligne) ; conserver review-adversarial/edge-case, check-implementation-readiness, ux — cf. addendum</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">agent-supervisor · étage 2</div>
       </div>
       <div class="critical">
-        <p><strong>Changement PPT livré sans passage pptx-verify depuis le 2026-07-03</strong> — Au prochain changement pptx_export.py/pptx_deck.py, suivre l'étape pptx-verify du playbook dev-verifie (encodée d'office depuis O-B) sur un export réel</p>
-        <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">agent-supervisor · étage 2</div>
-      </div>
-      <div class="critical">
-        <p><strong>L'orchestrateur n'a encore jamais délégué : politique de modèle jamais exercée</strong> — À la prochaine étape parallélisable ou volumineuse, router réellement (Explore/haiku en fan-out, general-purpose/sonnet en async) pour donner des données à la boucle superviseur</p>
+        <p><strong>Changement PPT livré sans passage pptx-verify depuis le 2026-07-03</strong> — Au prochain changement pptx_export.py/pptx_deck.py, suivre l'étape pptx-verify du playbook dev-verifie sur un export réel</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">agent-supervisor · étage 2</div>
       </div>

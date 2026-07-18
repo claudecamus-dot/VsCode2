@@ -9,7 +9,7 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-18T12:24:40+02:00 · **20 sessions** (transcripts) · **33** invocations de skills · **28** lancements de sous-agents.
+Dernier scan : 2026-07-18T12:40:18+02:00 · **20 sessions** (transcripts) · **33** invocations de skills · **31** lancements de sous-agents.
 
 ## Skills — usage réel
 
@@ -32,7 +32,7 @@ Dernier scan : 2026-07-18T12:24:40+02:00 · **20 sessions** (transcripts) · **3
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `Explore` | 12 | 2026-06-30 | 2026-07-17 |
+| `Explore` | 15 | 2026-06-30 | 2026-07-18 |
 | `general-purpose` | 8 | 2026-07-15 | 2026-07-17 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
@@ -65,9 +65,8 @@ Dernier scan : 2026-07-18T12:24:40+02:00 · **20 sessions** (transcripts) · **3
 
 _Diagnostic à jour._
 
-1. **Tri BMAD arbitré mais jamais exécuté : 46 skills sur disque, 0 invocation** — Exécuter la suppression des 11 skills arbitrés (docs/reflexions/tri-skills-bmad.md) — désormais restaurables au besoin via git_agents_inventory.py
-2. **Changement PPT livré sans passage pptx-verify depuis le 2026-07-03** — Au prochain changement pptx_export.py/pptx_deck.py, suivre l'étape pptx-verify du playbook dev-verifie (encodée d'office depuis O-B) sur un export réel
-3. **L'orchestrateur n'a encore jamais délégué : politique de modèle jamais exercée** — À la prochaine étape parallélisable ou volumineuse, router réellement (Explore/haiku en fan-out, general-purpose/sonnet en async) pour donner des données à la boucle superviseur
+1. **Tri BMAD à ré-arbitrer : la prémisse « bmad-code-review embarque les couches de revue » est fausse** — Ré-arbitrer avant suppression · **Proposition** : Retirer 7 au lieu de 11 (4 dépréciés + quick-dev + qa-generate-e2e-tests + spec, avec 3 recalages d'une ligne) ; conserver review-adversarial/edge-case, check-implementation-readiness, ux — cf. addendum
+2. **Changement PPT livré sans passage pptx-verify depuis le 2026-07-03** — Au prochain changement pptx_export.py/pptx_deck.py, suivre l'étape pptx-verify du playbook dev-verifie sur un export réel
 
 ---
 
