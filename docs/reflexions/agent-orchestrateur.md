@@ -318,3 +318,22 @@ Réalisation (même jour) :
 - Tests : repo git jetable dans `test_agent_orchestration.py` (classement
   présents/supprimés, commande de restauration vérifiée en la rejouant, un fichier recréé
   après suppression n'est plus listé comme supprimé, rendu markdown).
+
+## 13. Finalisation (2026-07-18) — les skills PPT reliées au routage (playbook `export-ppt-verifie`)
+
+Dernier trou du routage : les travaux sur le deck de restitution — le cœur métier du
+produit — n'avaient pas de playbook, et les 3 skills d'enrichissement PPT
+(`pptx-framed-image`, `slide-text-polish`, `restitution-deck-design`) n'existaient nulle
+part dans les données de routage sinon comme « jamais utilisées ». Arbitrage utilisateur :
+les conserver et les relier à l'orchestrateur.
+
+Réalisation : playbook `export-ppt-verifie` (manuel) — colonne vertébrale `eprouve`e
+(paire `pptx-deck` → `pptx-verify` jouée le 2026-07-03, `pptx-verify` rejoué le
+2026-07-18), trois étapes conditionnelles portées par les skills jamais invoquées (à
+proposer avec prudence, résultat contrôlé à l'étape `verification-rendu`), terminaison
+`revue-increment` avec checkpoint commit (ajouté à la liste des playbooks de dev du test
+de terminaison). Frontière avec `dev-verifie` : code générique → `dev-verifie` ; livrable
+= le deck → `export-ppt-verifie`. Catalogue et skill mis à jour ; l'arbitrage de
+conservation est enregistré dans `.claude/supervision/arbitrages.json` (cf.
+`agent-superviseur.md` §11). Les incréments O-A/O-B/O-C + cette finalisation closent le
+chantier orchestrateur.

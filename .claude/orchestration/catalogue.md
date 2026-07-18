@@ -5,7 +5,9 @@
 > dates, jamais-utilisés) sont dans `routing-hints.json` (généré à chaque session par le
 > scan superviseur, avec les stats plan-vs-réel de `runs.jsonl`) et, en version lisible,
 > dans `docs/wiki/technical/agents-supervision.md` — toujours les vérifier avant de router
-> vers un agent « jamais utilisé ». Statuts ci-dessous : instantané du 2026-07-17.
+> vers un agent « jamais utilisé ». Statuts ci-dessous : instantané du 2026-07-18.
+> Les décisions humaines qui closent un constat d'usage (skill conservée malgré
+> zéro invocation, tri exécuté) sont dans `.claude/supervision/arbitrages.json`.
 > Si **aucune entrée ne couvre le besoin** : inventaire git présents + supprimés via
 > `py .claude/orchestration/git_agents_inventory.py`, puis proposition de
 > restauration/évolution/création (procédure dans la skill, étape 2).
@@ -17,8 +19,8 @@
 | --- | --- | --- | --- | --- |
 | `run-dev-server` | Lancer/screenshoter l'app, vérifier un changement UI réel | Synchrone | (session) | Éprouvé (×9) |
 | `revue-increment` | Definition-of-done : fin d'incrément, avant commit | Synchrone, étape terminale obligatoire des plans de dev | (session) | Jamais invoquée — à réhabiliter via l'orchestrateur |
-| `pptx-framed-image` | Remplir les cadres photo d'un template PPT | Synchrone | (session) | Jamais utilisée |
-| `slide-text-polish` | Lint de la qualité rédactionnelle des slides | Synchrone | (session) | Jamais utilisée |
+| `pptx-framed-image` | Remplir les cadres photo d'un template PPT — étape conditionnelle du playbook `export-ppt-verifie` | Synchrone | (session) | Jamais utilisée — conservée (arbitrage 2026-07-18) |
+| `slide-text-polish` | Lint de la qualité rédactionnelle des slides — étape conditionnelle du playbook `export-ppt-verifie` | Synchrone | (session) | Jamais utilisée — conservée (arbitrage 2026-07-18) |
 | `agent-orchestrator` | Point d'entrée des demandes multi-étapes/multi-agents (routé par le hook UserPromptSubmit) | Synchrone | (session) | Éprouvé |
 | `agent-supervisor` | Diagnostic qualitatif des agents (étage 2) — depuis `revue-increment` ou sur signal SessionStart | Synchrone, ≤ 1×/14 j | (session) | Éprouvé (1er diagnostic 2026-07-18) |
 
@@ -27,8 +29,8 @@
 | Skill | Quand l'utiliser | Mode typique | Modèle | Statut |
 | --- | --- | --- | --- | --- |
 | `roadmap-keeper` | Mettre à jour/rendre la roadmap | Synchrone | (session) | Éprouvé (×5) |
-| `pptx-deck` / `pptx-verify` | Générer un deck / le vérifier en rendu réel | Synchrone, toujours en paire | (session) | Éprouvés |
-| `restitution-deck-design` | Deck techniquement correct mais visuellement pauvre | Synchrone | (session) | Jamais utilisée |
+| `pptx-deck` / `pptx-verify` | Générer un deck / le vérifier en rendu réel — colonne vertébrale du playbook `export-ppt-verifie` | Synchrone, toujours en paire | (session) | Éprouvés |
+| `restitution-deck-design` | Deck techniquement correct mais visuellement pauvre — étape conditionnelle du playbook `export-ppt-verifie` | Synchrone | (session) | Jamais utilisée — conservée (arbitrage 2026-07-18) |
 | `code-review` / `verify` / `simplify` | Revue du diff / vérification bout-en-bout / nettoyage | Synchrone, fin de plan de dev | (session) | Builtins |
 
 ## Sous-agents (seuls à accepter un choix de modèle)
@@ -55,5 +57,6 @@ composer à vide. Format : `.claude/orchestration/playbooks/FORMAT.md`.
 | Playbook | Quand | Source | Statut |
 | --- | --- | --- | --- |
 | `dev-verifie` | Dev/correction : tests + vérif réelle (conditionnelle aux fichiers touchés) + `revue-increment` avant commit | Manuel | Éprouvé |
+| `export-ppt-verifie` | Livrable = le deck : génération (`pptx-deck`) + enrichissements conditionnels (`pptx-framed-image`, `slide-text-polish`, `restitution-deck-design`) + `pptx-verify` obligatoire + `revue-increment` | Manuel | Éprouvé (colonne vertébrale) — étapes conditionnelles jamais jouées |
 | `revue-design-parallele` | Revue multi-angles en fan-out d'`Explore` (≤4) puis consolidation — pattern US9.12 | Manuel | Éprouvé |
 | `cycle-produit-bmad` | Cycle produit BMAD (brief→PRD→archi→epics→dev→review), clos par `revue-increment` | `generate_bmad_playbook.py` (regénérer, ne pas éditer) | Jamais joué — sur demande explicite |

@@ -10,6 +10,11 @@ Les étapes de vérification réelle sont **conditionnelles au type de fichiers 
 (table des vérifications obligatoires de la skill) : ne garder à l'instanciation que
 celles dont la condition s'applique, ne jamais retirer `pytest` ni `revue-increment`.
 
+Frontière avec `export-ppt-verifie` : un changement de code qui *touche* l'export PPT au
+passage reste ici (l'étape `verification-pptx` couvre) ; quand le **livrable est le deck
+lui-même** (layout, contenu, visuel), préférer `export-ppt-verifie` qui déroule la chaîne
+PPT complète (cadres photo, polish, passe design).
+
 ```json
 {
   "nom": "dev-verifie",

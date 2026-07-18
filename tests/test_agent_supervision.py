@@ -33,8 +33,9 @@ def _env(tmp_path):
         AGENT_SUPERVISION_RUNS=str(tmp_path / "runs.jsonl"),
         AGENT_SUPERVISION_ROUTING_HINTS=str(tmp_path / "routing-hints.json"),
         AGENT_SUPERVISION_DIAGNOSTIC=str(tmp_path / "diagnostic.json"),
-        # Jamais la vraie base app par défaut dans les tests.
+        # Jamais la vraie base app ni les vrais arbitrages par défaut dans les tests.
         AGENT_SUPERVISION_OPENHUB_DB=str(tmp_path / "absent.db"),
+        AGENT_SUPERVISION_ARBITRAGES=str(tmp_path / "arbitrages.json"),
     )
 
 
@@ -361,3 +362,45 @@ def test_couverture_openhub_optionnelle(tmp_path):
     page = (tmp_path / "page.md").read_text(encoding="utf-8")
     assert "## Agents OpenHub (app)" in page
     assert "1 réel(s), 1 simulé(s)" in page and "`Auditeur` ×2" in page
+
+
+# --- Arbitrages : boucle propose→arbitre bouclée (décisions humaines qui closent un TODO) ---
+
+
+def test_arbitrages_closent_les_todos_et_restent_affiches(tmp_path):
+    tdir = tmp_path / "transcripts"
+    tdir.mkdir()
+    (tdir / "s1.jsonl").write_text(_line(skill="run-dev-server"), encoding="utf-8")
+
+    # Sans arbitrage : les constats d'usage nagguent (skills BMAD réels du repo, 0 invocation).
+    _run(tmp_path)
+    page = (tmp_path / "page.md").read_text(encoding="utf-8")
+    assert "Trier les skills BMAD" in page
+    assert "Arbitrages enregistrés" not in page
+
+    # Avec arbitrages : le TODO correspondant disparaît, la décision reste visible
+    # (page + bloc HTML) et part dans routing-hints.json pour l'orchestrateur.
+    (tmp_path / "arbitrages.json").write_text(json.dumps({"arbitrages": [
+        {"cible": "famille:BMAD", "decision": "tri exécuté le 2026-07-18", "date": "2026-07-18"},
+        {"cible": "pptx-framed-image", "decision": "conservée — playbook export-ppt-verifie", "date": "2026-07-18"},
+        {"cible": "sans-decision"},  # entrée invalide : ignorée, jamais bloquante
+    ]}, ensure_ascii=False), encoding="utf-8")
+    html = tmp_path / "wiki.html"
+    html.write_text(
+        "<!-- TODO-AGENTS-HTML:START -->x<!-- TODO-AGENTS-HTML:END -->", encoding="utf-8"
+    )
+    result = _run(tmp_path)
+    assert result.returncode == 0, result.stderr
+    page = (tmp_path / "page.md").read_text(encoding="utf-8")
+    assert "Trier les skills BMAD" not in page
+    assert "## Arbitrages enregistrés" in page
+    assert "tri exécuté le 2026-07-18" in page
+    # La skill arbitrée sort de la ligne TODO « Skills projet sans usage »…
+    todo_projet = [l for l in page.splitlines() if "Skills projet sans usage" in l]
+    assert all("pptx-framed-image" not in l for l in todo_projet)
+    # …mais l'usage réel reste mesuré : toujours listée en « Jamais utilisés ».
+    assert page.count("pptx-framed-image") >= 2  # section jamais-utilisés + section arbitrages
+    assert "Arbitrages enregistrés" in html.read_text(encoding="utf-8")
+    hints = json.loads((tmp_path / "routing-hints.json").read_text(encoding="utf-8"))
+    assert [a["cible"] for a in hints["arbitrages"]] == ["famille:BMAD", "pptx-framed-image"]
+    assert "pptx-framed-image" in hints["jamais_utilises"]

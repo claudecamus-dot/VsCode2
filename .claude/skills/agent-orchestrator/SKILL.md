@@ -32,6 +32,7 @@ checkpoints**, ne garder que les étapes conditionnelles applicables. Playbooks 
 | Playbook | Pour | Statut |
 | --- | --- | --- |
 | `dev-verifie` | Implémentation/correction avec tests + vérif réelle + revue-increment avant commit | Éprouvé |
+| `export-ppt-verifie` | Livrable = le deck de restitution : génération + enrichissements conditionnels (cadres photo, polish, design) + `pptx-verify` obligatoire | Éprouvé (colonne vertébrale) |
 | `revue-design-parallele` | Revue multi-angles d'un livrable en fan-out puis consolidation | Éprouvé |
 | `cycle-produit-bmad` | Cycle produit BMAD complet (généré depuis le CSV) — **sur demande explicite uniquement** | Jamais joué |
 

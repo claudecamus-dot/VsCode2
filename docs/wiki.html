@@ -757,10 +757,10 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-18T12:46:25+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-18T18:13:29+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>20 sessions</strong> couvertes · <strong>33</strong> invocations de skills · <strong>31</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>21 sessions</strong> couvertes · <strong>36</strong> invocations de skills · <strong>31</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">scan_transcripts.py · 2026-07-18 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
@@ -770,17 +770,17 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Skill</th><th>Famille</th><th>Invocations</th><th>Première</th><th>Dernière</th></tr></thead>
           <tbody>
-            <tr><td><code>run-dev-server</code></td><td>projet</td><td>9</td><td>2026-07-03</td><td>2026-07-17</td></tr>
+            <tr><td><code>run-dev-server</code></td><td>projet</td><td>10</td><td>2026-07-03</td><td>2026-07-18</td></tr>
             <tr><td><code>update-config</code></td><td>(builtin/session)</td><td>6</td><td>2026-07-03</td><td>2026-07-16</td></tr>
             <tr><td><code>roadmap-keeper</code></td><td>global</td><td>5</td><td>2026-06-25</td><td>2026-07-15</td></tr>
             <tr><td><code>run</code></td><td>(builtin/session)</td><td>3</td><td>2026-06-29</td><td>2026-07-03</td></tr>
+            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>2</td><td>2026-07-17</td><td>2026-07-18</td></tr>
             <tr><td><code>pptx-deck</code></td><td>global</td><td>2</td><td>2026-07-02</td><td>2026-07-03</td></tr>
+            <tr><td><code>pptx-verify</code></td><td>global</td><td>2</td><td>2026-07-03</td><td>2026-07-18</td></tr>
             <tr><td><code>skill-creator</code></td><td>global</td><td>2</td><td>2026-07-03</td><td>2026-07-03</td></tr>
-            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>1</td><td>2026-07-17</td><td>2026-07-17</td></tr>
             <tr><td><code>agent-supervisor</code></td><td>projet</td><td>1</td><td>2026-07-18</td><td>2026-07-18</td></tr>
             <tr><td><code>claude-api</code></td><td>(builtin/session)</td><td>1</td><td>2026-06-29</td><td>2026-06-29</td></tr>
             <tr><td><code>init</code></td><td>(builtin/session)</td><td>1</td><td>2026-07-03</td><td>2026-07-03</td></tr>
-            <tr><td><code>pptx-verify</code></td><td>global</td><td>1</td><td>2026-07-03</td><td>2026-07-03</td></tr>
             <tr><td><code>revue-increment</code></td><td>projet</td><td>1</td><td>2026-07-18</td><td>2026-07-18</td></tr>
           </tbody>
         </table>
@@ -807,17 +807,16 @@ pytest -k "pptx or export"                                                     #
 
 
       <h3>TODO agents — chantiers à lancer (constats automatiques)</h3>
-      <div class="critical">
-        <p><strong>Trier les skills BMAD</strong> : 39 installés, 0 invocation à ce jour — décider lesquels garder, customiser ou désinstaller.</p>
-        <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-07-18 · transcripts de session</div>
-      </div>
-      <div class="critical">
-        <p><strong>Skills projet sans usage</strong> : <code>pptx-framed-image</code>, <code>slide-text-polish</code> — vérifier pertinence et déclencheurs.</p>
-        <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-07-18 · transcripts de session</div>
-      </div>
+      <p><em>(aucun constat — rien à signaler sur les données actuelles)</em></p>
 
+      <h3>Arbitrages enregistrés</h3>
+      <p><em>Constats clos par décision humaine (<code>.claude/supervision/arbitrages.json</code>) — l'usage réel reste mesuré ci-dessus.</em></p>
+      <ul>
+        <li><strong><code>famille:BMAD</code></strong> (2026-07-18) : Tri exécuté : 7 skills retirés, 39 conservés (routage sur demande explicite via bmad-help) — docs/reflexions/tri-skills-bmad.md, commit f604c39.</li>
+        <li><strong><code>pptx-framed-image</code></strong> (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle cadres-photo).</li>
+        <li><strong><code>slide-text-polish</code></strong> (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle polish-texte).</li>
+        <li><strong><code>restitution-deck-design</code></strong> (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle design-review).</li>
+      </ul>
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
       <p><em>Diagnostic à jour.</em></p>
       <div class="critical">

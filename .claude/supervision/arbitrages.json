@@ -1,0 +1,29 @@
+{
+  "_doc": "Décisions humaines qui closent un constat automatique du superviseur (fichier VERSIONNÉ, édité à la main — le scan le lit, ne l'écrit jamais). cible : nom de skill, ou famille:<Nom> pour une famille entière. Un constat arbitré disparaît des TODO auto mais reste visible dans la section « Arbitrages enregistrés » du tableau de bord ; l'usage réel reste mesuré (un arbitrage n'est pas une preuve d'utilité — le superviseur étage 2 peut le re-challenger avec des données nouvelles).",
+  "arbitrages": [
+    {
+      "cible": "famille:BMAD",
+      "decision": "Tri exécuté : 7 skills retirés, 39 conservés (routage sur demande explicite via bmad-help) — docs/reflexions/tri-skills-bmad.md, commit f604c39.",
+      "date": "2026-07-18",
+      "source": "utilisateur"
+    },
+    {
+      "cible": "pptx-framed-image",
+      "decision": "Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle cadres-photo).",
+      "date": "2026-07-18",
+      "source": "utilisateur"
+    },
+    {
+      "cible": "slide-text-polish",
+      "decision": "Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle polish-texte).",
+      "date": "2026-07-18",
+      "source": "utilisateur"
+    },
+    {
+      "cible": "restitution-deck-design",
+      "decision": "Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle design-review).",
+      "date": "2026-07-18",
+      "source": "utilisateur"
+    }
+  ]
+}

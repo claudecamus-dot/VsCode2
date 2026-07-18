@@ -119,7 +119,7 @@ def test_playbook_source_genere_marque_le_script():
 
 def test_playbooks_de_dev_se_terminent_par_revue_increment():
     """Leçon superviseur rendue structurelle : la DoD clôt tout playbook de dev."""
-    for name in ("dev-verifie", "cycle-produit-bmad"):
+    for name in ("dev-verifie", "export-ppt-verifie", "cycle-produit-bmad"):
         pb = _extract_playbook_json(PLAYBOOKS_DIR / f"{name}.md")
         derniere = pb["etapes"][-1]
         assert derniere["agent"] == "revue-increment"

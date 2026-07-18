@@ -199,3 +199,24 @@ Le superviseur ne se contente pas de compter — il produit des recommandations 
 4. **Portée** : superviseur propre à ce projet (`.claude/skills/agent-supervisor`) ou
    réutilisable multi-projets (`~/.claude/skills/`) — les transcripts étant rangés par
    projet, une version globale est faisable mais à paramétrer.
+
+## 11. Finalisation (2026-07-18) — arbitrages : la boucle propose→arbitre bouclée côté scan
+
+Constat de fin de chantier : les TODO automatiques re-nagguaient après arbitrage humain
+(« Trier les skills BMAD » persistait alors que le tri était exécuté et commité ; « Skills
+projet sans usage » re-listait `pptx-framed-image`/`slide-text-polish` alors que
+l'utilisateur avait décidé de les conserver). Le cycle propose→arbitre→applique existait
+pour les *propositions* de l'étage 2, pas pour les *constats* déterministes de l'étage 1.
+
+Réalisation : `.claude/supervision/arbitrages.json` — fichier **versionné**, édité à la
+main, jamais écrit par le scan. Chaque entrée `{cible, decision, date, source}` (cible =
+nom de skill ou `famille:<Nom>`) clôt le TODO correspondant dans les pages générées ; la
+décision reste visible (section « Arbitrages enregistrés », markdown + HTML) et part dans
+`routing-hints.json` pour l'orchestrateur. Garde-fous : l'usage réel reste mesuré (la
+section « Jamais utilisés » ne ment pas), un arbitrage n'est pas une preuve d'utilité —
+l'étage 2 peut le re-challenger sur données nouvelles — et une entrée invalide est
+ignorée sans bloquer le scan. Test : `test_arbitrages_closent_les_todos_et_restent_affiches`.
+
+Premiers arbitrages enregistrés : le tri BMAD (exécuté le 2026-07-18) et la conservation
+des 3 skills PPT jamais invoquées, reliées au playbook `export-ppt-verifie` de
+l'orchestrateur. Les incréments A/B/C + cette finalisation closent le chantier superviseur.

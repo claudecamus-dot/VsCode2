@@ -9,23 +9,23 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-18T12:46:25+02:00 · **20 sessions** (transcripts) · **33** invocations de skills · **31** lancements de sous-agents.
+Dernier scan : 2026-07-18T18:13:29+02:00 · **21 sessions** (transcripts) · **36** invocations de skills · **31** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `run-dev-server` | projet | 9 | 2026-07-03 | 2026-07-17 |
+| `run-dev-server` | projet | 10 | 2026-07-03 | 2026-07-18 |
 | `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
 | `roadmap-keeper` | global | 5 | 2026-06-25 | 2026-07-15 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
+| `agent-orchestrator` | projet | 2 | 2026-07-17 | 2026-07-18 |
 | `pptx-deck` | global | 2 | 2026-07-02 | 2026-07-03 |
+| `pptx-verify` | global | 2 | 2026-07-03 | 2026-07-18 |
 | `skill-creator` | global | 2 | 2026-07-03 | 2026-07-03 |
-| `agent-orchestrator` | projet | 1 | 2026-07-17 | 2026-07-17 |
 | `agent-supervisor` | projet | 1 | 2026-07-18 | 2026-07-18 |
 | `claude-api` | (builtin/session) | 1 | 2026-06-29 | 2026-06-29 |
 | `init` | (builtin/session) | 1 | 2026-07-03 | 2026-07-03 |
-| `pptx-verify` | global | 1 | 2026-07-03 | 2026-07-03 |
 | `revue-increment` | projet | 1 | 2026-07-18 | 2026-07-18 |
 
 ## Sous-agents
@@ -58,8 +58,16 @@ Dernier scan : 2026-07-18T12:46:25+02:00 · **20 sessions** (transcripts) · **3
 
 ## TODO agents (constats automatiques)
 
-1. **Trier les skills BMAD** : 39 installés, 0 invocation à ce jour — décider lesquels garder, customiser ou désinstaller.
-2. **Skills projet sans usage** : `pptx-framed-image`, `slide-text-polish` — vérifier pertinence et déclencheurs.
+_(aucun constat — rien à signaler sur les données actuelles)_
+
+## Arbitrages enregistrés
+
+_Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) — l'usage réel reste mesuré ci-dessus._
+
+- **`famille:BMAD`** (2026-07-18) : Tri exécuté : 7 skills retirés, 39 conservés (routage sur demande explicite via bmad-help) — docs/reflexions/tri-skills-bmad.md, commit f604c39.
+- **`pptx-framed-image`** (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle cadres-photo).
+- **`slide-text-polish`** (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle polish-texte).
+- **`restitution-deck-design`** (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle design-review).
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
