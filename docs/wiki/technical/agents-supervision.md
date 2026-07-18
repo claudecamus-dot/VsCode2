@@ -9,7 +9,7 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-18T12:10:50+02:00 · **20 sessions** (transcripts) · **32** invocations de skills · **28** lancements de sous-agents.
+Dernier scan : 2026-07-18T12:24:40+02:00 · **20 sessions** (transcripts) · **33** invocations de skills · **28** lancements de sous-agents.
 
 ## Skills — usage réel
 
@@ -26,6 +26,7 @@ Dernier scan : 2026-07-18T12:10:50+02:00 · **20 sessions** (transcripts) · **3
 | `claude-api` | (builtin/session) | 1 | 2026-06-29 | 2026-06-29 |
 | `init` | (builtin/session) | 1 | 2026-07-03 | 2026-07-03 |
 | `pptx-verify` | global | 1 | 2026-07-03 | 2026-07-03 |
+| `revue-increment` | projet | 1 | 2026-07-18 | 2026-07-18 |
 
 ## Sous-agents
 
@@ -39,9 +40,9 @@ Dernier scan : 2026-07-18T12:10:50+02:00 · **20 sessions** (transcripts) · **3
 
 ## Jamais utilisés
 
-**projet** — 3/6 jamais invoqués :
+**projet** — 2/6 jamais invoqués :
 
-`pptx-framed-image`, `revue-increment`, `slide-text-polish`
+`pptx-framed-image`, `slide-text-polish`
 
 **BMAD** — 46/46 jamais invoqués :
 
@@ -58,8 +59,7 @@ Dernier scan : 2026-07-18T12:10:50+02:00 · **20 sessions** (transcripts) · **3
 ## TODO agents (constats automatiques)
 
 1. **Trier les skills BMAD** : 46 installés, 0 invocation à ce jour — décider lesquels garder, customiser ou désinstaller.
-2. **`revue-increment` jamais invoquée** malgré le rappel SessionStart à chaque session — revoir son déclencheur (l'ancrer au flux de commit ?) ou la simplifier.
-3. **Skills projet sans usage** : `pptx-framed-image`, `slide-text-polish` — vérifier pertinence et déclencheurs.
+2. **Skills projet sans usage** : `pptx-framed-image`, `slide-text-polish` — vérifier pertinence et déclencheurs.
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 

@@ -22,8 +22,8 @@ def _line(skill=None, subagent=None, ts="2026-07-17T10:00:00Z"):
     return json.dumps({"timestamp": ts, "message": {"content": [blk]}}) + "\n"
 
 
-def _run(tmp_path, args=()):
-    env = dict(
+def _env(tmp_path):
+    return dict(
         os.environ,
         AGENT_SUPERVISION_TRANSCRIPTS=str(tmp_path / "transcripts"),
         AGENT_SUPERVISION_STATE=str(tmp_path / "state.json"),
@@ -33,10 +33,15 @@ def _run(tmp_path, args=()):
         AGENT_SUPERVISION_RUNS=str(tmp_path / "runs.jsonl"),
         AGENT_SUPERVISION_ROUTING_HINTS=str(tmp_path / "routing-hints.json"),
         AGENT_SUPERVISION_DIAGNOSTIC=str(tmp_path / "diagnostic.json"),
+        # Jamais la vraie base app par défaut dans les tests.
+        AGENT_SUPERVISION_OPENHUB_DB=str(tmp_path / "absent.db"),
     )
+
+
+def _run(tmp_path, args=()):
     return subprocess.run(
         [sys.executable, str(SCRIPT), *args],
-        env=env, capture_output=True, text=True, timeout=60,
+        env=_env(tmp_path), capture_output=True, text=True, timeout=60,
     )
 
 
@@ -271,3 +276,88 @@ def test_write_diagnostic_rejette_sans_preuve_ou_categorie_inconnue(tmp_path):
     ]})
     assert mauvaise_cat.returncode == 1 and "categorie invalide" in mauvaise_cat.stdout
     assert not (tmp_path / "diagnostic.json").exists()
+
+
+# --- Incrément C : challenge (propositions, prudence déterministe, trous, OpenHub) ---
+
+
+def test_proposition_de_challenge_rendue_dans_la_page(tmp_path):
+    tdir = tmp_path / "transcripts"
+    tdir.mkdir()
+    (tdir / "s1.jsonl").write_text(_line(skill="run-dev-server"), encoding="utf-8")
+    assert _write_diag(tmp_path, {"findings": [
+        {"categorie": "agent-mort", "titre": "slide-text-polish sans usage",
+         "preuve": "0 invocation depuis 2026-07-15",
+         "proposition": "élargir son déclencheur à toute revue de deck, sinon désinstaller"},
+    ]}).returncode == 0
+    _run(tmp_path)
+    page = (tmp_path / "page.md").read_text(encoding="utf-8")
+    assert "**Proposition** : élargir son déclencheur" in page
+
+
+def test_prudence_deterministe_sur_echecs_repetes_et_trous_catalogue(tmp_path):
+    tdir = tmp_path / "transcripts"
+    tdir.mkdir()
+    (tdir / "s1.jsonl").write_text(_line(skill="run-dev-server"), encoding="utf-8")
+    echec = _run_line(resultat="echec", plan=[
+        {"etape": "x", "agent": "bmad-quick-dev", "mode": "synchrone", "modele": "sonnet"}
+    ])
+    (tmp_path / "runs.jsonl").write_text(
+        echec + echec
+        + _run_line(notes="resolution: creation relecteur-pptx")
+        + _run_line(notes="blocage puis resolution: creation relecteur-pptx"),
+        encoding="utf-8",
+    )
+    _run(tmp_path)
+    hints = json.loads((tmp_path / "routing-hints.json").read_text(encoding="utf-8"))
+    assert {"cible": "bmad-quick-dev",
+            "raison": "échecs répétés en orchestration (2/2 runs)"} in hints["prudence"]
+    assert hints["trous_catalogue"] == [{"resolution": "creation", "nom": "relecteur-pptx", "n": 2}]
+    # Trou récurrent (≥2) : remonté en TODO déterministe.
+    assert "Trou récurrent du catalogue" in (tmp_path / "page.md").read_text(encoding="utf-8")
+
+
+def test_diagnostic_perime_par_activite_meme_recent(tmp_path):
+    tdir = tmp_path / "transcripts"
+    tdir.mkdir()
+    (tdir / "s1.jsonl").write_text(_line(skill="run-dev-server"), encoding="utf-8")
+    assert _write_diag(tmp_path, {"findings": [
+        {"categorie": "autre", "titre": "t", "preuve": "p"},
+    ]}).returncode == 0
+    # 3 runs postérieurs au diagnostic : périmé malgré une date récente.
+    futur = "2099-01-01T00:00:00+00:00"
+    (tmp_path / "runs.jsonl").write_text(3 * _run_line(ts=futur), encoding="utf-8")
+    result = _run(tmp_path)
+    assert "a lancer ou perime" in result.stdout
+    hints = json.loads((tmp_path / "routing-hints.json").read_text(encoding="utf-8"))
+    assert hints["diagnostic_a_jour"] is False
+
+
+def test_couverture_openhub_optionnelle(tmp_path):
+    import sqlite3
+
+    tdir = tmp_path / "transcripts"
+    tdir.mkdir()
+    (tdir / "s1.jsonl").write_text(_line(skill="run-dev-server"), encoding="utf-8")
+    # Sans base : aucune section, le scan ne bronche pas (déjà couvert par les tests amont).
+    _run(tmp_path)
+    assert "OpenHub" not in (tmp_path / "page.md").read_text(encoding="utf-8")
+    # Avec une base agent_results : section rendue, réels vs simulés distingués.
+    db = tmp_path / "app.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE agent_results (agent_label TEXT, runtime_available INT, created_at TEXT)")
+    con.executemany("INSERT INTO agent_results VALUES (?, ?, ?)", [
+        ("Auditeur", 0, "2026-07-10T10:00:00"),
+        ("Auditeur", 1, "2026-07-12T10:00:00"),
+    ])
+    con.commit()
+    con.close()
+    env_db = {"AGENT_SUPERVISION_OPENHUB_DB": str(db)}
+    result = subprocess.run(
+        [sys.executable, str(SCRIPT)],
+        env={**_env(tmp_path), **env_db}, capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
+    page = (tmp_path / "page.md").read_text(encoding="utf-8")
+    assert "## Agents OpenHub (app)" in page
+    assert "1 réel(s), 1 simulé(s)" in page and "`Auditeur` ×2" in page

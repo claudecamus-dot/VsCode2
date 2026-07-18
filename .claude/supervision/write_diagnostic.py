@@ -14,6 +14,11 @@ Schéma attendu : {"findings": [{"categorie", "titre", "preuve", ...}]}
     sans donnée à l'appui.
   - priorite (int 1-5, optionnel, défaut 1), cible (str, optionnel),
     recommandation (str, optionnel).
+  - proposition (str, optionnel — incrément C « challenger ») : le changement concret
+    proposé (nouveau déclencheur de skill, contrat de playbook amendé, désinstallation…),
+    en une phrase ou un mini-diff inline. Rendue dans le wiki avec le constat ;
+    JAMAIS appliquée par le superviseur — l'humain arbitre, l'orchestrateur applique
+    la version validée (gouvernance : agent-orchestrateur.md §6).
 `generated` est posé par ce script (horodatage courant) ; le fichier est réécrit en
 entier à chaque diagnostic (pas un journal). Gitignoré — donnée machine.
 Env (tests) : AGENT_SUPERVISION_DIAGNOSTIC. Conception : docs/reflexions/agent-superviseur.md.

@@ -17,8 +17,17 @@
 > exécuté, changement PPT sans `pptx-verify` depuis le 2026-07-03, orchestrateur n'ayant
 > encore jamais délégué à un sous-agent). Tests : `test_agent_supervision.py` (validation
 > du writer, boucle écriture→scan→wiki).
-> Incrément C (challenge : diffs de customisation proposés, interactions inter-agents,
-> couverture OpenHub) reste à lancer. Réflexion rédigée le 2026-07-17.
+> **Incrément C réalisé le 2026-07-18** (challenge) : champ `proposition` par constat —
+> le changement concret proposé (déclencheur de skill, contrat de playbook,
+> désinstallation), rendu dans le wiki avec le constat, gouvernance stricte
+> propose→arbitre→applique (jamais auto-appliqué) ; côté déterministe le scan ajoute la
+> **prudence automatique** (agents en échec répété dans `runs.jsonl`, sans attendre le
+> diagnostic), l'agrégat **`trous_catalogue`** (résolutions ad hoc
+> `restauration|evolution|creation` notées par l'orchestrateur — TODO wiki si
+> récurrent), la **péremption à l'activité** du diagnostic (3 orchestrations non
+> couvertes, en plus de la cadence 14 j) et la **couverture OpenHub** (table
+> `agent_results` de `data/app.db`, lecture seule, section optionnelle du tableau de
+> bord — décision n°2 : reportée jusqu'ici). Réflexion rédigée le 2026-07-17.
 > Document jumeau : [agent-orchestrateur.md](agent-orchestrateur.md) (réflexion 2026-07-17) —
 > l'orchestrateur consomme les données du superviseur (hints de routage) et alimente en
 > retour son journal d'exécution (`runs.jsonl`), la métrique « plan vs réel » de l'étage 2.

@@ -12,9 +12,15 @@ fichier pour ne relire que le nouveau), puis régénère :
 
 Si .claude/supervision/diagnostic.json existe (écrit par la skill `agent-supervisor`,
 étage 2 — diagnostic LLM), ses constats qualitatifs sont fusionnés dans la section TODO
-du tableau de bord (distincts des constats déterministes) et dans routing-hints.json
-(liste "prudence"). Ce script ne produit jamais lui-même de diagnostic qualitatif — 0 token
-LLM, toujours.
+du tableau de bord (distincts des constats déterministes, avec leur éventuelle
+`proposition` de changement) et dans routing-hints.json (liste "prudence").
+
+Incrément C (challenge, déterministe) : prudence automatique sur les agents en échec
+répété dans runs.jsonl, agrégat des `resolution: <type> <nom>` (trous du catalogue,
+TODO si récurrent), péremption du diagnostic à l'activité (DIAGNOSTIC_STALE_RUNS runs
+non couverts) en plus de la cadence temporelle, et couverture OpenHub (table
+agent_results de data/app.db, lecture seule, optionnelle). Ce script ne produit jamais
+lui-même de diagnostic qualitatif — 0 token LLM, toujours.
 
 Lancé automatiquement par le hook SessionStart (sortie : 1 ligne, jamais bloquant).
 Usage manuel : py .claude/supervision/scan_transcripts.py [--full]
@@ -22,7 +28,8 @@ Usage manuel : py .claude/supervision/scan_transcripts.py [--full]
 
 Env (surcharges, utilisées par les tests) : AGENT_SUPERVISION_TRANSCRIPTS,
 AGENT_SUPERVISION_STATE, AGENT_SUPERVISION_WIKI_PAGE, AGENT_SUPERVISION_WIKI_INDEX,
-AGENT_SUPERVISION_RUNS, AGENT_SUPERVISION_ROUTING_HINTS, AGENT_SUPERVISION_DIAGNOSTIC.
+AGENT_SUPERVISION_RUNS, AGENT_SUPERVISION_ROUTING_HINTS, AGENT_SUPERVISION_DIAGNOSTIC,
+AGENT_SUPERVISION_OPENHUB_DB.
 Conception : docs/reflexions/agent-superviseur.md, docs/reflexions/agent-orchestrateur.md §6.
 """
 import datetime as dt
@@ -53,9 +60,14 @@ ROUTING_HINTS_PATH = os.environ.get("AGENT_SUPERVISION_ROUTING_HINTS") or os.pat
 DIAGNOSTIC_PATH = os.environ.get("AGENT_SUPERVISION_DIAGNOSTIC") or os.path.join(
     SUP_DIR, "diagnostic.json"
 )
+OPENHUB_DB = os.environ.get("AGENT_SUPERVISION_OPENHUB_DB") or os.path.join(
+    REPO, "data", "app.db"
+)
 DORMANT_DAYS = 30
 PROVEN_MIN = 3  # invocations à partir desquelles un agent/skill est "éprouvé"
 DIAGNOSTIC_CADENCE_DAYS = 14  # au-delà : le diagnostic étage 2 est signalé "à relancer"
+DIAGNOSTIC_STALE_RUNS = 3  # runs d'orchestration non couverts qui périment aussi le diagnostic
+ECHEC_PRUDENCE_MIN = 2  # échecs en orchestration à partir desquels un agent passe en prudence
 MARK_START = "<!-- TODO-AGENTS:START"
 MARK_END = "<!-- TODO-AGENTS:END -->"
 HTML_MARK_START = "<!-- TODO-AGENTS-HTML:START"
@@ -213,11 +225,17 @@ def load_diagnostic() -> dict:
         return None
 
 
-def diagnostic_a_jour(diagnostic) -> bool:
+def diagnostic_a_jour(diagnostic, runs: list = None) -> bool:
+    """Périmé au-delà de la cadence temporelle, OU dès que trop d'orchestrations récentes
+    (incrément C : seuil d'activité) ne sont pas couvertes par le dernier diagnostic."""
     if not diagnostic:
         return False
-    d = days_since(diagnostic.get("generated", ""))
-    return d is not None and d <= DIAGNOSTIC_CADENCE_DAYS
+    generated = diagnostic.get("generated", "")
+    d = days_since(generated)
+    if d is None or d > DIAGNOSTIC_CADENCE_DAYS:
+        return False
+    non_couverts = sum(1 for r in runs or [] if (r.get("ts") or "") > generated)
+    return non_couverts < DIAGNOSTIC_STALE_RUNS
 
 
 def diagnostic_todos(diagnostic) -> list:
@@ -231,8 +249,51 @@ def diagnostic_todos(diagnostic) -> list:
         if not titre:
             continue
         reco = (f.get("recommandation") or "").strip()
-        out.append(f"**{titre}**" + (f" — {reco}" if reco else ""))
+        prop = (f.get("proposition") or "").strip()
+        item = f"**{titre}**" + (f" — {reco}" if reco else "")
+        if prop:  # incrément C : changement concret proposé, à arbitrer (jamais auto-appliqué)
+            item += f" · **Proposition** : {prop}"
+        out.append(item)
     return out
+
+
+def catalogue_gaps(runs: list) -> dict:
+    """Trous du catalogue (incrément C) : agrégat des `resolution: <type> <nom>` notés par
+    l'orchestrateur quand aucun agent ne couvrait la demande (restauration/évolution/création)."""
+    gaps = {}
+    for r in runs:
+        for res, nom in re.findall(
+            r"resolution:\s*(restauration|evolution|creation)\s+([\w./-]+)", r.get("notes") or ""
+        ):
+            gaps[(res, nom)] = gaps.get((res, nom), 0) + 1
+    return gaps
+
+
+def openhub_stats():
+    """Couverture OpenHub (incrément C) : lit la table agent_results de l'app (SQLite,
+    lecture seule) — résultats réels vs fallback simulé (opencode absent). None si base
+    ou table absente : la couverture reste optionnelle, jamais bloquante."""
+    import sqlite3
+
+    try:
+        con = sqlite3.connect(f"file:{OPENHUB_DB}?mode=ro", uri=True)
+        try:
+            rows = con.execute(
+                "SELECT agent_label, runtime_available, created_at FROM agent_results"
+            ).fetchall()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+    par_agent = {}
+    reels = 0
+    last = ""
+    for label, runtime, created in rows:
+        par_agent[label] = par_agent.get(label, 0) + 1
+        reels += 1 if runtime else 0
+        last = max(last, created or "")
+    return {"n": len(rows), "reels": reels, "simules": len(rows) - reels,
+            "last": last, "par_agent": par_agent}
 
 
 def build_runs_stats(runs: list):
@@ -269,7 +330,8 @@ def build_runs_stats(runs: list):
     return par_playbook, par_agent
 
 
-def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: dict, diagnostic) -> dict:
+def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: dict, diagnostic,
+                        runs: list = None) -> dict:
     """Sens superviseur → orchestrateur (conception §6) : ce que le scan mesure, appliqué
     par la skill agent-orchestrator lors de la composition d'un plan."""
     skills = state.get("skills", {})
@@ -291,6 +353,16 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
         for f in diagnostic.get("findings", []) or []:
             if f.get("categorie") in ("ko-repete", "inefficacite") and f.get("cible"):
                 prudence.append({"cible": f["cible"], "raison": (f.get("titre") or "").strip()})
+    # Incrément C — prudence déterministe : échecs répétés dans le journal d'orchestration,
+    # sans attendre le diagnostic LLM (dédupliqué sur les cibles déjà signalées).
+    deja = {p["cible"] for p in prudence}
+    for agent, e in sorted(par_agent.items()):
+        if agent not in deja and e["echecs"] >= ECHEC_PRUDENCE_MIN and e["echecs"] > e["succes"]:
+            prudence.append({
+                "cible": agent,
+                "raison": f"échecs répétés en orchestration ({e['echecs']}/{e['n']} runs)",
+            })
+    gaps = catalogue_gaps(runs or [])
     return {
         "generated": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         "eprouves": eprouves,
@@ -300,12 +372,23 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
         "playbooks": par_playbook,
         "agents": par_agent,
         "prudence": prudence,
-        "diagnostic_a_jour": diagnostic_a_jour(diagnostic),
+        "trous_catalogue": [
+            {"resolution": res, "nom": nom, "n": n}
+            for (res, nom), n in sorted(gaps.items(), key=lambda kv: -kv[1])
+        ],
+        "diagnostic_a_jour": diagnostic_a_jour(diagnostic, runs),
     }
 
 
-def build_todos(skills: dict, fam: dict) -> list:
+def build_todos(skills: dict, fam: dict, gaps: dict = None) -> list:
     todos = []
+    # Incrément C : un même agent demandé/recréé plusieurs fois ad hoc = trou récurrent.
+    for (res, nom), n in sorted((gaps or {}).items(), key=lambda kv: -kv[1]):
+        if n >= 2:
+            todos.append(
+                f"**Trou récurrent du catalogue** : `{nom}` a nécessité une résolution ad hoc "
+                f"×{n} ({res}) — l'ancrer pour de bon (création/restauration à arbitrer)."
+            )
     bmad = [k for k, v in fam.items() if v == "BMAD"]
     bmad_unused = [k for k in bmad if k not in skills]
     if bmad and bmad_unused:
@@ -373,7 +456,8 @@ def _usage_table(agg: dict, fam: dict = None) -> list:
     return lines
 
 
-def build_page(state: dict, fam: dict, todos: list, diag_todos: list = None, diag_a_jour: bool = False) -> str:
+def build_page(state: dict, fam: dict, todos: list, diag_todos: list = None, diag_a_jour: bool = False,
+               openhub: dict = None) -> str:
     skills = state.get("skills", {})
     subagents = state.get("subagents", {})
     nb_files = len(state.get("files", {}))
@@ -422,6 +506,15 @@ def build_page(state: dict, fam: dict, todos: list, diag_todos: list = None, dia
             L.append("</details>")
         else:
             L.append(", ".join(f"`{n}`" for n in names))
+        L.append("")
+    if openhub and openhub["n"]:
+        L += ["## Agents OpenHub (app)", ""]
+        L.append(
+            f"**{openhub['n']}** résultat(s) en base (`agent_results`) — {openhub['reels']} réel(s), "
+            f"{openhub['simules']} simulé(s) (fallback sans `opencode`) · dernier : {_fmt_date(openhub['last'])}."
+        )
+        L.append("")
+        L.append(", ".join(f"`{k}` ×{v}" for k, v in sorted(openhub["par_agent"].items())))
         L.append("")
     L += ["## TODO agents (constats automatiques)", ""]
     if todos:
@@ -480,7 +573,8 @@ def _html_usage_rows(agg: dict, fam: dict = None) -> str:
     return "\n".join(rows)
 
 
-def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = None, diag_a_jour: bool = False) -> str:
+def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = None, diag_a_jour: bool = False,
+                       openhub: dict = None) -> str:
     skills = state.get("skills", {})
     subagents = state.get("subagents", {})
     nb_files = len(state.get("files", {}))
@@ -531,6 +625,16 @@ def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = N
             "      <p><em>Jamais lancé — invoquer la skill <code>agent-supervisor</code> "
             "(intégrée à <code>revue-increment</code>).</em></p>"
         )
+    if openhub and openhub["n"]:
+        detail = ", ".join(f"<code>{_esc(k)}</code> ×{v}" for k, v in sorted(openhub["par_agent"].items()))
+        openhub_html = (
+            "      <h3>Agents OpenHub (app)</h3>\n"
+            f"      <p><strong>{openhub['n']}</strong> résultat(s) en base (<code>agent_results</code>) — "
+            f"{openhub['reels']} réel(s), {openhub['simules']} simulé(s) (fallback sans <code>opencode</code>) · "
+            f"dernier : {_esc(_fmt_date(openhub['last']))}. {detail}</p>\n"
+        )
+    else:
+        openhub_html = ""
     return f"""
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
@@ -538,7 +642,7 @@ def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = N
       <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : {_esc(state.get('last_scan', '?'))}</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>{nb_files} sessions</strong> couvertes · <strong>{total_skill}</strong> invocations de skills · <strong>{total_sub}</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 — diagnostic qualitatif LLM — pas encore construit).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>{nb_files} sessions</strong> couvertes · <strong>{total_skill}</strong> invocations de skills · <strong>{total_sub}</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">scan_transcripts.py · {today} · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
@@ -566,6 +670,7 @@ def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = N
       <h3>Jamais utilisés</h3>
 {chr(10).join(unused_html) if unused_html else "      <p><em>(tous les skills installés ont déjà été invoqués)</em></p>"}
 
+{openhub_html}
       <h3>TODO agents — chantiers à lancer (constats automatiques)</h3>
 {chr(10).join(todo_html)}
 
@@ -575,7 +680,8 @@ def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = N
 """
 
 
-def update_wiki_html(state: dict, fam: dict, todos: list, diag_todos: list = None, diag_a_jour: bool = False) -> bool:
+def update_wiki_html(state: dict, fam: dict, todos: list, diag_todos: list = None, diag_a_jour: bool = False,
+                     openhub: dict = None) -> bool:
     """Remplace le bloc entre marqueurs TODO-AGENTS-HTML de docs/wiki.html.
 
     Ne fait rien si la page ou les marqueurs n'existent pas (les marqueurs sont posés
@@ -590,7 +696,7 @@ def update_wiki_html(state: dict, fam: dict, todos: list, diag_todos: list = Non
         return False
     block = (
         f"{HTML_MARK_START} — bloc généré par .claude/supervision/scan_transcripts.py, ne pas éditer à la main -->"
-        + build_html_section(state, fam, todos, diag_todos, diag_a_jour)
+        + build_html_section(state, fam, todos, diag_todos, diag_a_jour, openhub)
         + HTML_MARK_END
     )
     pattern = re.escape(HTML_MARK_START) + r".*?" + re.escape(HTML_MARK_END)
@@ -633,14 +739,15 @@ def main(argv) -> int:
     new_events = scan(state)
     save_state(state)
     fam = installed_skills()
-    todos = build_todos(state.get("skills", {}), fam)
-
     runs = load_jsonl(RUNS_PATH)
+    todos = build_todos(state.get("skills", {}), fam, catalogue_gaps(runs))
+
     par_playbook, par_agent = build_runs_stats(runs)
     diagnostic = load_diagnostic()
     diag_todos = diagnostic_todos(diagnostic)
-    diag_a_jour = diagnostic_a_jour(diagnostic)
-    hints = build_routing_hints(state, fam, par_playbook, par_agent, diagnostic)
+    diag_a_jour = diagnostic_a_jour(diagnostic, runs)
+    openhub = openhub_stats()
+    hints = build_routing_hints(state, fam, par_playbook, par_agent, diagnostic, runs)
     hints_dir = os.path.dirname(ROUTING_HINTS_PATH)
     if hints_dir:
         os.makedirs(hints_dir, exist_ok=True)
@@ -651,9 +758,9 @@ def main(argv) -> int:
     if page_dir:
         os.makedirs(page_dir, exist_ok=True)
     with open(WIKI_PAGE, "w", encoding="utf-8") as fh:
-        fh.write(build_page(state, fam, todos, diag_todos, diag_a_jour))
+        fh.write(build_page(state, fam, todos, diag_todos, diag_a_jour, openhub))
     update_index(todos)
-    html_ok = update_wiki_html(state, fam, todos, diag_todos, diag_a_jour)
+    html_ok = update_wiki_html(state, fam, todos, diag_todos, diag_a_jour, openhub)
     missing = state.get("transcript_dir_missing")
     detail = f" (transcripts introuvables : {missing})" if missing else ""
     if not html_ok:

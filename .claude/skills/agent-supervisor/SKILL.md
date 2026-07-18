@@ -1,6 +1,6 @@
 ---
 name: agent-supervisor
-description: Superviseur des agents, étage 2 (diagnostic LLM) — analyse les données déterministes de l'étage 1 (usage, runs d'orchestration, signaux git/mémoire), qualifie les KO répétés, l'inefficacité, les agents morts et les vérifications manquantes, puis écrit diagnostic.json (fusionné dans le wiki et routing-hints.json par le scan). À lancer depuis revue-increment, ou quand le hook SessionStart signale « diagnostic agent-supervisor a lancer ou perime » (cadence 14 j).
+description: Superviseur des agents, étage 2 (diagnostic LLM) — analyse les données déterministes de l'étage 1 (usage, runs d'orchestration, signaux git/mémoire), qualifie les KO répétés, l'inefficacité, les agents morts et les vérifications manquantes, challenge les agents avec des propositions de changement concrètes (champ proposition — l'humain arbitre, jamais auto-appliqué), puis écrit diagnostic.json (fusionné dans le wiki et routing-hints.json par le scan). À lancer depuis revue-increment, ou quand le hook SessionStart signale « diagnostic agent-supervisor a lancer ou perime » (cadence 14 j ou 3 orchestrations non couvertes).
 ---
 
 # Superviseur d'agents — étage 2 (diagnostic qualitatif)
@@ -57,6 +57,21 @@ mesure ; cet étage **qualifie** — et l'humain tranche. Sortie unique :
 Ne retenir que ce qui est **actionnable** (une recommandation concrète par constat) et
 **pas déjà couvert** par un TODO déterministe du scan (ex. « trier BMAD » y est déjà —
 inutile de le dupliquer, sauf pour le préciser).
+
+### 3 bis. Challenger (incrément C) — du constat à la proposition concrète
+
+Pour chaque constat qui le justifie, ajouter un champ `proposition` : **le changement
+précis** qu'un humain peut accepter ou refuser d'un coup d'œil — pas « améliorer X »
+mais le diff d'intention : nouveau `description`/déclencheur d'une skill (via
+`skill-creator`, ou `bmad-customize` pour les BMAD), étape/contrat de playbook à amender,
+skill à désinstaller ou mettre en sommeil, brief type à imposer à l'entrée d'un
+sous-agent relancé plusieurs fois. Sources : les signaux d'interaction du scan
+(`prudence` déterministe = échecs répétés en orchestration ; `trous_catalogue` =
+résolutions ad hoc récurrentes) et les stats plan-vs-réel par playbook.
+
+**Gouvernance stricte** : le superviseur *propose* (la `proposition` part dans le wiki
+avec le constat), l'humain *arbitre*, l'orchestrateur *applique* la version validée —
+jamais d'auto-modification, même « évidente ».
 
 ### 4. Écrire le diagnostic, puis propager
 

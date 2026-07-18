@@ -757,10 +757,10 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-18T12:10:50+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-18T12:24:40+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>20 sessions</strong> couvertes · <strong>32</strong> invocations de skills · <strong>28</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 — diagnostic qualitatif LLM — pas encore construit).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>20 sessions</strong> couvertes · <strong>33</strong> invocations de skills · <strong>28</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">scan_transcripts.py · 2026-07-18 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
@@ -781,6 +781,7 @@ pytest -k "pptx or export"                                                     #
             <tr><td><code>claude-api</code></td><td>(builtin/session)</td><td>1</td><td>2026-06-29</td><td>2026-06-29</td></tr>
             <tr><td><code>init</code></td><td>(builtin/session)</td><td>1</td><td>2026-07-03</td><td>2026-07-03</td></tr>
             <tr><td><code>pptx-verify</code></td><td>global</td><td>1</td><td>2026-07-03</td><td>2026-07-03</td></tr>
+            <tr><td><code>revue-increment</code></td><td>projet</td><td>1</td><td>2026-07-18</td><td>2026-07-18</td></tr>
           </tbody>
         </table>
       </div>
@@ -800,18 +801,14 @@ pytest -k "pptx or export"                                                     #
       </div>
 
       <h3>Jamais utilisés</h3>
-      <p><strong>projet</strong> — 3/6 jamais invoqués : <code>pptx-framed-image</code>, <code>revue-increment</code>, <code>slide-text-polish</code></p>
+      <p><strong>projet</strong> — 2/6 jamais invoqués : <code>pptx-framed-image</code>, <code>slide-text-polish</code></p>
       <p><strong>BMAD</strong> — 46/46 jamais invoqués : <details><summary>Voir la liste (46)</summary><p><code>bmad-advanced-elicitation</code>, <code>bmad-agent-analyst</code>, <code>bmad-agent-architect</code>, <code>bmad-agent-dev</code>, <code>bmad-agent-pm</code>, <code>bmad-agent-tech-writer</code>, <code>bmad-agent-ux-designer</code>, <code>bmad-architecture</code>, <code>bmad-brainstorming</code>, <code>bmad-check-implementation-readiness</code>, <code>bmad-checkpoint-preview</code>, <code>bmad-code-review</code>, <code>bmad-correct-course</code>, <code>bmad-create-architecture</code>, <code>bmad-create-epics-and-stories</code>, <code>bmad-create-prd</code>, <code>bmad-create-story</code>, <code>bmad-customize</code>, <code>bmad-dev-auto</code>, <code>bmad-dev-story</code>, <code>bmad-document-project</code>, <code>bmad-domain-research</code>, <code>bmad-edit-prd</code>, <code>bmad-editorial-review-prose</code>, <code>bmad-editorial-review-structure</code>, <code>bmad-forge-idea</code>, <code>bmad-generate-project-context</code>, <code>bmad-help</code>, <code>bmad-index-docs</code>, <code>bmad-market-research</code>, <code>bmad-party-mode</code>, <code>bmad-prd</code>, <code>bmad-prfaq</code>, <code>bmad-product-brief</code>, <code>bmad-qa-generate-e2e-tests</code>, <code>bmad-quick-dev</code>, <code>bmad-retrospective</code>, <code>bmad-review-adversarial-general</code>, <code>bmad-review-edge-case-hunter</code>, <code>bmad-shard-doc</code>, <code>bmad-spec</code>, <code>bmad-sprint-planning</code>, <code>bmad-sprint-status</code>, <code>bmad-technical-research</code>, <code>bmad-ux</code>, <code>bmad-validate-prd</code></p></details></p>
       <p><strong>global</strong> — 1/5 jamais invoqués : <code>restitution-deck-design</code></p>
+
 
       <h3>TODO agents — chantiers à lancer (constats automatiques)</h3>
       <div class="critical">
         <p><strong>Trier les skills BMAD</strong> : 46 installés, 0 invocation à ce jour — décider lesquels garder, customiser ou désinstaller.</p>
-        <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-07-18 · transcripts de session</div>
-      </div>
-      <div class="critical">
-        <p><strong><code>revue-increment</code> jamais invoquée</strong> malgré le rappel SessionStart à chaque session — revoir son déclencheur (l'ancrer au flux de commit ?) ou la simplifier.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">scan_transcripts.py · 2026-07-18 · transcripts de session</div>
       </div>
