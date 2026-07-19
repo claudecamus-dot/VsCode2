@@ -16,6 +16,7 @@ programmatiquement plutôt que de convertir du HTML.
 from __future__ import annotations
 
 import io
+from types import SimpleNamespace
 from xml.sax.saxutils import escape
 
 from reportlab.lib.colors import HexColor
@@ -35,10 +36,17 @@ from reportlab.platypus import (
 from ..models import Interview
 from .interview_export import REPARTITION_LABELS, group_turns_into_sections
 
-__all__ = ["build_interview_pdf"]
+__all__ = [
+    "build_interview_pdf",
+    "build_transcript_only_pdf",
+    "build_turns_only_pdf",
+    "build_synthese_only_pdf",
+]
 
-_NAVY = HexColor("#17324D")
-_TEAL = HexColor("#008A92")
+_NAVY_HEX = "#17324D"
+_TEAL_HEX = "#008A92"
+_NAVY = HexColor(_NAVY_HEX)
+_TEAL = HexColor(_TEAL_HEX)
 _BODY = HexColor("#30383F")
 _MUTED = HexColor("#4B5D6B")
 _CALLOUT_BG = HexColor("#FFF7E3")
@@ -116,37 +124,50 @@ def _header_flowables(interview: Interview) -> list:
     return flowables
 
 
-def _libre_body_flowables(interview: Interview) -> list:
-    flowables: list = []
-    if (interview.resume or "").strip():
-        flowables += _h1("Résumé")
-        flowables.append(_callout(interview.resume.strip(), label="Message central"))
-        flowables.append(Spacer(1, 6))
+def _resume_flowables(resume: str) -> list:
+    """Section « Résumé » (encadré « Message central ») — vide si pas de
+    résumé (écran wizard sans matière encore, ou entretien plus ancien)."""
+    if not (resume or "").strip():
+        return []
+    return [*_h1("Résumé"), _callout(resume.strip(), label="Message central"), Spacer(1, 6)]
 
-    flowables += _h1("Transcription structurée")
-    flowables.append(Paragraph(
-        "Structurée par IA depuis un entretien libre — pas un verbatim mot à "
-        "mot, à vérifier contre l'enregistrement en cas de doute.",
-        _STYLES["muted"],
-    ))
-    sections = group_turns_into_sections(interview.turns)
+
+def _dialogue_flowables(turns) -> list:
+    """Tours de parole groupés en sections — même mise en forme que le
+    document modèle (`01_Transcription_editee…docx`) : le préfixe
+    interlocuteur est **teal** quand le tour porte une question, **navy**
+    sinon (motif vérifié par analyse du document le 2026-07-19 : sur les
+    tours de style « Dialogue », 16/20 des préfixes teal sont des questions,
+    71/72 des préfixes navy n'en sont pas — absent du rendu avant ce
+    correctif, qui utilisait une seule couleur uniforme pour tous les tours).
+    `turns` : `InterviewTurn` ORM ou tout objet exposant les mêmes attributs
+    (`SimpleNamespace` pour les tours pas encore enregistrés, cf.
+    `build_turns_only_pdf`)."""
+    flowables: list = []
+    sections = group_turns_into_sections(turns)
     if not sections:
         flowables.append(Paragraph("— Aucun tour de parole —", _STYLES["muted"]))
+        return flowables
     for section in sections:
         turn_flowables = []
         if section["title"]:
             turn_flowables.append(Paragraph(_text(section["title"]), _STYLES["h2"]))
         for turn in section["turns"]:
             propos = " ".join(p for p in (turn.question, turn.remarque) if p)
-            text = f"<b>{_text(turn.interlocuteur)}</b> : {_text(propos)}"
+            color = _TEAL_HEX if turn.question else _NAVY_HEX
+            text = f'<font color="{color}"><b>{_text(turn.interlocuteur)}</b></font> : {_text(propos)}'
             turn_flowables.append(Paragraph(text, _STYLES["dialogue"]))
         # Garde le titre de section collé à son premier tour de parole plutôt
         # que de le laisser seul en bas de page (saut de page malvenu).
         flowables.append(KeepTogether(turn_flowables[:2]) if turn_flowables else Spacer(0, 0))
         flowables.extend(turn_flowables[2:])
+    return flowables
 
-    repartition = interview.repartition or {}
-    flowables += _h1("Répartition par catégorie")
+
+def _repartition_flowables(repartition: dict | None) -> list:
+    """Section « Répartition par catégorie » (5 catégories fixes)."""
+    repartition = repartition or {}
+    flowables = _h1("Répartition par catégorie")
     for key, label in REPARTITION_LABELS.items():
         value = (repartition.get(key) or "").strip()
         flowables.append(Paragraph(_text(label), _STYLES["h2"]))
@@ -154,6 +175,19 @@ def _libre_body_flowables(interview: Interview) -> list:
             _text(value) if value else "— pas de matière sur cette catégorie —",
             _STYLES["body"] if value else _STYLES["muted"],
         ))
+    return flowables
+
+
+def _libre_body_flowables(interview: Interview) -> list:
+    flowables = _resume_flowables(interview.resume)
+    flowables += _h1("Transcription structurée")
+    flowables.append(Paragraph(
+        "Structurée par IA depuis un entretien libre — pas un verbatim mot à "
+        "mot, à vérifier contre l'enregistrement en cas de doute.",
+        _STYLES["muted"],
+    ))
+    flowables += _dialogue_flowables(interview.turns)
+    flowables += _repartition_flowables(interview.repartition)
     return flowables
 
 
@@ -270,6 +304,54 @@ def build_transcript_only_pdf(transcript: str, interviewee_name: str = "") -> by
             flowables.append(Paragraph(_text(paragraph.strip()), _STYLES["body"]))
     if not flowables[2:]:
         flowables.append(Paragraph("— Transcription vide —", _STYLES["muted"]))
+    decorate = _page_decorator(title)
+    doc.build(flowables, onFirstPage=decorate, onLaterPages=decorate)
+    return buffer.getvalue()
+
+
+def build_turns_only_pdf(turns: list[dict], interviewee_name: str = "") -> bytes:
+    """PDF des tours de parole d'un entretien libre pas encore enregistré —
+    écran « Revue des questions/réponses » du wizard (2026-07-19), avant
+    confirmation finale. Même mise en forme que la section « Transcription
+    structurée » de `build_interview_pdf()` (mode libre) : `_dialogue_flowables()`
+    est factorisée entre les deux pour ne jamais diverger.
+
+    `turns` : liste de dicts (`interlocuteur`/`question`/`remarque`/
+    `section_title`), la forme produite par le formulaire de revue du wizard
+    — convertie en objets (`SimpleNamespace`) pour l'accès par attribut
+    qu'attend `group_turns_into_sections()`, pas des `InterviewTurn` ORM
+    puisque rien n'est encore enregistré à ce stade."""
+    title = f"Tours de parole — {interviewee_name}" if interviewee_name.strip() else "Tours de parole"
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        topMargin=18 * mm, bottomMargin=18 * mm, leftMargin=20 * mm, rightMargin=20 * mm,
+    )
+    flowables = [Paragraph(_text(title), _STYLES["title"])]
+    flowables += _dialogue_flowables([SimpleNamespace(**t) for t in turns])
+    decorate = _page_decorator(title)
+    doc.build(flowables, onFirstPage=decorate, onLaterPages=decorate)
+    return buffer.getvalue()
+
+
+def build_synthese_only_pdf(resume: str, repartition: dict | None, interviewee_name: str = "") -> bytes:
+    """PDF du résumé + de la répartition d'un entretien libre pas encore
+    enregistré — écran « Synthèse avant enregistrement » du wizard
+    (2026-07-19), avant confirmation finale. Même mise en forme que la
+    matière équivalente de `build_interview_pdf()` (mode libre) :
+    `_resume_flowables()`/`_repartition_flowables()` sont factorisées entre
+    les deux — palette/structure du document modèle
+    (`02_Synthese_session_3…docx` : encadré « Message central », sous-titres
+    par catégorie) reprises à l'identique, pas réinventées pour cet écran."""
+    title = f"Synthèse — {interviewee_name}" if interviewee_name.strip() else "Synthèse"
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        topMargin=18 * mm, bottomMargin=18 * mm, leftMargin=20 * mm, rightMargin=20 * mm,
+    )
+    flowables = [Paragraph(_text(title), _STYLES["title"])]
+    flowables += _resume_flowables(resume)
+    flowables += _repartition_flowables(repartition)
     decorate = _page_decorator(title)
     doc.build(flowables, onFirstPage=decorate, onLaterPages=decorate)
     return buffer.getvalue()

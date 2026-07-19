@@ -19,7 +19,12 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.db import DB_PATH, SessionLocal, engine, init_db
 from app.models import Answer, Interview, InterviewTurn, Mission, Question, Theme, Trame, Verbatim
-from app.services.interview_pdf_export import build_interview_pdf, build_transcript_only_pdf
+from app.services.interview_pdf_export import (
+    build_interview_pdf,
+    build_synthese_only_pdf,
+    build_transcript_only_pdf,
+    build_turns_only_pdf,
+)
 
 
 def setup_module() -> None:
@@ -342,4 +347,120 @@ def test_export_transcript_only_pdf_route_sans_nom(client: TestClient) -> None:
 
 def test_export_transcript_only_pdf_route_rejects_empty(client: TestClient) -> None:
     response = client.post("/interviews/transcript/export-pdf", data={"transcript": "   "})
+    assert response.status_code == 400
+
+
+# --------------------------------------------------------------------------- #
+# build_turns_only_pdf() / build_synthese_only_pdf() (2026-07-19) : export PDF
+# des écrans du wizard libre AVANT enregistrement (tours de parole, synthèse)
+# — même mise en forme factorisée que build_interview_pdf(), façon
+# 01_Transcription_editee…docx / 02_Synthese_session_3…docx.
+# --------------------------------------------------------------------------- #
+def _span_colors(pdf_bytes: bytes, needle: str) -> list[int]:
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    colors = []
+    for page in doc:
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                for span in line["spans"]:
+                    if needle in span["text"]:
+                        colors.append(span["color"])
+    return colors
+
+
+def test_build_turns_only_pdf_colors_question_teal_and_remarque_navy() -> None:
+    """Motif vérifié sur le document modèle (01_Transcription_editee…docx,
+    2026-07-19) : le préfixe interlocuteur est teal (#008A92) pour un tour
+    qui porte une question, navy (#17324D) pour un tour qui porte une
+    remarque — absent du rendu avant ce correctif (couleur uniforme)."""
+    turns = [
+        {"interlocuteur": "Consultant", "question": "Comment ça se passe ?", "remarque": None, "section_title": "Ouverture"},
+        {"interlocuteur": "Marie Dupont", "question": None, "remarque": "Ça se passe bien.", "section_title": None},
+    ]
+    pdf_bytes = build_turns_only_pdf(turns, "Vérif Couleur")
+    assert pdf_bytes[:4] == b"%PDF"
+    text = _pdf_text(pdf_bytes)
+    assert "Vérif Couleur" in text  # titre
+    assert "Ouverture" in text
+    assert "Comment ça se passe ?" in text
+    assert "Ça se passe bien." in text
+
+    assert _span_colors(pdf_bytes, "Consultant") == [0x008A92]
+    assert _span_colors(pdf_bytes, "Marie Dupont") == [0x17324D]
+
+
+def test_build_turns_only_pdf_sans_tours_montre_placeholder() -> None:
+    text = _pdf_text(build_turns_only_pdf([], "Personne"))
+    assert "Aucun tour de parole" in text
+
+
+def test_build_synthese_only_pdf_content() -> None:
+    pdf_bytes = build_synthese_only_pdf(
+        resume="Message central de synthèse.",
+        repartition={
+            "contexte": "- Contexte détaillé",
+            "culture_adn": "",
+            "forces_succes": "- Force clé",
+            "points_amelioration": "",
+            "aspirations": "",
+        },
+        interviewee_name="Vérif Synthèse",
+    )
+    assert pdf_bytes[:4] == b"%PDF"
+    text = _pdf_text(pdf_bytes)
+    assert "Synthèse — Vérif Synthèse" in text
+    assert "Message central de synthèse." in text
+    assert "Contexte détaillé" in text
+    assert "Force clé" in text
+    assert "pas de matière sur cette catégorie" in text
+
+
+def test_build_synthese_only_pdf_sans_nom_titre_generique() -> None:
+    text = _pdf_text(build_synthese_only_pdf("Résumé.", {}))
+    assert "Synthèse" in text
+    assert "Synthèse — " not in text
+
+
+def test_export_turns_only_pdf_route(client: TestClient) -> None:
+    response = client.post(
+        "/interviews/turns/export-pdf",
+        data={
+            "interviewee_name": "Route Testeur",
+            "turn_interlocuteur": ["Consultant", "Testeur"],
+            "turn_question": ["Une question ?", ""],
+            "turn_remarque": ["", "Une remarque."],
+            "turn_section_title": ["", ""],
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["content-disposition"] == 'attachment; filename="tours_route_testeur.pdf"'
+    text = _pdf_text(response.content)
+    assert "Une question ?" in text
+    assert "Une remarque." in text
+
+
+def test_export_turns_only_pdf_route_rejects_empty(client: TestClient) -> None:
+    response = client.post("/interviews/turns/export-pdf", data={})
+    assert response.status_code == 400
+
+
+def test_export_synthese_only_pdf_route(client: TestClient) -> None:
+    response = client.post(
+        "/interviews/synthese/export-pdf",
+        data={
+            "interviewee_name": "Route Synthese",
+            "resume": "Résumé de test.",
+            "repartition_contexte": "- Contexte route",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    text = _pdf_text(response.content)
+    assert "Résumé de test." in text
+    assert "Contexte route" in text
+
+
+def test_export_synthese_only_pdf_route_rejects_empty(client: TestClient) -> None:
+    response = client.post("/interviews/synthese/export-pdf", data={})
     assert response.status_code == 400

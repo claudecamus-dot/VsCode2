@@ -86,6 +86,9 @@
     <button class="btn" type="submit" formnovalidate
             formaction="/missions/{{ mission.id }}/interviews/record-libre/retour"
             title="Revient à l'écran de transcription sans perdre le texte ni l'identité">← Revenir à la transcription</button>
+    <button class="btn" type="submit" formnovalidate
+            formaction="/interviews/turns/export-pdf"
+            title="Exporte les tours de parole tels qu'affichés ci-dessus, avant tout enregistrement">⬇️ Télécharger les tours de parole (PDF)</button>
     <button class="btn btn-primary" type="submit">Continuer vers la synthèse</button>
   </div>
 </form>

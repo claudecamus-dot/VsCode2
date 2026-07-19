@@ -1227,3 +1227,113 @@ def test_libre_turns_review_erreur_repartition_propose_export_pdf_transcript(
     )
     assert export.status_code == 200
     assert export.headers["content-type"] == "application/pdf"
+
+
+# --------------------------------------------------------------------------- #
+# Export PDF depuis les écrans du wizard AVANT enregistrement (2026-07-19,
+# items 1/2/4) : bouton "Télécharger les tours de parole (PDF)" sur la revue
+# des tours, "Télécharger la synthèse (PDF)" sur la synthèse — et la
+# répartition n'est plus éditable sur l'écran synthèse (item 4) mais continue
+# d'être transmise (champs cachés) jusqu'à l'enregistrement final.
+# --------------------------------------------------------------------------- #
+def test_libre_turns_review_a_le_bouton_export_pdf_des_tours(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response = client.post("/entretiens/libre/nouveau", follow_redirects=False)
+    mission_id = int(response.headers["location"].split("/")[2])
+    _patch_libre_extract_ai(monkeypatch)
+    response = client.post(
+        f"/missions/{mission_id}/interviews/record-libre",
+        data={"transcript": "Transcription export tours.", "interviewee_name": "Export Tours"},
+    )
+    assert response.status_code == 200
+    assert 'formaction="/interviews/turns/export-pdf"' in response.text
+    assert "Télécharger les tours de parole (PDF)" in response.text
+
+    export = client.post(
+        "/interviews/turns/export-pdf",
+        data={
+            "interviewee_name": "Export Tours",
+            "turn_interlocuteur": ["Consultant·e", "Marc Dupont"],
+            "turn_question": ["Comment ça se passe ?", ""],
+            "turn_remarque": ["", "Beaucoup de silos entre équipes."],
+            "turn_section_title": ["", ""],
+        },
+    )
+    assert export.status_code == 200
+    assert export.headers["content-type"] == "application/pdf"
+    assert export.headers["content-disposition"] == 'attachment; filename="tours_export_tours.pdf"'
+
+
+def test_libre_review_a_le_bouton_export_pdf_synthese_et_repartition_non_editable(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Item 4 (2026-07-19) : le bloc « Répartition dans la synthèse globale de
+    mission » ne doit plus être éditable sur cet écran (niveau mission, pas
+    entretien) — mais les valeurs générées par l'IA doivent quand même
+    parvenir jusqu'à l'enregistrement final (champs cachés), sans quoi la
+    synthèse globale de mission perdrait sa matière libre."""
+    response = client.post("/entretiens/libre/nouveau", follow_redirects=False)
+    mission_id = int(response.headers["location"].split("/")[2])
+    _patch_libre_extract_ai(
+        monkeypatch,
+        repartition={
+            "contexte": "- Contexte généré",
+            "culture_adn": "- Culture générée",
+            "forces_succes": "- Force générée",
+            "points_amelioration": "- Point généré",
+            "aspirations": "- Aspiration générée",
+        },
+    )
+    client.post(
+        f"/missions/{mission_id}/interviews/record-libre",
+        data={"transcript": "Texte.", "interviewee_name": "Export Synthese"},
+    )
+    response = _post_libre_synthese(client, mission_id, interviewee_name="Export Synthese")
+    assert response.status_code == 200
+
+    # Le bouton d'export est présent, et la répartition n'est plus dans un
+    # <textarea> visible (seulement en input hidden).
+    assert 'formaction="/interviews/synthese/export-pdf"' in response.text
+    assert "Télécharger la synthèse (PDF)" in response.text
+    assert "Répartition dans la synthèse globale de mission" not in response.text
+    assert '<textarea name="repartition_contexte"' not in response.text
+    assert 'name="repartition_contexte" value="- Contexte généré"' in response.text
+
+    export = client.post(
+        "/interviews/synthese/export-pdf",
+        data={
+            "interviewee_name": "Export Synthese",
+            "resume": "- Résumé de test",
+            "repartition_contexte": "- Contexte généré",
+        },
+    )
+    assert export.status_code == 200
+    assert export.headers["content-type"] == "application/pdf"
+
+    # La répartition générée par l'IA arrive quand même jusqu'en base à la
+    # confirmation finale — seule l'édition disparaît, pas la donnée.
+    confirm = client.post(
+        f"/missions/{mission_id}/interviews/record-libre/confirm",
+        data={
+            "interviewee_name": "Export Synthese",
+            "turn_interlocuteur": ["Consultant·e", "Claire Rousseau"],
+            "turn_question": ["Comment ça se passe ?", ""],
+            "turn_remarque": ["", "Beaucoup de silos entre équipes."],
+            "repartition_contexte": "- Contexte généré",
+            "repartition_culture_adn": "- Culture générée",
+            "repartition_forces_succes": "- Force générée",
+            "repartition_points_amelioration": "- Point généré",
+            "repartition_aspirations": "- Aspiration générée",
+        },
+        follow_redirects=False,
+    )
+    assert confirm.status_code == 303  # mission brouillon -> redirige vers /finaliser, pas /interviews/{id}
+    session = SessionLocal()
+    try:
+        interview = session.scalars(
+            select(Interview).where(Interview.mission_id == mission_id)
+        ).one()
+        assert interview.repartition["contexte"] == "- Contexte généré"
+    finally:
+        session.close()

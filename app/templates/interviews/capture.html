@@ -176,13 +176,23 @@
     placeholder="Notes libres…">{{ interview.free_notes or '' }}</textarea>
   <div class="autosave-line"><span id="notes-status" class="saved"></span></div>
 
-  <form method="post" action="/interviews/{{ interview.id }}/notes/dispatch" id="notes-dispatch-form">
-    <input type="hidden" name="free_notes" id="dispatch-free-notes">
-    <button class="btn btn-primary" type="submit">Répartir vers les questions</button>
-  </form>
+  <div class="record-controls">
+    <form method="post" action="/interviews/{{ interview.id }}/notes/dispatch" id="notes-dispatch-form">
+      <input type="hidden" name="free_notes" id="dispatch-free-notes">
+      <button class="btn btn-primary" type="submit">Répartir vers les questions</button>
+    </form>
+    <form method="post" action="/interviews/transcript/export-pdf" id="notes-export-form">
+      <input type="hidden" name="transcript" id="export-free-notes">
+      <input type="hidden" name="interviewee_name" value="{{ interview.interviewee_name }}">
+      <button class="btn" type="submit">⬇️ Télécharger la transcription (PDF)</button>
+    </form>
+  </div>
   <script>
   document.getElementById('notes-dispatch-form').addEventListener('submit', function () {
     document.getElementById('dispatch-free-notes').value = document.getElementById('free-notes').value;
+  });
+  document.getElementById('notes-export-form').addEventListener('submit', function () {
+    document.getElementById('export-free-notes').value = document.getElementById('free-notes').value;
   });
   </script>
 </section>

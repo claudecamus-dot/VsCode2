@@ -22,7 +22,12 @@ from ..importers.docx_trame import extract_text_bytes
 from ..models import Answer, Interview, InterviewTurn, Mission, Question, Verbatim
 from ..services import audio_transcribe
 from ..services.interview_export import build_interview_markdown, group_turns_into_sections, slugify
-from ..services.interview_pdf_export import build_interview_pdf, build_transcript_only_pdf
+from ..services.interview_pdf_export import (
+    build_interview_pdf,
+    build_synthese_only_pdf,
+    build_transcript_only_pdf,
+    build_turns_only_pdf,
+)
 from ..services.interview_extract_ai import (
     InterviewExtractAIError,
     extract_answers_from_text,
@@ -1402,6 +1407,60 @@ def export_transcript_only_pdf(
         content=content,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="transcription_{slug}.pdf"'},
+    )
+
+
+@router.post("/interviews/turns/export-pdf")
+def export_turns_only_pdf(
+    interviewee_name: str = Form(""),
+    turn_interlocuteur: list[str] = Form([]),
+    turn_question: list[str] = Form([]),
+    turn_remarque: list[str] = Form([]),
+    turn_section_title: list[str] = Form([]),
+):
+    """Export PDF des tours de parole pas encore enregistrés — bouton sur
+    l'écran « Revue des questions/réponses » du wizard libre (2026-07-19),
+    façon `01_Transcription_editee…docx`."""
+    turns = _parse_turns_from_form(
+        turn_interlocuteur, turn_question, turn_remarque, turn_section_title
+    )
+    if not turns:
+        raise HTTPException(status_code=400, detail="Aucun tour de parole — rien à exporter.")
+    content = build_turns_only_pdf(turns, interviewee_name)
+    slug = slugify(interviewee_name) if interviewee_name.strip() else "brute"
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="tours_{slug}.pdf"'},
+    )
+
+
+@router.post("/interviews/synthese/export-pdf")
+def export_synthese_only_pdf(
+    interviewee_name: str = Form(""),
+    resume: str = Form(""),
+    repartition_contexte: str = Form(""),
+    repartition_culture_adn: str = Form(""),
+    repartition_forces_succes: str = Form(""),
+    repartition_points_amelioration: str = Form(""),
+    repartition_aspirations: str = Form(""),
+):
+    """Export PDF du résumé + de la répartition pas encore enregistrés —
+    bouton sur l'écran « Synthèse avant enregistrement » du wizard libre
+    (2026-07-19), façon `02_Synthese_session_3…docx`."""
+    repartition_values = (
+        repartition_contexte, repartition_culture_adn, repartition_forces_succes,
+        repartition_points_amelioration, repartition_aspirations,
+    )
+    repartition = {key: value.strip() for key, value in zip(REPARTITION_KEYS, repartition_values)}
+    if not resume.strip() and not any(repartition.values()):
+        raise HTTPException(status_code=400, detail="Synthèse vide — rien à exporter.")
+    content = build_synthese_only_pdf(resume, repartition, interviewee_name)
+    slug = slugify(interviewee_name) if interviewee_name.strip() else "brute"
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="synthese_{slug}.pdf"'},
     )
 
 

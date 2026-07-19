@@ -1007,6 +1007,37 @@ def test_notes_record_appends_transcript_and_proposes_answers(
         session.close()
 
 
+def test_capture_a_le_bouton_export_pdf_a_cote_de_repartir(client: TestClient) -> None:
+    """Item 3 (2026-07-19) : à côté du bouton "Répartir vers les questions"
+    (notes libres, mode structuré), un bouton exporte en PDF les notes libres
+    telles quelles — même route stateless que les écrans du wizard libre."""
+    response = client.post("/missions", data={"name": "Mission Capture Export"}, follow_redirects=False)
+    mission_id = response.headers["location"].rsplit("/", 1)[-1]
+    client.post(
+        f"/missions/{mission_id}/trame/themes", data={"title": "Thème Export"}, follow_redirects=False
+    )
+    response = client.post(
+        f"/missions/{mission_id}/interviews",
+        data={"interviewee_name": "Export Capture"},
+        follow_redirects=False,
+    )
+    interview_id = response.headers["location"].rsplit("/", 1)[-1]
+    client.post(f"/interviews/{interview_id}/notes", data={"free_notes": "Notes libres à exporter."})
+
+    response = client.get(f"/interviews/{interview_id}?theme=notes")
+    assert response.status_code == 200
+    assert "Répartir vers les questions" in response.text
+    assert 'action="/interviews/transcript/export-pdf"' in response.text
+    assert "Télécharger la transcription (PDF)" in response.text
+
+    export = client.post(
+        "/interviews/transcript/export-pdf",
+        data={"transcript": "Notes libres à exporter.", "interviewee_name": "Export Capture"},
+    )
+    assert export.status_code == 200
+    assert export.headers["content-type"] == "application/pdf"
+
+
 def _synthetic_webm_audio() -> bytes:
     """Construit un clip webm/opus minimal (imite un blob MediaRecorder de
     navigateur) pour exercer le vrai décodage + Whisper, sans mock."""

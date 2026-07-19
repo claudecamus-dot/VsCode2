@@ -55,35 +55,27 @@
     </label>
   </section>
 
-  <section class="card">
-    <h2>Répartition dans la synthèse globale de mission</h2>
-    <p class="muted">Alimente les 5 catégories de la synthèse globale, à côté des entretiens structurés.</p>
-    <label>
-      Contexte
-      <textarea name="repartition_contexte" rows="3">{{ repartition.contexte }}</textarea>
-    </label>
-    <label>
-      Culture &amp; ADN
-      <textarea name="repartition_culture_adn" rows="3">{{ repartition.culture_adn }}</textarea>
-    </label>
-    <label>
-      Forces / succès
-      <textarea name="repartition_forces_succes" rows="3">{{ repartition.forces_succes }}</textarea>
-    </label>
-    <label>
-      Points d'amélioration
-      <textarea name="repartition_points_amelioration" rows="3">{{ repartition.points_amelioration }}</textarea>
-    </label>
-    <label>
-      Aspirations
-      <textarea name="repartition_aspirations" rows="3">{{ repartition.aspirations }}</textarea>
-    </label>
-  </section>
+  <!-- La répartition dans les 5 catégories de la synthèse GLOBALE (niveau
+       mission, tous entretiens confondus) n'a pas sa place en édition ici,
+       au niveau d'UN SEUL entretien (2026-07-19) — elle continue d'être
+       générée par l'IA et transmise à l'enregistrement (elle alimente
+       toujours _libre_material()/la synthèse globale), simplement plus
+       comme bloc éditable sur cet écran. Révisable depuis l'écran Aperçu de
+       l'entretien (bouton "Régénérer l'analyse") ou la synthèse globale de
+       la mission une fois tous les entretiens saisis. -->
+  <input type="hidden" name="repartition_contexte" value="{{ repartition.contexte }}">
+  <input type="hidden" name="repartition_culture_adn" value="{{ repartition.culture_adn }}">
+  <input type="hidden" name="repartition_forces_succes" value="{{ repartition.forces_succes }}">
+  <input type="hidden" name="repartition_points_amelioration" value="{{ repartition.points_amelioration }}">
+  <input type="hidden" name="repartition_aspirations" value="{{ repartition.aspirations }}">
 
   <div class="form-actions">
     <button class="btn" type="submit" formnovalidate
             formaction="/missions/{{ mission.id }}/interviews/record-libre/retour-tours"
             title="Revient à la revue des questions/réponses sans perdre les tours de parole">← Revenir aux questions/réponses</button>
+    <button class="btn" type="submit" formnovalidate
+            formaction="/interviews/synthese/export-pdf"
+            title="Exporte le résumé tel qu'affiché ci-dessus, avant tout enregistrement">⬇️ Télécharger la synthèse (PDF)</button>
     <button class="btn btn-primary" type="submit">Enregistrer l'entretien</button>
   </div>
 </form>
