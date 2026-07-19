@@ -23,6 +23,7 @@ except ModuleNotFoundError:
 from .db import init_db  # noqa: E402
 from .routers import agents, entretiens, export, interviews, missions, synthese, trames  # noqa: E402
 from .services import audio_transcribe  # noqa: E402
+from .services.ai_common import warm_up_ollama  # noqa: E402
 
 
 @asynccontextmanager
@@ -32,6 +33,10 @@ async def lifespan(_app: FastAPI):
         audio_transcribe.warm_up()
     except Exception:
         pass  # le premier enregistrement réel retentera et remontera une erreur normale
+    try:
+        warm_up_ollama()
+    except Exception:
+        pass  # le premier appel IA réel retentera et remontera une erreur normale
     yield
 
 

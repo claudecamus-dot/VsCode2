@@ -212,6 +212,108 @@ def test_call_ollama_payload_includes_num_ctx(monkeypatch: pytest.MonkeyPatch) -
     assert captured["timeout"] == 300
 
 
+def test_ollama_keep_alive_defaults_to_30m(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OLLAMA_KEEP_ALIVE", raising=False)
+    assert ai_common.ollama_keep_alive() == "30m"
+    monkeypatch.setenv("OLLAMA_KEEP_ALIVE", "1h")
+    assert ai_common.ollama_keep_alive() == "1h"
+
+
+def test_call_ollama_payload_includes_keep_alive(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Sans `keep_alive`, Ollama décharge le modèle après son défaut serveur
+    de 5 minutes — trop court pour relire un écran de revue entre deux
+    appels, ce qui fait repayer un chargement à froid pouvant lui-même
+    dépasser OLLAMA_TIMEOUT (constat 2026-07-19)."""
+    import json as json_module
+
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return b'{"message": {"content": "{}"}}'
+
+    def fake_urlopen(req, timeout=None):
+        captured["payload"] = json_module.loads(req.data.decode("utf-8"))
+        return FakeResponse()
+
+    monkeypatch.setattr(ai_common.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setenv("OLLAMA_KEEP_ALIVE", "45m")
+
+    ai_common._call_ollama("sys", "prompt", {}, "\nJSON.", "llama3.1", 4000)
+
+    assert captured["payload"]["keep_alive"] == "45m"
+
+
+def test_warm_up_ollama_noop_for_other_providers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le préchauffage n'a de sens que pour ollama (serveur local à
+    précharger) — pas d'appel réseau superflu pour openai/mistral."""
+    monkeypatch.setenv("AI_PROVIDER", "openai")
+
+    def fail_if_called(req, timeout=None):
+        raise AssertionError("urlopen ne devrait pas être appelé")
+
+    monkeypatch.setattr(ai_common.urllib.request, "urlopen", fail_if_called)
+    ai_common.warm_up_ollama()  # ne lève pas, ne fait rien
+
+
+def test_warm_up_ollama_sends_empty_messages_to_preload(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Requête sans `messages` : Ollama charge le modèle en mémoire sans
+    générer de texte — précisément ce qui manquait pour que le premier appel
+    réel de l'utilisateur n'en paie pas le coût (même principe que
+    `audio_transcribe.warm_up()` pour Whisper)."""
+    import json as json_module
+
+    captured = {}
+
+    class FakeResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self):
+            return b"{}"
+
+    def fake_urlopen(req, timeout=None):
+        captured["url"] = req.full_url
+        captured["payload"] = json_module.loads(req.data.decode("utf-8"))
+        captured["timeout"] = timeout
+        return FakeResponse()
+
+    monkeypatch.setattr(ai_common.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setenv("AI_PROVIDER", "ollama")
+    monkeypatch.setenv("SYNTHESE_MODEL", "llama3.1")
+
+    ai_common.warm_up_ollama()
+
+    assert captured["url"] == "http://localhost:11434/api/chat"
+    assert captured["payload"]["messages"] == []
+    assert captured["payload"]["model"] == "llama3.1"
+    assert captured["payload"]["keep_alive"] == "30m"
+
+
+def test_warm_up_ollama_propagates_errors_to_caller(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ne doit PAS avaler l'exception elle-même — c'est l'appelant
+    (`app.main.lifespan`, comme pour `audio_transcribe.warm_up()`) qui
+    encadre l'appel d'un try/except pour ne jamais bloquer le démarrage du
+    serveur si Ollama n'est pas encore lancé."""
+    monkeypatch.setenv("AI_PROVIDER", "ollama")
+
+    def fake_urlopen(req, timeout=None):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(ai_common.urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(OSError):
+        ai_common.warm_up_ollama()
+
+
 def test_call_ai_json_ollama_unreachable_raises_friendly_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """Serveur Ollama injoignable (pas installé/pas démarré) : message clair
     plutôt qu'une exception réseau brute — même contrat que les autres

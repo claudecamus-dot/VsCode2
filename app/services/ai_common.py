@@ -123,6 +123,19 @@ def ollama_chunk_max_words() -> int:
         return 1800
 
 
+def ollama_keep_alive() -> str:
+    """Durée pendant laquelle Ollama garde le modèle chargé en mémoire après
+    un appel — `"30m"` par défaut (le défaut serveur d'Ollama est 5 minutes,
+    trop court pour un usage interactif normal : le temps de relire un écran
+    de revue avant de cliquer sur l'étape suivante suffit à faire décharger
+    le modèle, qui recharge alors « à froid » sur l'appel suivant — c'est
+    précisément ce qui produit un `OLLAMA_TIMEOUT` alors que la génération
+    elle-même prend quelques secondes une fois le modèle chaud, cf.
+    `warm_up_ollama()`). Surchargeable par `OLLAMA_KEEP_ALIVE` (accepte le
+    format Ollama : `"10m"`, `"1h"`, `-1` pour ne jamais décharger)."""
+    return os.environ.get("OLLAMA_KEEP_ALIVE", "").strip() or "30m"
+
+
 def active_provider() -> str:
     """Fournisseur configuré — `AI_PROVIDER`, replié sur `ollama` (local,
     gratuit) si absent ou non reconnu (ne jamais planter sur une variable mal
@@ -232,6 +245,7 @@ def _call_ollama(system: str, prompt: str, schema: dict, json_hint: str, model: 
         ],
         "format": "json",
         "stream": False,
+        "keep_alive": ollama_keep_alive(),
         "options": {"num_predict": max_tokens, "num_ctx": ollama_num_ctx()},
     }).encode("utf-8")
     req = urllib.request.Request(
@@ -242,8 +256,11 @@ def _call_ollama(system: str, prompt: str, schema: dict, json_hint: str, model: 
     )
     timeout_msg = (
         "Ollama n'a pas répondu à temps — le modèle est peut-être trop "
-        "gros pour ce poste, ou en cours de chargement (premier appel). "
-        "Si cela se reproduit : augmentez OLLAMA_TIMEOUT ou réduisez "
+        "gros pour ce poste, ou en cours de chargement (premier appel, ou "
+        "rechargement après une pause : le serveur précharge le modèle à "
+        "son démarrage, mais Ollama le décharge après OLLAMA_KEEP_ALIVE "
+        "d'inactivité, 30 minutes par défaut). Si cela se reproduit : "
+        "augmentez OLLAMA_TIMEOUT ou OLLAMA_KEEP_ALIVE, réduisez "
         "OLLAMA_CHUNK_MAX_WORDS (voir .env.example), ou choisissez un "
         "modèle plus léger (SYNTHESE_MODEL)."
     )
@@ -311,3 +328,27 @@ def call_ai_json(
         return _parse_json(text)
     except AIError as exc:
         raise error_cls(str(exc)) from exc
+
+
+def warm_up_ollama() -> None:
+    """Charge le modèle en mémoire dès le démarrage du serveur (fournisseur
+    ollama actif seulement), pour que le premier appel réel de l'utilisateur
+    n'en paie pas le coût — même principe que `audio_transcribe.warm_up()`
+    pour Whisper. Requête sans `messages` : Ollama charge le modèle et
+    répond immédiatement, sans générer de texte (documenté par Ollama comme
+    façon de précharger un modèle). Silencieuse en cas d'échec (Ollama pas
+    encore démarré, serveur injoignable) — le premier appel réel retentera
+    et remontera l'erreur normale (`_call_ollama`) le cas échéant."""
+    if active_provider() != "ollama":
+        return
+    payload = json.dumps({
+        "model": active_model(), "messages": [], "keep_alive": ollama_keep_alive(),
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{ollama_host()}/api/chat",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=ollama_timeout()):
+        pass
