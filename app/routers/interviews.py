@@ -22,7 +22,7 @@ from ..importers.docx_trame import extract_text_bytes
 from ..models import Answer, Interview, InterviewTurn, Mission, Question, Verbatim
 from ..services import audio_transcribe
 from ..services.interview_export import build_interview_markdown, group_turns_into_sections, slugify
-from ..services.interview_pdf_export import build_interview_pdf
+from ..services.interview_pdf_export import build_interview_pdf, build_transcript_only_pdf
 from ..services.interview_extract_ai import (
     InterviewExtractAIError,
     extract_answers_from_text,
@@ -1381,6 +1381,27 @@ def export_interview_pdf(interview_id: int, db: Session = Depends(get_session)):
         content=content,
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/interviews/transcript/export-pdf")
+def export_transcript_only_pdf(
+    transcript: str = Form(""),
+    interviewee_name: str = Form(""),
+):
+    """Export PDF de secours d'une transcription pas encore enregistrée
+    (aucun `Interview` en base) — bouton affiché sur les 3 écrans où
+    l'extraction IA en aval peut échouer (`record.html`, `record_libre.html`,
+    `libre_turns_review.html`) pour ne pas laisser le texte transcrit
+    bloqué dans un formulaire sans autre issue que de le ressaisir."""
+    if not transcript.strip():
+        raise HTTPException(status_code=400, detail="Transcription vide — rien à exporter.")
+    content = build_transcript_only_pdf(transcript, interviewee_name)
+    slug = slugify(interviewee_name) if interviewee_name.strip() else "brute"
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="transcription_{slug}.pdf"'},
     )
 
 

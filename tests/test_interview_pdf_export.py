@@ -19,7 +19,7 @@ from fastapi.testclient import TestClient
 from app.main import app
 from app.db import DB_PATH, SessionLocal, engine, init_db
 from app.models import Answer, Interview, InterviewTurn, Mission, Question, Theme, Trame, Verbatim
-from app.services.interview_pdf_export import build_interview_pdf
+from app.services.interview_pdf_export import build_interview_pdf, build_transcript_only_pdf
 
 
 def setup_module() -> None:
@@ -288,3 +288,58 @@ def test_export_pdf_route_libre(client: TestClient) -> None:
 
 def test_export_pdf_route_entretien_introuvable_404(client: TestClient) -> None:
     assert client.get("/interviews/999999/export/pdf").status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# build_transcript_only_pdf() + POST /interviews/transcript/export-pdf
+# (2026-07-19) : export de secours d'une transcription pas encore enregistrée
+# (aucun Interview en base) — utilisé quand l'extraction IA en aval (tours,
+# réponses, répartition) échoue, pour ne pas perdre le texte transcrit.
+# --------------------------------------------------------------------------- #
+def test_build_transcript_only_pdf_content_and_multiline() -> None:
+    pdf_bytes = build_transcript_only_pdf(
+        "Premier paragraphe de la transcription.\n\nSecond paragraphe, distinct.",
+        interviewee_name="Marc Dupont",
+    )
+    assert pdf_bytes[:4] == b"%PDF"
+    text = _pdf_text(pdf_bytes)
+    assert "Transcription brute — Marc Dupont" in text
+    assert "Premier paragraphe de la transcription." in text.split("\n")
+    assert "Second paragraphe, distinct." in text.split("\n")
+
+
+def test_build_transcript_only_pdf_without_name_uses_generic_title() -> None:
+    pdf_bytes = build_transcript_only_pdf("Un texte quelconque.")
+    text = _pdf_text(pdf_bytes)
+    assert "Transcription brute" in text
+    assert "Transcription brute — " not in text
+
+
+def test_build_transcript_only_pdf_empty_shows_placeholder_not_blank() -> None:
+    pdf_bytes = build_transcript_only_pdf("   ")
+    assert "— Transcription vide —" in _pdf_text(pdf_bytes)
+
+
+def test_export_transcript_only_pdf_route(client: TestClient) -> None:
+    response = client.post(
+        "/interviews/transcript/export-pdf",
+        data={"transcript": "Texte de secours à exporter.", "interviewee_name": "Alice Martin"},
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.headers["content-disposition"] == 'attachment; filename="transcription_alice_martin.pdf"'
+    text = _pdf_text(response.content)
+    assert "Texte de secours à exporter." in text
+
+
+def test_export_transcript_only_pdf_route_sans_nom(client: TestClient) -> None:
+    response = client.post(
+        "/interviews/transcript/export-pdf", data={"transcript": "Texte anonyme."}
+    )
+    assert response.status_code == 200
+    assert response.headers["content-disposition"] == 'attachment; filename="transcription_brute.pdf"'
+
+
+def test_export_transcript_only_pdf_route_rejects_empty(client: TestClient) -> None:
+    response = client.post("/interviews/transcript/export-pdf", data={"transcript": "   "})
+    assert response.status_code == 400

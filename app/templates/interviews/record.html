@@ -25,7 +25,15 @@
   réponse importée reste marquée « à valider » jusqu'à relecture.
 </p>
 
-{% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
+{% if error %}
+<p class="ai-error">⚠ {{ error }}</p>
+<form method="post" action="/interviews/transcript/export-pdf" class="card form">
+  <input type="hidden" name="transcript" value="{{ identity.transcript if identity else '' }}">
+  <input type="hidden" name="interviewee_name" value="{{ identity.interviewee_name if identity else '' }}">
+  <p class="muted">L'extraction a échoué, mais le texte transcrit n'est pas perdu — tu peux l'exporter en PDF avant de réessayer.</p>
+  <button class="btn" type="submit">⬇️ Télécharger la transcription (PDF)</button>
+</form>
+{% endif %}
 
 <form method="post" action="/missions/{{ mission.id }}/interviews/record" class="card form" id="record-form">
   <input type="hidden" name="transcript" id="rec-transcript-hidden" value="{{ identity.transcript if identity else '' }}">

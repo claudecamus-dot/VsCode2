@@ -15,7 +15,7 @@ from app.db import DB_PATH, SessionLocal, engine, init_db
 from app.importers.docx_trame import parse_docx_bytes
 from app.models import Answer, Interview, Mission, Question, Recommendation, RecommendationAxis, Theme, Trame
 from app.routers.trames import _parsed_to_json
-from app.services import audio_transcribe
+from app.services import audio_transcribe, interview_extract_ai
 from app.services.openhub_agents import invoke_skill
 from sqlalchemy import select
 
@@ -804,6 +804,42 @@ def test_import_docx_confirm_does_not_persist_raw_transcript(client: TestClient)
         assert interview.raw_transcript is None
     finally:
         session.close()
+
+
+def test_record_interview_erreur_extraction_propose_export_pdf_transcript(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Écran d'échec du mode structuré (record.html) : même garde-fou que
+    côté libre — la transcription reste exportable en PDF plutôt que
+    bloquée dans le formulaire d'erreur sans autre issue (2026-07-19)."""
+    response = client.post(
+        "/missions", data={"name": "Mission Record Erreur"}, follow_redirects=False,
+    )
+    mission_id = response.headers["location"].rsplit("/", 1)[-1]
+
+    def _boom(questions, text):
+        raise interview_extract_ai.InterviewExtractAIError("Panne extraction structurée simulée.")
+
+    monkeypatch.setattr("app.routers.interviews.extract_answers_from_text", _boom)
+    response = client.post(
+        f"/missions/{mission_id}/interviews/record",
+        data={
+            "interviewee_name": "Structure Erreur",
+            "transcript": "Transcription structurée à ne pas perdre.",
+        },
+    )
+    assert response.status_code == 200
+    assert "Panne extraction structurée simulée." in response.text
+    assert "/interviews/transcript/export-pdf" in response.text
+    assert 'name="transcript" value="Transcription structurée à ne pas perdre."' in response.text
+    assert 'name="interviewee_name" value="Structure Erreur"' in response.text
+
+    export = client.post(
+        "/interviews/transcript/export-pdf",
+        data={"transcript": "Transcription structurée à ne pas perdre.", "interviewee_name": "Structure Erreur"},
+    )
+    assert export.status_code == 200
+    assert export.headers["content-type"] == "application/pdf"
 
 
 def test_notes_record_appends_transcript_and_proposes_answers(

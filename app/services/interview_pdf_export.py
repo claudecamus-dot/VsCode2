@@ -239,3 +239,37 @@ def build_interview_pdf(interview: Interview) -> bytes:
     decorate = _page_decorator(f"Entretien — {interview.interviewee_name}")
     doc.build(flowables, onFirstPage=decorate, onLaterPages=decorate)
     return buffer.getvalue()
+
+
+def build_transcript_only_pdf(transcript: str, interviewee_name: str = "") -> bytes:
+    """PDF de secours contenant uniquement une transcription brute — sans
+    passer par un `Interview` enregistré en base (2026-07-19).
+
+    Utilisée quand l'extraction IA en aval (tours de parole, réponses,
+    répartition) échoue : avant cette fonction, un texte transcrit — parfois
+    issu d'un entretien d'1h ou plus — restait bloqué dans le formulaire
+    d'erreur sans aucune façon de le récupérer autrement qu'en le
+    resélectionnant/copiant à la main. Le `title`/`running_title` reprend le
+    nom de l'interviewé·e si connu, sinon un libellé générique."""
+    title = f"Transcription brute — {interviewee_name}" if interviewee_name.strip() else "Transcription brute"
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buffer, pagesize=A4,
+        topMargin=18 * mm, bottomMargin=18 * mm, leftMargin=20 * mm, rightMargin=20 * mm,
+    )
+    flowables = [
+        Paragraph(_text(title), _STYLES["title"]),
+        Paragraph(
+            "Export de secours — l'extraction IA n'a pas (encore) abouti sur ce "
+            "texte, qui reste disponible tel qu'enregistré ci-dessous.",
+            _STYLES["subtitle"],
+        ),
+    ]
+    for paragraph in (transcript or "").strip().split("\n\n"):
+        if paragraph.strip():
+            flowables.append(Paragraph(_text(paragraph.strip()), _STYLES["body"]))
+    if not flowables[2:]:
+        flowables.append(Paragraph("— Transcription vide —", _STYLES["muted"]))
+    decorate = _page_decorator(title)
+    doc.build(flowables, onFirstPage=decorate, onLaterPages=decorate)
+    return buffer.getvalue()

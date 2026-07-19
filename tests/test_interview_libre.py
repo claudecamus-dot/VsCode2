@@ -1152,3 +1152,78 @@ def test_nettoyer_brouillons_ne_supprime_que_les_vides(
         ).one() is not None
     finally:
         session.close()
+
+
+# --------------------------------------------------------------------------- #
+# Export PDF de secours sur échec d'extraction (2026-07-19) : le bouton
+# "Télécharger la transcription (PDF)" doit apparaître sur record-libre (échec
+# transcript->tours) et sur la revue des tours (échec tours->répartition),
+# avec le texte préservé au moment de l'échec — pas de travail perdu.
+# --------------------------------------------------------------------------- #
+def test_record_libre_erreur_extraction_propose_export_pdf_transcript(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response = client.post("/entretiens/libre/nouveau", follow_redirects=False)
+    mission_id = int(response.headers["location"].split("/")[2])
+
+    def _boom(text):
+        raise interview_libre_extract_ai.InterviewLibreExtractAIError("Panne extraction simulée.")
+
+    monkeypatch.setattr("app.routers.interviews.extract_turns_from_text", _boom)
+    response = client.post(
+        f"/missions/{mission_id}/interviews/record-libre",
+        data={"transcript": "Texte précieux à ne pas perdre.", "interviewee_name": "Erreur Testeur"},
+    )
+    assert response.status_code == 200
+    assert "Panne extraction simulée." in response.text
+    assert "/interviews/transcript/export-pdf" in response.text
+    assert 'name="transcript" value="Texte précieux à ne pas perdre."' in response.text
+    assert 'name="interviewee_name" value="Erreur Testeur"' in response.text
+
+    export = client.post(
+        "/interviews/transcript/export-pdf",
+        data={"transcript": "Texte précieux à ne pas perdre.", "interviewee_name": "Erreur Testeur"},
+    )
+    assert export.status_code == 200
+    assert export.headers["content-type"] == "application/pdf"
+
+
+def test_libre_turns_review_erreur_repartition_propose_export_pdf_transcript(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response = client.post("/entretiens/libre/nouveau", follow_redirects=False)
+    mission_id = int(response.headers["location"].split("/")[2])
+    _patch_libre_extract_ai(monkeypatch)
+    client.post(
+        f"/missions/{mission_id}/interviews/record-libre",
+        data={"transcript": "Transcription complète à préserver.", "interviewee_name": "Repartition KO"},
+    )
+
+    def _boom(turns):
+        raise interview_libre_extract_ai.InterviewLibreExtractAIError("Panne répartition simulée.")
+
+    monkeypatch.setattr("app.routers.interviews.generate_repartition_from_turns", _boom)
+    # _post_libre_synthese() ne porte pas "transcript" (hors de son périmètre
+    # habituel) — POST direct pour reproduire le vrai champ caché du formulaire.
+    response = client.post(
+        f"/missions/{mission_id}/interviews/record-libre/synthese",
+        data={
+            "interviewee_name": "Repartition KO",
+            "transcript": "Transcription complète à préserver.",
+            "turn_interlocuteur": [t["interlocuteur"] for t in _DEFAULT_TURNS],
+            "turn_question": [t["question"] or "" for t in _DEFAULT_TURNS],
+            "turn_remarque": [t["remarque"] or "" for t in _DEFAULT_TURNS],
+            "turn_section_title": [t["section_title"] or "" for t in _DEFAULT_TURNS],
+        },
+    )
+    assert response.status_code == 200
+    assert "Panne répartition simulée." in response.text
+    assert "/interviews/transcript/export-pdf" in response.text
+    assert 'name="transcript" value="Transcription complète à préserver."' in response.text
+
+    export = client.post(
+        "/interviews/transcript/export-pdf",
+        data={"transcript": "Transcription complète à préserver.", "interviewee_name": "Repartition KO"},
+    )
+    assert export.status_code == 200
+    assert export.headers["content-type"] == "application/pdf"
