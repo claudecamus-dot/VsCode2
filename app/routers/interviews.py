@@ -783,6 +783,10 @@ def import_interview_confirm(
         interviewee_entity=(identity.get("interviewee_entity") or "").strip() or None,
         interview_date=parsed_date,
         audio_backup_path=identity.get("audio_backup_path") or None,
+        # Présent seulement pour le flux d'enregistrement audio
+        # (record_interview()) — l'import .docx ne met jamais "transcript"
+        # dans identity, l'utilisateur gardant déjà son fichier source.
+        raw_transcript=(identity.get("transcript") or "").strip() or None,
     )
     db.add(interview)
     db.flush()  # attribue interview.id avant de créer les réponses liées

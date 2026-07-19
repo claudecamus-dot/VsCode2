@@ -63,6 +63,7 @@ def _add_missing_columns() -> None:
             "mode": "TEXT DEFAULT 'parametre'",
             "repartition": "JSON",
             "resume": "TEXT",
+            "raw_transcript": "TEXT",
         },
         "trames": {"intro_text": "TEXT"},
         "questions": {"help_text": "TEXT"},

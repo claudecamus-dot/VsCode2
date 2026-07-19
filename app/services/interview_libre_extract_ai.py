@@ -39,7 +39,7 @@ Même plomberie que `interview_extract_ai.py`/`synthese_ai.py`
 """
 from __future__ import annotations
 
-from .ai_common import AIError, call_ai_json, ollama_chunk_max_words
+from .ai_common import AIError, call_ai_json, chunk_text_by_paragraph, ollama_chunk_max_words
 
 MAX_TOKENS = 4000
 
@@ -142,30 +142,6 @@ _TURNS_JSON_HINT = (
 )
 
 
-def _chunk_text_by_paragraph(text: str, max_words: int) -> list[str]:
-    """Découpe un texte long en tronçons d'environ `max_words` mots, sur des
-    frontières de paragraphe (ligne vide) pour ne jamais couper un tour de
-    parole au milieu. Un seul tronçon si le texte tient déjà dedans."""
-    paragraphs = [p for p in text.split("\n\n") if p.strip()]
-    if not paragraphs:
-        return [text]
-
-    chunks: list[str] = []
-    current: list[str] = []
-    current_words = 0
-    for para in paragraphs:
-        words = len(para.split())
-        if current and current_words + words > max_words:
-            chunks.append("\n\n".join(current))
-            current, current_words = [], 0
-        current.append(para)
-        current_words += words
-    if current:
-        chunks.append("\n\n".join(current))
-
-    return chunks or [text]
-
-
 def _extract_turns_chunk(chunk: str) -> dict:
     data = call_ai_json(
         _TURNS_SYSTEM,
@@ -224,7 +200,7 @@ def extract_turns_from_text(text: str) -> dict:
     if not text.strip():
         raise InterviewLibreExtractAIError("Aucun texte transcrit.")
 
-    chunks = _chunk_text_by_paragraph(text, ollama_chunk_max_words())
+    chunks = chunk_text_by_paragraph(text, ollama_chunk_max_words())
 
     all_turns: list[dict] = []
     identity = {"interviewee_name": "", "interviewee_role": "", "interviewee_entity": ""}

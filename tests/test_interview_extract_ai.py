@@ -141,3 +141,54 @@ def test_extract_answers_raises_when_trame_has_no_questions(monkeypatch: pytest.
     with pytest.raises(interview_extract_ai.InterviewExtractAIError):
         interview_extract_ai.extract_answers_from_text([], "un document avec du contenu")
     assert not called
+
+
+# --------------------------------------------------------------------------- #
+# Map-reduce (2026-07-19) : un entretien enregistré peut durer 1h-1h30, même
+# risque de dépassement de contexte/timeout que l'extraction libre — jusqu'ici
+# seul chemin du projet sans aucun découpage.
+# --------------------------------------------------------------------------- #
+def test_extract_answers_short_document_makes_a_single_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Chemin court inchangé : un texte qui tient dans un tronçon ne fait
+    qu'un seul appel IA, comme avant le map-reduce."""
+    calls = []
+    monkeypatch.setattr(
+        interview_extract_ai, "call_ai_json",
+        lambda *a, **k: (calls.append(1), {"answers": [{"question_id": 1, "text": "Reponse"}]})[1],
+    )
+    interview_extract_ai.extract_answers_from_text([_question(1)], "un document quelconque")
+    assert len(calls) == 1
+
+
+def test_extract_answers_map_reduce_splits_long_document_and_merges(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Un document assez long pour être découpé en plusieurs tronçons : un
+    appel IA par tronçon, fusion sans appel IA supplémentaire — la première
+    réponse non vide trouvée pour une question l'emporte (une question posée
+    une fois n'a pas besoin d'être recomposée depuis plusieurs tronçons,
+    contrairement à un résumé qui couvre tout le document)."""
+    monkeypatch.setattr(interview_extract_ai, "ollama_chunk_max_words", lambda: 5)
+    questions = [_question(1, "Q1 ?"), _question(2, "Q2 ?")]
+    prompts = []
+
+    def fake_call_ai_json(system, prompt, schema, json_hint, **kwargs):
+        prompts.append(prompt)
+        if len(prompts) == 1:
+            return {"answers": [{"question_id": 1, "text": "Réponse du premier tronçon"}]}
+        return {"answers": [
+            {"question_id": 1, "text": "Ne doit pas écraser la première"},
+            {"question_id": 2, "text": "Réponse du second tronçon"},
+        ]}
+
+    monkeypatch.setattr(interview_extract_ai, "call_ai_json", fake_call_ai_json)
+    text = (
+        "Paragraphe un avec plusieurs mots ici.\n\n"
+        "Paragraphe deux avec plusieurs mots aussi ici."
+    )
+
+    result = interview_extract_ai.extract_answers_from_text(questions, text)
+
+    assert len(prompts) == 2  # bien découpé en 2 tronçons distincts
+    assert result[1]["text"] == "Réponse du premier tronçon"  # 1er tronçon gagne
+    assert result[2]["text"] == "Réponse du second tronçon"  # absente du 1er, reprise du 2e

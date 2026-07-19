@@ -203,6 +203,12 @@ class Interview(Base):
     # l'entretien enregistré — filet de sécurité en cas de souci de
     # transcription/extraction, l'audio brut n'étant sinon jamais conservé.
     audio_backup_path: Mapped[str | None] = mapped_column(String(500), default=None)
+    # Transcription brute telle qu'enregistrée (mode parametre, flux
+    # d'enregistrement audio uniquement — jamais rempli par l'import .docx,
+    # où l'utilisateur garde déjà son fichier source). Avant ce champ, le
+    # texte ne survivait que le temps du formulaire (perdu après extraction
+    # IA des réponses) — aucun moyen de le consulter/exporter après coup.
+    raw_transcript: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
     mission: Mapped["Mission"] = relationship(back_populates="interviews")

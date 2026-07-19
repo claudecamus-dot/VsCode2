@@ -184,6 +184,18 @@ def _parametre_body_flowables(interview: Interview) -> list:
             for v in verbatims_by_q.get(q.id, []):
                 flowables.append(_callout(f"« {v.quote} »"))
                 flowables.append(Spacer(1, 4))
+
+    if (interview.raw_transcript or "").strip():
+        flowables += _h1("Transcription brute")
+        flowables.append(Paragraph(
+            "Texte tel qu'enregistré, avant extraction IA des réponses ci-dessus "
+            "— à consulter en cas de doute sur une réponse ou pour retrouver du "
+            "contexte non repris dans les questions de la trame.",
+            _STYLES["muted"],
+        ))
+        for paragraph in interview.raw_transcript.strip().split("\n\n"):
+            if paragraph.strip():
+                flowables.append(Paragraph(_text(paragraph.strip()), _STYLES["body"]))
     return flowables
 
 

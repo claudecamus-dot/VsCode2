@@ -123,6 +123,35 @@ def ollama_chunk_max_words() -> int:
         return 1800
 
 
+def chunk_text_by_paragraph(text: str, max_words: int) -> list[str]:
+    """Découpe un texte long en tronçons d'environ `max_words` mots, sur des
+    frontières de paragraphe (ligne vide) pour ne jamais couper une idée au
+    milieu. Un seul tronçon si le texte tient déjà dedans — le chemin court
+    (un seul appel IA) reste inchangé. Partagée entre `interview_libre_extract_ai.py`
+    (transcription → tours de parole) et `interview_extract_ai.py` (transcription
+    → réponses en mode structuré, depuis 2026-07-19) : même risque de
+    dépassement de `ollama_num_ctx()`/`ollama_timeout()` sur un texte long,
+    même découpage."""
+    paragraphs = [p for p in text.split("\n\n") if p.strip()]
+    if not paragraphs:
+        return [text]
+
+    chunks: list[str] = []
+    current: list[str] = []
+    current_words = 0
+    for para in paragraphs:
+        words = len(para.split())
+        if current and current_words + words > max_words:
+            chunks.append("\n\n".join(current))
+            current, current_words = [], 0
+        current.append(para)
+        current_words += words
+    if current:
+        chunks.append("\n\n".join(current))
+
+    return chunks or [text]
+
+
 def ollama_keep_alive() -> str:
     """Durée pendant laquelle Ollama garde le modèle chargé en mémoire après
     un appel — `"30m"` par défaut (le défaut serveur d'Ollama est 5 minutes,

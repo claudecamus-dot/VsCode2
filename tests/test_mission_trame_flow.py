@@ -705,6 +705,107 @@ def test_interview_record_transcribes_and_prefills_to_review(
     assert "Réponse transcrite" in response.text
 
 
+def test_record_interview_confirm_persists_raw_transcript(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Le flux d'enregistrement audio (mode structuré) doit conserver la
+    transcription brute jusqu'en base — avant ce champ, elle ne survivait
+    que le temps du formulaire et était perdue après extraction IA des
+    réponses, sans moyen de la consulter/exporter après coup (2026-07-19)."""
+    response = client.post(
+        "/missions", data={"name": "Mission Transcript Persist"}, follow_redirects=False,
+    )
+    mission_id = response.headers["location"].rsplit("/", 1)[-1]
+    client.post(
+        f"/missions/{mission_id}/trame/themes", data={"title": "Theme T"}, follow_redirects=False
+    )
+    session = SessionLocal()
+    try:
+        theme_id = session.scalars(select(Theme).where(Theme.title == "Theme T")).one().id
+    finally:
+        session.close()
+    client.post(
+        f"/missions/{mission_id}/trame/themes/{theme_id}/questions",
+        data={"label": "Question T ?", "qtype": "open"}, follow_redirects=False,
+    )
+    session = SessionLocal()
+    try:
+        question_id = session.scalars(select(Question).where(Question.label == "Question T ?")).one().id
+    finally:
+        session.close()
+
+    # Même route que le flux réel /record : l'extraction est mockée, mais le
+    # transcript circule via identity exactement comme record_interview() le fait.
+    def fake_extract(questions, text):
+        return {question_id: {"text": "Réponse extraite", "verbatims": []}}
+
+    monkeypatch.setattr("app.routers.interviews.extract_answers_from_text", fake_extract)
+    response = client.post(
+        f"/missions/{mission_id}/interviews/record",
+        data={
+            "interviewee_name": "Transcript Testeur",
+            "transcript": "Voici la transcription brute complète de l'entretien.",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    # Le champ caché "transcript" du formulaire de revue porte le texte complet
+    # (échappé à la fois par json.dumps et par l'autoescape Jinja — on vérifie
+    # un extrait sans caractère spécial plutôt que la forme échappée exacte).
+    assert "Voici la transcription brute" in response.text
+
+    proposed_json = json.dumps({
+        "identity": {
+            "interviewee_name": "Transcript Testeur",
+            "transcript": "Voici la transcription brute complète de l'entretien.",
+        },
+        "answers": [{"question_id": question_id, "text": "Réponse extraite", "verbatims": []}],
+    })
+    response = client.post(
+        f"/missions/{mission_id}/interviews/import/confirm",
+        data={"proposed": proposed_json, "keep": str(question_id)},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    interview_id = int(response.headers["location"].rsplit("/", 1)[-1])
+
+    session = SessionLocal()
+    try:
+        interview = session.get(Interview, interview_id)
+        assert interview.raw_transcript == "Voici la transcription brute complète de l'entretien."
+    finally:
+        session.close()
+
+
+def test_import_docx_confirm_does_not_persist_raw_transcript(client: TestClient) -> None:
+    """L'import .docx ne met jamais "transcript" dans identity (l'utilisateur
+    garde déjà son fichier source) — raw_transcript doit rester vide plutôt
+    que de faire fuiter un champ non pertinent pour ce flux."""
+    response = client.post(
+        "/missions", data={"name": "Mission Docx No Transcript"}, follow_redirects=False,
+    )
+    mission_id = response.headers["location"].rsplit("/", 1)[-1]
+
+    proposed_json = json.dumps({
+        "identity": {"interviewee_name": "Import Testeur"},  # pas de "transcript"
+        "answers": [],
+    })
+    response = client.post(
+        f"/missions/{mission_id}/interviews/import/confirm",
+        data={"proposed": proposed_json},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    interview_id = int(response.headers["location"].rsplit("/", 1)[-1])
+
+    session = SessionLocal()
+    try:
+        interview = session.get(Interview, interview_id)
+        assert interview.raw_transcript is None
+    finally:
+        session.close()
+
+
 def test_notes_record_appends_transcript_and_proposes_answers(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

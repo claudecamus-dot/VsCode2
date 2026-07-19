@@ -137,6 +137,41 @@ def test_build_interview_pdf_parametre_sans_reponse_ni_trame_ne_plante_pas() -> 
     assert "Sans Trame" in _pdf_text(pdf_bytes)
 
 
+def test_build_interview_pdf_parametre_includes_raw_transcript_when_present() -> None:
+    """La transcription brute (mode structuré, flux d'enregistrement audio,
+    2026-07-19) apparaît comme section finale du PDF quand elle est
+    renseignée — absente sinon (interviews plus anciennes, import .docx)."""
+    interview_id = _build_parametre_interview(multiline=False)
+    session = SessionLocal()
+    try:
+        interview = session.get(Interview, interview_id)
+        interview.raw_transcript = (
+            "Premier paragraphe de la transcription brute.\n\n"
+            "Second paragraphe, distinct du premier."
+        )
+        session.commit()
+        pdf_bytes = build_interview_pdf(session.get(Interview, interview_id))
+    finally:
+        session.close()
+
+    text = _pdf_text(pdf_bytes)
+    assert "Transcription brute" in text
+    assert "Premier paragraphe de la transcription brute." in text.split("\n")
+    assert "Second paragraphe, distinct du premier." in text.split("\n")
+
+
+def test_build_interview_pdf_parametre_sans_raw_transcript_pas_de_section() -> None:
+    """Sans transcription brute enregistrée (import .docx, ou entretien créé
+    avant ce champ), la section ne doit pas apparaître du tout."""
+    interview_id = _build_parametre_interview(multiline=False)
+    session = SessionLocal()
+    try:
+        pdf_bytes = build_interview_pdf(session.get(Interview, interview_id))
+    finally:
+        session.close()
+    assert "Transcription brute" not in _pdf_text(pdf_bytes)
+
+
 def _build_libre_interview(multiline: bool = True) -> int:
     session = SessionLocal()
     try:
