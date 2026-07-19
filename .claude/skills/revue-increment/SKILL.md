@@ -67,6 +67,16 @@ ci-dessus plutôt que d'en dupliquer la logique.
     pour le principe « le parseur tolérant ment ».
   - export `.pptx` → skill `pptx-verify` (rendre + regarder), jamais « les
     tests passent donc c'est bon ».
+  - correctif de **timeout/perf IA** (Ollama ou autre) → mesurer au moins un
+    appel à la taille **maximale réellement configurée** (ex.
+    `OLLAMA_CHUNK_MAX_WORDS` au max, pas un prompt jouet de quelques mots) —
+    un appel rapide sur un petit échantillon prouve seulement que le modèle
+    répond, pas qu'il répond à temps à l'échelle de production. Leçon du
+    2026-07-19 : un premier correctif de timeout Ollama vérifié sur un petit
+    prompt (21s, chaud) avait conclu à tort que la chaleur du modèle
+    suffisait ; à la taille réellement configurée (1800 mots), le même appel
+    chaud prenait 572s — quasiment le double du timeout. Voir
+    [[feedback-ai-timeout-fix-verify-at-configured-scale]].
 - [ ] Les cas dégradés sont couverts (pas de clé IA, `mission.trame` absente,
       entrée vide, fichier corrompu) — ou explicitement documentés comme gap
       connu, pas silencieusement ignorés.

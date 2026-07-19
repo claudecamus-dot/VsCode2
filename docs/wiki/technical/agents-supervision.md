@@ -9,7 +9,7 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-19T17:50:42+02:00 · **21 sessions** (transcripts) · **44** invocations de skills · **34** lancements de sous-agents.
+Dernier scan : 2026-07-19T19:15:02+02:00 · **21 sessions** (transcripts) · **44** invocations de skills · **34** lancements de sous-agents.
 
 ## Skills — usage réel
 
@@ -69,12 +69,11 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 - **`slide-text-polish`** (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle polish-texte).
 - **`restitution-deck-design`** (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle design-review).
 - **`bmad-code-review`** (2026-07-19) : Proposition retenue telle quelle : seuil explicite ajouté à revue-increment/SKILL.md (>5 fichiers produit ou logique à risque -> bmad-code-review obligatoire, sinon revue inline) — la délégation implicite ne se déclenchait jamais en pratique.
+- **`ai_common.py`** (2026-07-19) : Proposition retenue telle quelle : règle explicite ajoutée à revue-increment/SKILL.md §2 (correctif timeout/perf IA -> mesurer à la taille maximale réellement configurée, pas un prompt jouet) — capitalisée en mémoire feedback-ai-timeout-fix-verify-at-configured-scale.
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic à jour._
-
-1. **Le premier correctif du timeout Ollama a ete verifie sur un prompt non representatif, manquant la vraie cause** — Quand un correctif touche un timeout/une limite de performance IA, verifier a l'echelle REELLEMENT configuree (ex. OLLAMA_CHUNK_MAX_WORDS au maximum), pas un echantillon arbitrairement petit qui peut masquer le vrai goulot -- un test rapide sur un petit prompt prouve seulement que le modele repond, pas qu'il repond a temps a la taille de production · **Proposition** : Ajouter a .claude/skills/revue-increment/SKILL.md section 2 (Verification reelle) une puce specifique : correctif de timeout/perf IA -> mesurer au moins un appel a la taille MAXIMALE configuree (chunk budget, pas un prompt jouet), pas seulement confirmer que l'appel aboutit
+_Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés._
 
 ---
 

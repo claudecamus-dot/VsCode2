@@ -30,6 +30,12 @@
       "decision": "Proposition retenue telle quelle : seuil explicite ajouté à revue-increment/SKILL.md (>5 fichiers produit ou logique à risque -> bmad-code-review obligatoire, sinon revue inline) — la délégation implicite ne se déclenchait jamais en pratique.",
       "date": "2026-07-19",
       "source": "utilisateur"
+    },
+    {
+      "cible": "ai_common.py",
+      "decision": "Proposition retenue telle quelle : règle explicite ajoutée à revue-increment/SKILL.md §2 (correctif timeout/perf IA -> mesurer à la taille maximale réellement configurée, pas un prompt jouet) — capitalisée en mémoire feedback-ai-timeout-fix-verify-at-configured-scale.",
+      "date": "2026-07-19",
+      "source": "utilisateur"
     }
   ]
 }
