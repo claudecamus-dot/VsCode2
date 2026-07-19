@@ -30,7 +30,7 @@
       <td>{{ m.created_at.strftime("%d/%m/%Y") }}</td>
       <td class="row-actions">
         <form method="post" action="/missions/{{ m.id }}/delete"
-              onsubmit="return confirm('Supprimer cette mission ?');">
+              onsubmit="return confirm('Supprimer cette mission ? Tous ses entretiens, sa trame et sa synthèse seront supprimés avec elle, sans possibilité de retour en arrière.');">
           <button class="btn btn-danger btn-sm" type="submit">Supprimer</button>
         </form>
       </td>

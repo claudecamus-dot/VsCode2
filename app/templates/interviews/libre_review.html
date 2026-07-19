@@ -2,7 +2,8 @@
 {% block title %}Synthèse de l'entretien libre — Interview-to-Deck{% endblock %}
 {% block content %}
 <div class="breadcrumb">
-  <a href="/">Nouvel entretien</a> / Synthèse de l'entretien libre
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> / Synthèse de l'entretien libre
 </div>
 
 <div class="page-head"><h1>Synthèse avant enregistrement</h1></div>
@@ -56,7 +57,7 @@
 
   <section class="card">
     <h2>Répartition dans la synthèse globale de mission</h2>
-    <p class="muted">Alimente les 5 catégories de la synthèse globale, à côté des entretiens structurés — pas la synthèse par thème.</p>
+    <p class="muted">Alimente les 5 catégories de la synthèse globale, à côté des entretiens structurés.</p>
     <label>
       Contexte
       <textarea name="repartition_contexte" rows="3">{{ repartition.contexte }}</textarea>

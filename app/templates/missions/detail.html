@@ -9,7 +9,7 @@
 <div class="page-head">
   <h1>{{ mission.name }}</h1>
   <form method="post" action="/missions/{{ mission.id }}/delete"
-        onsubmit="return confirm('Supprimer cette mission ?');">
+        onsubmit="return confirm('Supprimer cette mission ? Tous ses entretiens, sa trame et sa synthèse seront supprimés avec elle, sans possibilité de retour en arrière.');">
     <button class="btn btn-danger btn-sm" type="submit">Supprimer la mission</button>
   </form>
 </div>
@@ -83,7 +83,14 @@
   <div class="card-head">
     <h2>Synthèse transverse</h2>
     {% if mission.interviews %}
-    <a class="btn btn-primary" href="/missions/{{ mission.id }}/synthese/export-import">Ouvrir la synthèse</a>
+    {% if mission.recommendation_axes %}
+      {% set synthese_url = "/missions/" ~ mission.id ~ "/recommandations" %}
+    {% elif mission.global_synthesis and mission.global_synthesis.has_content %}
+      {% set synthese_url = "/missions/" ~ mission.id ~ "/synthese/globale" %}
+    {% else %}
+      {% set synthese_url = "/missions/" ~ mission.id ~ "/synthese/export-import" %}
+    {% endif %}
+    <a class="btn btn-primary" href="{{ synthese_url }}">Ouvrir la synthèse</a>
     {% endif %}
   </div>
   {% if mission.interviews %}

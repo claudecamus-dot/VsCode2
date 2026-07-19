@@ -6,3 +6,6 @@ pytest>=9.0
 # Client HTTP utilisé par starlette.testclient (TestClient). Starlette >=1.3
 # le préfère à httpx et émet sinon un DeprecationWarning.
 httpx2>=2.5
+# Extraction de texte depuis les PDF générés (test_interview_pdf_export.py)
+# pour vérifier le contenu réel rendu, pas seulement l'absence d'exception.
+pymupdf>=1.24

@@ -1,5 +1,5 @@
 ---
-updated: 2026-07-18
+updated: 2026-07-19
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -9,30 +9,30 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-18T18:13:29+02:00 · **21 sessions** (transcripts) · **36** invocations de skills · **31** lancements de sous-agents.
+Dernier scan : 2026-07-19T13:43:44+02:00 · **21 sessions** (transcripts) · **43** invocations de skills · **34** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `run-dev-server` | projet | 10 | 2026-07-03 | 2026-07-18 |
+| `run-dev-server` | projet | 12 | 2026-07-03 | 2026-07-19 |
 | `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
 | `roadmap-keeper` | global | 5 | 2026-06-25 | 2026-07-15 |
+| `agent-orchestrator` | projet | 4 | 2026-07-17 | 2026-07-18 |
+| `revue-increment` | projet | 3 | 2026-07-18 | 2026-07-19 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
-| `agent-orchestrator` | projet | 2 | 2026-07-17 | 2026-07-18 |
+| `agent-supervisor` | projet | 2 | 2026-07-18 | 2026-07-19 |
 | `pptx-deck` | global | 2 | 2026-07-02 | 2026-07-03 |
 | `pptx-verify` | global | 2 | 2026-07-03 | 2026-07-18 |
 | `skill-creator` | global | 2 | 2026-07-03 | 2026-07-03 |
-| `agent-supervisor` | projet | 1 | 2026-07-18 | 2026-07-18 |
 | `claude-api` | (builtin/session) | 1 | 2026-06-29 | 2026-06-29 |
 | `init` | (builtin/session) | 1 | 2026-07-03 | 2026-07-03 |
-| `revue-increment` | projet | 1 | 2026-07-18 | 2026-07-18 |
 
 ## Sous-agents
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `Explore` | 15 | 2026-06-30 | 2026-07-18 |
+| `Explore` | 18 | 2026-06-30 | 2026-07-18 |
 | `general-purpose` | 8 | 2026-07-15 | 2026-07-17 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
@@ -73,7 +73,7 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 
 _Diagnostic à jour._
 
-1. **Changement PPT livré sans passage pptx-verify depuis le 2026-07-03** — Au prochain changement pptx_export.py/pptx_deck.py, suivre l'étape pptx-verify du playbook dev-verifie sur un export réel
+1. **La delegation revue-increment -> bmad-code-review n'a jamais reellement declenche** — Clarifier le seuil de declenchement dans revue-increment Phase B (ex. diff > N fichiers ou surface a risque) plutot que de laisser un choix implicite qui ne se declenche jamais -- ou confirmer que la revue inline est le mode normal pour des increments de cette taille et retirer la mention de delegation par defaut si elle induit en erreur · **Proposition** : Modifier .claude/skills/revue-increment/SKILL.md section Phase B point 1 : remplacer 'Revue de code adversariale... -> bmad-code-review' par une regle explicite (ex. 'si le diff touche >5 fichiers produit ou une logique a risque (paiement, auth, suppression de donnees) -> bmad-code-review obligatoire ; sinon revue inline suffisante') -- a arbitrer par l'utilisateur avant edition
 
 ---
 

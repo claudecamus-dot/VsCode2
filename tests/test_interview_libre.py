@@ -1047,7 +1047,7 @@ def test_regenerer_analyse_erreur_ia_reste_sur_analyse(
     response = client.post(f"/interviews/{interview_id}/analyse/regenerer")
     assert response.status_code == 200
     assert "Panne IA simulée." in response.text
-    assert "Analyse — Regen KO" in response.text  # on reste sur l'écran Analyse
+    assert "Aperçu — Regen KO" in response.text  # on reste sur l'écran Aperçu
 
 
 def test_regenerer_analyse_refuse_mode_parametre(client: TestClient) -> None:

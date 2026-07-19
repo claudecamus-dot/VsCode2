@@ -1,15 +1,15 @@
 {% extends "base.html" %}
-{% block title %}Analyse — {{ interview.interviewee_name }}{% endblock %}
+{% block title %}Aperçu — {{ interview.interviewee_name }}{% endblock %}
 {% block content %}
 <div class="breadcrumb no-print">
   <a href="/missions">Missions</a> /
   <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> /
-  <a href="/interviews/{{ interview.id }}">{{ interview.interviewee_name }}</a> / Analyse
+  <a href="/interviews/{{ interview.id }}">{{ interview.interviewee_name }}</a> / Aperçu
 </div>
 
 <div class="capture-head no-print">
   <div>
-    <h1>Analyse — {{ interview.interviewee_name }}</h1>
+    <h1>Aperçu — {{ interview.interviewee_name }}</h1>
     <div class="meta">
       {% if interview.interviewee_role %}<span>{{ interview.interviewee_role }}</span>{% endif %}
       {% if interview.interviewee_entity %}<span>{{ interview.interviewee_entity }}</span>{% endif %}

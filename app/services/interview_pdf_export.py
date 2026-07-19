@@ -64,12 +64,21 @@ _STYLES = {
 }
 
 
+def _text(raw: str) -> str:
+    """Échappe le texte utilisateur pour le mini-XML de reportlab puis
+    convertit les retours à la ligne en `<br/>` — un `Paragraph` reportlab
+    traite le texte comme du HTML et collapse les `\\n` bruts en simple
+    espace, donc une réponse ou une note libre saisie sur plusieurs lignes
+    s'affichait comme un seul bloc continu dans le PDF sans cette conversion."""
+    return escape(raw).replace("\n", "<br/>")
+
+
 def _h1(text: str) -> list:
     """Titre de niveau 1 suivi d'un filet teal pleine largeur — repris de la
     mise en forme des titres du document modèle (`01_Transcription…docx`), où
     chaque grande section est soulignée d'un trait de couleur."""
     return [
-        Paragraph(escape(text), _STYLES["h1"]),
+        Paragraph(_text(text), _STYLES["h1"]),
         HRFlowable(width="100%", thickness=1.5, color=_TEAL,
                    spaceBefore=2, spaceAfter=8, lineCap="round"),
     ]
@@ -81,8 +90,8 @@ def _callout(text: str, label: str = "") -> Table:
     mis en avant plutôt que noyé dans le corps du texte). `label` optionnel :
     amorce en gras (« Message central — … »), comme les callouts du document
     de synthèse modèle (`02_Synthese…docx`)."""
-    lead = f"<b>{escape(label)} — </b>" if label else ""
-    p = Paragraph(lead + escape(text), _STYLES["callout"])
+    lead = f"<b>{_text(label)} — </b>" if label else ""
+    p = Paragraph(lead + _text(text), _STYLES["callout"])
     table = Table([[p]], colWidths=[160 * mm])
     table.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), _CALLOUT_BG),
@@ -96,14 +105,14 @@ def _callout(text: str, label: str = "") -> Table:
 
 
 def _header_flowables(interview: Interview) -> list:
-    flowables = [Paragraph(escape(f"Entretien — {interview.interviewee_name}"), _STYLES["title"])]
+    flowables = [Paragraph(_text(f"Entretien — {interview.interviewee_name}"), _STYLES["title"])]
     meta = [p for p in (interview.interviewee_role, interview.interviewee_entity) if p]
     sub = " — ".join(meta)
     if interview.interview_date:
         date_str = interview.interview_date.strftime("%d/%m/%Y")
         sub = f"{sub} · {date_str}" if sub else date_str
     if sub:
-        flowables.append(Paragraph(escape(sub), _STYLES["subtitle"]))
+        flowables.append(Paragraph(_text(sub), _STYLES["subtitle"]))
     return flowables
 
 
@@ -126,10 +135,10 @@ def _libre_body_flowables(interview: Interview) -> list:
     for section in sections:
         turn_flowables = []
         if section["title"]:
-            turn_flowables.append(Paragraph(escape(section["title"]), _STYLES["h2"]))
+            turn_flowables.append(Paragraph(_text(section["title"]), _STYLES["h2"]))
         for turn in section["turns"]:
             propos = " ".join(p for p in (turn.question, turn.remarque) if p)
-            text = f"<b>{escape(turn.interlocuteur)}</b> : {escape(propos)}"
+            text = f"<b>{_text(turn.interlocuteur)}</b> : {_text(propos)}"
             turn_flowables.append(Paragraph(text, _STYLES["dialogue"]))
         # Garde le titre de section collé à son premier tour de parole plutôt
         # que de le laisser seul en bas de page (saut de page malvenu).
@@ -140,9 +149,9 @@ def _libre_body_flowables(interview: Interview) -> list:
     flowables += _h1("Répartition par catégorie")
     for key, label in REPARTITION_LABELS.items():
         value = (repartition.get(key) or "").strip()
-        flowables.append(Paragraph(escape(label), _STYLES["h2"]))
+        flowables.append(Paragraph(_text(label), _STYLES["h2"]))
         flowables.append(Paragraph(
-            escape(value) if value else "— pas de matière sur cette catégorie —",
+            _text(value) if value else "— pas de matière sur cette catégorie —",
             _STYLES["body"] if value else _STYLES["muted"],
         ))
     return flowables
@@ -152,7 +161,7 @@ def _parametre_body_flowables(interview: Interview) -> list:
     flowables: list = []
     if (interview.free_notes or "").strip():
         flowables += _h1("Notes libres")
-        flowables.append(Paragraph(escape(interview.free_notes.strip()), _STYLES["body"]))
+        flowables.append(Paragraph(_text(interview.free_notes.strip()), _STYLES["body"]))
 
     answers = {a.question_id: a for a in interview.answers}
     verbatims_by_q: dict[int, list] = {}
@@ -164,12 +173,12 @@ def _parametre_body_flowables(interview: Interview) -> list:
         flowables += _h1(theme.title)
         for q in theme.questions:
             a = answers.get(q.id)
-            flowables.append(Paragraph(f"<b>{escape(q.label)}</b>", _STYLES["h2"]))
+            flowables.append(Paragraph(f"<b>{_text(q.label)}</b>", _STYLES["h2"]))
             if a and (a.value or a.text):
                 if a.value:
-                    flowables.append(Paragraph(escape(a.value), _STYLES["body"]))
+                    flowables.append(Paragraph(_text(a.value), _STYLES["body"]))
                 if a.text:
-                    flowables.append(Paragraph(escape(a.text), _STYLES["body"]))
+                    flowables.append(Paragraph(_text(a.text), _STYLES["body"]))
             else:
                 flowables.append(Paragraph("— sans réponse —", _STYLES["muted"]))
             for v in verbatims_by_q.get(q.id, []):
