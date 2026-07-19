@@ -9,7 +9,7 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-19T13:50:26+02:00 · **21 sessions** (transcripts) · **43** invocations de skills · **34** lancements de sous-agents.
+Dernier scan : 2026-07-19T14:15:45+02:00 · **21 sessions** (transcripts) · **43** invocations de skills · **34** lancements de sous-agents.
 
 ## Skills — usage réel
 
@@ -72,9 +72,7 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic à jour._
-
-1. **La delegation revue-increment -> bmad-code-review n'a jamais reellement declenche** — Clarifier le seuil de declenchement dans revue-increment Phase B (ex. diff > N fichiers ou surface a risque) plutot que de laisser un choix implicite qui ne se declenche jamais -- ou confirmer que la revue inline est le mode normal pour des increments de cette taille et retirer la mention de delegation par defaut si elle induit en erreur · **Proposition** : Modifier .claude/skills/revue-increment/SKILL.md section Phase B point 1 : remplacer 'Revue de code adversariale... -> bmad-code-review' par une regle explicite (ex. 'si le diff touche >5 fichiers produit ou une logique a risque (paiement, auth, suppression de donnees) -> bmad-code-review obligatoire ; sinon revue inline suffisante') -- a arbitrer par l'utilisateur avant edition
+_Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés._
 
 ---
 

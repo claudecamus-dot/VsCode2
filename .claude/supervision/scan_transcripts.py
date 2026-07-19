@@ -257,11 +257,17 @@ def diagnostic_a_jour(diagnostic, runs: list = None) -> bool:
     return non_couverts < DIAGNOSTIC_STALE_RUNS
 
 
-def diagnostic_todos(diagnostic) -> list:
-    """Top constats qualitatifs (étage 2), triés par priorité, pour fusion dans le TODO wiki."""
+def diagnostic_todos(diagnostic, arbitrages: list = None) -> list:
+    """Top constats qualitatifs (étage 2), triés par priorité, pour fusion dans le TODO wiki.
+
+    Un constat dont la `cible` a été arbitrée (`arbitrages.json`) est exclu — même
+    contrat que `build_todos()` pour les constats déterministes : une décision humaine
+    ferme le TODO affiché, sans effacer la mesure réelle ni le diagnostic lui-même."""
     if not diagnostic:
         return []
-    findings = sorted(diagnostic.get("findings", []) or [], key=lambda f: -(f.get("priorite") or 0))
+    arbitres = {a["cible"] for a in arbitrages or []}
+    findings = [f for f in (diagnostic.get("findings", []) or []) if f.get("cible") not in arbitres]
+    findings.sort(key=lambda f: -(f.get("priorite") or 0))
     out = []
     for f in findings[:5]:
         titre = (f.get("titre") or "").strip()
@@ -350,7 +356,7 @@ def build_runs_stats(runs: list):
 
 
 def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: dict, diagnostic,
-                        runs: list = None) -> dict:
+                        runs: list = None, arbitrages: list = None) -> dict:
     """Sens superviseur → orchestrateur (conception §6) : ce que le scan mesure, appliqué
     par la skill agent-orchestrator lors de la composition d'un plan."""
     skills = state.get("skills", {})
@@ -368,9 +374,14 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
             "revue-increment jamais invoquee malgre le rappel SessionStart -> l'inserer d'office en etape terminale des plans de dev"
         )
     prudence = []
+    arbitres = {a["cible"] for a in arbitrages or []}
     if diagnostic:
         for f in diagnostic.get("findings", []) or []:
-            if f.get("categorie") in ("ko-repete", "inefficacite") and f.get("cible"):
+            if (
+                f.get("categorie") in ("ko-repete", "inefficacite")
+                and f.get("cible")
+                and f["cible"] not in arbitres  # un constat arbitré ne pèse plus sur le routage
+            ):
                 prudence.append({"cible": f["cible"], "raison": (f.get("titre") or "").strip()})
     # Incrément C — prudence déterministe : échecs répétés dans le journal d'orchestration,
     # sans attendre le diagnostic LLM (dédupliqué sur les cibles déjà signalées).
@@ -484,7 +495,7 @@ def _usage_table(agg: dict, fam: dict = None) -> list:
 
 
 def build_page(state: dict, fam: dict, todos: list, diag_todos: list = None, diag_a_jour: bool = False,
-               openhub: dict = None, arbitrages: list = None) -> str:
+               openhub: dict = None, arbitrages: list = None, diagnostic_ran: bool = False) -> str:
     skills = state.get("skills", {})
     subagents = state.get("subagents", {})
     nb_files = len(state.get("files", {}))
@@ -564,6 +575,12 @@ def build_page(state: dict, fam: dict, todos: list, diag_todos: list = None, dia
         L.append(f"_Diagnostic {statut}._")
         L.append("")
         L += [f"{i}. {t}" for i, t in enumerate(diag_todos, 1)]
+    elif diagnostic_ran:
+        # Diagnostic déjà lancé mais tous ses constats sont arbitrés (cf. Arbitrages
+        # enregistrés ci-dessus) — distinct de « jamais lancé », sinon le rappel
+        # SessionStart induirait en erreur (on ne relance pas ce qui n'a rien à signaler).
+        statut = "à jour" if diag_a_jour else f"⚠️ à relancer (> {DIAGNOSTIC_CADENCE_DAYS} j)"
+        L.append(f"_Diagnostic {statut} — rien à signaler, tous les constats précédents ont été arbitrés._")
     else:
         L.append(
             "_Jamais lancé — invoquer la skill `agent-supervisor` (intégrée à `revue-increment`) "
@@ -611,7 +628,7 @@ def _html_usage_rows(agg: dict, fam: dict = None) -> str:
 
 
 def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = None, diag_a_jour: bool = False,
-                       openhub: dict = None, arbitrages: list = None) -> str:
+                       openhub: dict = None, arbitrages: list = None, diagnostic_ran: bool = False) -> str:
     skills = state.get("skills", {})
     subagents = state.get("subagents", {})
     nb_files = len(state.get("files", {}))
@@ -657,6 +674,12 @@ def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = N
     if diag_html:
         diag_statut = "à jour" if diag_a_jour else f"⚠️ à relancer (&gt; {DIAGNOSTIC_CADENCE_DAYS} j)"
         diag_body = f'      <p><em>Diagnostic {diag_statut}.</em></p>\n' + chr(10).join(diag_html)
+    elif diagnostic_ran:
+        diag_statut = "à jour" if diag_a_jour else f"⚠️ à relancer (&gt; {DIAGNOSTIC_CADENCE_DAYS} j)"
+        diag_body = (
+            f"      <p><em>Diagnostic {diag_statut} — rien à signaler, tous les constats "
+            "précédents ont été arbitrés.</em></p>"
+        )
     else:
         diag_body = (
             "      <p><em>Jamais lancé — invoquer la skill <code>agent-supervisor</code> "
@@ -732,7 +755,7 @@ def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = N
 
 
 def update_wiki_html(state: dict, fam: dict, todos: list, diag_todos: list = None, diag_a_jour: bool = False,
-                     openhub: dict = None, arbitrages: list = None) -> bool:
+                     openhub: dict = None, arbitrages: list = None, diagnostic_ran: bool = False) -> bool:
     """Remplace le bloc entre marqueurs TODO-AGENTS-HTML de docs/wiki.html.
 
     Ne fait rien si la page ou les marqueurs n'existent pas (les marqueurs sont posés
@@ -747,7 +770,7 @@ def update_wiki_html(state: dict, fam: dict, todos: list, diag_todos: list = Non
         return False
     block = (
         f"{HTML_MARK_START} — bloc généré par .claude/supervision/scan_transcripts.py, ne pas éditer à la main -->"
-        + build_html_section(state, fam, todos, diag_todos, diag_a_jour, openhub, arbitrages)
+        + build_html_section(state, fam, todos, diag_todos, diag_a_jour, openhub, arbitrages, diagnostic_ran)
         + HTML_MARK_END
     )
     pattern = re.escape(HTML_MARK_START) + r".*?" + re.escape(HTML_MARK_END)
@@ -796,10 +819,10 @@ def main(argv) -> int:
 
     par_playbook, par_agent = build_runs_stats(runs)
     diagnostic = load_diagnostic()
-    diag_todos = diagnostic_todos(diagnostic)
+    diag_todos = diagnostic_todos(diagnostic, arbitrages)
     diag_a_jour = diagnostic_a_jour(diagnostic, runs)
     openhub = openhub_stats()
-    hints = build_routing_hints(state, fam, par_playbook, par_agent, diagnostic, runs)
+    hints = build_routing_hints(state, fam, par_playbook, par_agent, diagnostic, runs, arbitrages)
     hints_dir = os.path.dirname(ROUTING_HINTS_PATH)
     if hints_dir:
         os.makedirs(hints_dir, exist_ok=True)
@@ -809,10 +832,11 @@ def main(argv) -> int:
     page_dir = os.path.dirname(WIKI_PAGE)
     if page_dir:
         os.makedirs(page_dir, exist_ok=True)
+    diagnostic_ran = diagnostic is not None
     with open(WIKI_PAGE, "w", encoding="utf-8") as fh:
-        fh.write(build_page(state, fam, todos, diag_todos, diag_a_jour, openhub, arbitrages))
+        fh.write(build_page(state, fam, todos, diag_todos, diag_a_jour, openhub, arbitrages, diagnostic_ran))
     update_index(todos)
-    html_ok = update_wiki_html(state, fam, todos, diag_todos, diag_a_jour, openhub, arbitrages)
+    html_ok = update_wiki_html(state, fam, todos, diag_todos, diag_a_jour, openhub, arbitrages, diagnostic_ran)
     missing = state.get("transcript_dir_missing")
     detail = f" (transcripts introuvables : {missing})" if missing else ""
     if not html_ok:

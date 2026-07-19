@@ -239,6 +239,64 @@ def test_diagnostic_perime_signale_a_relancer(tmp_path):
     assert hints["diagnostic_a_jour"] is False
 
 
+def test_diagnostic_arbitre_disparait_du_todo_et_de_la_prudence_mais_reste_mesure(tmp_path):
+    """Un constat qualitatif (étage 2) dont la cible est arbitrée doit sortir du TODO et
+    de `prudence` (routing-hints) — même contrat que les constats déterministes
+    (`test_arbitrages_closent_les_todos_et_restent_affiches`), jusqu'ici non couvert :
+    `diagnostic_todos()`/`build_routing_hints()` ne consultaient jamais arbitrages.json."""
+    tdir = tmp_path / "transcripts"
+    tdir.mkdir()
+    (tdir / "s1.jsonl").write_text(_line(skill="run-dev-server"), encoding="utf-8")
+    (tmp_path / "diagnostic.json").write_text(
+        json.dumps({
+            "generated": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+            "findings": [
+                {"categorie": "ko-repete", "cible": "pptx-verify", "priorite": 3,
+                 "titre": "pptx-verify échoue sans LibreOffice",
+                 "recommandation": "vérifier soffice avant de router"},
+            ],
+        }),
+        encoding="utf-8",
+    )
+    html = tmp_path / "wiki.html"
+    html.write_text(
+        "<!-- TODO-AGENTS-HTML:START -->x<!-- TODO-AGENTS-HTML:END -->", encoding="utf-8"
+    )
+
+    # Sans arbitrage : le constat s'affiche et pèse sur le routage (comportement existant).
+    _run(tmp_path)
+    page = (tmp_path / "page.md").read_text(encoding="utf-8")
+    assert "pptx-verify échoue sans LibreOffice" in page
+    hints = json.loads((tmp_path / "routing-hints.json").read_text(encoding="utf-8"))
+    assert hints["prudence"] == [
+        {"cible": "pptx-verify", "raison": "pptx-verify échoue sans LibreOffice"}
+    ]
+
+    # Avec arbitrage sur cette cible : le constat disparaît du TODO et de prudence,
+    # mais le diagnostic reste "lancé" (pas "jamais lancé") et la décision reste visible.
+    (tmp_path / "arbitrages.json").write_text(json.dumps({"arbitrages": [
+        {"cible": "pptx-verify", "decision": "soffice installé sur le poste dev depuis le 2026-07-19",
+         "date": "2026-07-19"},
+    ]}, ensure_ascii=False), encoding="utf-8")
+    result = _run(tmp_path)
+    assert result.returncode == 0, result.stderr
+
+    page = (tmp_path / "page.md").read_text(encoding="utf-8")
+    assert "pptx-verify échoue sans LibreOffice" not in page
+    assert "Jamais lancé" not in page
+    assert "rien à signaler, tous les constats précédents ont été arbitrés" in page
+    assert "soffice installé sur le poste dev depuis le 2026-07-19" in page  # section Arbitrages
+
+    html_txt = html.read_text(encoding="utf-8")
+    assert "pptx-verify échoue sans LibreOffice" not in html_txt
+    assert "Jamais lancé" not in html_txt
+    assert "rien à signaler" in html_txt
+
+    hints = json.loads((tmp_path / "routing-hints.json").read_text(encoding="utf-8"))
+    assert hints["prudence"] == []
+    assert hints["diagnostic_a_jour"] is True  # toujours à jour : l'arbitrage ne périme rien
+
+
 # --- Étage 2 : écriture validée du diagnostic (write_diagnostic.py) ---
 
 

@@ -822,7 +822,7 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-19T13:50:26+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-19T14:15:45+02:00</span></p>
 
       <div class="fact">
         <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>21 sessions</strong> couvertes · <strong>43</strong> invocations de skills · <strong>34</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
@@ -884,12 +884,7 @@ pytest -k "pptx or export"                                                     #
         <li><strong><code>bmad-code-review</code></strong> (2026-07-19) : Proposition retenue telle quelle : seuil explicite ajouté à revue-increment/SKILL.md (&gt;5 fichiers produit ou logique à risque -&gt; bmad-code-review obligatoire, sinon revue inline) — la délégation implicite ne se déclenchait jamais en pratique.</li>
       </ul>
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
-      <p><em>Diagnostic à jour.</em></p>
-      <div class="critical">
-        <p><strong>La delegation revue-increment -&gt; bmad-code-review n'a jamais reellement declenche</strong> — Clarifier le seuil de declenchement dans revue-increment Phase B (ex. diff &gt; N fichiers ou surface a risque) plutot que de laisser un choix implicite qui ne se declenche jamais -- ou confirmer que la revue inline est le mode normal pour des increments de cette taille et retirer la mention de delegation par defaut si elle induit en erreur · <strong>Proposition</strong> : Modifier .claude/skills/revue-increment/SKILL.md section Phase B point 1 : remplacer 'Revue de code adversariale... -&gt; bmad-code-review' par une regle explicite (ex. 'si le diff touche &gt;5 fichiers produit ou une logique a risque (paiement, auth, suppression de donnees) -&gt; bmad-code-review obligatoire ; sinon revue inline suffisante') -- a arbitrer par l'utilisateur avant edition</p>
-        <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">agent-supervisor · étage 2</div>
-      </div>
+      <p><em>Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés.</em></p>
     </section>
 <!-- TODO-AGENTS-HTML:END -->
 
