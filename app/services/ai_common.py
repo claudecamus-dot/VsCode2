@@ -112,15 +112,22 @@ def ollama_timeout() -> int:
 
 
 def ollama_chunk_max_words() -> int:
-    """Taille de tronçon (mots) pour le découpage map-reduce de
-    `interview_libre_extract_ai.py` — 1800 par défaut. Sur un poste CPU sans
-    GPU dédié, un tronçon de cette taille peut dépasser `ollama_timeout()`
-    avec un gros modèle ; réduire cette valeur diminue le temps par appel (au
-    prix de plus d'appels). Surchargeable par `OLLAMA_CHUNK_MAX_WORDS`."""
+    """Taille de tronçon (mots) pour le découpage map-reduce des appels sur
+    texte brut (`extract_turns_from_text`, `extract_answers_from_text`) —
+    400 par défaut. Mesuré en réel le 2026-07-19 sur poste CPU (llama3.1:8b,
+    modèle déjà chaud) : un tronçon de 1800 mots (ancien défaut) prend
+    ~570s — quasiment le double d'`ollama_timeout()` (300s) — alors qu'un
+    tronçon de 600 mots prend ~205s. 400 mots vise une marge confortable
+    (~150s estimé) plutôt que de frôler la limite. Ce n'est pas un problème
+    de démarrage à froid (le modèle était chaud pour cette mesure) : la
+    génération elle-même est le coût dominant sur ce type de matériel, donc
+    réduire le tronçon est le seul levier qui aide (contrairement à
+    `warm_up_ollama()`/`OLLAMA_KEEP_ALIVE`, qui évitent un coût différent).
+    Surchargeable par `OLLAMA_CHUNK_MAX_WORDS`."""
     try:
-        return int(os.environ.get("OLLAMA_CHUNK_MAX_WORDS", "1800"))
+        return int(os.environ.get("OLLAMA_CHUNK_MAX_WORDS", "400"))
     except ValueError:
-        return 1800
+        return 400
 
 
 def chunk_text_by_paragraph(text: str, max_words: int) -> list[str]:
@@ -265,6 +272,28 @@ def _call_mistral(system: str, prompt: str, schema: dict, json_hint: str, model:
     return resp.choices[0].message.content or ""
 
 
+def _is_ollama_timeout(exc: Exception) -> bool:
+    """Un timeout de lecture arrive enveloppé dans `URLError(reason=timeout)` :
+    sans ce test, l'UI dirait « vérifiez qu'Ollama tourne » alors qu'il
+    tourne — il est juste trop lent (cas réel sur poste CPU, 2026-07-17)."""
+    if isinstance(exc, TimeoutError):
+        return True
+    return isinstance(exc, urllib.error.URLError) and isinstance(
+        getattr(exc, "reason", None), TimeoutError
+    )
+
+
+def _call_ollama_once(payload: bytes, model: str) -> dict:
+    req = urllib.request.Request(
+        f"{ollama_host()}/api/chat",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=ollama_timeout()) as resp:
+        return json.loads(resp.read().decode("utf-8"))
+
+
 def _call_ollama(system: str, prompt: str, schema: dict, json_hint: str, model: str, max_tokens: int) -> str:
     payload = json.dumps({
         "model": model,
@@ -277,30 +306,30 @@ def _call_ollama(system: str, prompt: str, schema: dict, json_hint: str, model: 
         "keep_alive": ollama_keep_alive(),
         "options": {"num_predict": max_tokens, "num_ctx": ollama_num_ctx()},
     }).encode("utf-8")
-    req = urllib.request.Request(
-        f"{ollama_host()}/api/chat",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
     timeout_msg = (
-        "Ollama n'a pas répondu à temps — le modèle est peut-être trop "
-        "gros pour ce poste, ou en cours de chargement (premier appel, ou "
-        "rechargement après une pause : le serveur précharge le modèle à "
-        "son démarrage, mais Ollama le décharge après OLLAMA_KEEP_ALIVE "
-        "d'inactivité, 30 minutes par défaut). Si cela se reproduit : "
-        "augmentez OLLAMA_TIMEOUT ou OLLAMA_KEEP_ALIVE, réduisez "
-        "OLLAMA_CHUNK_MAX_WORDS (voir .env.example), ou choisissez un "
-        "modèle plus léger (SYNTHESE_MODEL)."
+        "Ollama n'a pas répondu à temps, même après une nouvelle tentative — "
+        "le tronçon envoyé est probablement trop volumineux pour ce poste : "
+        "mesuré en réel, un appel peut prendre plusieurs minutes selon la "
+        "taille du texte, pas seulement lors du premier appel/rechargement. "
+        "Réduisez OLLAMA_CHUNK_MAX_WORDS (voir .env.example — 400 par défaut "
+        "vise déjà une marge confortable, essayez 200-300 si le problème "
+        "persiste), augmentez OLLAMA_TIMEOUT, ou choisissez un modèle plus "
+        "léger (SYNTHESE_MODEL)."
     )
     try:
-        with urllib.request.urlopen(req, timeout=ollama_timeout()) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+        try:
+            data = _call_ollama_once(payload, model)
+        except Exception as exc:
+            if not _is_ollama_timeout(exc):
+                raise
+            # Une relance ciblée, pas une boucle : un timeout isolé (pic de
+            # charge système, rechargement inattendu du modèle) peut réussir
+            # au second essai — un tronçon structurellement trop gros pour ce
+            # matériel échouera de la même façon aux deux tentatives, auquel
+            # cas le message d'erreur oriente vers OLLAMA_CHUNK_MAX_WORDS.
+            data = _call_ollama_once(payload, model)
     except urllib.error.URLError as exc:
-        # Un timeout de lecture arrive enveloppé dans URLError(reason=timeout) :
-        # sans ce test, l'UI dirait « vérifiez qu'Ollama tourne » alors qu'il
-        # tourne — il est juste trop lent (cas réel sur poste CPU, 2026-07-17).
-        if isinstance(getattr(exc, "reason", None), TimeoutError):
+        if _is_ollama_timeout(exc):
             raise AIError(timeout_msg) from exc
         raise AIError(
             f"Impossible de joindre Ollama sur {ollama_host()} — vérifiez qu'il "

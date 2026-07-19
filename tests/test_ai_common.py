@@ -326,3 +326,69 @@ def test_call_ai_json_ollama_unreachable_raises_friendly_error(monkeypatch: pyte
 
     with pytest.raises(MyError, match="Ollama"):
         ai_common.call_ai_json("sys", "prompt", {}, "", error_cls=MyError, max_tokens=10)
+
+
+def test_ollama_chunk_max_words_defaults_to_400(monkeypatch: pytest.MonkeyPatch) -> None:
+    """400 par défaut depuis le 2026-07-19 (mesuré en réel : 1800 mots — l'ancien
+    défaut — prend ~570s à chaud, quasi le double d'ollama_timeout()=300s)."""
+    monkeypatch.delenv("OLLAMA_CHUNK_MAX_WORDS", raising=False)
+    assert ai_common.ollama_chunk_max_words() == 400
+    monkeypatch.setenv("OLLAMA_CHUNK_MAX_WORDS", "250")
+    assert ai_common.ollama_chunk_max_words() == 250
+
+
+def test_call_ollama_retries_once_on_timeout_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un timeout isolé (pic de charge, rechargement inattendu) ne doit pas
+    faire échouer tout de suite — une relance ciblée peut réussir."""
+    calls = []
+
+    def fake_urlopen(req, timeout=None):
+        calls.append(1)
+        if len(calls) == 1:
+            raise TimeoutError("premier appel trop lent")
+        class FakeResponse:
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+            def read(self):
+                return b'{"message": {"content": "{}"}}'
+        return FakeResponse()
+
+    monkeypatch.setattr(ai_common.urllib.request, "urlopen", fake_urlopen)
+    result = ai_common._call_ollama("sys", "prompt", {}, "\nJSON.", "llama3.1", 100)
+    assert result == "{}"
+    assert len(calls) == 2, "doit avoir relancé exactement une fois"
+
+
+def test_call_ollama_gives_up_after_second_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un tronçon structurellement trop gros échoue de la même façon aux deux
+    tentatives — pas de boucle infinie, message orienté vers le vrai levier
+    (OLLAMA_CHUNK_MAX_WORDS), pas seulement « premier appel »."""
+    calls = []
+
+    def fake_urlopen(req, timeout=None):
+        calls.append(1)
+        raise TimeoutError("toujours trop lent")
+
+    monkeypatch.setattr(ai_common.urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(ai_common.AIError, match="OLLAMA_CHUNK_MAX_WORDS"):
+        ai_common._call_ollama("sys", "prompt", {}, "\nJSON.", "llama3.1", 100)
+    assert len(calls) == 2, "exactement 2 tentatives, jamais plus"
+
+
+def test_call_ollama_connection_refused_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Contrairement à un timeout, un serveur injoignable ne se rétablit pas
+    tout seul entre deux appels immédiats — pas de relance gaspillée."""
+    import urllib.error
+
+    calls = []
+
+    def fake_urlopen(req, timeout=None):
+        calls.append(1)
+        raise urllib.error.URLError(ConnectionRefusedError())
+
+    monkeypatch.setattr(ai_common.urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(ai_common.AIError, match="Impossible de joindre Ollama"):
+        ai_common._call_ollama("sys", "prompt", {}, "\nJSON.", "llama3.1", 100)
+    assert len(calls) == 1, "pas de relance sur un serveur injoignable"

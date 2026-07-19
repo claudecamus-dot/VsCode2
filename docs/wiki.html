@@ -822,10 +822,10 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-19T14:15:45+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-19T17:50:42+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>21 sessions</strong> couvertes · <strong>43</strong> invocations de skills · <strong>34</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>21 sessions</strong> couvertes · <strong>44</strong> invocations de skills · <strong>34</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">scan_transcripts.py · 2026-07-19 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
@@ -839,9 +839,9 @@ pytest -k "pptx or export"                                                     #
             <tr><td><code>update-config</code></td><td>(builtin/session)</td><td>6</td><td>2026-07-03</td><td>2026-07-16</td></tr>
             <tr><td><code>roadmap-keeper</code></td><td>global</td><td>5</td><td>2026-06-25</td><td>2026-07-15</td></tr>
             <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>4</td><td>2026-07-17</td><td>2026-07-18</td></tr>
+            <tr><td><code>agent-supervisor</code></td><td>projet</td><td>3</td><td>2026-07-18</td><td>2026-07-19</td></tr>
             <tr><td><code>revue-increment</code></td><td>projet</td><td>3</td><td>2026-07-18</td><td>2026-07-19</td></tr>
             <tr><td><code>run</code></td><td>(builtin/session)</td><td>3</td><td>2026-06-29</td><td>2026-07-03</td></tr>
-            <tr><td><code>agent-supervisor</code></td><td>projet</td><td>2</td><td>2026-07-18</td><td>2026-07-19</td></tr>
             <tr><td><code>pptx-deck</code></td><td>global</td><td>2</td><td>2026-07-02</td><td>2026-07-03</td></tr>
             <tr><td><code>pptx-verify</code></td><td>global</td><td>2</td><td>2026-07-03</td><td>2026-07-18</td></tr>
             <tr><td><code>skill-creator</code></td><td>global</td><td>2</td><td>2026-07-03</td><td>2026-07-03</td></tr>
@@ -884,7 +884,12 @@ pytest -k "pptx or export"                                                     #
         <li><strong><code>bmad-code-review</code></strong> (2026-07-19) : Proposition retenue telle quelle : seuil explicite ajouté à revue-increment/SKILL.md (&gt;5 fichiers produit ou logique à risque -&gt; bmad-code-review obligatoire, sinon revue inline) — la délégation implicite ne se déclenchait jamais en pratique.</li>
       </ul>
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
-      <p><em>Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés.</em></p>
+      <p><em>Diagnostic à jour.</em></p>
+      <div class="critical">
+        <p><strong>Le premier correctif du timeout Ollama a ete verifie sur un prompt non representatif, manquant la vraie cause</strong> — Quand un correctif touche un timeout/une limite de performance IA, verifier a l'echelle REELLEMENT configuree (ex. OLLAMA_CHUNK_MAX_WORDS au maximum), pas un echantillon arbitrairement petit qui peut masquer le vrai goulot -- un test rapide sur un petit prompt prouve seulement que le modele repond, pas qu'il repond a temps a la taille de production · <strong>Proposition</strong> : Ajouter a .claude/skills/revue-increment/SKILL.md section 2 (Verification reelle) une puce specifique : correctif de timeout/perf IA -&gt; mesurer au moins un appel a la taille MAXIMALE configuree (chunk budget, pas un prompt jouet), pas seulement confirmer que l'appel aboutit</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">agent-supervisor · étage 2</div>
+      </div>
     </section>
 <!-- TODO-AGENTS-HTML:END -->
 

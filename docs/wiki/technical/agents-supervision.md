@@ -9,7 +9,7 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-19T14:15:45+02:00 · **21 sessions** (transcripts) · **43** invocations de skills · **34** lancements de sous-agents.
+Dernier scan : 2026-07-19T17:50:42+02:00 · **21 sessions** (transcripts) · **44** invocations de skills · **34** lancements de sous-agents.
 
 ## Skills — usage réel
 
@@ -19,9 +19,9 @@ Dernier scan : 2026-07-19T14:15:45+02:00 · **21 sessions** (transcripts) · **4
 | `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
 | `roadmap-keeper` | global | 5 | 2026-06-25 | 2026-07-15 |
 | `agent-orchestrator` | projet | 4 | 2026-07-17 | 2026-07-18 |
+| `agent-supervisor` | projet | 3 | 2026-07-18 | 2026-07-19 |
 | `revue-increment` | projet | 3 | 2026-07-18 | 2026-07-19 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
-| `agent-supervisor` | projet | 2 | 2026-07-18 | 2026-07-19 |
 | `pptx-deck` | global | 2 | 2026-07-02 | 2026-07-03 |
 | `pptx-verify` | global | 2 | 2026-07-03 | 2026-07-18 |
 | `skill-creator` | global | 2 | 2026-07-03 | 2026-07-03 |
@@ -72,7 +72,9 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés._
+_Diagnostic à jour._
+
+1. **Le premier correctif du timeout Ollama a ete verifie sur un prompt non representatif, manquant la vraie cause** — Quand un correctif touche un timeout/une limite de performance IA, verifier a l'echelle REELLEMENT configuree (ex. OLLAMA_CHUNK_MAX_WORDS au maximum), pas un echantillon arbitrairement petit qui peut masquer le vrai goulot -- un test rapide sur un petit prompt prouve seulement que le modele repond, pas qu'il repond a temps a la taille de production · **Proposition** : Ajouter a .claude/skills/revue-increment/SKILL.md section 2 (Verification reelle) une puce specifique : correctif de timeout/perf IA -> mesurer au moins un appel a la taille MAXIMALE configuree (chunk budget, pas un prompt jouet), pas seulement confirmer que l'appel aboutit
 
 ---
 
