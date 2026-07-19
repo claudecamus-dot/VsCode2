@@ -1,7 +1,7 @@
 ---
-updated: 2026-06-30
+updated: 2026-07-19
 confidence: confirmed
-agents: [onboarder]
+agents: [onboarder, claude]
 ---
 
 # Interview-to-Deck — Index Wiki
@@ -24,22 +24,33 @@ Import .docx non-destructif, synthèse IA ou mode démo, intégration OpenHub po
 |---------|-------------|-----------|
 | Mission | [technical/architecture.md](technical/architecture.md), [business/index.md](business/index.md) | Critique |
 | Synthèse IA | [technical/architecture.md](technical/architecture.md), [technical/stack.md](technical/stack.md) | Haute |
+| Orchestrateur/superviseur d'agents | [technical/architecture.md](technical/architecture.md), [technical/agents-supervision.md](technical/agents-supervision.md) | Haute (outillage Claude Code, pas le produit lui-même) |
 
 ## Carte des domaines métier
 
 - [Entretien & Synthèse](business/index.md) — Capture d'interviews sur trame, synthèse transverse, génération PPT
 
-## Incrément 9 (2026-07 — non couvert en détail par ce wiki, voir `CLAUDE.md` à la racine)
+## Incrément 9 — entrée unifiée + entretien libre (2026-07-15 → 2026-07-19)
 
-Entrée unifiée entretien libre/structuré + mission différée. Entretien libre : capture audio locale (faster-whisper) → extraction IA en 2 étapes (tours de parole puis répartition/résumé, `interview_libre_extract_ai.py`) → écrans Analyse/Synthèse dédiés, redesignés le 2026-07-17 pour clarifier qu'ils montrent l'apport d'**un seul** entretien, distinct de la synthèse globale de mission (`synthese/globale.html`) qui agrège tous les entretiens. Export PDF par entretien (`interview_pdf_export.py`, reportlab). Fournisseur IA par défaut passé d'Anthropic à Ollama (local) le 2026-07-17.
-— `CONFIRMÉ` · claude · 2026-07-17 · `.roadmap/roadmap.json`, `CLAUDE.md`
+Entrée unifiée entretien libre/structuré + mission différée. Entretien libre : capture audio locale (faster-whisper) → extraction IA en 2 étapes (tours de parole puis répartition/résumé, `interview_libre_extract_ai.py`) → écran de lecture unique par entretien (`libre_analyse.html`, libellé « Aperçu » depuis le 2026-07-19), montrant l'apport d'**un seul** entretien, distinct de la synthèse globale de mission (`synthese/globale.html`) qui agrège tous les entretiens. Export PDF par entretien (`interview_pdf_export.py`, reportlab — couvert par des tests et corrigé le 2026-07-19 pour le rendu multiligne). Fournisseur IA par défaut passé d'Anthropic à Ollama (local) le 2026-07-17.
+
+Suites livrées après le cadrage initial : régénération contrôlée de l'analyse d'un entretien libre (écran de revue avant écrasement, 2026-07-18) ; map-reduce de la synthèse globale de mission (résout le risque de troncature silencieuse noté ci-dessous jusqu'au 2026-07-18) ; nettoyage des missions brouillon abandonnées et boutons de retour non destructifs dans le wizard libre (2026-07-18) ; passe UX (7 correctifs : garde-fou régénération synthèse/recommandations, cohérence des libellés, breadcrumbs, 2026-07-19).
+— `CONFIRMÉ` · claude · 2026-07-19 · `.roadmap/roadmap.json`, `CLAUDE.md`
+
+## Outillage Claude Code du projet (2026-07-17/19 — hors produit, périmètre `.claude/`)
+
+BMAD-METHOD installé (39 skills `bmad-*` après tri, routage sur demande explicite) et un système de supervision/orchestration d'agents propre au projet : scan déterministe de l'usage réel des skills/sous-agents (étage 1, 0 token), diagnostic qualitatif à la demande (étage 2, `agent-supervisor`), orchestrateur par défaut des demandes multi-étapes (`agent-orchestrator`, playbooks déclaratifs). Voir [technical/architecture.md](technical/architecture.md#supervision-et-orchestration-des-agents-2026-07-1718-incréments-o-a-à-o-c) pour le détail, et la section « Supervision des agents » de ce wiki pour le tableau de bord vivant.
+— `CONFIRMÉ` · claude · 2026-07-19 · `.claude/skills/agent-orchestrator/`, `.claude/skills/agent-supervisor/`
 
 ## Points critiques actifs 🔴
 
 - Aucune authentification — accessible sans restriction
 - Pas de CI/CD ni de pipeline de déploiement
-- Synthèse globale de mission (`synthese_ai.py::generate_global_synthesis`) construit un seul prompt sans découpage — contrairement à l'extraction par entretien libre (map-reduce depuis le 2026-07-16), une mission avec beaucoup d'entretiens/matière risque un dépassement silencieux de la fenêtre de contexte Ollama (`ollama_num_ctx()`, 8192 tokens par défaut, troncature documentée sans erreur) ; pas encore de garde-fou pour ce chemin
-  — `DÉDUIT` · claude · 2026-07-17 · `app/services/synthese_ai.py:206-252`
+- Vitesse d'inférence Ollama sur poste CPU sans GPU dédié — un entretien de ~37min a atteint `OLLAMA_TIMEOUT` avant l'ajout du map-reduce (voir juste en dessous) ; la marge reste faible sur les très gros entretiens
+  — `CONFIRMÉ` · claude · 2026-07-19 · `app/services/ai_common.py`
+
+~~Synthèse globale de mission sans découpage map-reduce~~ — **résolu le 2026-07-18**, `generate_global_synthesis()` applique désormais le même map-reduce que l'extraction par entretien libre.
+  — `CONFIRMÉ` · claude · 2026-07-19 · `app/services/synthese_ai.py:_chunk_blocks,_reduce_partial_globals`
 
 ## Zones d'ombre
 

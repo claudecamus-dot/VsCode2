@@ -1,7 +1,7 @@
 ---
-updated: 2026-06-30
-confidence: mixed
-agents: [onboarder]
+updated: 2026-07-19
+confidence: confirmed
+agents: [onboarder, claude]
 ---
 
 # Conventions — Interview-to-Deck
@@ -30,10 +30,10 @@ agents: [onboarder]
 
 ## Git
 
-- Pas de format de commit clairement identifiable (un seul fichier dans git, pas d'historique visible)
-  — `INCERTAIN` · onboarder · 2026-06-30
-- `.gitignore` exclut : `.venv/`, `__pycache__/`, `*.pyc`, `data/`, `.roadmap/*.svg`, `.env`, `.DS_Store`
-  — `CONFIRMÉ` · onboarder · 2026-06-30 · `.gitignore`
+- Messages de commit en français, impératif, une ligne de titre (< 70 car.) résumant le *pourquoi* plutôt que la liste des fichiers touchés (ex. « Corrige 7 frictions UX remontées par la revue de structure », « Exécute le tri BMAD ré-arbitré ») ; corps optionnel en prose pour le détail. Toujours un nouveau commit, jamais d'amend sur un commit déjà là (garde-fou `guard_destructive_git.py`).
+  — `CONFIRMÉ` · claude · 2026-07-19 · `git log`
+- `.gitignore` exclut : `.venv/`, `__pycache__/`, `*.pyc`, `data/` (y compris `data/app.db`, la base dev réelle — **ne jamais la supprimer/recréer** en dehors de `tests/conftest.py`, qui isole `APP_DB_PATH`), `.roadmap/*.svg`, `.env`, `.claude/supervision/*.json(l)`, `.claude/orchestration/runs.jsonl`/`routing-hints.json`
+  — `CONFIRMÉ` · claude · 2026-07-19 · `.gitignore`
 
 ## Configuration & secrets
 

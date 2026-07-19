@@ -251,14 +251,14 @@
     <div class="doc-header">
       <h1>Wiki d'onboarding — Interview-to-Deck</h1>
       <div class="doc-meta">
-        <span>Généré par : onboarder (corrections ponctuelles : claude)</span>
-        <span>Mis à jour : 2026-07-15 (corrections ciblées 2026-07-17)</span>
+        <span>Généré par : onboarder (corrections ponctuelles et passe de fond : claude)</span>
+        <span>Mis à jour : 2026-07-15 (passe de fond 2026-07-19)</span>
         <span>Source : docs/wiki/*.md</span>
       </div>
     </div>
 
     <div class="staleness">
-      <p><strong>Fraîcheur partielle.</strong> Les sections ci-dessous datent en grande partie du 30 juin 2026 (seule la section Tests a été vérifiée le 10 juillet). Le 2026-07-17, les mentions Anthropic/Opus devenues fausses ont été corrigées ponctuellement (Ollama est maintenant le fournisseur IA par défaut) et la table « TODO — reprise de session » mise à jour — mais aucune passe de fond n'a été refaite sur le reste du contenu. Le projet a avancé depuis le 30 juin (nouveaux services, incrément 9 entier, nouveaux skills) — voir <code>.roadmap/roadmap.json</code>, <code>CLAUDE.md</code> et <code>git log</code> pour l'état courant avant de s'appuyer sur un fait précis ici.</p>
+      <p><strong>Passe de fond effectuée le 2026-07-19.</strong> Les sections Index/Architecture/Stack/Conventions/Tests ont été relues et recalées sur l'état réel du code et de <code>git log</code> — faits obsolètes corrigés (ex. la synthèse globale de mission a désormais un map-reduce, l'écran <code>libre_synthese.html</code> n'existe plus, l'historique git n'a rien d'un « fichier unique ») et les nouveautés majeures ajoutées (incrément 9 complet, orchestrateur/superviseur d'agents, BMAD-METHOD). Certaines assertions ponctuelles peuvent malgré tout dater légèrement de la rédaction — <code>.roadmap/roadmap.json</code>, <code>CLAUDE.md</code> et <code>git log</code> restent la source de vérité en cas de doute sur un fait précis.</p>
     </div>
 
     <div class="legend">
@@ -270,11 +270,11 @@
     </div>
 
     <div class="stat-grid">
-      <div class="stat-card"><span class="stat-num">17</span><span class="stat-label">Commits git</span></div>
-      <div class="stat-card"><span class="stat-num">56</span><span class="stat-label">Tests automatisés</span></div>
-      <div class="stat-card"><span class="stat-num">5</span><span class="stat-label">Fichiers de test</span></div>
+      <div class="stat-card"><span class="stat-num">34</span><span class="stat-label">Commits git</span></div>
+      <div class="stat-card"><span class="stat-num">154</span><span class="stat-label">Tests automatisés</span></div>
+      <div class="stat-card"><span class="stat-num">13</span><span class="stat-label">Fichiers de test</span></div>
       <div class="stat-card"><span class="stat-num">0</span><span class="stat-label">Pipeline CI/CD</span></div>
-      <div class="stat-card"><span class="stat-num">~5,4k</span><span class="stat-label">Lignes app/*.py</span></div>
+      <div class="stat-card"><span class="stat-num">~7,2k</span><span class="stat-label">Lignes app/*.py</span></div>
     </div>
 
     <!-- ============ INDEX ============ -->
@@ -304,6 +304,7 @@
           <tbody>
             <tr><td>Mission</td><td><a href="#architecture">Architecture</a>, <a href="#business">Domaines métier</a></td><td>Critique</td></tr>
             <tr><td>Synthèse IA</td><td><a href="#architecture">Architecture</a>, <a href="#stack">Stack</a></td><td>Haute</td></tr>
+            <tr><td>Orchestrateur/superviseur d'agents</td><td><a href="#architecture">Architecture</a>, <a href="#agents-supervision">Supervision des agents</a></td><td>Haute (outillage Claude Code, pas le produit)</td></tr>
           </tbody>
         </table>
       </div>
@@ -313,11 +314,19 @@
         <li><a href="#business">Entretien &amp; Synthèse</a> — Capture d'interviews sur trame, synthèse transverse, génération PPT</li>
       </ul>
 
-      <h3>Incrément 9 (2026-07 — non couvert en détail par ce wiki, voir CLAUDE.md à la racine)</h3>
+      <h3>Incrément 9 — entrée unifiée + entretien libre (2026-07-15 → 2026-07-19)</h3>
       <div class="fact">
-        <p>Entrée unifiée entretien libre/structuré + mission différée. Entretien libre : capture audio locale (faster-whisper) → extraction IA en 2 étapes (tours de parole puis répartition/résumé) → écrans Analyse/Synthèse dédiés, redesignés le 2026-07-17 pour clarifier qu'ils montrent l'apport d'<strong>un seul</strong> entretien, distinct de la synthèse globale de mission qui agrège tous les entretiens. Export PDF par entretien (reportlab). Fournisseur IA par défaut passé d'Anthropic à Ollama (local) le 2026-07-17.</p>
+        <p>Entrée unifiée entretien libre/structuré + mission différée. Entretien libre : capture audio locale (faster-whisper) → extraction IA en 2 étapes (tours de parole puis répartition/résumé) → écran de lecture unique par entretien (<code>libre_analyse.html</code>, libellé « Aperçu » depuis le 2026-07-19), montrant l'apport d'<strong>un seul</strong> entretien, distinct de la synthèse globale de mission qui agrège tous les entretiens. Export PDF par entretien (reportlab — couvert par des tests et corrigé le 2026-07-19 pour le rendu multiligne). Fournisseur IA par défaut passé d'Anthropic à Ollama (local) le 2026-07-17.</p>
+        <p>Suites livrées après le cadrage initial : régénération contrôlée de l'analyse d'un entretien libre (écran de revue avant écrasement, 2026-07-18) ; map-reduce de la synthèse globale de mission (résout le risque de troncature silencieuse noté ci-dessous jusqu'au 2026-07-18) ; nettoyage des missions brouillon abandonnées et boutons de retour non destructifs dans le wizard libre (2026-07-18) ; passe UX (7 correctifs : garde-fou régénération synthèse/recommandations, cohérence des libellés, breadcrumbs, 2026-07-19).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">claude · 2026-07-17 · .roadmap/roadmap.json, CLAUDE.md</div>
+        <div class="tag-source">claude · 2026-07-19 · .roadmap/roadmap.json, CLAUDE.md</div>
+      </div>
+
+      <h3>Outillage Claude Code du projet (hors produit, périmètre .claude/)</h3>
+      <div class="fact">
+        <p>BMAD-METHOD installé (39 skills <code>bmad-*</code> après tri, routage sur demande explicite) et un système de supervision/orchestration d'agents propre au projet : scan déterministe de l'usage réel des skills/sous-agents (étage 1, 0 token), diagnostic qualitatif à la demande (étage 2, <code>agent-supervisor</code>), orchestrateur par défaut des demandes multi-étapes (<code>agent-orchestrator</code>, playbooks déclaratifs). Voir <a href="#architecture">Architecture</a> pour le détail, et <a href="#agents-supervision">Supervision des agents</a> pour le tableau de bord vivant.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">claude · 2026-07-19 · .claude/skills/agent-orchestrator/, .claude/skills/agent-supervisor/</div>
       </div>
 
       <h3>Points critiques actifs</h3>
@@ -327,9 +336,14 @@
         <div class="tag-source">onboarder · 2026-06-30</div>
       </div>
       <div class="critical">
-        <p>Synthèse globale de mission (<code>generate_global_synthesis</code>) construit un seul prompt sans découpage — contrairement à l'extraction par entretien libre (map-reduce depuis le 2026-07-16), une mission avec beaucoup d'entretiens/matière risque un dépassement silencieux de la fenêtre de contexte Ollama (8192 tokens par défaut, troncature documentée sans erreur) ; pas encore de garde-fou pour ce chemin.</p>
-        <span class="tag tag-deduit">DÉDUIT</span>
-        <div class="tag-source">claude · 2026-07-17 · app/services/synthese_ai.py:206-252</div>
+        <p>Vitesse d'inférence Ollama sur poste CPU sans GPU dédié — un entretien de ~37min a atteint <code>OLLAMA_TIMEOUT</code> avant l'ajout du map-reduce (voir juste en dessous) ; la marge reste faible sur les très gros entretiens.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">claude · 2026-07-19 · app/services/ai_common.py</div>
+      </div>
+      <div class="fact">
+        <p><s>Synthèse globale de mission sans découpage map-reduce</s> — <strong>résolu le 2026-07-18</strong>, <code>generate_global_synthesis()</code> applique désormais le même map-reduce que l'extraction par entretien libre.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">claude · 2026-07-19 · app/services/synthese_ai.py</div>
       </div>
       <div class="critical">
         <p>Pas de CI/CD ni de pipeline de déploiement.</p>
@@ -430,9 +444,14 @@
         <div class="tag-source">claude · 2026-07-17 · app/services/synthese_ai.py</div>
       </div>
       <div class="fact">
-        <p><strong>Entretien libre vs synthèse de mission, décorrélés (2026-07-17)</strong> : l'écran de synthèse d'un entretien libre (<code>libre_synthese.html</code>) affiche l'apport d'<strong>un seul</strong> entretien aux 5 catégories transverses ; la synthèse globale de mission (<code>synthese/globale.html</code>) agrège tous les entretiens (structurés + libres). Les deux écrans montraient les mêmes 5 libellés sans distinction visuelle forte — corrigé par un bandeau explicite + traitement visuel distinct sur le premier.</p>
+        <p><strong>Entretien libre vs synthèse de mission, décorrélés (2026-07-17)</strong> : l'écran de lecture d'un entretien libre (<code>libre_analyse.html</code>, route <code>/interviews/{id}/analyse</code>, libellée « Aperçu » depuis le 2026-07-19) affiche l'apport d'<strong>un seul</strong> entretien aux 5 catégories transverses, via un bandeau explicite ; la synthèse globale de mission (<code>synthese/globale.html</code>) agrège tous les entretiens (structurés + libres) séparément. L'ancien écran dédié <code>libre_synthese.html</code> a été fusionné dans <code>libre_analyse.html</code> le 2026-07-17 puis supprimé.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">claude · 2026-07-17 · app/templates/interviews/libre_synthese.html, app/templates/synthese/globale.html</div>
+        <div class="tag-source">claude · 2026-07-19 · app/templates/interviews/libre_analyse.html, app/templates/synthese/globale.html</div>
+      </div>
+      <div class="fact">
+        <p><strong>Régénération contrôlée de l'analyse IA (2026-07-18)</strong> : toute action qui écrase une génération IA existante (réanalyse d'un entretien libre, régénération de la synthèse globale/recommandations) passe par une confirmation avant d'écraser — écran de revue dédié pour l'entretien (<code>libre_regen_review.html</code>, ancienne valeur repliable en regard), <code>hx-confirm</code>/<code>confirm()</code> JS pour la synthèse globale/recommandations (correctif 2026-07-19). Aucune régénération ne touche les données sources (tours de parole, réponses brutes) — seul le contenu dérivé est remplacé, et seulement après validation.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">claude · 2026-07-19 · app/routers/interviews.py, app/routers/synthese.py</div>
       </div>
       <div class="fact">
         <p><strong>Migrations additives à chaud</strong> : les nouvelles colonnes sont ajoutées via <code>ALTER TABLE</code> au démarrage (pas de migration versionnée).</p>
@@ -457,9 +476,34 @@
         <div class="tag-source">onboarder · 2026-06-30</div>
       </div>
       <div class="critical">
-        <p><code>generate_global_synthesis()</code> (synthèse de mission) n'a pas de découpage map-reduce, contrairement à l'extraction d'entretien libre — risque de troncature silencieuse du prompt par Ollama sur une mission avec beaucoup de matière (voir Index).</p>
-        <span class="tag tag-deduit">DÉDUIT</span>
-        <div class="tag-source">claude · 2026-07-17 · app/services/synthese_ai.py:206-252</div>
+        <p>Vitesse d'inférence Ollama sur poste CPU sans GPU dédié — un entretien de ~37min a atteint <code>OLLAMA_TIMEOUT</code> avant l'ajout du map-reduce ci-dessous ; la marge reste faible sur les très gros entretiens, <code>qwen2.5:1.5b-instruct</code> (~4x plus rapide, qualité non validée) est une option de secours non tranchée.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">claude · 2026-07-19 · app/services/ai_common.py</div>
+      </div>
+      <div class="fact">
+        <p><s><code>generate_global_synthesis()</code> n'a pas de découpage map-reduce</s> — <strong>résolu le 2026-07-18</strong> : applique désormais le même map-reduce que l'extraction d'entretien libre (découpe aux frontières de thème/entretien, synthèses partielles fusionnées par un appel de réduction dédié) ; une mission courte ne fait toujours qu'un seul appel.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">claude · 2026-07-19 · app/services/synthese_ai.py</div>
+      </div>
+
+      <h3>Supervision et orchestration des agents (2026-07-17/18, incréments O-A à O-C)</h3>
+      <div class="fact">
+        <p>Système à deux étages, entièrement local et déterministe à l'étage 1 (0 token LLM) :</p>
+        <ul>
+          <li><strong>Étage 1 — mesure</strong> (<code>.claude/supervision/scan_transcripts.py</code>, hook <code>SessionStart</code>) : scan incrémental des transcripts de session, agrège l'usage réel des skills/sous-agents, régénère le tableau de bord (section <a href="#agents-supervision">Supervision des agents</a> ci-dessous) et <code>.claude/orchestration/routing-hints.json</code>.</li>
+          <li><strong>Étage 2 — diagnostic</strong> (skill <code>agent-supervisor</code>, sur demande ou signal de péremption) : qualifie les données étage 1 avec preuve obligatoire, propose des changements concrets (jamais auto-appliqués) — l'humain arbitre via <code>.claude/supervision/arbitrages.json</code> (versionné, clôt un constat sans effacer la mesure réelle).</li>
+          <li><strong>Orchestrateur</strong> (skill <code>agent-orchestrator</code>, point d'entrée par défaut des demandes multi-étapes — hook <code>UserPromptSubmit</code> injecte une grille de qualification à chaque prompt) : compose un plan depuis un catalogue et des playbooks déclaratifs (<code>dev-verifie</code>, <code>export-ppt-verifie</code>…), journalise chaque run dans <code>runs.jsonl</code>.</li>
+          <li>Boucle de gouvernance : scan → diagnostic (propose) → arbitrage humain → orchestrateur (applique la version validée) → nouveau scan qui mesure l'effet réel — jamais d'auto-modification.</li>
+        </ul>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">claude · 2026-07-19 · .claude/skills/agent-orchestrator/, .claude/skills/agent-supervisor/</div>
+      </div>
+
+      <h3>BMAD-METHOD (installé 2026-07-17, trié 2026-07-18)</h3>
+      <div class="fact">
+        <p><code>_bmad/</code> ajoute 39 skills <code>bmad-*</code> (agents-personas dev/PM/architecte/UX/analyste/tech-writer ; workflows produit brief→PRD→architecture→epics→dev ; qualité <code>bmad-code-review</code>/<code>bmad-retrospective</code>) après un tri qui a retiré 7 skills dépréciés/redondants sur 46 installés initialement. Routage uniquement sur demande explicite (<code>bmad-help</code> comme routeur) — <code>revue-increment</code> délègue à <code>bmad-code-review</code> au-delà d'un seuil de diff (&gt;5 fichiers produit ou logique à risque, ajouté le 2026-07-19 après constat que la délégation implicite ne se déclenchait jamais).</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">claude · 2026-07-19 · .claude/skills/bmad-*, .claude/skills/revue-increment/SKILL.md</div>
       </div>
     </section>
 
@@ -496,6 +540,19 @@
         <li><code>python-multipart</code> — Support multipart/form-data pour les uploads, ≥0.0.9</li>
       </ul>
 
+      <h3>Dépendances de test (requirements-dev.txt)</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Catégorie</th><th>Technologie</th><th>Version</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>Test runner</td><td>pytest</td><td>≥9.0</td><td>Base SQLite jetable, jamais <code>data/app.db</code></td></tr>
+            <tr><td>Client HTTP test</td><td>httpx2</td><td>≥2.5</td><td>Requis par <code>starlette.testclient.TestClient</code></td></tr>
+            <tr><td>Extraction PDF</td><td>pymupdf</td><td>≥1.24</td><td>Vérifie le contenu réel d'un PDF généré (2026-07-19), pas seulement l'absence d'exception</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="tag-source" style="margin-bottom:20px;">CONFIRMÉ · claude · 2026-07-19 · requirements-dev.txt</p>
+
       <h3>Variables d'environnement requises</h3>
       <ul>
         <li><code>SYNTHESE_DEMO</code> — Mode démo hors-ligne (1 = activé, 0 = désactivé)</li>
@@ -518,7 +575,7 @@
     <section class="doc" id="conventions">
       <p class="eyebrow">Technique</p>
       <h2>Conventions — Interview-to-Deck</h2>
-      <p class="file-meta"><span>docs/wiki/technical/conventions.md</span><span>confidence: mixed</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/conventions.md</span><span>confidence: confirmed</span></p>
 
       <h3>Linting &amp; formatage</h3>
       <div class="fact">
@@ -566,14 +623,14 @@
 
       <h3>Git</h3>
       <div class="fact">
-        <p>Pas de format de commit clairement identifiable (un seul fichier dans git, pas d'historique visible au moment de la rédaction).</p>
-        <span class="tag tag-incertain">INCERTAIN</span>
-        <div class="tag-source">onboarder · 2026-06-30</div>
+        <p>Messages de commit en français, impératif, une ligne de titre (&lt; 70 car.) résumant le <em>pourquoi</em> plutôt que la liste des fichiers touchés (ex. « Corrige 7 frictions UX remontées par la revue de structure », « Exécute le tri BMAD ré-arbitré »). Toujours un nouveau commit, jamais d'amend sur un commit déjà là (garde-fou <code>guard_destructive_git.py</code>).</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">claude · 2026-07-19 · git log</div>
       </div>
       <div class="fact">
-        <p><code>.gitignore</code> exclut : <code>.venv/</code>, <code>__pycache__/</code>, <code>*.pyc</code>, <code>data/</code>, <code>.roadmap/*.svg</code>, <code>.env</code>, <code>.DS_Store</code>.</p>
+        <p><code>.gitignore</code> exclut : <code>.venv/</code>, <code>__pycache__/</code>, <code>*.pyc</code>, <code>data/</code> (y compris <code>data/app.db</code>, la base dev réelle — <strong>ne jamais la supprimer/recréer</strong> en dehors de <code>tests/conftest.py</code>, qui isole <code>APP_DB_PATH</code>), <code>.roadmap/*.svg</code>, <code>.env</code>, <code>.claude/supervision/*.json(l)</code>, <code>.claude/orchestration/runs.jsonl</code>/<code>routing-hints.json</code>.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">onboarder · 2026-06-30 · .gitignore</div>
+        <div class="tag-source">claude · 2026-07-19 · .gitignore</div>
       </div>
 
       <h3>Configuration &amp; secrets</h3>
@@ -626,9 +683,9 @@
 
       <h3>Organisation</h3>
       <div class="fact">
-        <p>Dossier <code>tests/</code> séparé, 5 fichiers : <code>test_mission_trame_flow.py</code>, <code>test_ai_common.py</code>, <code>test_interview_extract_ai.py</code>, <code>test_pptx_deck.py</code>, <code>conftest.py</code>.</p>
+        <p>Dossier <code>tests/</code> séparé, 13 fichiers (12 <code>test_*.py</code> + <code>conftest.py</code>, qui isole <code>APP_DB_PATH</code> avant tout import de <code>app.*</code> — jamais <code>data/app.db</code>, la base dev réelle).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">onboarder · 2026-07-10</div>
+        <div class="tag-source">claude · 2026-07-19 · tests/</div>
       </div>
 
       <h3>Seuil de couverture</h3>
@@ -645,14 +702,22 @@
         <div class="tag-source">onboarder · 2026-06-30</div>
       </div>
 
-      <h3>Tests existants (56 tests)</h3>
+      <h3>Tests existants (154 tests)</h3>
       <ul>
-        <li><code>test_mission_trame_flow.py</code> (32 tests) — flux mission/trame/entretien de bout en bout : création mission, thèmes/questions, import <code>.docx</code>, saisie d'entretien et réponses, export PPT, page agents</li>
-        <li><code>test_ai_common.py</code> (11 tests) — abstraction <code>call_ai_json</code> et sélection de provider IA</li>
+        <li><code>test_interview_libre.py</code> (34 tests) — extraction IA de l'entretien libre (tours/répartition), flux HTTP complet (wizard 3 étapes, boutons de retour non destructifs), régénération d'analyse, nettoyage des brouillons</li>
+        <li><code>test_mission_trame_flow.py</code> (33 tests) — flux mission/trame/entretien de bout en bout : création mission, thèmes/questions, import <code>.docx</code>, saisie d'entretien et réponses, synthèse globale/recommandations, export PPT (dont un test de rendu réel via LibreOffice, ~15 min), page agents</li>
+        <li><code>test_ai_common.py</code> (21 tests) — abstraction <code>call_ai_json</code>, sélection de provider IA, timeout Ollama</li>
+        <li><code>test_agent_supervision.py</code> (14 tests) — scan déterministe étage 1, routing-hints, diagnostic étage 2</li>
+        <li><code>test_agent_orchestration.py</code> (13 tests) — journal <code>log_run.py</code>, hook <code>orchestrator_gate.py</code>, playbooks, inventaire git des agents</li>
         <li><code>test_interview_extract_ai.py</code> (8 tests) — extraction IA de trame/réponses depuis une transcription d'entretien</li>
+        <li><code>test_audio_transcribe_edge_cases.py</code> (8 tests) — cas limites de la transcription audio locale</li>
+        <li><code>test_interview_pdf_export.py</code> (7 tests, 2026-07-19) — export PDF par entretien, contenu réel extrait via <code>pymupdf</code>, rendu multiligne</li>
         <li><code>test_pptx_deck.py</code> (5 tests) — helpers de mise en page du générateur PPT (<code>pptx_deck.py</code>)</li>
+        <li><code>test_audio_transcribe_parallel.py</code> (5 tests) — transcription audio en parallèle</li>
+        <li><code>test_synthese_ai_global.py</code> (4 tests, 2026-07-19) — map-reduce de la synthèse globale de mission</li>
+        <li><code>test_audio_transcribe_tts_smoke.py</code> (2 tests) — pipeline réel via un clip TTS généré</li>
       </ul>
-      <p class="tag-source" style="margin-bottom:20px;">CONFIRMÉ · onboarder · 2026-07-10 · tests/</p>
+      <p class="tag-source" style="margin-bottom:20px;">CONFIRMÉ · claude · 2026-07-19 · tests/ (pytest --collect-only -q)</p>
 
       <h3>Commandes</h3>
       <pre>pytest -q                                                                      # Tests unitaires
@@ -757,7 +822,7 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-19T13:43:44+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-19T13:50:26+02:00</span></p>
 
       <div class="fact">
         <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>21 sessions</strong> couvertes · <strong>43</strong> invocations de skills · <strong>34</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
@@ -816,6 +881,7 @@ pytest -k "pptx or export"                                                     #
         <li><strong><code>pptx-framed-image</code></strong> (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle cadres-photo).</li>
         <li><strong><code>slide-text-polish</code></strong> (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle polish-texte).</li>
         <li><strong><code>restitution-deck-design</code></strong> (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle design-review).</li>
+        <li><strong><code>bmad-code-review</code></strong> (2026-07-19) : Proposition retenue telle quelle : seuil explicite ajouté à revue-increment/SKILL.md (&gt;5 fichiers produit ou logique à risque -&gt; bmad-code-review obligatoire, sinon revue inline) — la délégation implicite ne se déclenchait jamais en pratique.</li>
       </ul>
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
       <p><em>Diagnostic à jour.</em></p>
@@ -850,17 +916,7 @@ pytest -k "pptx or export"                                                     #
             <tr>
               <td>Vitesse d'inférence CPU (Ollama) sur ce poste</td>
               <td>Cause structurelle corrigée (2026-07-18) — reste à mesurer en usage réel</td>
-              <td>Le timeout du 2026-07-17 (entretien de ~37min) venait d'un prompt unique pour toute la synthèse globale de mission, dépassant à la fois <code>OLLAMA_TIMEOUT</code> et la fenêtre de contexte du modèle. <code>synthese_ai.generate_global_synthesis()</code> applique désormais le même map-reduce que l'extraction par entretien (découpe aux frontières de thème/entretien via <code>OLLAMA_CHUNK_MAX_WORDS</code>, synthèses partielles fusionnées par un appel de réduction dédié) — une mission courte ne fait toujours qu'un seul appel. Le message d'erreur de timeout d'Ollama distingue maintenant explicitement « trop lent » de « injoignable » et suggère les leviers (<code>OLLAMA_TIMEOUT</code>, <code>OLLAMA_CHUNK_MAX_WORDS</code>, <code>SYNTHESE_MODEL</code>). Reste ouvert : mesurer en usage réel sur une grosse mission si <code>qwen2.5:1.5b-instruct</code> vaut la peine comme défaut CPU (qualité d'extraction non validée).</td>
-            </tr>
-            <tr>
-              <td>Bouton de génération de synthèse par entretien (pas seulement consultation)</td>
-              <td>Livré (2026-07-18)</td>
-              <td>Choix arbitré : le bouton régénère l'analyse <em>de cet entretien</em> (pas la synthèse globale de mission). <code>POST /interviews/{id}/analyse/regenerer</code> relance l'IA sur les tours de parole actuels de l'entretien, affiche le résultat sur un écran de revue dédié (<code>libre_regen_review.html</code>, résumé + 5 catégories, avec l'ancienne valeur repliable en comparaison) — rien n'est écrasé tant que <code>POST .../regenerer/confirm</code> n'est pas validé. Les tours de parole et l'identité ne bougent pas.</td>
-            </tr>
-            <tr>
-              <td>Polish restant, non bloquant</td>
-              <td>Livré (2026-07-18)</td>
-              <td>Messages d'erreur IA : le timeout Ollama a maintenant un message dédié (voir ligne perf ci-dessus) au lieu du message générique « injoignable ». Nettoyage des brouillons : bouton « 🧹 Nettoyer N brouillon(s) vide(s) » sur <code>/missions</code> (<code>POST /missions/brouillons/nettoyer</code>) supprime les brouillons sans entretien ni trame remplie ; un brouillon avec de la matière garde son lien « Reprendre » vers <code>/finaliser</code>. Bouton « Annuler » du parcours libre : remplacé par « ← Revenir à … » sur les 2 écrans de revue (transcription↔tours, tours↔synthèse) qui repréremplit l'étape précédente au lieu de repartir d'un formulaire vierge — aucun appel IA sur ce chemin.</td>
+              <td>Le timeout du 2026-07-17 (entretien de ~37min) venait d'un prompt unique pour toute la synthèse globale de mission, dépassant à la fois <code>OLLAMA_TIMEOUT</code> et la fenêtre de contexte du modèle. <code>synthese_ai.generate_global_synthesis()</code> applique désormais le même map-reduce que l'extraction par entretien (découpe aux frontières de thème/entretien via <code>OLLAMA_CHUNK_MAX_WORDS</code>, synthèses partielles fusionnées par un appel de réduction dédié) — une mission courte ne fait toujours qu'un seul appel. Le message d'erreur de timeout d'Ollama distingue maintenant explicitement « trop lent » de « injoignable » et suggère les leviers (<code>OLLAMA_TIMEOUT</code>, <code>OLLAMA_CHUNK_MAX_WORDS</code>, <code>SYNTHESE_MODEL</code>). Reste ouvert : mesurer en usage réel sur une grosse mission si <code>qwen2.5:1.5b-instruct</code> vaut la peine comme défaut CPU (qualité d'extraction non validée) — nécessite du temps d'inférence réel sur le poste dev, pas tranché le 2026-07-19.</td>
             </tr>
           </tbody>
         </table>

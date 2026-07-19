@@ -1,7 +1,7 @@
 ---
-updated: 2026-06-30
+updated: 2026-07-19
 confidence: confirmed
-agents: [onboarder]
+agents: [onboarder, claude]
 ---
 
 # Stack — Interview-to-Deck
@@ -28,6 +28,16 @@ agents: [onboarder]
 
 - `uvicorn[standard]` — Serveur ASGI, ≥0.30
 - `python-multipart` — Support multipart/form-data pour les uploads, ≥0.0.9
+
+## Dépendances de test (`requirements-dev.txt`)
+
+| Catégorie | Technologie | Version | Notes |
+|-----------|-------------|---------|-------|
+| Test runner | pytest | ≥9.0 | Base SQLite jetable, jamais `data/app.db` |
+| Client HTTP test | httpx2 | ≥2.5 | Requis par `starlette.testclient.TestClient` |
+| Extraction PDF | pymupdf | ≥1.24 | Vérifie le contenu réel d'un PDF généré (`test_interview_pdf_export.py`, 2026-07-19) — pas seulement l'absence d'exception |
+
+— `CONFIRMÉ` · claude · 2026-07-19 · `requirements-dev.txt`
 
 ## Variables d'environnement requises
 

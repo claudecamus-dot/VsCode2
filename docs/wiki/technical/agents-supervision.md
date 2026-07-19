@@ -9,7 +9,7 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-19T13:43:44+02:00 · **21 sessions** (transcripts) · **43** invocations de skills · **34** lancements de sous-agents.
+Dernier scan : 2026-07-19T13:50:26+02:00 · **21 sessions** (transcripts) · **43** invocations de skills · **34** lancements de sous-agents.
 
 ## Skills — usage réel
 
@@ -68,6 +68,7 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 - **`pptx-framed-image`** (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle cadres-photo).
 - **`slide-text-polish`** (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle polish-texte).
 - **`restitution-deck-design`** (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle design-review).
+- **`bmad-code-review`** (2026-07-19) : Proposition retenue telle quelle : seuil explicite ajouté à revue-increment/SKILL.md (>5 fichiers produit ou logique à risque -> bmad-code-review obligatoire, sinon revue inline) — la délégation implicite ne se déclenchait jamais en pratique.
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 

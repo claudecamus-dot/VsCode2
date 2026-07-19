@@ -29,7 +29,12 @@ chef d'orchestre « definition of done avant commit », mais **délègue** quand
 skill BMAD est plus outillé — ne pas réimplémenter à la main :
 
 - Revue de code adversariale (Blind Hunter / Edge Case / Acceptance) →
-  **`bmad-code-review`** (Phase B, panier « qualité »).
+  **`bmad-code-review`** (Phase B, panier « qualité ») — **obligatoire** si le diff
+  touche plus de 5 fichiers produit (`app/`, hors tests/docs) ou une logique à risque
+  (suppression/écrasement de données, authentification, export irréversible) ; en
+  dessous de ce seuil, la revue inline de la Phase A suffit. Seuil ajouté le 2026-07-19
+  après constat du superviseur (étage 2) : sans règle explicite, la délégation ne s'était
+  jamais déclenchée en pratique malgré plusieurs incréments qui l'auraient justifiée.
 - Rétrospective de fin d'epic (leçons, succès) → **`bmad-retrospective`**
   (recouvre la Phase A §7 « façon de travailler » à l'échelle epic).
 - Changement de cap significatif en cours de sprint → **`bmad-correct-course`**.
