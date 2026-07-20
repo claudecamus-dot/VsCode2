@@ -12,14 +12,31 @@ import time
 from datetime import date
 from itertools import zip_longest
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import RECORDINGS_DIR, get_session
 from ..importers.docx_trame import extract_text_bytes
-from ..models import Answer, Interview, InterviewTurn, Mission, Question, Verbatim
+from ..models import (
+    Answer,
+    Interview,
+    InterviewSegmentJob,
+    InterviewTurn,
+    Mission,
+    Question,
+    Verbatim,
+)
 from ..services import audio_transcribe
 from ..services.interview_export import build_interview_markdown, group_turns_into_sections, slugify
 from ..services.interview_pdf_export import (
@@ -36,6 +53,12 @@ from ..services.interview_libre_extract_ai import (
     InterviewLibreExtractAIError,
     extract_turns_from_text,
     generate_repartition_from_turns,
+)
+from ..services.interview_segment_jobs import (
+    delete_segment_jobs,
+    merge_segment_turns,
+    run_segment_job,
+    segment_jobs_status,
 )
 from ..templating import templates
 
@@ -387,6 +410,70 @@ def record_libre_form(
     )
 
 
+def _libre_turns_error(request, mission, identity, message):
+    """Rend l'écran d'enregistrement avec un message d'erreur, en conservant le
+    travail déjà saisi (transcription, identité) — chemin d'échec d'extraction."""
+    return templates.TemplateResponse(
+        request,
+        "interviews/record_libre.html",
+        {
+            "mission": mission,
+            "recording_available": audio_transcribe.is_available(),
+            "error": message,
+            "identity": identity,
+        },
+    )
+
+
+def _finalize_libre_turns(
+    db, request, mission, identity, transcript, session_token, segment_tail
+):
+    """Produit les tours de parole puis rend l'écran de revue. Palier 2 : si des
+    jobs de tranche existent et sont TOUS terminés, fusionne leurs tours + le
+    reliquat final (dernière tranche partielle, traitée en synchrone — courte) ;
+    sinon (aucun job = entretien court, ou un job KO) retombe intégralement sur
+    le traitement synchrone de la transcription complète (garantie de
+    correction, seul le gain de temps est perdu sur ce cas)."""
+    status = segment_jobs_status(db, session_token)
+    extracted = None
+
+    if status["all_done"]:
+        try:
+            tail_result = None
+            if segment_tail.strip():
+                tail_result = extract_turns_from_text(segment_tail)
+            merged = merge_segment_turns(status["jobs"], tail_result)
+            if merged["turns"]:
+                extracted = merged
+        except InterviewLibreExtractAIError:
+            extracted = None  # reliquat KO -> fallback synchrone complet ci-dessous
+
+    if extracted is None:
+        try:
+            extracted = extract_turns_from_text(transcript)
+        except InterviewLibreExtractAIError as exc:
+            return _libre_turns_error(request, mission, identity, str(exc))
+
+    # Jobs consommés (leur seul rôle était d'alimenter cet écran) : on nettoie.
+    delete_segment_jobs(db, session_token)
+
+    merged_identity = _merge_identity(identity, extracted["identity"])
+    merged_identity["interview_date"] = identity.get("interview_date", "")
+    merged_identity["audio_backup_path"] = identity.get("audio_backup_path", "")
+    merged_identity["audio_segments"] = identity.get("audio_segments", "[]")
+
+    return templates.TemplateResponse(
+        request,
+        "interviews/libre_turns_review.html",
+        {
+            "mission": mission,
+            "turns": extracted["turns"],
+            "identity": merged_identity,
+            "transcript": transcript,
+        },
+    )
+
+
 @router.post("/missions/{mission_id}/interviews/record-libre")
 def record_libre(
     mission_id: int,
@@ -398,6 +485,8 @@ def record_libre(
     interview_date: str = Form(""),
     audio_backup_path: str = Form(""),
     audio_segments: str = Form("[]"),
+    session_token: str = Form(""),
+    segment_tail: str = Form(""),
     db: Session = Depends(get_session),
 ):
     mission = _get_mission(db, mission_id)
@@ -409,48 +498,110 @@ def record_libre(
         "audio_backup_path": audio_backup_path,
         "audio_segments": audio_segments,
         "transcript": transcript,
+        "session_token": session_token,
+        "segment_tail": segment_tail,
     }
 
     if not transcript.strip():
+        return _libre_turns_error(request, mission, identity, "Aucun texte transcrit.")
+
+    # Palier 2 : des tranches de 30min sont peut-être encore en traitement de
+    # fond. Si oui, on attend sur un écran de statut (polling) plutôt que de
+    # retraiter tout l'entretien en synchrone.
+    status = segment_jobs_status(db, session_token)
+    if status["total"] > 0 and not status["all_done"] and not status["any_failed"]:
         return templates.TemplateResponse(
             request,
-            "interviews/record_libre.html",
+            "interviews/libre_segment_wait.html",
             {
                 "mission": mission,
-                "recording_available": audio_transcribe.is_available(),
-                "error": "Aucun texte transcrit.",
                 "identity": identity,
+                "transcript": transcript,
+                "session_token": session_token,
+                "segment_tail": segment_tail,
+                "status": status,
             },
         )
 
-    try:
-        extracted = extract_turns_from_text(transcript)
-    except InterviewLibreExtractAIError as exc:
-        return templates.TemplateResponse(
-            request,
-            "interviews/record_libre.html",
-            {
-                "mission": mission,
-                "recording_available": audio_transcribe.is_available(),
-                "error": str(exc),
-                "identity": identity,
-            },
-        )
+    return _finalize_libre_turns(
+        db, request, mission, identity, transcript, session_token, segment_tail
+    )
 
-    merged_identity = _merge_identity(identity, extracted["identity"])
-    merged_identity["interview_date"] = interview_date
-    merged_identity["audio_backup_path"] = audio_backup_path
-    merged_identity["audio_segments"] = audio_segments
 
-    return templates.TemplateResponse(
-        request,
-        "interviews/libre_turns_review.html",
+@router.post("/interviews/segment-jobs")
+def create_segment_job(
+    background_tasks: BackgroundTasks,
+    session_token: str = Form(...),
+    position: int = Form(0),
+    text: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    """Palier 2 : enregistre une tranche de texte et lance son extraction de
+    tours en tâche de fond. Appelé par la rotation JS de `record_libre.html`
+    toutes les ~30min, pendant que l'enregistrement continue. Fire-and-forget
+    côté client (la progression est suivie via `segment_jobs_status_json`)."""
+    job = InterviewSegmentJob(
+        session_token=session_token[:64], position=position, status="pending"
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+    background_tasks.add_task(run_segment_job, job.id, text)
+    return JSONResponse(
+        {"job_id": job.id, "position": position, "status": "pending"}
+    )
+
+
+@router.get("/interviews/segment-jobs/status")
+def segment_jobs_status_json(
+    session_token: str, db: Session = Depends(get_session)
+):
+    """État agrégé des jobs d'une session, interrogé en boucle par l'écran
+    d'attente (`libre_segment_wait.html`)."""
+    status = segment_jobs_status(db, session_token)
+    return JSONResponse(
         {
-            "mission": mission,
-            "turns": extracted["turns"],
-            "identity": merged_identity,
-            "transcript": transcript,
-        },
+            "total": status["total"],
+            "done": status["done"],
+            "failed": status["failed"],
+            "all_done": status["all_done"],
+            "any_failed": status["any_failed"],
+        }
+    )
+
+
+@router.post("/missions/{mission_id}/interviews/record-libre/from-jobs")
+def record_libre_from_jobs(
+    mission_id: int,
+    request: Request,
+    transcript: str = Form(""),
+    interviewee_name: str = Form(""),
+    interviewee_role: str = Form(""),
+    interviewee_entity: str = Form(""),
+    interview_date: str = Form(""),
+    audio_backup_path: str = Form(""),
+    audio_segments: str = Form("[]"),
+    session_token: str = Form(""),
+    segment_tail: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    """Finalisation après l'écran d'attente : tous les jobs sont terminés (ou un
+    a échoué), on fusionne/retombe sur le synchrone et on affiche la revue des
+    tours. Même helper que `record_libre` sur le chemin sans attente."""
+    mission = _get_mission(db, mission_id)
+    identity = {
+        "interviewee_name": interviewee_name,
+        "interviewee_role": interviewee_role,
+        "interviewee_entity": interviewee_entity,
+        "interview_date": interview_date,
+        "audio_backup_path": audio_backup_path,
+        "audio_segments": audio_segments,
+        "transcript": transcript,
+        "session_token": session_token,
+        "segment_tail": segment_tail,
+    }
+    return _finalize_libre_turns(
+        db, request, mission, identity, transcript, session_token, segment_tail
     )
 
 

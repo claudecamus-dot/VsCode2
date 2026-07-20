@@ -476,3 +476,44 @@ class AgentResult(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
     mission: Mapped["Mission"] = relationship(back_populates="agent_results")
+
+
+# Statuts d'un job de traitement de tranche (Palier 2, segmentation 30min).
+SEGMENT_JOB_STATUSES = ("pending", "running", "done", "failed")
+
+
+class InterviewSegmentJob(Base):
+    """Job d'extraction des tours de parole d'UNE tranche de texte (Palier 2 —
+    `docs/reflexions/enregistrement-segmente-30min.md` §4).
+
+    Découple soumission et résultat pour un entretien libre long : pendant
+    l'enregistrement, chaque tranche de ~30min de texte transcrit est soumise
+    ici et traitée en tâche de fond (`extract_turns_from_text`) pendant que la
+    tranche suivante s'enregistre — au lieu de tout traiter en une requête
+    synchrone bloquée à l'arrêt (le mur des ~2h30 pour 3h, cf.
+    `extraction-longue-duree.md`).
+
+    Tant que l'entretien n'existe pas encore en base (le wizard libre ne crée
+    l'`Interview` qu'à la confirmation finale), le job est rattaché à un
+    `session_token` éphémère généré côté client au démarrage de
+    l'enregistrement — même défi que `audio_segments`/`raw_transcript`, qui ne
+    vivent en champ caché que le temps du wizard. `interview_id` reste NULL sur
+    ce chemin (les jobs sont consommés puis deviennent inutiles dès l'écran de
+    revue des tours) ; la colonne est prévue au cas où un rattachement
+    a posteriori deviendrait utile.
+    """
+
+    __tablename__ = "interview_segment_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_token: Mapped[str] = mapped_column(String(64), index=True)
+    interview_id: Mapped[int | None] = mapped_column(
+        ForeignKey("interviews.id", ondelete="CASCADE"), default=None
+    )
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    # {"turns": [...], "identity": {...}} produit par extract_turns_from_text,
+    # None tant que le job n'est pas `done`.
+    turns_result: Mapped[dict | None] = mapped_column(JSON, default=None)
+    error: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)

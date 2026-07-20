@@ -427,9 +427,10 @@
 
       <h3>Communication entre modules</h3>
       <div class="fact">
-        <p>Appels synchrones en Python — pas de queue, pas d'événements. Vérifié dans le code : chaque route qui appelle l'IA (<code>synthese.py::generate_global</code>, <code>generate_recommendations_view</code>, régénération/répartition dans <code>interviews.py</code>) est une fonction <code>def</code> classique (pas <code>async def</code>) qui appelle <code>ai_common.call_ai_json()</code> → <code>_call_ollama()</code>/<code>_call_openai()</code>/<code>_call_mistral()</code>, elles-mêmes des <code>def</code> bloquantes utilisant <code>urllib.request.urlopen()</code> (aucun <code>asyncio</code>, aucun <code>await</code>). FastAPI exécute ces routes dans son threadpool interne — la boucle d'événements n'est donc pas gelée pour les autres requêtes, mais la requête HTTP de l'utilisateur reste ouverte jusqu'à la fin de l'appel IA (des dizaines de secondes à plusieurs minutes selon le volume, voir <code>docs/reflexions/extraction-longue-duree.md</code>). Aucune file de messages ni bus d'événements dans le projet (grep <code>BackgroundTasks|celery|asyncio.create_task|threading.Thread|websocket|redis</code> sur <code>app/</code> : aucun résultat) — confirmant qu'aucune infrastructure de traitement en arrière-plan n'existe à ce jour, malgré la recommandation de <code>docs/reflexions/extraction-longue-duree.md</code> §3.B (traitement asynchrone via <code>BackgroundTasks</code> de FastAPI, jamais implémenté) et <code>docs/reflexions/enregistrement-segmente-30min.md</code> §4 (Palier 2, même statut).</p>
+        <p>Appels synchrones en Python — pas de queue ni de bus d'événements. Vérifié dans le code : chaque route qui appelle l'IA (<code>synthese.py::generate_global</code>, <code>generate_recommendations_view</code>, régénération/répartition dans <code>interviews.py</code>) est une fonction <code>def</code> classique (pas <code>async def</code>) qui appelle <code>ai_common.call_ai_json()</code> → <code>_call_ollama()</code>/<code>_call_openai()</code>/<code>_call_mistral()</code>, elles-mêmes des <code>def</code> bloquantes utilisant <code>urllib.request.urlopen()</code> (aucun <code>asyncio</code>, aucun <code>await</code>). FastAPI exécute ces routes dans son threadpool interne — la boucle d'événements n'est donc pas gelée pour les autres requêtes, mais la requête HTTP de l'utilisateur reste ouverte jusqu'à la fin de l'appel IA (des dizaines de secondes à plusieurs minutes selon le volume, voir <code>docs/reflexions/extraction-longue-duree.md</code>).</p>
+        <p><strong>Exception depuis le 2026-07-20 (Palier 2 segmentation)</strong> : l'extraction des tours d'un entretien libre long est le seul chemin désormais découplé — <code>POST /interviews/segment-jobs</code> lance <code>interview_segment_jobs.run_segment_job</code> en <code>BackgroundTasks</code> FastAPI pendant l'enregistrement, l'utilisateur suit la progression sur un écran d'attente qui interroge <code>GET /interviews/segment-jobs/status</code> (poll <code>fetch</code> 5s). Ce n'est toujours ni une file de messages ni un bus d'événements (exécution en arrière-plan in-process, état porté par la table <code>interview_segment_jobs</code>) ; tout le reste (synthèse globale, recommandations, extraction structurée, et le <em>fallback</em> de l'extraction libre) reste synchrone bloquant.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">claude · 2026-07-20 · app/services/ai_common.py:242-350, app/routers/synthese.py:206,295, app/routers/interviews.py:627,911</div>
+        <div class="tag-source">claude · 2026-07-20 · app/services/interview_segment_jobs.py, app/routers/interviews.py (create_segment_job, _finalize_libre_turns), app/services/ai_common.py:242-350</div>
       </div>
 
       <h3>Décisions architecturales notables</h3>
@@ -476,9 +477,14 @@
         <div class="tag-source">onboarder · 2026-06-30</div>
       </div>
       <div class="critical">
-        <p>Vitesse d'inférence Ollama sur poste CPU sans GPU dédié — un entretien de ~37min a atteint <code>OLLAMA_TIMEOUT</code> avant l'ajout du map-reduce ci-dessous ; la marge reste faible sur les très gros entretiens, <code>qwen2.5:1.5b-instruct</code> (~4x plus rapide, qualité non validée) est une option de secours non tranchée.</p>
+        <p>Vitesse d'inférence Ollama sur poste CPU sans GPU dédié — un entretien de ~37min a atteint <code>OLLAMA_TIMEOUT</code> avant l'ajout du map-reduce ci-dessous ; la marge reste faible sur les très gros entretiens, <code>qwen2.5:1.5b-instruct</code> (~4x plus rapide, qualité non validée) est une option de secours non tranchée. Le Palier 2 (traitement asynchrone par tranche, 2026-07-20) supprime l'<em>échec</em> et rend la progression visible mais <strong>ne réduit pas le temps total</strong> d'inférence — viser réellement 3h demande aussi du matériel/modèle plus rapide.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">claude · 2026-07-19 · app/services/ai_common.py</div>
+      </div>
+      <div class="critical">
+        <p>Jobs de tranche orphelins (Palier 2) — un enregistrement long abandonné (onglet fermé en cours de route) laisse ses lignes <code>interview_segment_jobs</code> en base (supprimées seulement à la finalisation réussie d'un entretien). Lignes légères, pas de purge automatique à ce jour — acceptable au vu du volume, à revoir si l'usage réel les fait s'accumuler.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">claude · 2026-07-20 · app/services/interview_segment_jobs.py</div>
       </div>
       <div class="fact">
         <p><s><code>generate_global_synthesis()</code> n'a pas de découpage map-reduce</s> — <strong>résolu le 2026-07-18</strong> : applique désormais le même map-reduce que l'extraction d'entretien libre (découpe aux frontières de thème/entretien, synthèses partielles fusionnées par un appel de réduction dédié) ; une mission courte ne fait toujours qu'un seul appel.</p>
@@ -910,9 +916,13 @@ pytest -k "pptx or export"                                                     #
           <thead><tr><th>Item</th><th>État</th><th>Contexte / prochaine action</th></tr></thead>
           <tbody id="todo-session-rows">
             <tr>
-              <td>Enregistrement segmenté 30min — Palier 2 (traitement asynchrone par tranche)</td>
-              <td>En cours (2026-07-20) — Palier 1 vérifié + commité, Palier 2 en construction</td>
-              <td>Palier 1 (segmentation + téléchargement) résolu le 2026-07-20 : rotation 30min du <code>backupRecorder</code>, champ <code>Interview.audio_segments</code>, téléchargement par tranche — pytest vert + vérif <code>run-dev-server</code>, commité (cf. CLAUDE.md « Enregistrement segmenté 30min — Palier 1 »). Reste le Palier 2, plan détaillé dans <code>docs/reflexions/enregistrement-segmente-30min.md</code> §4 : nouveau modèle <code>InterviewSegmentJob</code> (<code>session_token</code>, <code>position</code>, <code>status</code> pending/running/done/failed, <code>turns_result</code> JSON, <code>error</code>) ; endpoint <code>POST /interviews/segment-jobs</code> déclenchant l'extraction des tours (<code>extract_turns_from_text</code>) en <code>BackgroundTasks</code> FastAPI dès qu'une tranche de texte est prête, pendant que la tranche suivante s'enregistre ; écran de statut par polling HTMX (<code>hx-trigger="every 5s"</code>) ; à l'étape « Extraire questions/réponses » (<code>record_libre()</code>), fusion des tours déjà produits par les jobs terminés + traitement synchrone du seul reliquat non couvert (dernière tranche partielle) — <strong>si un seul job n'est pas <code>done</code>, retomber intégralement sur le comportement synchrone actuel</strong> (chemin déjà correct pour tout entretien &lt; 30min, qui ne crée aucun job). Qualifié « chantier substantiel » dans l'étude elle-même — mérite sa propre revue avant de le considérer fait.</td>
+              <td colspan="3" style="color:var(--ink-faint);">
+                Aucun item ouvert. Dernier résolu le 2026-07-20 : <strong>Enregistrement segmenté 30min — Paliers 1 &amp; 2</strong>
+                (segmentation + téléchargement, puis traitement asynchrone par tranche via <code>InterviewSegmentJob</code> +
+                <code>BackgroundTasks</code> + écran d'attente). Voir CLAUDE.md « Enregistrement segmenté 30min — Palier 1 / Palier 2 »
+                et <code>docs/reflexions/enregistrement-segmente-30min.md</code>. Suite éventuelle (non planifiée) :
+                matériel/modèle plus rapide pour viser réellement 3h, cf. <code>docs/reflexions/extraction-longue-duree.md</code> §A.
+              </td>
             </tr>
           </tbody>
         </table>

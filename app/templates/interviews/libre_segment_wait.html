@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}Traitement des tranches — Interview-to-Deck{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> / Traitement des tranches
+</div>
+
+<div class="page-head"><h1>Traitement des tranches en cours…</h1></div>
+{% set step_num = 1 %}{% set active = 'transcription' %}
+{% include "interviews/_libre_wizard.html" %}
+
+<section class="card">
+  <p class="muted">
+    Cet entretien est assez long pour avoir été découpé en tranches de 30min,
+    traitées au fil de l'enregistrement. On attend ici que les dernières
+    tranches finissent d'être structurées en tours de parole — puis l'écran de
+    revue s'affiche automatiquement. Inutile de recharger la page.
+  </p>
+  <p id="seg-progress" class="seg-progress" aria-live="polite">
+    Traitement des tranches… {{ status.done }}/{{ status.total }} terminées.
+  </p>
+  <progress id="seg-bar" value="{{ status.done }}" max="{{ status.total }}"></progress>
+</section>
+
+<!-- Champs portés vers la finalisation une fois toutes les tranches traitées. -->
+<form id="finalize-form" method="post"
+      action="/missions/{{ mission.id }}/interviews/record-libre/from-jobs">
+  <input type="hidden" name="session_token" value="{{ session_token }}">
+  <input type="hidden" name="segment_tail" value="{{ segment_tail or '' }}">
+  <input type="hidden" name="transcript" value="{{ transcript or '' }}">
+  <input type="hidden" name="interviewee_name" value="{{ identity.interviewee_name or '' }}">
+  <input type="hidden" name="interviewee_role" value="{{ identity.interviewee_role or '' }}">
+  <input type="hidden" name="interviewee_entity" value="{{ identity.interviewee_entity or '' }}">
+  <input type="hidden" name="interview_date" value="{{ identity.interview_date or '' }}">
+  <input type="hidden" name="audio_backup_path" value="{{ identity.audio_backup_path or '' }}">
+  <input type="hidden" name="audio_segments" value="{{ identity.audio_segments or '[]' }}">
+</form>
+
+<script>
+(function () {
+  var token = {{ session_token | tojson }};
+  var progressEl = document.getElementById('seg-progress');
+  var barEl = document.getElementById('seg-bar');
+  var form = document.getElementById('finalize-form');
+  var submitted = false;
+
+  function finalize() {
+    if (submitted) return;
+    submitted = true;
+    progressEl.textContent = 'Traitement terminé — affichage des tours de parole…';
+    form.submit();
+  }
+
+  function poll() {
+    fetch('/interviews/segment-jobs/status?session_token=' + encodeURIComponent(token))
+      .then(function (res) { return res.json(); })
+      .then(function (s) {
+        if (s.total > 0) {
+          barEl.max = s.total;
+          barEl.value = s.done;
+          progressEl.textContent =
+            'Traitement des tranches… ' + s.done + '/' + s.total + ' terminées.';
+        }
+        // Toutes terminées, ou un job en échec (on retombe alors sur le
+        // traitement synchrone complet, géré côté serveur) : on finalise.
+        if (s.all_done || s.any_failed) {
+          finalize();
+        } else {
+          setTimeout(poll, 5000);
+        }
+      })
+      .catch(function () {
+        // Erreur réseau ponctuelle : on réessaie sans casser l'attente.
+        setTimeout(poll, 5000);
+      });
+  }
+
+  poll();
+})();
+</script>
+{% endblock %}

@@ -41,6 +41,11 @@
   <input type="hidden" name="transcript" id="rec-transcript-hidden" value="{{ identity.transcript if identity else '' }}">
   <input type="hidden" name="audio_backup_path" id="rec-backup-path" value="{{ identity.audio_backup_path if identity else '' }}">
   <input type="hidden" name="audio_segments" id="rec-audio-segments" value="{{ identity.audio_segments if identity else '[]' }}">
+  <!-- Palier 2 : jeton de session (jobs de tranche) + reliquat de texte non
+       encore soumis en tâche de fond. Vides pour un entretien < 30min (aucun
+       job créé → traitement synchrone habituel côté serveur). -->
+  <input type="hidden" name="session_token" id="rec-session-token" value="{{ identity.session_token if identity else '' }}">
+  <input type="hidden" name="segment_tail" id="rec-segment-tail" value="{{ identity.segment_tail if identity else '' }}">
 
   <div class="record-controls">
     <button class="btn btn-primary" type="button" id="rec-start">● Démarrer l'enregistrement</button>
@@ -93,6 +98,8 @@
   var transcriptEl = document.getElementById('rec-transcript');
   var transcriptHidden = document.getElementById('rec-transcript-hidden');
   var backupPathHidden = document.getElementById('rec-backup-path');
+  var sessionTokenHidden = document.getElementById('rec-session-token');
+  var segmentTailHidden = document.getElementById('rec-segment-tail');
 
   if (!navigator.mediaDevices || !window.MediaRecorder) {
     statusEl.textContent = "Enregistrement non supporté par ce navigateur.";
@@ -114,6 +121,50 @@
       return [];
     }
   })();
+  // Palier 2 : traitement asynchrone des tranches. À chaque rotation 30min du
+  // backupRecorder, on soumet le texte transcrit depuis la dernière rotation
+  // comme un job d'extraction en tâche de fond (le serveur enchaîne pendant que
+  // l'enregistrement continue). `coveredLen` marque la fin de ce qui a déjà été
+  // soumis ; le reliquat (segment_tail) est traité en synchrone à l'arrêt.
+  var sessionToken = '';
+  var segmentJobPosition = 0;
+  var coveredLen = 0;
+
+  function newSessionToken() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'sess-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+  }
+
+  function refreshSegmentTail() {
+    segmentTailHidden.value = transcriptSoFar.slice(coveredLen);
+  }
+
+  function submitSegmentJob() {
+    var slice = transcriptSoFar.slice(coveredLen);
+    if (!slice.trim()) return;  // rien de neuf à traiter sur cette tranche
+    var pos = segmentJobPosition;
+    var sliceEnd = coveredLen + slice.length;
+    var formData = new FormData();
+    formData.append('session_token', sessionToken);
+    formData.append('position', pos);
+    formData.append('text', slice);
+    fetch('/interviews/segment-jobs', { method: 'POST', body: formData })
+      .then(function (res) {
+        if (!res.ok) throw new Error('job non créé');
+        // Job bien créé : on avance le curseur, ce texte est pris en charge
+        // en tâche de fond.
+        if (sliceEnd > coveredLen) {
+          coveredLen = sliceEnd;
+          segmentJobPosition = pos + 1;
+          refreshSegmentTail();
+        }
+      })
+      .catch(function () {
+        // Création KO (réseau/serveur) : on NE fait PAS avancer coveredLen —
+        // ce texte reste dans le reliquat (segment_tail), traité en synchrone
+        // à l'arrêt. Aucune tranche perdue.
+      });
+  }
 
   function formatElapsed(ms) {
     var s = Math.floor(ms / 1000);
@@ -134,6 +185,7 @@
     transcriptEl.value = transcriptSoFar;
     transcriptEl.scrollTop = transcriptEl.scrollHeight;
     transcriptHidden.value = transcriptSoFar;
+    refreshSegmentTail();
   }
 
   function startSegment() {
@@ -273,6 +325,12 @@
       backupPathHidden.value = '';
       backupSegments = [];
       audioSegmentsHidden.value = '[]';
+      // Palier 2 : nouvelle session de jobs à chaque enregistrement.
+      sessionToken = newSessionToken();
+      sessionTokenHidden.value = sessionToken;
+      segmentJobPosition = 0;
+      coveredLen = 0;
+      segmentTailHidden.value = '';
       backupStatusEl.textContent = '';
       audioPlaybackEl.hidden = true;
 
@@ -287,6 +345,9 @@
         if (segmentRecorder && segmentRecorder.state === 'recording') segmentRecorder.stop();
       }, SEGMENT_MS);
       backupRotationTimer = setInterval(function () {
+        // Soumet la tranche de texte écoulée en tâche de fond, PUIS fait
+        // tourner le backupRecorder audio (même horloge 30min).
+        submitSegmentJob();
         if (backupRecorder && backupRecorder.state === 'recording') backupRecorder.stop();
       }, BACKUP_SEGMENT_MS);
 
@@ -322,6 +383,13 @@
     backupPathHidden.value = '';
     backupSegments = [];
     audioSegmentsHidden.value = '[]';
+    // Palier 2 : repartir sur une session vierge (les jobs éventuels de la
+    // session précédente deviennent des orphelins inoffensifs côté serveur).
+    sessionToken = '';
+    sessionTokenHidden.value = '';
+    segmentJobPosition = 0;
+    coveredLen = 0;
+    segmentTailHidden.value = '';
     backupStatusEl.textContent = '';
     audioPlaybackEl.hidden = true;
     resetBtn.hidden = true;
