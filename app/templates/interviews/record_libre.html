@@ -86,6 +86,12 @@
 (function () {
   var SEGMENT_MS = 60000;
   var BACKUP_SEGMENT_MS = 30 * 60000;
+  // Extraction « au fil de l'eau » : cadence de soumission des jobs d'extraction,
+  // DÉCOUPLÉE de la rotation audio 30min. Un job toutes les 5 min tient à peu
+  // près le rythme de l'inférence CPU (~5min de parole ≈ ~750 mots, traités en
+  // ~4-5min à la vitesse mesurée) tout en gardant l'extraction proche du direct.
+  // Ajuster ici selon la vitesse réelle de la machine (mesurer un vrai entretien).
+  var JOB_SEGMENT_MS = 5 * 60000;
 
   var startBtn = document.getElementById('rec-start');
   var stopBtn = document.getElementById('rec-stop');
@@ -111,7 +117,7 @@
     return;
   }
 
-  var stream, startTime, timerId, rotationTimer, backupRotationTimer;
+  var stream, startTime, timerId, rotationTimer, backupRotationTimer, jobSubmitTimer;
   var segmentRecorder, segmentChunks;
   var backupRecorder, backupChunks;
   var recordingActive = false;
@@ -185,6 +191,12 @@
   }
 
   function submitSegmentJob() {
+    // Ré-entrance : un POST de création de job encore en vol n'a pas encore
+    // avancé coveredLen — re-soumettre maintenant renverrait la MÊME tranche
+    // (tours dupliqués à la fusion). On saute ce tick ; le prochain reprendra
+    // le texte accumulé depuis. (Le POST ne fait que créer le job, il résout en
+    // ~1s, bien avant les 5 min entre deux ticks — garde défensive.)
+    if (pendingSegmentJobSubmits > 0) return;
     var slice = transcriptSoFar.slice(coveredLen);
     if (!slice.trim()) return;  // rien de neuf à traiter sur cette tranche
     var pos = segmentJobPosition;
@@ -431,10 +443,14 @@
       rotationTimer = setInterval(function () {
         if (segmentRecorder && segmentRecorder.state === 'recording') segmentRecorder.stop();
       }, SEGMENT_MS);
+      // Extraction au fil de l'eau : un job toutes les 5 min, indépendamment de
+      // la rotation audio 30min ci-dessous. L'extraction suit la transcription
+      // au lieu de tout traiter en synchrone à l'arrêt ; à la finalisation il ne
+      // reste qu'un petit reliquat (segment_tail, ≤ 5 min).
+      jobSubmitTimer = setInterval(submitSegmentJob, JOB_SEGMENT_MS);
       backupRotationTimer = setInterval(function () {
-        // Soumet la tranche de texte écoulée en tâche de fond, PUIS fait
-        // tourner le backupRecorder audio (même horloge 30min).
-        submitSegmentJob();
+        // Rotation de la SAUVEGARDE audio (tranche de 30min). La soumission des
+        // jobs d'extraction est désormais portée par jobSubmitTimer ci-dessus.
         if (backupRecorder && backupRecorder.state === 'recording') backupRecorder.stop();
       }, BACKUP_SEGMENT_MS);
 
@@ -455,6 +471,7 @@
     recordingActive = false;
     clearInterval(rotationTimer);
     clearInterval(backupRotationTimer);
+    clearInterval(jobSubmitTimer);
     clearInterval(timerId);
     // Chaque enregistreur encore actif va livrer une dernière tranche via son
     // évènement `stop` asynchrone : on gate la soumission (finalizing) jusqu'à
