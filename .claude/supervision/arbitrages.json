@@ -54,6 +54,24 @@
       "decision": "Proposition retenue telle quelle : angle mort de mesure documenté dans catalogue.md — les sous-skills bmad-review-adversarial-general/bmad-review-edge-case-hunter, invoquées par des sous-agents via prompt naturel, n'apparaissent pas dans state.json ; absence de trace n'implique pas absence d'exécution.",
       "date": "2026-07-20",
       "source": "utilisateur"
+    },
+    {
+      "cible": "revue-design-parallele",
+      "decision": "Proposition ① du diagnostic 2026-07-20 retenue et appliquée : garde déterministe ajoutée au contrat de l'étape consolidation (playbook revue-design-parallele) — quand le fan-out sert à une énumération exhaustive AVANT suppression/renommage, un grep -r final de chaque identifiant retiré est obligatoire et prime sur les rapports des sous-agents (extraits, non exhaustifs). Preuve : réf bmad-spec (bmad-architecture:29) ratée par un fan-out de 3 Explore, rattrapée seulement au grep final avant un git rm (runs 2026-07-18).",
+      "date": "2026-07-20",
+      "source": "utilisateur"
+    },
+    {
+      "cible": "revue-increment",
+      "decision": "Règle définie sur demande (analyse superviseur 2026-07-20, mode d'échec « tests indiqués OK alors qu'ils sont KO ») : revue-increment/SKILL.md §2 + contrat 'tests' du playbook dev-verifie — le verdict pass/fail se lit sur la ligne de synthèse RÉELLE de pytest, jamais sur un résumé filtré du proxy rtk (déjà mal reporté un run, mémoire feedback-rtk-pytest-false-no-tests-collected) ni un [100%] de sortie tronquée ; et une suite verte qui MOCKE l'intégration modifiée (ex. extract_turns_from_text, appels Ollama/Whisper) exige au moins un passage réel de bout en bout avant « livré ».",
+      "date": "2026-07-20",
+      "source": "utilisateur"
+    },
+    {
+      "cible": "revue-increment",
+      "decision": "Règle définie sur demande (analyse superviseur 2026-07-20, mode d'échec « dev avec bug ou ne respectant pas la demande ») : revue-increment/SKILL.md §1 (conformité exigence par exigence — chaque point explicite de la demande coché contre le diff, toute exigence écartée dite dans « Reste ») + §7 (demande référençant un état introuvable -> clarifier avant de coder, run 12) + contrat 'implementation' du playbook dev-verifie. Le volet « bug malgré tests verts » reste couvert par le seuil bmad-code-review (>5 fichiers produit / logique à risque) et la relecture du correctif lui-même (arbitrages 2026-07-19/20).",
+      "date": "2026-07-20",
+      "source": "utilisateur"
     }
   ]
 }

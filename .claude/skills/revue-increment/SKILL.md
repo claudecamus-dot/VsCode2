@@ -53,6 +53,13 @@ ci-dessus plutôt que d'en dupliquer la logique.
 - [ ] Le diff de la séance correspond exactement à ce qui était visé —
       rien d'orphelin, rien laissé à moitié, aucun fichier scratch/`_smoke.py`
       traîné dans le repo.
+- [ ] **Conformité à la demande, exigence par exigence.** Relister les points
+      *explicites* de la demande initiale (chaque point numéroté, chaque
+      contrainte — la demande, pas son interprétation) et cocher chacun contre le
+      diff réel. Un test vert prouve que le code fait ce que le *test* attend, pas
+      ce que l'*utilisateur* a demandé. Toute exigence réinterprétée, partiellement
+      traitée ou écartée est dite dans « Reste », jamais laissée silencieusement
+      non traitée — « livré » ne se déclare pas sur une demande à moitié couverte.
 - [ ] Si un doc de suivi (roadmap, wiki, `CLAUDE.md`) affirme un état, il a
       été confronté au code — pas recopié de confiance.
 
@@ -60,6 +67,24 @@ ci-dessus plutôt que d'en dupliquer la logique.
 
 - [ ] `pytest -q` passe, et le compte de tests a **augmenté** si du
       comportement a été ajouté (sinon : pourquoi ?).
+- [ ] **Le verdict pass/fail se lit sur la sortie *réelle* de `pytest`, jamais
+      sur un résumé.** Confirmer `N passed` / `0 failed` / aucune `error` sur la
+      ligne de synthèse elle-même — pas sur un résumé filtré du proxy `rtk` (qui
+      a déjà mal reporté un run, cf.
+      [[feedback-rtk-pytest-false-no-tests-collected]]), ni sur un `[100%]` de
+      fin de sortie **tronquée** (le `FAILED`/`ERROR` sort en queue). En cas de
+      doute : relancer via `rtk proxy pytest` (sans filtrage) ou rediriger toute
+      la sortie dans un fichier et la lire (cf.
+      [[feedback-bash-tmp-path-and-encoding]] pour la capture sur Windows). « OK »
+      annoncé n'est pas « OK » prouvé — un `pytest` KO présenté comme vert est
+      l'échec le plus coûteux (il ferme la vérification au lieu de l'ouvrir).
+- [ ] **Une suite verte qui *mocke* l'intégration modifiée prouve la logique,
+      pas le comportement.** Si le correctif touche un chemin systématiquement
+      monkeypatché dans les tests (appels Ollama/Whisper, `extract_turns_from_text`,
+      export réel), le vert ne couvre que les branches — exiger au moins **un
+      passage réel de bout en bout** avant de déclarer livré (déjà la règle pour
+      l'IA-timeout et le PPT ci-dessous ; ici généralisée à tout mock de
+      l'intégration sous correctif).
 - [ ] Toute surface runtime touchée a été **exercée pour de vrai**, pas juste
       testée en unitaire :
   - écran / template / CSS / HTMX → skill `run-dev-server` (lancer +
@@ -153,6 +178,12 @@ Répondre honnêtement — c'est le cœur de cette revue, pas une formalité :
       versionné a été soit explicitement demandée, soit proposée pour
       validation — jamais exécutée unilatéralement (cf. le refus classifier sur
       un `git rm` non demandé).
+- [ ] **Demande vérifiée avant d'agir ?** Si la demande s'appuie sur des
+      données ou un état qui ne correspondent à rien de réel (« traite le
+      point 2 » alors que le diagnostic n'a qu'un point), l'avoir constaté et
+      **clarifié** avant de coder, pas fabriqué une interprétation plausible.
+      Leçon du 2026-07-19 (run 12) : une telle demande, clarifiée d'abord, a
+      révélé un vrai bug d'affichage — deviner aurait produit du hors-sujet.
 - [ ] **Une chose à changer la prochaine fois** — nommer un ajustement concret
       de méthode (un ordre d'étapes, une vérif à avancer, une question à poser
       plus tôt). S'il est durable → mémoire `feedback`.

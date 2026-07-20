@@ -828,10 +828,10 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-20T12:21:35+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-20T21:27:37+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>23 sessions</strong> couvertes · <strong>49</strong> invocations de skills · <strong>36</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>28 sessions</strong> couvertes · <strong>53</strong> invocations de skills · <strong>36</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">scan_transcripts.py · 2026-07-20 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
@@ -841,11 +841,11 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Skill</th><th>Famille</th><th>Invocations</th><th>Première</th><th>Dernière</th></tr></thead>
           <tbody>
-            <tr><td><code>run-dev-server</code></td><td>projet</td><td>14</td><td>2026-07-03</td><td>2026-07-20</td></tr>
+            <tr><td><code>run-dev-server</code></td><td>projet</td><td>15</td><td>2026-07-03</td><td>2026-07-20</td></tr>
+            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>6</td><td>2026-07-17</td><td>2026-07-20</td></tr>
             <tr><td><code>update-config</code></td><td>(builtin/session)</td><td>6</td><td>2026-07-03</td><td>2026-07-16</td></tr>
+            <tr><td><code>agent-supervisor</code></td><td>projet</td><td>5</td><td>2026-07-18</td><td>2026-07-20</td></tr>
             <tr><td><code>roadmap-keeper</code></td><td>global</td><td>5</td><td>2026-06-25</td><td>2026-07-15</td></tr>
-            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>4</td><td>2026-07-17</td><td>2026-07-18</td></tr>
-            <tr><td><code>agent-supervisor</code></td><td>projet</td><td>4</td><td>2026-07-18</td><td>2026-07-20</td></tr>
             <tr><td><code>revue-increment</code></td><td>projet</td><td>4</td><td>2026-07-18</td><td>2026-07-20</td></tr>
             <tr><td><code>run</code></td><td>(builtin/session)</td><td>3</td><td>2026-06-29</td><td>2026-07-03</td></tr>
             <tr><td><code>pptx-deck</code></td><td>global</td><td>2</td><td>2026-07-02</td><td>2026-07-03</td></tr>
@@ -893,9 +893,17 @@ pytest -k "pptx or export"                                                     #
         <li><strong><code>revue-increment</code></strong> (2026-07-20) : Proposition retenue telle quelle : règle ajoutée à revue-increment/SKILL.md §2 — un correctif appliqué en réponse à une revue externe (bmad-code-review, sous-agent adversarial) doit être relu lui-même avant commit, la revue d'origine n'ayant validé que le code d'avant. Confirmé le jour même : un 4e bug a été trouvé ainsi (Palier 2), non vu par les 2 sous-agents de revue.</li>
         <li><strong><code>revue-increment</code></strong> (2026-07-20) : Proposition retenue telle quelle : règle ajoutée à revue-increment/SKILL.md §4 — si les docs auto-générées de supervision (agents-supervision.md, wiki.html) apparaissent modifiées en git status en fin de séance, les inclure dans le commit plutôt que les laisser dériver (constaté : 4 commits consécutifs sans les inclure).</li>
         <li><strong><code>bmad-code-review</code></strong> (2026-07-20) : Proposition retenue telle quelle : angle mort de mesure documenté dans catalogue.md — les sous-skills bmad-review-adversarial-general/bmad-review-edge-case-hunter, invoquées par des sous-agents via prompt naturel, n'apparaissent pas dans state.json ; absence de trace n'implique pas absence d'exécution.</li>
+        <li><strong><code>revue-design-parallele</code></strong> (2026-07-20) : Proposition ① du diagnostic 2026-07-20 retenue et appliquée : garde déterministe ajoutée au contrat de l'étape consolidation (playbook revue-design-parallele) — quand le fan-out sert à une énumération exhaustive AVANT suppression/renommage, un grep -r final de chaque identifiant retiré est obligatoire et prime sur les rapports des sous-agents (extraits, non exhaustifs). Preuve : réf bmad-spec (bmad-architecture:29) ratée par un fan-out de 3 Explore, rattrapée seulement au grep final avant un git rm (runs 2026-07-18).</li>
+        <li><strong><code>revue-increment</code></strong> (2026-07-20) : Règle définie sur demande (analyse superviseur 2026-07-20, mode d'échec « tests indiqués OK alors qu'ils sont KO ») : revue-increment/SKILL.md §2 + contrat 'tests' du playbook dev-verifie — le verdict pass/fail se lit sur la ligne de synthèse RÉELLE de pytest, jamais sur un résumé filtré du proxy rtk (déjà mal reporté un run, mémoire feedback-rtk-pytest-false-no-tests-collected) ni un [100%] de sortie tronquée ; et une suite verte qui MOCKE l'intégration modifiée (ex. extract_turns_from_text, appels Ollama/Whisper) exige au moins un passage réel de bout en bout avant « livré ».</li>
+        <li><strong><code>revue-increment</code></strong> (2026-07-20) : Règle définie sur demande (analyse superviseur 2026-07-20, mode d'échec « dev avec bug ou ne respectant pas la demande ») : revue-increment/SKILL.md §1 (conformité exigence par exigence — chaque point explicite de la demande coché contre le diff, toute exigence écartée dite dans « Reste ») + §7 (demande référençant un état introuvable -&gt; clarifier avant de coder, run 12) + contrat 'implementation' du playbook dev-verifie. Le volet « bug malgré tests verts » reste couvert par le seuil bmad-code-review (&gt;5 fichiers produit / logique à risque) et la relecture du correctif lui-même (arbitrages 2026-07-19/20).</li>
       </ul>
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
-      <p><em>Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés.</em></p>
+      <p><em>Diagnostic à jour.</em></p>
+      <div class="critical">
+        <p><strong>Le playbook export-ppt-verifie -- seule justification arbitree de conserver 4 skills PPT a zero invocation -- n a jamais ete joue, sa premisse reste non exercee</strong> — Ce n est PAS un signal agent-mort (playbook jeune, aucune tache PPT depuis) et la conservation des skills est deja arbitree -- ne pas re-litiguer cette decision. Mais l arbitrage a cree une dependance sur un mecanisme jamais exerce : la premiere tache d export PPT est le seul moment qui validera (ou non) que ces skills gagnent leur place via ce playbook. · <strong>Proposition</strong> : Noter dans catalogue.md a l entree export-ppt-verifie : c est la route obligatoire de TOUTE tache d export PPT (ne pas composer un plan PPT ad hoc) ; tant que le playbook reste jamais-joue, traiter la conservation des 3 skills PPT comme non verifiee -- si une tache PPT est un jour traitee sans passer par ce playbook, rouvrir les 4 arbitrages du 2026-07-18 avec cette donnee nouvelle.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">agent-supervisor · étage 2</div>
+      </div>
     </section>
 <!-- TODO-AGENTS-HTML:END -->
 

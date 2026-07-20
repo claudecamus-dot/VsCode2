@@ -9,6 +9,15 @@ Règles du mode parallèle (conception §5) : angles réellement indépendants, 
 pendant le fan-out, ≤ 4 sous-agents, consolidation obligatoire — chaque sous-agent repart
 d'un contexte froid facturé, exiger des rapports courts et structurés.
 
+**Garde exhaustivité (ajout 2026-07-20)** : un fan-out d'`Explore` lit des *extraits*, pas
+des fichiers entiers — il ne garantit jamais l'exhaustivité. Quand le fan-out sert à
+recenser toutes les références à des identifiants **avant une suppression/renommage**, la
+consolidation DOIT se terminer par une garde déterministe : un `grep -r` (ou l'outil Grep)
+de chaque identifiant retiré sur tout le dépôt, dont le résultat **prime** sur les rapports
+des sous-agents. Précédent réel (tri BMAD, 2026-07-18) : le fan-out de 3 `Explore` a raté
+une référence `bmad-spec` (`bmad-architecture:29`) juste avant un `git rm` ; seul un grep
+final non prévu l'a rattrapée.
+
 ```json
 {
   "nom": "revue-design-parallele",
@@ -51,7 +60,7 @@ d'un contexte froid facturé, exiger des rapports courts et structurés.
       "modele": "(session)",
       "contrat": {
         "type": "deterministe",
-        "critere": "constats dédoublonnés et priorisés en un backlog d'actions concrètes, contradictions entre angles arbitrées explicitement"
+        "critere": "constats dédoublonnés et priorisés en un backlog d'actions concrètes, contradictions entre angles arbitrées explicitement. SI le but du fan-out était une énumération exhaustive avant suppression/renommage : garde déterministe finale OBLIGATOIRE — grep -r (ou l'outil Grep) de chaque identifiant retiré sur tout le dépôt, dont le résultat PRIME sur les rapports des sous-agents (qui ne lisent que des extraits). Précédent : réf bmad-spec ratée par un fan-out de 3 Explore, rattrapée seulement au grep final avant un git rm (2026-07-18)."
       },
       "checkpoint": "restituer le backlog à l'utilisateur avant d'appliquer le moindre correctif — la revue est le livrable, les fixes sont un mandat séparé"
     }

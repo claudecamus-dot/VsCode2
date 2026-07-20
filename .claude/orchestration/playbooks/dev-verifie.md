@@ -46,7 +46,7 @@ PPT complète (cadres photo, polish, passe design).
       "modele": "(session)",
       "contrat": {
         "type": "deterministe",
-        "critere": "le diff couvre la demande, style du fichier environnant respecté (pas de linter configuré)"
+        "critere": "chaque exigence EXPLICITE de la demande (points numérotés, contraintes) cochée une à une contre le diff — pas seulement « ça compile/passe » ; toute exigence réinterprétée ou écartée signalée, jamais silencieuse ; style du fichier environnant respecté (pas de linter configuré)"
       },
       "checkpoint": false
     },
@@ -57,7 +57,7 @@ PPT complète (cadres photo, polish, passe design).
       "modele": "(session)",
       "contrat": {
         "type": "deterministe",
-        "critere": "suite verte (compter les points, pas le code retour — bruit de teardown Windows connu)",
+        "critere": "verdict lu sur la ligne de synthèse RÉELLE de pytest (N passed / 0 failed / 0 error) — jamais sur un résumé filtré du proxy rtk (déjà mal reporté un run) ni un [100%] de sortie tronquée ; compter les points, pas le code retour (bruit de teardown Windows connu) ; en cas de doute, relancer via rtk proxy pytest ou rediriger toute la sortie dans un fichier",
         "commande": "pytest -q"
       },
       "checkpoint": false
