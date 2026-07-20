@@ -32,6 +32,18 @@
 </div>
 {% endif %}
 
+{% if interview.audio_segments %}
+<div class="card">
+  <h3>Enregistrements (par tranche de 30min)</h3>
+  <p class="muted">Un entretien de plus de 30min est sauvegardé par tranches successives — le lecteur ci-dessus ne joue que la dernière ; retrouve les précédentes ici.</p>
+  <ul>
+    {% for seg in interview.audio_segments %}
+    <li><a class="btn-link" href="/missions/{{ mission.id }}/interviews/record/backup/{{ seg.filename }}" download>Tranche {{ seg.position + 1 }}</a></li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
 <form method="post" action="/interviews/{{ interview.id }}/libre" class="card form">
   <section class="card">
     <h2>Tours de parole</h2>

@@ -203,6 +203,14 @@ class Interview(Base):
     # l'entretien enregistré — filet de sécurité en cas de souci de
     # transcription/extraction, l'audio brut n'étant sinon jamais conservé.
     audio_backup_path: Mapped[str | None] = mapped_column(String(500), default=None)
+    # Liste ordonnée de tranches de 30min de la sauvegarde audio complète
+    # ({"filename": str, "position": int}, mode libre uniquement) — au-delà
+    # de 30min, `backupRecorder` (côté client) tourne comme le fait déjà le
+    # `MediaRecorder` de transcription à 60s, pour ne jamais perdre plus
+    # qu'une tranche en cas de crash. `audio_backup_path` ci-dessus continue
+    # de pointer vers la DERNIÈRE tranche (rétrocompatible avec le lecteur
+    # existant) ; cette liste sert au téléchargement de l'historique complet.
+    audio_segments: Mapped[list] = mapped_column(JSON, default=list)
     # Transcription brute telle qu'enregistrée (mode parametre, flux
     # d'enregistrement audio uniquement — jamais rempli par l'import .docx,
     # où l'utilisateur garde déjà son fichier source). Avant ce champ, le

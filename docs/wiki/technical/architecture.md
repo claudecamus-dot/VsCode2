@@ -1,5 +1,5 @@
 ---
-updated: 2026-07-19
+updated: 2026-07-20
 confidence: confirmed
 agents: [onboarder, claude]
 ---
@@ -23,8 +23,8 @@ Hiérarchie `Mission` → `Trame` → `Theme` → `Question`. Entités satellite
 
 ## Communication entre modules
 
-Appels synchrones en Python — pas de queue, pas d'événements. L'appel au fournisseur IA actif (Ollama par défaut depuis le 2026-07-17, ou OpenAI/Mistral) est synchrone (bloquant).
-— `DÉDUIT` · claude · 2026-07-17
+Appels synchrones en Python — pas de queue, pas d'événements. Vérifié dans le code : chaque route qui appelle l'IA (`synthese.py::generate_global`, `generate_recommendations_view`, `interviews.py` régénération/répartition) est une fonction `def` classique (pas `async def`) qui appelle `ai_common.call_ai_json()` → `_call_ollama()`/`_call_openai()`/`_call_mistral()`, elles-mêmes des `def` bloquantes utilisant `urllib.request.urlopen()` (aucun `asyncio`, aucun `await`). FastAPI exécute ces routes `def` dans son threadpool interne — ça ne gèle donc pas la boucle d'événements pour les autres requêtes, mais la requête HTTP de l'utilisateur, elle, reste ouverte jusqu'à la fin de l'appel IA (des dizaines de secondes à plusieurs minutes selon le volume, voir `docs/reflexions/extraction-longue-duree.md`). Aucune trace de file de messages ou de bus d'événements dans le projet (`grep BackgroundTasks|celery|asyncio.create_task|threading.Thread|websocket|redis` sur `app/` : aucun résultat) — confirmant qu'il n'existe aujourd'hui aucune infrastructure de traitement en arrière-plan, malgré la recommandation de `docs/reflexions/extraction-longue-duree.md` §3.B (traitement asynchrone via `BackgroundTasks` de FastAPI, jamais implémenté à ce jour) et `docs/reflexions/enregistrement-segmente-30min.md` §4 (Palier 2, même statut).
+— `CONFIRMÉ` · claude · 2026-07-20 · `app/services/ai_common.py:242-350`, `app/routers/synthese.py:206,295`, `app/routers/interviews.py:627,911`
 
 ## Décisions architecturales notables
 

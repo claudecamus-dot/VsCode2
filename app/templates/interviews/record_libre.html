@@ -40,6 +40,7 @@
 <form method="post" action="/missions/{{ mission.id }}/interviews/record-libre" class="card form" id="record-form">
   <input type="hidden" name="transcript" id="rec-transcript-hidden" value="{{ identity.transcript if identity else '' }}">
   <input type="hidden" name="audio_backup_path" id="rec-backup-path" value="{{ identity.audio_backup_path if identity else '' }}">
+  <input type="hidden" name="audio_segments" id="rec-audio-segments" value="{{ identity.audio_segments if identity else '[]' }}">
 
   <div class="record-controls">
     <button class="btn btn-primary" type="button" id="rec-start">● Démarrer l'enregistrement</button>
@@ -76,6 +77,7 @@
 <script>
 (function () {
   var SEGMENT_MS = 60000;
+  var BACKUP_SEGMENT_MS = 30 * 60000;
 
   var startBtn = document.getElementById('rec-start');
   var stopBtn = document.getElementById('rec-stop');
@@ -87,6 +89,7 @@
   var audioPlaybackEl = document.getElementById('rec-audio-playback');
   var audioPlayerEl = document.getElementById('rec-audio-player');
   var audioDownloadEl = document.getElementById('rec-audio-download');
+  var audioSegmentsHidden = document.getElementById('rec-audio-segments');
   var transcriptEl = document.getElementById('rec-transcript');
   var transcriptHidden = document.getElementById('rec-transcript-hidden');
   var backupPathHidden = document.getElementById('rec-backup-path');
@@ -97,12 +100,20 @@
     return;
   }
 
-  var stream, startTime, timerId, rotationTimer;
+  var stream, startTime, timerId, rotationTimer, backupRotationTimer;
   var segmentRecorder, segmentChunks;
   var backupRecorder, backupChunks;
   var recordingActive = false;
   var pendingSegments = 0;
   var transcriptSoFar = {{ (identity.transcript if identity else '') | tojson }};
+  var backupSegments = (function () {
+    try {
+      var parsed = JSON.parse({{ (identity.audio_segments if identity else '[]') | tojson }});
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  })();
 
   function formatElapsed(ms) {
     var s = Math.floor(ms / 1000);
@@ -174,12 +185,19 @@
     backupRecorder.addEventListener('stop', function () {
       var blob = new Blob(backupChunks, { type: backupRecorder.mimeType || 'audio/webm' });
       uploadBackup(blob);
+      // Reprise immédiate si l'entretien continue, même principe que
+      // startSegment() pour la transcription : le micro (stream) n'est
+      // jamais coupé, seul le MediaRecorder qui l'enveloppe tourne — au-delà
+      // de 30min, la sauvegarde se poursuit par tranches plutôt que de tout
+      // perdre en cas de crash navigateur en fin d'entretien.
+      if (recordingActive) startBackupRecorder();
     });
     backupRecorder.start();
   }
 
   function uploadBackup(blob) {
-    backupStatusEl.textContent = '💾 sauvegarde audio en cours…';
+    var position = backupSegments.length;
+    backupStatusEl.textContent = '💾 sauvegarde audio en cours (tranche ' + (position + 1) + ')…';
     var formData = new FormData();
     formData.append('file', new File([blob], 'entretien.webm', { type: blob.type }));
     fetch('/missions/{{ mission.id }}/interviews/record/backup', { method: 'POST', body: formData })
@@ -189,7 +207,9 @@
       .then(function (result) {
         if (result.ok && result.data.path) {
           backupPathHidden.value = result.data.path;
-          backupStatusEl.textContent = '✓ sauvegarde audio complète effectuée.';
+          backupSegments.push({ filename: result.data.path, position: position });
+          audioSegmentsHidden.value = JSON.stringify(backupSegments);
+          backupStatusEl.textContent = '✓ sauvegarde audio effectuée (' + backupSegments.length + ' tranche' + (backupSegments.length > 1 ? 's' : '') + ').';
           var backupUrl = '/missions/{{ mission.id }}/interviews/record/backup/' + encodeURIComponent(result.data.path);
           audioPlayerEl.src = backupUrl;
           audioDownloadEl.href = backupUrl;
@@ -251,6 +271,8 @@
       transcriptEl.value = '';
       transcriptHidden.value = '';
       backupPathHidden.value = '';
+      backupSegments = [];
+      audioSegmentsHidden.value = '[]';
       backupStatusEl.textContent = '';
       audioPlaybackEl.hidden = true;
 
@@ -264,6 +286,9 @@
       rotationTimer = setInterval(function () {
         if (segmentRecorder && segmentRecorder.state === 'recording') segmentRecorder.stop();
       }, SEGMENT_MS);
+      backupRotationTimer = setInterval(function () {
+        if (backupRecorder && backupRecorder.state === 'recording') backupRecorder.stop();
+      }, BACKUP_SEGMENT_MS);
 
       startBtn.hidden = true;
       stopBtn.hidden = false;
@@ -278,6 +303,7 @@
   stopBtn.addEventListener('click', function () {
     recordingActive = false;
     clearInterval(rotationTimer);
+    clearInterval(backupRotationTimer);
     clearInterval(timerId);
     if (segmentRecorder && segmentRecorder.state === 'recording') segmentRecorder.stop();
     if (backupRecorder && backupRecorder.state === 'recording') backupRecorder.stop();
@@ -294,6 +320,8 @@
     transcriptEl.value = '';
     transcriptHidden.value = '';
     backupPathHidden.value = '';
+    backupSegments = [];
+    audioSegmentsHidden.value = '[]';
     backupStatusEl.textContent = '';
     audioPlaybackEl.hidden = true;
     resetBtn.hidden = true;

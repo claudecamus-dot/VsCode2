@@ -397,6 +397,7 @@ def record_libre(
     interviewee_entity: str = Form(""),
     interview_date: str = Form(""),
     audio_backup_path: str = Form(""),
+    audio_segments: str = Form("[]"),
     db: Session = Depends(get_session),
 ):
     mission = _get_mission(db, mission_id)
@@ -406,6 +407,7 @@ def record_libre(
         "interviewee_entity": interviewee_entity,
         "interview_date": interview_date,
         "audio_backup_path": audio_backup_path,
+        "audio_segments": audio_segments,
         "transcript": transcript,
     }
 
@@ -438,6 +440,7 @@ def record_libre(
     merged_identity = _merge_identity(identity, extracted["identity"])
     merged_identity["interview_date"] = interview_date
     merged_identity["audio_backup_path"] = audio_backup_path
+    merged_identity["audio_segments"] = audio_segments
 
     return templates.TemplateResponse(
         request,
@@ -461,6 +464,7 @@ def record_libre_retour(
     interviewee_entity: str = Form(""),
     interview_date: str = Form(""),
     audio_backup_path: str = Form(""),
+    audio_segments: str = Form("[]"),
     db: Session = Depends(get_session),
 ):
     """Retour de l'étape 2 vers l'étape 1 SANS perdre le travail : la
@@ -481,6 +485,7 @@ def record_libre_retour(
                 "interviewee_entity": interviewee_entity,
                 "interview_date": interview_date,
                 "audio_backup_path": audio_backup_path,
+                "audio_segments": audio_segments,
                 "transcript": transcript,
             },
         },
@@ -497,6 +502,7 @@ def record_libre_retour_tours(
     interviewee_entity: str = Form(""),
     interview_date: str = Form(""),
     audio_backup_path: str = Form(""),
+    audio_segments: str = Form("[]"),
     turn_interlocuteur: list[str] = Form([]),
     turn_question: list[str] = Form([]),
     turn_remarque: list[str] = Form([]),
@@ -521,10 +527,24 @@ def record_libre_retour_tours(
                 "interviewee_entity": interviewee_entity,
                 "interview_date": interview_date,
                 "audio_backup_path": audio_backup_path,
+                "audio_segments": audio_segments,
             },
             "transcript": transcript,
         },
     )
+
+
+def _parse_audio_segments(raw: str) -> list[dict]:
+    """Décode la liste de tranches audio (champ caché JSON alimenté par la
+    rotation JS de `backupRecorder`, cf. `record_libre.html`) — un JSON
+    invalide ou absent (entretiens courts, anciens formulaires) redonne
+    silencieusement une liste vide plutôt que de faire échouer l'enregistrement
+    pour un champ annexe."""
+    try:
+        parsed = json.loads(raw) if raw else []
+    except ValueError:
+        return []
+    return parsed if isinstance(parsed, list) else []
 
 
 def _parse_turns_from_form(
@@ -566,6 +586,7 @@ def record_libre_synthese(
     interviewee_entity: str = Form(""),
     interview_date: str = Form(""),
     audio_backup_path: str = Form(""),
+    audio_segments: str = Form("[]"),
     turn_interlocuteur: list[str] = Form([]),
     turn_question: list[str] = Form([]),
     turn_remarque: list[str] = Form([]),
@@ -583,6 +604,7 @@ def record_libre_synthese(
         "interviewee_entity": interviewee_entity,
         "interview_date": interview_date,
         "audio_backup_path": audio_backup_path,
+        "audio_segments": audio_segments,
     }
     turns = _parse_turns_from_form(
         turn_interlocuteur, turn_question, turn_remarque, turn_section_title
@@ -639,6 +661,7 @@ def record_libre_confirm(
     interviewee_entity: str = Form(""),
     interview_date: str = Form(""),
     audio_backup_path: str = Form(""),
+    audio_segments: str = Form("[]"),
     resume: str = Form(""),
     turn_interlocuteur: list[str] = Form([]),
     turn_question: list[str] = Form([]),
@@ -674,6 +697,7 @@ def record_libre_confirm(
         interviewee_entity=interviewee_entity.strip() or None,
         interview_date=parsed_date,
         audio_backup_path=audio_backup_path or None,
+        audio_segments=_parse_audio_segments(audio_segments),
         resume=resume.strip() or None,
         repartition={
             key: value.strip()

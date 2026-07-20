@@ -64,6 +64,7 @@ def _add_missing_columns() -> None:
             "repartition": "JSON",
             "resume": "TEXT",
             "raw_transcript": "TEXT",
+            "audio_segments": "JSON",
         },
         "trames": {"intro_text": "TEXT"},
         "questions": {"help_text": "TEXT"},

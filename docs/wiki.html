@@ -427,9 +427,9 @@
 
       <h3>Communication entre modules</h3>
       <div class="fact">
-        <p>Appels synchrones en Python — pas de queue, pas d'événements. L'appel au fournisseur IA actif (Ollama par défaut depuis le 2026-07-17, ou OpenAI/Mistral) est synchrone (bloquant).</p>
-        <span class="tag tag-deduit">DÉDUIT</span>
-        <div class="tag-source">claude · 2026-07-17</div>
+        <p>Appels synchrones en Python — pas de queue, pas d'événements. Vérifié dans le code : chaque route qui appelle l'IA (<code>synthese.py::generate_global</code>, <code>generate_recommendations_view</code>, régénération/répartition dans <code>interviews.py</code>) est une fonction <code>def</code> classique (pas <code>async def</code>) qui appelle <code>ai_common.call_ai_json()</code> → <code>_call_ollama()</code>/<code>_call_openai()</code>/<code>_call_mistral()</code>, elles-mêmes des <code>def</code> bloquantes utilisant <code>urllib.request.urlopen()</code> (aucun <code>asyncio</code>, aucun <code>await</code>). FastAPI exécute ces routes dans son threadpool interne — la boucle d'événements n'est donc pas gelée pour les autres requêtes, mais la requête HTTP de l'utilisateur reste ouverte jusqu'à la fin de l'appel IA (des dizaines de secondes à plusieurs minutes selon le volume, voir <code>docs/reflexions/extraction-longue-duree.md</code>). Aucune file de messages ni bus d'événements dans le projet (grep <code>BackgroundTasks|celery|asyncio.create_task|threading.Thread|websocket|redis</code> sur <code>app/</code> : aucun résultat) — confirmant qu'aucune infrastructure de traitement en arrière-plan n'existe à ce jour, malgré la recommandation de <code>docs/reflexions/extraction-longue-duree.md</code> §3.B (traitement asynchrone via <code>BackgroundTasks</code> de FastAPI, jamais implémenté) et <code>docs/reflexions/enregistrement-segmente-30min.md</code> §4 (Palier 2, même statut).</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">claude · 2026-07-20 · app/services/ai_common.py:242-350, app/routers/synthese.py:206,295, app/routers/interviews.py:627,911</div>
       </div>
 
       <h3>Décisions architecturales notables</h3>
@@ -822,12 +822,12 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-19T19:53:42+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-20T10:20:17+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>21 sessions</strong> couvertes · <strong>44</strong> invocations de skills · <strong>34</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>23 sessions</strong> couvertes · <strong>47</strong> invocations de skills · <strong>34</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-07-19 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
+        <div class="tag-source">scan_transcripts.py · 2026-07-20 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
 
       <h3>Skills — usage réel</h3>
@@ -835,11 +835,11 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Skill</th><th>Famille</th><th>Invocations</th><th>Première</th><th>Dernière</th></tr></thead>
           <tbody>
-            <tr><td><code>run-dev-server</code></td><td>projet</td><td>12</td><td>2026-07-03</td><td>2026-07-19</td></tr>
+            <tr><td><code>run-dev-server</code></td><td>projet</td><td>14</td><td>2026-07-03</td><td>2026-07-20</td></tr>
             <tr><td><code>update-config</code></td><td>(builtin/session)</td><td>6</td><td>2026-07-03</td><td>2026-07-16</td></tr>
             <tr><td><code>roadmap-keeper</code></td><td>global</td><td>5</td><td>2026-06-25</td><td>2026-07-15</td></tr>
             <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>4</td><td>2026-07-17</td><td>2026-07-18</td></tr>
-            <tr><td><code>agent-supervisor</code></td><td>projet</td><td>3</td><td>2026-07-18</td><td>2026-07-19</td></tr>
+            <tr><td><code>agent-supervisor</code></td><td>projet</td><td>4</td><td>2026-07-18</td><td>2026-07-20</td></tr>
             <tr><td><code>revue-increment</code></td><td>projet</td><td>3</td><td>2026-07-18</td><td>2026-07-19</td></tr>
             <tr><td><code>run</code></td><td>(builtin/session)</td><td>3</td><td>2026-06-29</td><td>2026-07-03</td></tr>
             <tr><td><code>pptx-deck</code></td><td>global</td><td>2</td><td>2026-07-02</td><td>2026-07-03</td></tr>
@@ -885,7 +885,7 @@ pytest -k "pptx or export"                                                     #
         <li><strong><code>ai_common.py</code></strong> (2026-07-19) : Proposition retenue telle quelle : règle explicite ajoutée à revue-increment/SKILL.md §2 (correctif timeout/perf IA -&gt; mesurer à la taille maximale réellement configurée, pas un prompt jouet) — capitalisée en mémoire feedback-ai-timeout-fix-verify-at-configured-scale.</li>
       </ul>
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
-      <p><em>Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés.</em></p>
+      <p><em>Diagnostic ⚠️ à relancer (&gt; 14 j) — rien à signaler, tous les constats précédents ont été arbitrés.</em></p>
     </section>
 <!-- TODO-AGENTS-HTML:END -->
 
@@ -910,14 +910,9 @@ pytest -k "pptx or export"                                                     #
           <thead><tr><th>Item</th><th>État</th><th>Contexte / prochaine action</th></tr></thead>
           <tbody id="todo-session-rows">
             <tr>
-              <td>Enregistrement segmenté 30min — Palier 1 (segmentation + téléchargement)</td>
-              <td>En cours (2026-07-19) — code écrit, <strong>vérification réelle et commit pas encore faits</strong></td>
-              <td>Suite de <code>docs/reflexions/enregistrement-segmente-30min.md</code> §1-3, sur demande explicite (« lance l'implémentation du palier 1 &amp; 2 »). Déjà fait dans cette session : <code>Interview.audio_segments</code> (JSON, <code>app/models.py</code>) + migration additive (<code>app/db.py::_add_missing_columns</code>) ; rotation JS de <code>backupRecorder</code> toutes les 30min dans <code>record_libre.html</code> (<code>BACKUP_SEGMENT_MS</code>, même pattern que <code>startSegment()</code>/<code>rotationTimer</code> existant pour la transcription à 60s — le micro n'est jamais coupé) ; <code>audio_segments</code> threadé en champ caché JSON à travers les 5 routes du wizard libre (<code>record_libre</code>, <code>retour</code>, <code>retour-tours</code>, <code>synthese</code>, <code>confirm</code>) dans <code>app/routers/interviews.py</code>, avec le helper <code>_parse_audio_segments()</code> ; liste de téléchargement par tranche ajoutée sur <code>libre_detail.html</code>. <strong>Prochaine action</strong> : <code>pytest -q</code> complet, puis vérification réelle via <code>run-dev-server</code> (au minimum un flux court pour non-régression ; la rotation à 30min elle-même ne peut raisonnablement être vérifiée que par relecture de code + un <code>BACKUP_SEGMENT_MS</code> temporairement raccourci, pas par 30 vraies minutes de micro), puis commit dédié, puis mise à jour CLAUDE.md. Périmètre volontairement limité au wizard entretien libre (<code>record_libre.html</code>) — <code>record.html</code> (mode structuré) a le même mécanisme de rotation 60s mais n'a pas été touché, pas dans le fil de cette demande.</td>
-            </tr>
-            <tr>
               <td>Enregistrement segmenté 30min — Palier 2 (traitement asynchrone par tranche)</td>
-              <td>Non démarré</td>
-              <td>Dépend du Palier 1 (ci-dessus) vérifié et commité en premier. Plan détaillé dans <code>docs/reflexions/enregistrement-segmente-30min.md</code> §4 : nouveau modèle <code>InterviewSegmentJob</code> (<code>session_token</code>, <code>position</code>, <code>status</code> pending/running/done/failed, <code>turns_result</code> JSON, <code>error</code>) ; endpoint <code>POST /interviews/segment-jobs</code> déclenchant l'extraction des tours (<code>extract_turns_from_text</code>) en <code>BackgroundTasks</code> FastAPI dès qu'une tranche de texte est prête, pendant que la tranche suivante s'enregistre ; écran de statut par polling HTMX (<code>hx-trigger="every 5s"</code>) ; à l'étape « Extraire questions/réponses » (<code>record_libre()</code>), fusion des tours déjà produits par les jobs terminés + traitement synchrone du seul reliquat non couvert (dernière tranche partielle) — <strong>si un seul job n'est pas <code>done</code>, retomber intégralement sur le comportement synchrone actuel</strong> (chemin déjà correct pour tout entretien &lt; 30min, qui ne crée aucun job). Qualifié « chantier substantiel » dans l'étude elle-même — mérite sa propre revue avant de le considérer fait, pas juste un enchaînement après le Palier 1.</td>
+              <td>En cours (2026-07-20) — Palier 1 vérifié + commité, Palier 2 en construction</td>
+              <td>Palier 1 (segmentation + téléchargement) résolu le 2026-07-20 : rotation 30min du <code>backupRecorder</code>, champ <code>Interview.audio_segments</code>, téléchargement par tranche — pytest vert + vérif <code>run-dev-server</code>, commité (cf. CLAUDE.md « Enregistrement segmenté 30min — Palier 1 »). Reste le Palier 2, plan détaillé dans <code>docs/reflexions/enregistrement-segmente-30min.md</code> §4 : nouveau modèle <code>InterviewSegmentJob</code> (<code>session_token</code>, <code>position</code>, <code>status</code> pending/running/done/failed, <code>turns_result</code> JSON, <code>error</code>) ; endpoint <code>POST /interviews/segment-jobs</code> déclenchant l'extraction des tours (<code>extract_turns_from_text</code>) en <code>BackgroundTasks</code> FastAPI dès qu'une tranche de texte est prête, pendant que la tranche suivante s'enregistre ; écran de statut par polling HTMX (<code>hx-trigger="every 5s"</code>) ; à l'étape « Extraire questions/réponses » (<code>record_libre()</code>), fusion des tours déjà produits par les jobs terminés + traitement synchrone du seul reliquat non couvert (dernière tranche partielle) — <strong>si un seul job n'est pas <code>done</code>, retomber intégralement sur le comportement synchrone actuel</strong> (chemin déjà correct pour tout entretien &lt; 30min, qui ne crée aucun job). Qualifié « chantier substantiel » dans l'étude elle-même — mérite sa propre revue avant de le considérer fait.</td>
             </tr>
           </tbody>
         </table>
