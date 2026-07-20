@@ -131,27 +131,52 @@ def ollama_chunk_max_words() -> int:
 
 
 def chunk_text_by_paragraph(text: str, max_words: int) -> list[str]:
-    """Découpe un texte long en tronçons d'environ `max_words` mots, sur des
-    frontières de paragraphe (ligne vide) pour ne jamais couper une idée au
-    milieu. Un seul tronçon si le texte tient déjà dedans — le chemin court
-    (un seul appel IA) reste inchangé. Partagée entre `interview_libre_extract_ai.py`
-    (transcription → tours de parole) et `interview_extract_ai.py` (transcription
-    → réponses en mode structuré, depuis 2026-07-19) : même risque de
-    dépassement de `ollama_num_ctx()`/`ollama_timeout()` sur un texte long,
-    même découpage."""
+    """Découpe un texte long en tronçons d'AU PLUS `max_words` mots, de
+    préférence sur des frontières de paragraphe (ligne vide) pour ne pas
+    couper une idée au milieu. Un seul tronçon si le texte tient déjà dedans
+    — le chemin court (un seul appel IA) reste inchangé. Partagée entre
+    `interview_libre_extract_ai.py` (transcription → tours de parole) et
+    `interview_extract_ai.py` (transcription → réponses en mode structuré,
+    depuis 2026-07-19) : même risque de dépassement de
+    `ollama_num_ctx()`/`ollama_timeout()` sur un texte long, même découpage.
+
+    Garantie forte (correctif 2026-07-20) : AUCUN tronçon ne dépasse
+    `max_words`. La version précédente ne coupait qu'ENTRE paragraphes — un
+    seul paragraphe plus long que `max_words` (transcription d'un fichier
+    audio importé en un bloc, tour de parole très long, peu de sauts de
+    ligne…) devenait à lui seul un tronçon géant qui IGNORAIT complètement
+    `OLLAMA_CHUNK_MAX_WORDS`, d'où le fameux « tronçon trop volumineux » /
+    timeout Ollama même après avoir baissé le réglage. Un paragraphe trop long
+    est donc redécoupé en sous-blocs bornés en mots (sur des frontières de
+    mot, jamais au milieu d'un mot)."""
+    max_words = max(1, max_words)
     paragraphs = [p for p in text.split("\n\n") if p.strip()]
     if not paragraphs:
         return [text]
 
+    # 1) Borne chaque paragraphe à `max_words` (un paragraphe plus long est
+    #    redécoupé en sous-blocs de mots) — après cette étape, plus aucun bloc
+    #    ne dépasse à lui seul la limite.
+    bounded: list[str] = []
+    for para in paragraphs:
+        words = para.split()
+        if len(words) <= max_words:
+            bounded.append(para)
+        else:
+            for i in range(0, len(words), max_words):
+                bounded.append(" ".join(words[i:i + max_words]))
+
+    # 2) Regroupe les blocs bornés en tronçons sans jamais dépasser `max_words`
+    #    (chaque bloc faisant au plus `max_words`, tout tronçon reste ≤ limite).
     chunks: list[str] = []
     current: list[str] = []
     current_words = 0
-    for para in paragraphs:
-        words = len(para.split())
+    for block in bounded:
+        words = len(block.split())
         if current and current_words + words > max_words:
             chunks.append("\n\n".join(current))
             current, current_words = [], 0
-        current.append(para)
+        current.append(block)
         current_words += words
     if current:
         chunks.append("\n\n".join(current))

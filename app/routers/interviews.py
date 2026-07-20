@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+import uuid
 from datetime import date
 from itertools import zip_longest
 
@@ -924,7 +925,13 @@ async def save_record_backup(mission_id: int, file: UploadFile = File(...)):
     disque, hors base de données, en tâche de fond côté client."""
     try:
         content = await file.read()
-        filename = f"{mission_id}_{int(time.time())}.webm"
+        # Suffixe aléatoire en plus de l'horodatage : deux tranches uploadées
+        # dans la MÊME seconde (fin d'enregistrement + rotation, ou deux fetch
+        # en vol) auraient sinon le même nom et l'une écraserait l'autre — d'où
+        # plusieurs entrées `audio_segments` pointant sur un seul fichier
+        # (« une seule tranche »). Le hex ne contient ni « / » ni « .. » : passe
+        # le garde-fou de `get_record_backup`.
+        filename = f"{mission_id}_{int(time.time())}_{uuid.uuid4().hex[:8]}.webm"
         (RECORDINGS_DIR / filename).write_bytes(content)
     except Exception as exc:
         logger.exception("Échec de la sauvegarde audio de secours")
@@ -1150,8 +1157,6 @@ def capture(
                 "interview": interview,
                 "mission": interview.mission,
                 "turns": interview.turns,
-                "repartition": interview.repartition or {},
-                "repartition_keys": REPARTITION_KEYS,
             },
         )
     themes = interview.mission.trame.themes
@@ -1215,16 +1220,15 @@ def save_libre_detail(
     turn_remarque: list[str] = Form([]),
     turn_section_title: list[str] = Form([]),
     resume: str = Form(""),
-    repartition_contexte: str = Form(""),
-    repartition_culture_adn: str = Form(""),
-    repartition_forces_succes: str = Form(""),
-    repartition_points_amelioration: str = Form(""),
-    repartition_aspirations: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Édition d'un entretien libre déjà enregistré : tours de parole et
-    répartition, révisables après coup (ex. un ajustement suite à relecture).
-    Ne touche jamais `mode` — verrou serveur (US9.1)."""
+    résumé, révisables après coup (ex. un ajustement suite à relecture).
+    Ne touche jamais `mode` — verrou serveur (US9.1). Ne touche PAS non plus
+    la `repartition` : c'est une matière de niveau *mission* (elle alimente
+    la synthèse globale, cf. `_libre_material()`), plus éditée par entretien
+    depuis 2026-07-20 (bloc retiré de la consultation) — elle reste révisable
+    via « Régénérer l'analyse » (écran Aperçu) ou la synthèse globale."""
     interview = _get_interview(db, interview_id)
     if interview.mode != "libre":
         raise HTTPException(status_code=400, detail="Cet entretien n'est pas en mode libre.")
@@ -1242,16 +1246,6 @@ def save_libre_detail(
         turn.remarque = remarque.strip() or None
         turn.section_title = section_title.strip() or None
 
-    repartition_values = (
-        repartition_contexte,
-        repartition_culture_adn,
-        repartition_forces_succes,
-        repartition_points_amelioration,
-        repartition_aspirations,
-    )
-    interview.repartition = {
-        key: value.strip() for key, value in zip(REPARTITION_KEYS, repartition_values)
-    }
     interview.resume = resume.strip() or None
     db.commit()
     return RedirectResponse(f"/interviews/{interview.id}", status_code=303)
@@ -1570,6 +1564,40 @@ def export_interview_pdf(interview_id: int, db: Session = Depends(get_session)):
     interview = _get_interview(db, interview_id)
     content = build_interview_pdf(interview)
     filename = f"entretien_{slugify(interview.interviewee_name)}.pdf"
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/interviews/{interview_id}/export/transcription/pdf")
+def export_interview_transcription_pdf(interview_id: int, db: Session = Depends(get_session)):
+    """PDF de la seule transcription (dialogue par section) d'un entretien —
+    export de l'onglet « Transcription » de la consultation (2026-07-20).
+    Réutilise `build_turns_only_pdf` (dialogue teal/navy façon transcription
+    éditée), sans le résumé ni la répartition que porte l'export complet
+    ci-dessus."""
+    interview = _get_interview(db, interview_id)
+    if not interview.turns:
+        # Comme les exports POST frères (turns/synthese) : un entretien sans
+        # tours (structuré, ou libre aux tours tous supprimés) n'a pas de
+        # transcription à rendre — 400 plutôt qu'un PDF au titre seul.
+        raise HTTPException(
+            status_code=400,
+            detail="Cet entretien n'a pas de tours de parole à exporter.",
+        )
+    turns = [
+        {
+            "interlocuteur": t.interlocuteur,
+            "question": t.question,
+            "remarque": t.remarque,
+            "section_title": t.section_title,
+        }
+        for t in interview.turns
+    ]
+    content = build_turns_only_pdf(turns, interview.interviewee_name)
+    filename = f"transcription_{slugify(interview.interviewee_name)}.pdf"
     return Response(
         content=content,
         media_type="application/pdf",

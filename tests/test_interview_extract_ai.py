@@ -182,9 +182,13 @@ def test_extract_answers_map_reduce_splits_long_document_and_merges(
         ]}
 
     monkeypatch.setattr(interview_extract_ai, "call_ai_json", fake_call_ai_json)
+    # Deux paragraphes courts, chacun SOUS la limite de 5 mots (mais leur somme
+    # la dépasse) -> 2 tronçons, un par paragraphe. On teste ici le regroupement
+    # par paragraphe, pas le redécoupage d'un paragraphe géant (couvert
+    # séparément dans test_ai_common.py depuis le correctif du 2026-07-20).
     text = (
-        "Paragraphe un avec plusieurs mots ici.\n\n"
-        "Paragraphe deux avec plusieurs mots aussi ici."
+        "Paragraphe un ici.\n\n"
+        "Paragraphe deux ici."
     )
 
     result = interview_extract_ai.extract_answers_from_text(questions, text)

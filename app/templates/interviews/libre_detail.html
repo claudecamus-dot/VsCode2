@@ -10,8 +10,9 @@
   <h1>{{ interview.interviewee_name }} <span class="muted">— entretien libre</span></h1>
   <div class="head-actions">
     <a class="btn btn-primary" href="/interviews/{{ interview.id }}/analyse">👁️ Aperçu</a>
-    <a class="btn" href="/interviews/{{ interview.id }}/export/markdown">⬇️ Télécharger (.md)</a>
-    <a class="btn" href="/interviews/{{ interview.id }}/export/pdf">⬇️ Télécharger (PDF)</a>
+    <a class="btn" href="/interviews/{{ interview.id }}/export/transcription/pdf">⬇️ Transcription (PDF)</a>
+    <a class="btn" href="/interviews/{{ interview.id }}/export/markdown">⬇️ Markdown (.md)</a>
+    <a class="btn" href="/interviews/{{ interview.id }}/export/pdf">⬇️ Export complet (PDF)</a>
     <form method="post" action="/interviews/{{ interview.id }}/delete"
           onsubmit="return confirm('Supprimer cet entretien ?');">
       <button class="btn btn-danger btn-sm" type="submit">Supprimer</button>
@@ -24,23 +25,37 @@
   {% if interview.interview_date %}<span>{{ interview.interview_date.strftime("%d/%m/%Y") }}</span>{% endif %}
 </div>
 
-{% if interview.audio_backup_path %}
+{% if interview.audio_segments %}
+{# Toutes les tranches sont listées et écoutables individuellement — avant
+   (2026-07-20), seul un lecteur unique (la dernière tranche) s'affichait, ce
+   qui donnait l'impression qu'« une seule tranche apparaît » alors que
+   l'entretien en comptait plusieurs. Tri par position pour un ordre stable
+   indépendant de l'ordre d'enregistrement en base. #}
+{% set segs = interview.audio_segments | sort(attribute='position') %}
 <div class="card">
+  {% if segs | length > 1 %}
+  <h3>Enregistrement audio (par tranche de 30 min)</h3>
+  <p class="muted">Enregistrement de plus de 30 min, sauvegardé en tranches successives pour ne rien perdre en cas d'incident — chaque tranche est écoutable et téléchargeable ci-dessous.</p>
+  {% else %}
+  <h3>Enregistrement audio</h3>
+  {% endif %}
+  {% for seg in segs %}
+  <div class="audio-segment">
+    {% if segs | length > 1 %}<span class="muted">Tranche {{ seg.position + 1 }}</span>{% endif %}
+    <audio controls class="record-audio-player"
+      src="/missions/{{ mission.id }}/interviews/record/backup/{{ seg.filename }}"></audio>
+    <a class="btn-link" href="/missions/{{ mission.id }}/interviews/record/backup/{{ seg.filename }}" download>Télécharger{% if segs | length > 1 %} la tranche {{ seg.position + 1 }}{% endif %}</a>
+  </div>
+  {% endfor %}
+</div>
+{% elif interview.audio_backup_path %}
+{# Entretiens enregistrés avant l'introduction des tranches (audio_segments) :
+   une seule sauvegarde complète. #}
+<div class="card">
+  <h3>Enregistrement audio</h3>
   <audio controls class="record-audio-player"
     src="/missions/{{ mission.id }}/interviews/record/backup/{{ interview.audio_backup_path }}"></audio>
   <a class="btn-link" href="/missions/{{ mission.id }}/interviews/record/backup/{{ interview.audio_backup_path }}" download>Télécharger l'enregistrement</a>
-</div>
-{% endif %}
-
-{% if interview.audio_segments %}
-<div class="card">
-  <h3>Enregistrements (par tranche de 30min)</h3>
-  <p class="muted">Un entretien de plus de 30min est sauvegardé par tranches successives — le lecteur ci-dessus ne joue que la dernière ; retrouve les précédentes ici.</p>
-  <ul>
-    {% for seg in interview.audio_segments %}
-    <li><a class="btn-link" href="/missions/{{ mission.id }}/interviews/record/backup/{{ seg.filename }}" download>Tranche {{ seg.position + 1 }}</a></li>
-    {% endfor %}
-  </ul>
 </div>
 {% endif %}
 
@@ -87,29 +102,11 @@
     </label>
   </section>
 
-  <section class="card">
-    <h2>Répartition dans la synthèse globale de mission</h2>
-    <label>
-      Contexte
-      <textarea name="repartition_contexte" rows="3">{{ repartition.contexte or '' }}</textarea>
-    </label>
-    <label>
-      Culture &amp; ADN
-      <textarea name="repartition_culture_adn" rows="3">{{ repartition.culture_adn or '' }}</textarea>
-    </label>
-    <label>
-      Forces / succès
-      <textarea name="repartition_forces_succes" rows="3">{{ repartition.forces_succes or '' }}</textarea>
-    </label>
-    <label>
-      Points d'amélioration
-      <textarea name="repartition_points_amelioration" rows="3">{{ repartition.points_amelioration or '' }}</textarea>
-    </label>
-    <label>
-      Aspirations
-      <textarea name="repartition_aspirations" rows="3">{{ repartition.aspirations or '' }}</textarea>
-    </label>
-  </section>
+  {# La répartition dans la synthèse globale de mission n'est plus éditée ici :
+     c'est une matière de niveau *mission* (elle alimente `_libre_material()` / la
+     synthèse globale, cf. router `save_libre_detail`), révisable via « Régénérer
+     l'analyse » (écran Aperçu) ou la synthèse globale — bloc retiré le 2026-07-20
+     (le router n'accepte plus les champs `repartition_*`). #}
 
   <div class="form-actions">
     <a class="btn" href="/missions/{{ mission.id }}">Retour à la mission</a>

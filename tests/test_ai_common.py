@@ -337,6 +337,55 @@ def test_ollama_chunk_max_words_defaults_to_400(monkeypatch: pytest.MonkeyPatch)
     assert ai_common.ollama_chunk_max_words() == 250
 
 
+# --------------------------------------------------------------------------- #
+# Découpage map-reduce (chunk_text_by_paragraph) — GARANTIE : aucun tronçon ne
+# dépasse max_words, y compris quand UN SEUL paragraphe est plus long que la
+# limite (cas qui produisait un « tronçon trop volumineux » / timeout Ollama
+# même après avoir baissé OLLAMA_CHUNK_MAX_WORDS — correctif 2026-07-20).
+# --------------------------------------------------------------------------- #
+def _words(chunk: str) -> int:
+    return len(chunk.split())
+
+
+def test_chunk_splits_a_single_oversized_paragraph() -> None:
+    """Un seul paragraphe de 300 mots avec une limite de 100 doit produire
+    plusieurs tronçons, AUCUN ne dépassant la limite — avant le correctif il
+    restait un unique tronçon de 300 mots qui ignorait complètement la limite."""
+    para = " ".join(f"mot{i}" for i in range(300))  # 1 seul paragraphe, pas de \n\n
+    chunks = ai_common.chunk_text_by_paragraph(para, 100)
+    assert len(chunks) >= 3
+    assert all(_words(c) <= 100 for c in chunks)
+    # Aucun mot perdu ni dupliqué dans le découpage.
+    assert " ".join(chunks).split() == para.split()
+
+
+def test_chunk_never_exceeds_max_words_across_mixed_paragraphs() -> None:
+    """Mélange de paragraphes courts et d'un paragraphe géant : tous les
+    tronçons restent ≤ max_words (la version précédente pouvait dépasser de la
+    taille d'un paragraphe entier, voire d'un paragraphe géant complet)."""
+    court = "Consultant : une remarque brève."
+    geant = " ".join(f"w{i}" for i in range(250))
+    text = f"{court}\n\n{geant}\n\n{court}"
+    chunks = ai_common.chunk_text_by_paragraph(text, 60)
+    assert chunks, "au moins un tronçon"
+    assert all(_words(c) <= 60 for c in chunks)
+
+
+def test_chunk_keeps_short_text_as_single_chunk() -> None:
+    """Le chemin court (un seul appel IA) reste inchangé pour un texte qui
+    tient déjà sous la limite."""
+    text = "Para un.\n\nPara deux."
+    assert ai_common.chunk_text_by_paragraph(text, 400) == [text]
+
+
+def test_chunk_zero_max_words_does_not_crash() -> None:
+    """Un réglage aberrant (0) ne doit jamais lever `ValueError` (range step 0)
+    — on borne à 1 mot minimum plutôt que de planter l'extraction."""
+    chunks = ai_common.chunk_text_by_paragraph("un deux trois", 0)
+    assert all(_words(c) <= 1 for c in chunks)
+    assert " ".join(chunks).split() == ["un", "deux", "trois"]
+
+
 def test_call_ollama_retries_once_on_timeout_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
     """Un timeout isolé (pic de charge, rechargement inattendu) ne doit pas
     faire échouer tout de suite — une relance ciblée peut réussir."""

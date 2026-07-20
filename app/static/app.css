@@ -468,6 +468,10 @@ input[type=text].turn-section-input:placeholder-shown {
 .record-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
 .rec-timer { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
 .record-audio-player { max-width: 100%; vertical-align: middle; margin-right: 10px; }
+/* Une tranche audio (entretien > 30 min, plusieurs sauvegardes) : label +
+   lecteur + lien de téléchargement sur une ligne, séparées verticalement. */
+.audio-segment { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 0; }
+.audio-segment + .audio-segment { border-top: 1px solid var(--border, #e2e2e2); }
 #rec-preview { display: block; width: 100%; margin-bottom: 10px; }
 
 /* Protocole / infos de référence (encadré par entretien) */

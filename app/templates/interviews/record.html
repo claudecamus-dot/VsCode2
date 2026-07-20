@@ -81,6 +81,9 @@
 
   <div class="form-actions">
     <a class="btn" href="/missions/{{ mission.id }}">Annuler</a>
+    <button class="btn" type="submit" id="rec-pdf" formnovalidate
+            formaction="/interviews/transcript/export-pdf" disabled
+            title="Exporte le texte transcrit tel qu'affiché ci-dessus, sans passer par l'extraction IA">⬇️ Télécharger la transcription (PDF)</button>
     <button class="btn btn-primary" type="submit" id="rec-submit" disabled>Envoyer pour extraction des réponses</button>
   </div>
 </form>
@@ -93,6 +96,7 @@
   var stopBtn = document.getElementById('rec-stop');
   var resetBtn = document.getElementById('rec-reset');
   var submitBtn = document.getElementById('rec-submit');
+  var pdfBtn = document.getElementById('rec-pdf');
   var timerEl = document.getElementById('rec-timer');
   var statusEl = document.getElementById('rec-status');
   var backupStatusEl = document.getElementById('rec-backup-status');
@@ -114,7 +118,21 @@
   var backupRecorder, backupChunks;
   var recordingActive = false;
   var pendingSegments = 0;
+  // Upload de la sauvegarde audio en vol : gate la soumission pour ne pas poster
+  // `audio_backup_path` vide (l'upload complet est plus lent que le dernier
+  // segment de transcription -> submit s'activait avant sa fin). `finalizing`
+  // couvre en plus la fenêtre async entre .stop() et l'évènement `stop`
+  // (revue adversariale 2026-07-20 — même correctif que record_libre.html).
+  var pendingBackups = 0;
+  var finalizing = false;
+  var finalizingRecorders = 0;
   var transcriptSoFar = '';
+
+  function recorderFinalized() {
+    if (finalizingRecorders > 0) finalizingRecorders--;
+    if (finalizingRecorders <= 0) finalizing = false;
+    updateSubmitState();
+  }
 
   function formatElapsed(ms) {
     var s = Math.floor(ms / 1000);
@@ -124,8 +142,14 @@
   }
 
   function updateSubmitState() {
-    submitBtn.disabled = recordingActive || pendingSegments > 0 || !transcriptSoFar.trim();
-    if (!recordingActive && pendingSegments === 0 && transcriptSoFar.trim()) {
+    var hasTranscript = !!transcriptSoFar.trim();
+    var busy = pendingSegments > 0 || pendingBackups > 0 || finalizing;
+    submitBtn.disabled = recordingActive || busy || !hasTranscript;
+    // Export PDF de la transcription disponible dès l'arrêt de l'enregistrement
+    // (n'utilise que le texte, pas l'extraction IA) — sans attendre la
+    // sauvegarde audio en cours.
+    pdfBtn.disabled = recordingActive || !hasTranscript;
+    if (!recordingActive && !busy && hasTranscript) {
       statusEl.textContent = 'Enregistrement terminé — prêt à envoyer.';
     }
   }
@@ -147,6 +171,7 @@
       var blob = new Blob(segmentChunks, { type: segmentRecorder.mimeType || 'audio/webm' });
       uploadSegment(blob);
       if (recordingActive) startSegment();
+      else recorderFinalized();  // arrêt final : dernier segment de transcription livré
     });
     segmentRecorder.start();
   }
@@ -186,11 +211,14 @@
     backupRecorder.addEventListener('stop', function () {
       var blob = new Blob(backupChunks, { type: backupRecorder.mimeType || 'audio/webm' });
       uploadBackup(blob);
+      recorderFinalized();  // pas de rotation ici : l'arrêt du backup est toujours final
     });
     backupRecorder.start();
   }
 
   function uploadBackup(blob) {
+    pendingBackups++;
+    updateSubmitState();
     backupStatusEl.textContent = '💾 sauvegarde audio en cours…';
     var formData = new FormData();
     formData.append('file', new File([blob], 'entretien.webm', { type: blob.type }));
@@ -213,6 +241,10 @@
       })
       .catch(function (err) {
         backupStatusEl.textContent = '⚠ échec de la sauvegarde audio : ' + err.message;
+      })
+      .finally(function () {
+        pendingBackups--;
+        updateSubmitState();
       });
   }
 
@@ -220,6 +252,8 @@
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
       stream = s;
       recordingActive = true;
+      finalizing = false;
+      finalizingRecorders = 0;
       transcriptSoFar = '';
       transcriptEl.value = '';
       transcriptHidden.value = '';
@@ -252,6 +286,12 @@
     recordingActive = false;
     clearInterval(rotationTimer);
     clearInterval(timerId);
+    // Gate la soumission tant que les enregistreurs arrêtés n'ont pas livré leur
+    // dernière tranche via leur évènement `stop` asynchrone (voir finalizing).
+    finalizingRecorders = 0;
+    if (segmentRecorder && segmentRecorder.state === 'recording') finalizingRecorders++;
+    if (backupRecorder && backupRecorder.state === 'recording') finalizingRecorders++;
+    finalizing = finalizingRecorders > 0;
     if (segmentRecorder && segmentRecorder.state === 'recording') segmentRecorder.stop();
     if (backupRecorder && backupRecorder.state === 'recording') backupRecorder.stop();
     stream.getTracks().forEach(function (t) { t.stop(); });
@@ -273,6 +313,7 @@
     statusEl.textContent = '';
     timerEl.textContent = '00:00';
     submitBtn.disabled = true;
+    pdfBtn.disabled = true;
   });
 })();
 </script>

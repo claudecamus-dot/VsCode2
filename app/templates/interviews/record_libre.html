@@ -75,6 +75,9 @@
 
   <div class="form-actions">
     <a class="btn" href="/">Annuler</a>
+    <button class="btn" type="submit" id="rec-pdf" formnovalidate
+            formaction="/interviews/transcript/export-pdf" disabled
+            title="Exporte le texte transcrit tel qu'affiché ci-dessus, sans passer par l'extraction IA">⬇️ Télécharger la transcription (PDF)</button>
     <button class="btn btn-primary" type="submit" id="rec-submit" disabled>Extraire questions/réponses</button>
   </div>
 </form>
@@ -88,6 +91,7 @@
   var stopBtn = document.getElementById('rec-stop');
   var resetBtn = document.getElementById('rec-reset');
   var submitBtn = document.getElementById('rec-submit');
+  var pdfBtn = document.getElementById('rec-pdf');
   var timerEl = document.getElementById('rec-timer');
   var statusEl = document.getElementById('rec-status');
   var backupStatusEl = document.getElementById('rec-backup-status');
@@ -112,6 +116,17 @@
   var backupRecorder, backupChunks;
   var recordingActive = false;
   var pendingSegments = 0;
+  // Uploads de sauvegarde audio (tranches) encore en vol — gate la soumission
+  // pour que `audio_segments` soit complet avant de quitter l'écran (sinon une
+  // tranche uploadée mais dont le `.then()` n'a pas encore tourné manque dans
+  // le champ caché -> « une seule tranche apparaît » alors que le disque en a
+  // plusieurs, bug réel du 2026-07-20).
+  var pendingBackups = 0;
+  // Position chronologique de la prochaine tranche, attribuée AU MOMENT de
+  // l'upload (les évènements `stop` du MediaRecorder sont sérialisés, donc
+  // dans l'ordre) et non à la résolution du fetch — sinon deux uploads en vol
+  // lisent la même longueur de tableau et se voient attribuer la même position.
+  var nextBackupPosition = 0;
   var transcriptSoFar = {{ (identity.transcript if identity else '') | tojson }};
   var backupSegments = (function () {
     try {
@@ -136,6 +151,29 @@
   // recouvre encore le texte que ce job va traiter -> tours dupliqués à la
   // fusion (le job ET le reliquat couvriraient la même tranche).
   var pendingSegmentJobSubmits = 0;
+  // Fenêtre async à l'arrêt : backupRecorder.stop()/segmentRecorder.stop() ne
+  // font que *programmer* les évènements `stop` ; entre l'appel et leur
+  // déclenchement, pendingBackups/pendingSegments valent encore 0 et le bouton
+  // « Extraire » se réactiverait à tort — un « Stop puis Extraire » rapide
+  // poste alors sans la dernière tranche (entretien < 30min = tranche UNIQUE ->
+  // sauvegarde audio entièrement perdue). `finalizing` gate la soumission tant
+  // que les enregistreurs arrêtés n'ont pas livré leur dernière tranche (revue
+  // adversariale 2026-07-20).
+  var finalizing = false;
+  var finalizingRecorders = 0;
+  // Génération d'enregistrement : un upload de tranche encore en vol au moment
+  // d'un redémarrage/réinitialisation ne doit pas contaminer la nouvelle
+  // session (sinon un fichier de l'ancien enregistrement s'ajoute à
+  // `audio_segments`, avec une position en doublon -> deux « Tranche 1 »).
+  // Chaque upload capture la génération courante et ignore sa résolution si
+  // elle a changé.
+  var backupGeneration = 0;
+
+  function recorderFinalized() {
+    if (finalizingRecorders > 0) finalizingRecorders--;
+    if (finalizingRecorders <= 0) finalizing = false;
+    updateSubmitState();
+  }
 
   function newSessionToken() {
     if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -187,9 +225,14 @@
   }
 
   function updateSubmitState() {
-    var busy = pendingSegments > 0 || pendingSegmentJobSubmits > 0;
-    submitBtn.disabled = recordingActive || busy || !transcriptSoFar.trim();
-    if (!recordingActive && !busy && transcriptSoFar.trim()) {
+    var hasTranscript = !!transcriptSoFar.trim();
+    var busy = pendingSegments > 0 || pendingSegmentJobSubmits > 0 || pendingBackups > 0 || finalizing;
+    submitBtn.disabled = recordingActive || busy || !hasTranscript;
+    // L'export PDF de la transcription est disponible dès que l'enregistrement
+    // est arrêté et qu'il y a du texte — indépendamment de l'extraction IA (il
+    // n'utilise que le texte) et sans attendre les uploads audio en cours.
+    pdfBtn.disabled = recordingActive || !hasTranscript;
+    if (!recordingActive && !busy && hasTranscript) {
       statusEl.textContent = 'Enregistrement terminé — prêt à envoyer.';
     }
   }
@@ -212,6 +255,7 @@
       var blob = new Blob(segmentChunks, { type: segmentRecorder.mimeType || 'audio/webm' });
       uploadSegment(blob);
       if (recordingActive) startSegment();
+      else recorderFinalized();  // arrêt final : dernière tranche de transcription livrée
     });
     segmentRecorder.start();
   }
@@ -257,12 +301,19 @@
       // de 30min, la sauvegarde se poursuit par tranches plutôt que de tout
       // perdre en cas de crash navigateur en fin d'entretien.
       if (recordingActive) startBackupRecorder();
+      else recorderFinalized();  // arrêt final : dernière tranche audio livrée (pendingBackups>0 prend le relais)
     });
     backupRecorder.start();
   }
 
   function uploadBackup(blob) {
-    var position = backupSegments.length;
+    // Position figée ici (dans l'ordre des évènements `stop`), pas à la
+    // résolution du fetch : deux uploads en vol ne peuvent plus se voir
+    // attribuer la même position.
+    var position = nextBackupPosition++;
+    var gen = backupGeneration;  // session à laquelle appartient cette tranche
+    pendingBackups++;
+    updateSubmitState();
     backupStatusEl.textContent = '💾 sauvegarde audio en cours (tranche ' + (position + 1) + ')…';
     var formData = new FormData();
     formData.append('file', new File([blob], 'entretien.webm', { type: blob.type }));
@@ -271,10 +322,17 @@
         return res.json().then(function (data) { return { ok: res.ok, data: data }; });
       })
       .then(function (result) {
+        // Résolution d'une tranche d'une session abandonnée (redémarrage /
+        // réinitialisation entre-temps) : ne pas contaminer la nouvelle.
+        if (gen !== backupGeneration) return;
         if (result.ok && result.data.path) {
-          backupPathHidden.value = result.data.path;
           backupSegments.push({ filename: result.data.path, position: position });
+          backupSegments.sort(function (a, b) { return a.position - b.position; });
           audioSegmentsHidden.value = JSON.stringify(backupSegments);
+          // `audio_backup_path` reste la DERNIÈRE tranche (rétrocompatible avec
+          // le lecteur simple) — on la reprend du tableau trié, pas du dernier
+          // fetch résolu (qui peut arriver dans le désordre).
+          backupPathHidden.value = backupSegments[backupSegments.length - 1].filename;
           backupStatusEl.textContent = '✓ sauvegarde audio effectuée (' + backupSegments.length + ' tranche' + (backupSegments.length > 1 ? 's' : '') + ').';
           var backupUrl = '/missions/{{ mission.id }}/interviews/record/backup/' + encodeURIComponent(result.data.path);
           audioPlayerEl.src = backupUrl;
@@ -287,6 +345,10 @@
       })
       .catch(function (err) {
         backupStatusEl.textContent = '⚠ échec de la sauvegarde audio : ' + err.message;
+      })
+      .finally(function () {
+        pendingBackups--;
+        updateSubmitState();
       });
   }
 
@@ -330,14 +392,25 @@
   }
 
   startBtn.addEventListener('click', function () {
+    // Verrou synchrone : sans lui, deux clics rapides (ou clic + Entrée) avant
+    // que getUserMedia ne réponde démarrent DEUX jeux de MediaRecorder en
+    // parallèle sur le même flux — d'où des tranches audio de secours en double
+    // (constat 2026-07-20 : 2 fichiers ~30min pour une même session). Un bouton
+    // désactivé ne redéclenche pas l'évènement click.
+    if (recordingActive) return;
+    startBtn.disabled = true;
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
       stream = s;
       recordingActive = true;
+      finalizing = false;
+      finalizingRecorders = 0;
+      backupGeneration++;  // nouvelle session : les uploads en vol de l'ancienne seront ignorés
       transcriptSoFar = '';
       transcriptEl.value = '';
       transcriptHidden.value = '';
       backupPathHidden.value = '';
       backupSegments = [];
+      nextBackupPosition = 0;
       audioSegmentsHidden.value = '[]';
       // Palier 2 : nouvelle session de jobs à chaque enregistrement.
       sessionToken = newSessionToken();
@@ -371,6 +444,9 @@
       statusEl.textContent = 'Enregistrement en cours…';
       updateSubmitState();
     }).catch(function (err) {
+      // Micro refusé/inaccessible : on rouvre le bouton pour permettre un
+      // nouvel essai (le verrou synchrone ci-dessus l'avait désactivé).
+      startBtn.disabled = false;
       statusEl.textContent = 'Micro inaccessible : ' + err.message;
     });
   });
@@ -380,22 +456,34 @@
     clearInterval(rotationTimer);
     clearInterval(backupRotationTimer);
     clearInterval(timerId);
+    // Chaque enregistreur encore actif va livrer une dernière tranche via son
+    // évènement `stop` asynchrone : on gate la soumission (finalizing) jusqu'à
+    // ce que recorderFinalized() ait été appelé pour chacun.
+    finalizingRecorders = 0;
+    if (segmentRecorder && segmentRecorder.state === 'recording') finalizingRecorders++;
+    if (backupRecorder && backupRecorder.state === 'recording') finalizingRecorders++;
+    finalizing = finalizingRecorders > 0;
     if (segmentRecorder && segmentRecorder.state === 'recording') segmentRecorder.stop();
     if (backupRecorder && backupRecorder.state === 'recording') backupRecorder.stop();
     stream.getTracks().forEach(function (t) { t.stop(); });
     stopBtn.hidden = true;
     startBtn.hidden = false;
+    startBtn.disabled = false;
     resetBtn.hidden = false;
     statusEl.textContent = 'Enregistrement terminé — transcription du dernier segment en cours…';
     updateSubmitState();
   });
 
   resetBtn.addEventListener('click', function () {
+    finalizing = false;
+    finalizingRecorders = 0;
+    backupGeneration++;  // une tranche encore en vol ne repeuplera pas l'affichage remis à zéro
     transcriptSoFar = '';
     transcriptEl.value = '';
     transcriptHidden.value = '';
     backupPathHidden.value = '';
     backupSegments = [];
+    nextBackupPosition = 0;
     audioSegmentsHidden.value = '[]';
     // Palier 2 : repartir sur une session vierge (les jobs éventuels de la
     // session précédente deviennent des orphelins inoffensifs côté serveur).
@@ -410,6 +498,7 @@
     statusEl.textContent = '';
     timerEl.textContent = '00:00';
     submitBtn.disabled = true;
+    pdfBtn.disabled = true;
   });
 })();
 </script>

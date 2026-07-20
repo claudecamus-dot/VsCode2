@@ -195,10 +195,13 @@ def test_extract_turns_chunks_long_transcript_and_merges_results(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("OLLAMA_CHUNK_MAX_WORDS", "50")
-    # Deux paragraphes de ~60 mots chacun -> dépasse la limite de 50 mots
-    # par tronçon -> doit produire 2 tronçons distincts.
-    paragraphe_1 = "Consultant : " + ("mot " * 60)
-    paragraphe_2 = "Interviewé : " + ("mot " * 60)
+    # Deux paragraphes de ~32 mots chacun (chacun tient sous la limite de 50,
+    # mais leur somme la dépasse) -> doit produire 2 tronçons distincts, un par
+    # paragraphe. NB : on garde chaque paragraphe SOUS la limite pour tester le
+    # regroupement par paragraphe et non le redécoupage d'un paragraphe géant
+    # (couvert séparément dans test_ai_common.py).
+    paragraphe_1 = "Consultant : " + ("mot " * 30)
+    paragraphe_2 = "Interviewé : " + ("mot " * 30)
     transcript = paragraphe_1 + "\n\n" + paragraphe_2
 
     calls = []
@@ -566,9 +569,14 @@ def test_libre_flow_manual_identity_wins_over_transcript_detection(
     assert "Nom Mal Compris" not in response.text
 
 
-def test_libre_detail_edit_updates_turns_and_repartition(
+def test_libre_detail_edit_updates_turns_not_repartition(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """save_libre_detail met à jour les tours (et le résumé) mais NE touche PLUS
+    la répartition — matière de niveau mission, retirée de l'écran de consultation
+    le 2026-07-20 (le router n'accepte plus les champs `repartition_*`). Les
+    envoyer quand même doit rester sans effet, jamais écraser la répartition
+    existante."""
     response = client.post("/entretiens/libre/nouveau", follow_redirects=False)
     mission_id = int(response.headers["location"].split("/")[2])
     _patch_libre_extract_ai(monkeypatch)
@@ -610,11 +618,10 @@ def test_libre_detail_edit_updates_turns_and_repartition(
             "turn_interlocuteur": ["Consultant·e", "Denis Roche"],
             "turn_question": ["Comment ça se passe (corrigé) ?", ""],
             "turn_remarque": ["", "Silos corrigés à la relecture."],
+            # Champs répartition volontairement envoyés : le router doit les
+            # ignorer (bloc retiré de la consultation le 2026-07-20).
             "repartition_contexte": "- Contexte corrigé",
-            "repartition_culture_adn": "- Culture de test",
-            "repartition_forces_succes": "- Force de test",
-            "repartition_points_amelioration": "- Silos entre équipes",
-            "repartition_aspirations": "- Aspiration de test",
+            "repartition_culture_adn": "- Culture corrigée",
         },
         follow_redirects=False,
     )
@@ -623,7 +630,11 @@ def test_libre_detail_edit_updates_turns_and_repartition(
     session = SessionLocal()
     try:
         interview = session.get(Interview, interview_id)
-        assert interview.repartition["contexte"] == "- Contexte corrigé"
+        # Répartition INCHANGÉE : garde la valeur posée à la confirmation, pas
+        # celle envoyée par l'édition (save_libre_detail ne l'édite plus).
+        assert interview.repartition["contexte"] == "- Contexte de test"
+        assert interview.repartition["culture_adn"] == "- Culture de test"
+        # Les tours, eux, sont bien mis à jour par ce même POST.
         turns = sorted(interview.turns, key=lambda t: t.position)
         assert turns[0].question == "Comment ça se passe (corrigé) ?"
         assert turns[1].remarque == "Silos corrigés à la relecture."
