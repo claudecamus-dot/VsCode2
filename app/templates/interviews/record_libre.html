@@ -129,6 +129,13 @@
   var sessionToken = '';
   var segmentJobPosition = 0;
   var coveredLen = 0;
+  // Compteur des POST /interviews/segment-jobs en vol — gate le bouton
+  // "Extraire" le temps de la requête (même pattern que `pendingSegments`
+  // pour les uploads de transcription). Sans ce gate, un submit pendant
+  // qu'une création de job est en vol soumettrait un `segment_tail` qui
+  // recouvre encore le texte que ce job va traiter -> tours dupliqués à la
+  // fusion (le job ET le reliquat couvriraient la même tranche).
+  var pendingSegmentJobSubmits = 0;
 
   function newSessionToken() {
     if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
@@ -148,6 +155,8 @@
     formData.append('session_token', sessionToken);
     formData.append('position', pos);
     formData.append('text', slice);
+    pendingSegmentJobSubmits++;
+    updateSubmitState();  // bloque "Extraire" tant que ce POST est en vol
     fetch('/interviews/segment-jobs', { method: 'POST', body: formData })
       .then(function (res) {
         if (!res.ok) throw new Error('job non créé');
@@ -163,6 +172,10 @@
         // Création KO (réseau/serveur) : on NE fait PAS avancer coveredLen —
         // ce texte reste dans le reliquat (segment_tail), traité en synchrone
         // à l'arrêt. Aucune tranche perdue.
+      })
+      .finally(function () {
+        pendingSegmentJobSubmits--;
+        updateSubmitState();
       });
   }
 
@@ -174,8 +187,9 @@
   }
 
   function updateSubmitState() {
-    submitBtn.disabled = recordingActive || pendingSegments > 0 || !transcriptSoFar.trim();
-    if (!recordingActive && pendingSegments === 0 && transcriptSoFar.trim()) {
+    var busy = pendingSegments > 0 || pendingSegmentJobSubmits > 0;
+    submitBtn.disabled = recordingActive || busy || !transcriptSoFar.trim();
+    if (!recordingActive && !busy && transcriptSoFar.trim()) {
       statusEl.textContent = 'Enregistrement terminé — prêt à envoyer.';
     }
   }

@@ -70,6 +70,7 @@ def _add_missing_columns() -> None:
         "questions": {"help_text": "TEXT"},
         "missions": {"pptx_template_path": "TEXT", "is_draft": "BOOLEAN DEFAULT 0"},
         "interview_turns": {"section_title": "TEXT"},
+        "interview_segment_jobs": {"text": "TEXT DEFAULT ''"},
     }
     with engine.begin() as conn:
         for table, cols in additions.items():

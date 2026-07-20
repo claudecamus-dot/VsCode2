@@ -1,10 +1,24 @@
 """Tests du traitement asynchrone des tranches d'entretien libre (Palier 2 —
-`docs/reflexions/enregistrement-segmente-30min.md` §4).
+`docs/reflexions/enregistrement-segmente-30min.md` §4), y compris les 3
+correctifs du 2026-07-20 suite à une revue adversariale (Blind Hunter + Edge
+Case Hunter) :
 
-Couvre : la tâche de fond `run_segment_job` (succès/échec), la fusion des tours
-de plusieurs jobs, l'agrégat de statut, et le flux HTTP complet (création de
-job en tâche de fond, écran d'attente quand des jobs sont en cours, fusion à la
-finalisation, fallback synchrone quand un job échoue ou qu'aucun job n'existe).
+1. Le fallback de finalisation ne retraite plus JAMAIS la transcription
+   ENTIÈRE — seuls les jobs `failed`/bloqués sont re-traités individuellement
+   sur leur propre tranche (`recover_stalled_or_failed_jobs`).
+2. Un job resté `pending`/`running` trop longtemps (`created_at` périmé) est
+   détecté comme `stale` et traité comme un échec pour la finalisation — plus
+   d'attente infinie sur un job perdu (crash de tâche de fond, redémarrage
+   serveur).
+3. Le texte d'une tranche est désormais persisté sur le job (colonne `text`,
+   pas seulement porté par la closure de la tâche de fond) — un job survit à
+   un redémarrage serveur et peut être re-traité a posteriori.
+
+La race de duplication (soumission utilisateur pendant qu'un POST de création
+de job est en vol) est un correctif purement côté JS (`record_libre.html` —
+gate `pendingSegmentJobSubmits` sur le bouton "Extraire", même pattern que
+`pendingSegments`) : non testable en pytest, vérifié par lecture de code et
+par le rendu réel (`run-dev-server`).
 
 Comme `test_interview_libre.py`, l'IA (`extract_turns_from_text`) est
 monkeypatchée — aucun appel réseau. Le `TestClient` de Starlette exécute les
@@ -12,6 +26,8 @@ monkeypatchée — aucun appel réseau. Le `TestClient` de Starlette exécute le
 de job traite le job avant de rendre la main.
 """
 from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -64,8 +80,16 @@ def _make_draft_mission() -> int:
         db.close()
 
 
+def _stale_created_at() -> datetime:
+    """Un `created_at` largement au-delà du seuil de péremption par défaut
+    (45min) — naïf en UTC, comme ce que SQLite rend réellement (cf. le
+    correctif : SQLite ne préserve pas le tzinfo, `_is_stale` compare donc du
+    naïf à du naïf)."""
+    return datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=2)
+
+
 # --------------------------------------------------------------------------- #
-# Service — tâche de fond
+# Service — tâche de fond (lit désormais `job.text`, persisté à la création)
 # --------------------------------------------------------------------------- #
 def test_run_segment_job_success(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
@@ -73,13 +97,14 @@ def test_run_segment_job_success(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda text: _turns_payload("Alice", "Comment ça va ?"),
     )
     db = SessionLocal()
-    job = InterviewSegmentJob(session_token="tok-success", position=0, status="pending")
+    job = InterviewSegmentJob(session_token="tok-success", position=0, status="pending",
+                              text="un texte de tranche")
     db.add(job)
     db.commit()
     job_id = job.id
     db.close()
 
-    interview_segment_jobs.run_segment_job(job_id, "un texte de tranche")
+    interview_segment_jobs.run_segment_job(job_id)
 
     db = SessionLocal()
     refreshed = db.get(InterviewSegmentJob, job_id)
@@ -95,13 +120,13 @@ def test_run_segment_job_failure_records_error(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(interview_segment_jobs, "extract_turns_from_text", _boom)
     db = SessionLocal()
-    job = InterviewSegmentJob(session_token="tok-fail", position=0, status="pending")
+    job = InterviewSegmentJob(session_token="tok-fail", position=0, status="pending", text="texte")
     db.add(job)
     db.commit()
     job_id = job.id
     db.close()
 
-    interview_segment_jobs.run_segment_job(job_id, "texte")
+    interview_segment_jobs.run_segment_job(job_id)
 
     db = SessionLocal()
     refreshed = db.get(InterviewSegmentJob, job_id)
@@ -144,6 +169,7 @@ def test_segment_jobs_status_counts() -> None:
     status = interview_segment_jobs.segment_jobs_status(db, "tok-status")
     assert status["total"] == 3
     assert status["done"] == 2
+    assert status["stale"] == 0  # job "running" tout frais -> pas périmé
     assert status["all_done"] is False
     assert status["any_failed"] is False
     db.close()
@@ -181,9 +207,161 @@ def test_delete_segment_jobs() -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Correctif #2 — job bloqué (`pending`/`running` périmé) détecté comme "stale"
+# --------------------------------------------------------------------------- #
+def test_segment_jobs_status_marks_old_running_job_as_stale() -> None:
+    db = SessionLocal()
+    db.add(InterviewSegmentJob(session_token="tok-stale", position=0, status="running",
+                                text="texte", created_at=_stale_created_at()))
+    db.commit()
+
+    status = interview_segment_jobs.segment_jobs_status(db, "tok-stale")
+    assert status["stale"] == 1
+    # Un job périmé compte comme "any_failed" pour mettre fin à l'attente côté
+    # écran de statut (poll) — sinon boucle infinie sur un job perdu.
+    assert status["any_failed"] is True
+    assert status["all_done"] is False
+    db.close()
+
+
+def test_segment_jobs_status_fresh_pending_job_is_not_stale() -> None:
+    db = SessionLocal()
+    db.add(InterviewSegmentJob(session_token="tok-fresh", position=0, status="pending",
+                                text="texte"))  # created_at = maintenant (défaut)
+    db.commit()
+    status = interview_segment_jobs.segment_jobs_status(db, "tok-fresh")
+    assert status["stale"] == 0
+    assert status["any_failed"] is False
+    db.close()
+
+
+def test_segment_job_stale_after_s_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("SEGMENT_JOB_STALE_AFTER_S", "60")
+    assert interview_segment_jobs.segment_job_stale_after_s() == 60
+
+
+def test_segment_job_stale_after_s_default() -> None:
+    assert interview_segment_jobs.segment_job_stale_after_s() == 45 * 60
+
+
+# --------------------------------------------------------------------------- #
+# Correctifs #2+#3 — récupération BORNÉE (jamais la transcription entière)
+# --------------------------------------------------------------------------- #
+def test_recover_recovers_failed_job_from_its_own_persisted_text(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    calls = []
+
+    def _extract(text):
+        calls.append(text)
+        return _turns_payload("Alice", "Récupérée")
+
+    monkeypatch.setattr(interview_segment_jobs, "extract_turns_from_text", _extract)
+    db = SessionLocal()
+    job = InterviewSegmentJob(session_token="t", position=0, status="failed",
+                              text="texte de la tranche seule", error="ancien timeout")
+    db.add(job)
+    db.commit()
+
+    interview_segment_jobs.recover_stalled_or_failed_jobs(db, [job])
+
+    assert job.status == "done"
+    assert job.error is None
+    assert job.turns_result["turns"][0]["interlocuteur"] == "Alice"
+    # La récupération n'a traité QUE le texte de CE job, jamais autre chose.
+    assert calls == ["texte de la tranche seule"]
+    db.close()
+
+
+def test_recover_recovers_stale_job(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        interview_segment_jobs, "extract_turns_from_text",
+        lambda text: _turns_payload("Bob", "Depuis job périmé"),
+    )
+    db = SessionLocal()
+    job = InterviewSegmentJob(session_token="t", position=0, status="running",
+                              text="texte", created_at=_stale_created_at())
+    db.add(job)
+    db.commit()
+
+    interview_segment_jobs.recover_stalled_or_failed_jobs(db, [job])
+
+    assert job.status == "done"
+    assert job.turns_result["turns"][0]["interlocuteur"] == "Bob"
+    db.close()
+
+
+def test_recover_also_recovers_fresh_running_job_when_called(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bug trouvé en auto-relecture avant commit (2026-07-20) : la première
+    version de `recover_stalled_or_failed_jobs` ne re-traitait QUE les jobs
+    `failed`/stale, laissant un job `running` frais totalement de côté. Or la
+    fonction n'est appelée QUE quand la finalisation a déjà décidé de
+    procéder MAINTENANT (tous done, ou un job frère failed/stale a fait
+    sauter l'attente) — un job running non recover à cet instant ne serait
+    JAMAIS rattrapé ailleurs, perdant silencieusement sa tranche de contenu.
+    Contrat correct : `recover_stalled_or_failed_jobs` traite TOUT job pas
+    encore `done`, sans condition sur son statut exact."""
+    monkeypatch.setattr(
+        interview_segment_jobs, "extract_turns_from_text",
+        lambda text: _turns_payload("Zoé", "Récupérée bien que fraîche"),
+    )
+    db = SessionLocal()
+    job = InterviewSegmentJob(session_token="t", position=0, status="running", text="texte")
+    db.add(job)
+    db.commit()
+
+    interview_segment_jobs.recover_stalled_or_failed_jobs(db, [job])
+
+    assert job.status == "done"
+    assert job.turns_result["turns"][0]["interlocuteur"] == "Zoé"
+    db.close()
+
+
+def test_recover_second_failure_keeps_job_failed_with_new_error(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _boom(text):
+        raise interview_segment_jobs.InterviewLibreExtractAIError("échec persistant")
+
+    monkeypatch.setattr(interview_segment_jobs, "extract_turns_from_text", _boom)
+    db = SessionLocal()
+    job = InterviewSegmentJob(session_token="t", position=0, status="failed",
+                              text="texte", error="premier échec")
+    db.add(job)
+    db.commit()
+
+    interview_segment_jobs.recover_stalled_or_failed_jobs(db, [job])
+
+    assert job.status == "failed"
+    assert job.error == "échec persistant"
+    db.close()
+
+
+def test_recover_job_without_text_stays_failed_without_calling_ai(
+    monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def _extract(text):
+        raise AssertionError("ne doit jamais être appelé sans texte")
+
+    monkeypatch.setattr(interview_segment_jobs, "extract_turns_from_text", _extract)
+    db = SessionLocal()
+    job = InterviewSegmentJob(session_token="t", position=0, status="failed", text="")
+    db.add(job)
+    db.commit()
+
+    interview_segment_jobs.recover_stalled_or_failed_jobs(db, [job])
+
+    assert job.status == "failed"
+    assert job.error
+    db.close()
+
+
+# --------------------------------------------------------------------------- #
 # HTTP — création de job (tâche de fond exécutée par TestClient) + statut
 # --------------------------------------------------------------------------- #
-def test_create_segment_job_processes_in_background(
+def test_create_segment_job_persists_text_and_processes_in_background(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
@@ -204,6 +382,15 @@ def test_create_segment_job_processes_in_background(
     assert body["done"] == 1
     assert body["all_done"] is True
 
+    # Correctif #2/#3 : le texte est bien persisté sur la ligne (pas seulement
+    # passé en paramètre de tâche de fond) — survit à un redémarrage serveur.
+    db = SessionLocal()
+    job = db.scalars(
+        select(InterviewSegmentJob).where(InterviewSegmentJob.session_token == "http-tok")
+    ).one()
+    assert job.text == "tranche de texte"
+    db.close()
+
 
 def test_status_endpoint_unknown_token_is_empty(client: TestClient) -> None:
     resp = client.get("/interviews/segment-jobs/status", params={"session_token": "does-not-exist"})
@@ -212,12 +399,12 @@ def test_status_endpoint_unknown_token_is_empty(client: TestClient) -> None:
 
 
 # --------------------------------------------------------------------------- #
-# HTTP — record_libre : attente vs fusion vs fallback synchrone
+# HTTP — record_libre : attente vs fusion vs récupération bornée
 # --------------------------------------------------------------------------- #
 def test_record_libre_shows_wait_screen_when_jobs_pending(client: TestClient) -> None:
     mission_id = _make_draft_mission()
     db = SessionLocal()
-    db.add(InterviewSegmentJob(session_token="wait-tok", position=0, status="running"))
+    db.add(InterviewSegmentJob(session_token="wait-tok", position=0, status="running", text="x"))
     db.commit()
     db.close()
 
@@ -237,7 +424,7 @@ def test_record_libre_from_jobs_merges_done_turns(
     mission_id = _make_draft_mission()
     db = SessionLocal()
     db.add(InterviewSegmentJob(
-        session_token="merge-tok", position=0, status="done",
+        session_token="merge-tok", position=0, status="done", text="x",
         turns_result=_turns_payload("Alice", "Question issue du job"),
     ))
     db.commit()
@@ -272,7 +459,8 @@ def test_record_libre_no_jobs_uses_synchronous_path(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Non-régression : un entretien court (aucun job) suit le chemin
-    synchrone d'avant le Palier 2."""
+    synchrone d'avant le Palier 2— seul cas où extract_turns_from_text voit
+    la transcription entière."""
     mission_id = _make_draft_mission()
     monkeypatch.setattr(
         interviews_router, "extract_turns_from_text",
@@ -286,29 +474,126 @@ def test_record_libre_no_jobs_uses_synchronous_path(
     assert "Extraction synchrone" in resp.text
 
 
-def test_record_libre_falls_back_to_synchronous_when_job_failed(
+def test_record_libre_recovers_failed_job_individually_never_whole_transcript(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Un seul job en échec -> on retraite tout en synchrone (garantie de
-    correction), pas d'écran d'attente."""
+    """Correctif #3 (le cœur du bug) : sur job KO, on NE retraite JAMAIS la
+    transcription entière — seule la tranche du job en échec est reprocessée.
+    Preuve : la transcription (un marqueur unique, jamais vu ailleurs) n'est
+    JAMAIS passée à extract_turns_from_text ; le job récupère sa PROPRE
+    tranche persistée."""
     mission_id = _make_draft_mission()
     db = SessionLocal()
-    db.add(InterviewSegmentJob(session_token="failed-tok", position=0, status="failed",
-                               error="timeout"))
+    db.add(InterviewSegmentJob(
+        session_token="failed-tok", position=0, status="done", text="x",
+        turns_result=_turns_payload("Alice", "Tranche 1 déjà traitée"),
+    ))
+    db.add(InterviewSegmentJob(
+        session_token="failed-tok", position=1, status="failed",
+        text="texte de la tranche 2 (échouée)", error="timeout",
+    ))
     db.commit()
     db.close()
 
-    calls = {"n": 0}
+    calls = []
+    GIANT_TRANSCRIPT_MARKER = "MARQUEUR_TRANSCRIPTION_COMPLETE_3H_JAMAIS_ATTENDU"
 
-    def _sync(text):
-        calls["n"] += 1
-        return _turns_payload("Alice", "Repli synchrone complet")
+    def _extract(text):
+        calls.append(text)
+        assert GIANT_TRANSCRIPT_MARKER not in text, (
+            "la transcription entière a été passée à l'IA — le mur "
+            "synchrone multi-heures est de retour"
+        )
+        return _turns_payload("Bob", "Tranche 2 récupérée")
 
-    monkeypatch.setattr(interviews_router, "extract_turns_from_text", _sync)
+    monkeypatch.setattr(interview_segment_jobs, "extract_turns_from_text", _extract)
+    monkeypatch.setattr(interviews_router, "extract_turns_from_text", _extract)
+
     resp = client.post(
         f"/missions/{mission_id}/interviews/record-libre",
-        data={"transcript": "transcription complète", "session_token": "failed-tok"},
+        data={
+            "transcript": GIANT_TRANSCRIPT_MARKER + " (simule 3h d'entretien)",
+            "session_token": "failed-tok",
+        },
     )
     assert resp.status_code == 200
-    assert "Repli synchrone complet" in resp.text
-    assert calls["n"] == 1  # traité sur la transcription entière, une fois
+    assert "Tranche 1 déjà traitée" in resp.text
+    assert "Tranche 2 récupérée" in resp.text
+    # Un seul appel IA : la récupération de la tranche 2, avec SON texte à
+    # elle (pas la transcription complète).
+    assert calls == ["texte de la tranche 2 (échouée)"]
+
+
+def test_record_libre_stale_job_recovered_at_finalize(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Correctif #2 : un job resté `running` bien au-delà du seuil de
+    péremption est traité comme un échec (pas d'attente infinie) et récupéré
+    individuellement à la finalisation, comme un job `failed` classique."""
+    mission_id = _make_draft_mission()
+    db = SessionLocal()
+    db.add(InterviewSegmentJob(
+        session_token="stale-tok", position=0, status="running",
+        text="texte bloqué depuis 2h", created_at=_stale_created_at(),
+    ))
+    db.commit()
+    db.close()
+
+    monkeypatch.setattr(
+        interview_segment_jobs, "extract_turns_from_text",
+        lambda text: _turns_payload("Alice", "Récupérée après péremption"),
+    )
+    # Le POST direct sur /record-libre doit sauter l'écran d'attente (le job
+    # périmé compte comme "any_failed") et finaliser directement.
+    resp = client.post(
+        f"/missions/{mission_id}/interviews/record-libre",
+        data={"transcript": "transcription", "session_token": "stale-tok"},
+    )
+    assert resp.status_code == 200
+    assert "Récupérée après péremption" in resp.text
+    assert "Traitement des tranches" not in resp.text
+
+
+def test_record_libre_does_not_drop_a_fresh_running_sibling_job(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Régression du bug trouvé en auto-relecture avant commit (2026-07-20) :
+    un job `failed` fait sauter l'écran d'attente pour TOUTE la session
+    (`any_failed`), y compris pour un job FRÈRE encore `running` (ni failed,
+    ni stale) qui n'a simplement pas eu le temps de finir. Sans le correctif,
+    ce job frère n'était ni fusionné (turns_result encore None) ni récupéré
+    (la récupération ne touchait que failed/stale) — son contenu disparaissait
+    silencieusement. Doit maintenant être récupéré comme les autres."""
+    mission_id = _make_draft_mission()
+    db = SessionLocal()
+    db.add(InterviewSegmentJob(
+        session_token="mixed-tok", position=0, status="done", text="x",
+        turns_result=_turns_payload("Alice", "Tranche 0 déjà traitée"),
+    ))
+    db.add(InterviewSegmentJob(
+        session_token="mixed-tok", position=1, status="running",
+        text="texte de la tranche 1 (encore en cours, fraîche)",
+    ))
+    db.add(InterviewSegmentJob(
+        session_token="mixed-tok", position=2, status="failed",
+        text="texte de la tranche 2 (échouée)", error="timeout",
+    ))
+    db.commit()
+    db.close()
+
+    def _extract(text):
+        if "tranche 1" in text:
+            return _turns_payload("Bob", "Tranche 1 récupérée malgré tout")
+        return _turns_payload("Carol", "Tranche 2 récupérée")
+
+    monkeypatch.setattr(interview_segment_jobs, "extract_turns_from_text", _extract)
+    monkeypatch.setattr(interviews_router, "extract_turns_from_text", _extract)
+
+    resp = client.post(
+        f"/missions/{mission_id}/interviews/record-libre",
+        data={"transcript": "transcription complète", "session_token": "mixed-tok"},
+    )
+    assert resp.status_code == 200
+    assert "Tranche 0 déjà traitée" in resp.text
+    assert "Tranche 1 récupérée malgré tout" in resp.text  # sinon : perdue
+    assert "Tranche 2 récupérée" in resp.text

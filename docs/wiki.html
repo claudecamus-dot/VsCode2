@@ -919,9 +919,12 @@ pytest -k "pptx or export"                                                     #
               <td colspan="3" style="color:var(--ink-faint);">
                 Aucun item ouvert. Dernier résolu le 2026-07-20 : <strong>Enregistrement segmenté 30min — Paliers 1 &amp; 2</strong>
                 (segmentation + téléchargement, puis traitement asynchrone par tranche via <code>InterviewSegmentJob</code> +
-                <code>BackgroundTasks</code> + écran d'attente). Voir CLAUDE.md « Enregistrement segmenté 30min — Palier 1 / Palier 2 »
-                et <code>docs/reflexions/enregistrement-segmente-30min.md</code>. Suite éventuelle (non planifiée) :
-                matériel/modèle plus rapide pour viser réellement 3h, cf. <code>docs/reflexions/extraction-longue-duree.md</code> §A.
+                <code>BackgroundTasks</code> + écran d'attente), puis 3 correctifs le jour même suite à une revue adversariale
+                (race de duplication, job bloqué sans issue, fallback qui redevenait le mur synchrone multi-heures — voir
+                CLAUDE.md « Palier 2 — 3 correctifs suite à revue adversariale »). Voir aussi CLAUDE.md « Enregistrement segmenté
+                30min — Palier 1 / Palier 2 » et <code>docs/reflexions/enregistrement-segmente-30min.md</code>. Suite éventuelle
+                (non planifiée) : matériel/modèle plus rapide pour viser réellement 3h, cf.
+                <code>docs/reflexions/extraction-longue-duree.md</code> §A.
               </td>
             </tr>
           </tbody>

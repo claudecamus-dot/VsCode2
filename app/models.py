@@ -512,6 +512,12 @@ class InterviewSegmentJob(Base):
     )
     position: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(20), default="pending")
+    # Texte de la tranche, persisté (pas seulement passé en paramètre de la
+    # tâche de fond) : un crash/redémarrage serveur entre la création du job
+    # et l'exécution de `run_segment_job` ne perd plus le texte, et permet de
+    # RE-traiter juste CETTE tranche (pas toute la transcription) si le job
+    # échoue ou reste bloqué — voir `interview_segment_jobs.recover_stalled_or_failed_jobs`.
+    text: Mapped[str] = mapped_column(Text, default="")
     # {"turns": [...], "identity": {...}} produit par extract_turns_from_text,
     # None tant que le job n'est pas `done`.
     turns_result: Mapped[dict | None] = mapped_column(JSON, default=None)

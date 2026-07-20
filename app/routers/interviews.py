@@ -57,6 +57,7 @@ from ..services.interview_libre_extract_ai import (
 from ..services.interview_segment_jobs import (
     delete_segment_jobs,
     merge_segment_turns,
+    recover_stalled_or_failed_jobs,
     run_segment_job,
     segment_jobs_status,
 )
@@ -428,31 +429,39 @@ def _libre_turns_error(request, mission, identity, message):
 def _finalize_libre_turns(
     db, request, mission, identity, transcript, session_token, segment_tail
 ):
-    """Produit les tours de parole puis rend l'écran de revue. Palier 2 : si des
-    jobs de tranche existent et sont TOUS terminés, fusionne leurs tours + le
-    reliquat final (dernière tranche partielle, traitée en synchrone — courte) ;
-    sinon (aucun job = entretien court, ou un job KO) retombe intégralement sur
-    le traitement synchrone de la transcription complète (garantie de
-    correction, seul le gain de temps est perdu sur ce cas)."""
+    """Produit les tours de parole puis rend l'écran de revue.
+
+    Palier 2 (revue du 2026-07-20 : la 1ère version retombait sur
+    `extract_turns_from_text(transcript_ENTIER)` dès qu'un job n'était pas
+    `done`, réintroduisant le mur synchrone multi-heures que le Palier 2
+    devait précisément éviter — corrigé ici). Si aucun job n'existe (entretien
+    < 30min), chemin synchrone historique inchangé. Sinon : chaque job `failed`
+    ou bloqué (`recover_stalled_or_failed_jobs`) est re-traité INDIVIDUELLEMENT
+    sur sa seule tranche (~30min max), jamais sur la transcription complète —
+    puis fusion de tous les tours (jobs + reliquat final). Coût borné au nombre
+    de tranches à récupérer, pas à la durée totale de l'entretien."""
     status = segment_jobs_status(db, session_token)
-    extracted = None
 
-    if status["all_done"]:
-        try:
-            tail_result = None
-            if segment_tail.strip():
-                tail_result = extract_turns_from_text(segment_tail)
-            merged = merge_segment_turns(status["jobs"], tail_result)
-            if merged["turns"]:
-                extracted = merged
-        except InterviewLibreExtractAIError:
-            extracted = None  # reliquat KO -> fallback synchrone complet ci-dessous
-
-    if extracted is None:
+    if status["total"] == 0:
         try:
             extracted = extract_turns_from_text(transcript)
         except InterviewLibreExtractAIError as exc:
             return _libre_turns_error(request, mission, identity, str(exc))
+    else:
+        recover_stalled_or_failed_jobs(db, status["jobs"])
+        try:
+            tail_result = None
+            if segment_tail.strip():
+                tail_result = extract_turns_from_text(segment_tail)
+        except InterviewLibreExtractAIError as exc:
+            return _libre_turns_error(request, mission, identity, str(exc))
+        merged = merge_segment_turns(status["jobs"], tail_result)
+        if not merged["turns"]:
+            return _libre_turns_error(
+                request, mission, identity,
+                "Aucun tour de parole détecté (tranches et reliquat vides).",
+            )
+        extracted = merged
 
     # Jobs consommés (leur seul rôle était d'alimenter cet écran) : on nettoie.
     delete_segment_jobs(db, session_token)
@@ -539,14 +548,18 @@ def create_segment_job(
     """Palier 2 : enregistre une tranche de texte et lance son extraction de
     tours en tâche de fond. Appelé par la rotation JS de `record_libre.html`
     toutes les ~30min, pendant que l'enregistrement continue. Fire-and-forget
-    côté client (la progression est suivie via `segment_jobs_status_json`)."""
+    côté client (la progression est suivie via `segment_jobs_status_json`).
+    Le texte est persisté sur le job (colonne `text`) — pas seulement passé en
+    paramètre de la tâche de fond — pour survivre à un redémarrage serveur et
+    permettre une récupération ciblée (`recover_stalled_or_failed_jobs`)."""
     job = InterviewSegmentJob(
-        session_token=session_token[:64], position=position, status="pending"
+        session_token=session_token[:64], position=position, status="pending",
+        text=text,
     )
     db.add(job)
     db.commit()
     db.refresh(job)
-    background_tasks.add_task(run_segment_job, job.id, text)
+    background_tasks.add_task(run_segment_job, job.id)
     return JSONResponse(
         {"job_id": job.id, "position": position, "status": "pending"}
     )
