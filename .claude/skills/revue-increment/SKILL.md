@@ -80,6 +80,16 @@ ci-dessus plutôt que d'en dupliquer la logique.
 - [ ] Les cas dégradés sont couverts (pas de clé IA, `mission.trame` absente,
       entrée vide, fichier corrompu) — ou explicitement documentés comme gap
       connu, pas silencieusement ignorés.
+- [ ] Correctif appliqué en réponse à une revue externe (`bmad-code-review`,
+      sous-agent adversarial) → **relire le diff du correctif lui-même** avant
+      commit, pas seulement re-vérifier les points signalés — la revue
+      d'origine n'a validé QUE le code *avant* correctif, jamais le correctif.
+      Leçon du 2026-07-20 (Palier 2, entretien segmenté) : `bmad-code-review`
+      (2 sous-agents indépendants) avait trouvé 3 bugs réels ; en les
+      corrigeant, une auto-relecture avant commit — pas les sous-agents, qui
+      n'avaient vu que le code d'avant — a trouvé un 4ᵉ bug introduit par le
+      correctif lui-même (un job frère laissé de côté, perte silencieuse de
+      contenu). Voir [[feedback-adversarial-review-then-reself-review-fixes]].
 
 ## 3. Cohérence de la matière produite
 
@@ -102,6 +112,12 @@ ci-dessus plutôt que d'en dupliquer la logique.
       matériellement (pas pour un détail).
 - [ ] `docs/wiki/` : seulement si dans le périmètre (souvent différé — le noter
       comme reste-à-faire plutôt que de laisser croire que c'est fait).
+- [ ] Si `docs/wiki/technical/agents-supervision.md` ou `docs/wiki.html`
+      apparaissent modifiés dans `git status` (régénérés par le hook
+      SessionStart pendant la séance), les inclure dans le commit de fin
+      d'incrément plutôt que les laisser dériver localement — constat du
+      2026-07-20 : ces fichiers étaient restés modifiés sans être committés
+      pendant 4 commits consécutifs, faute d'étape dédiée.
 
 ## 5. Capitalisation (mémoire)
 

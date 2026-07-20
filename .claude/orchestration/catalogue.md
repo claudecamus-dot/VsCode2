@@ -49,6 +49,15 @@
 | **BMAD (39 skills après tri exécuté le 2026-07-18)** | Tri ré-arbitré après vérification pré-suppression par fan-out (`docs/reflexions/tri-skills-bmad.md`, addendum) : 7 retirés (4 dépréciés + `quick-dev`/`spec`/`qa-generate-e2e-tests`), 39 conservés dont les dépendances de `revue-increment` (y compris `bmad-review-*` invoqués par `bmad-code-review`) et le cycle produit. Ne router que sur demande explicite de l'utilisateur, en passant par `bmad-help`. |
 | **OpenHub (`.opencode/`)** | Hors périmètre O-A (décision n°4 de la réflexion) — ne pas router. |
 
+> Angle mort de mesure (constat superviseur du 2026-07-20) : les sous-skills
+> invoquées par un sous-agent via un prompt en langage naturel (« Invoke the X
+> skill on this diff », pattern utilisé par `bmad-code-review` pour lancer
+> `bmad-review-adversarial-general`/`bmad-review-edge-case-hunter`) n'apparaissent
+> pas dans `state.json`/`routing-hints.json` — seules les invocations directes de
+> la session principale sont tracquées. Une absence de trace sur ces sous-skills
+> ne signifie donc pas absence d'exécution : ne pas les qualifier `agent-mort`
+> sur cette seule base.
+
 ## Playbooks (incrément O-B)
 
 Workflows récurrents pré-composés — la skill cherche un playbook matchant **avant** de

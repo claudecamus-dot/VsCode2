@@ -828,10 +828,10 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-20T10:20:17+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-20T12:21:35+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>23 sessions</strong> couvertes · <strong>47</strong> invocations de skills · <strong>34</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>23 sessions</strong> couvertes · <strong>49</strong> invocations de skills · <strong>36</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">scan_transcripts.py · 2026-07-20 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
@@ -846,11 +846,12 @@ pytest -k "pptx or export"                                                     #
             <tr><td><code>roadmap-keeper</code></td><td>global</td><td>5</td><td>2026-06-25</td><td>2026-07-15</td></tr>
             <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>4</td><td>2026-07-17</td><td>2026-07-18</td></tr>
             <tr><td><code>agent-supervisor</code></td><td>projet</td><td>4</td><td>2026-07-18</td><td>2026-07-20</td></tr>
-            <tr><td><code>revue-increment</code></td><td>projet</td><td>3</td><td>2026-07-18</td><td>2026-07-19</td></tr>
+            <tr><td><code>revue-increment</code></td><td>projet</td><td>4</td><td>2026-07-18</td><td>2026-07-20</td></tr>
             <tr><td><code>run</code></td><td>(builtin/session)</td><td>3</td><td>2026-06-29</td><td>2026-07-03</td></tr>
             <tr><td><code>pptx-deck</code></td><td>global</td><td>2</td><td>2026-07-02</td><td>2026-07-03</td></tr>
             <tr><td><code>pptx-verify</code></td><td>global</td><td>2</td><td>2026-07-03</td><td>2026-07-18</td></tr>
             <tr><td><code>skill-creator</code></td><td>global</td><td>2</td><td>2026-07-03</td><td>2026-07-03</td></tr>
+            <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>1</td><td>2026-07-20</td><td>2026-07-20</td></tr>
             <tr><td><code>claude-api</code></td><td>(builtin/session)</td><td>1</td><td>2026-06-29</td><td>2026-06-29</td></tr>
             <tr><td><code>init</code></td><td>(builtin/session)</td><td>1</td><td>2026-07-03</td><td>2026-07-03</td></tr>
           </tbody>
@@ -863,7 +864,7 @@ pytest -k "pptx or export"                                                     #
           <thead><tr><th>Sous-agent</th><th>Lancements</th><th>Premier</th><th>Dernier</th></tr></thead>
           <tbody>
             <tr><td><code>Explore</code></td><td>18</td><td>2026-06-30</td><td>2026-07-18</td></tr>
-            <tr><td><code>general-purpose</code></td><td>8</td><td>2026-07-15</td><td>2026-07-17</td></tr>
+            <tr><td><code>general-purpose</code></td><td>10</td><td>2026-07-15</td><td>2026-07-20</td></tr>
             <tr><td><code>claude</code></td><td>4</td><td>2026-07-16</td><td>2026-07-16</td></tr>
             <tr><td><code>Plan</code></td><td>3</td><td>2026-07-06</td><td>2026-07-17</td></tr>
             <tr><td><code>claude-code-guide</code></td><td>1</td><td>2026-07-03</td><td>2026-07-03</td></tr>
@@ -873,7 +874,7 @@ pytest -k "pptx or export"                                                     #
 
       <h3>Jamais utilisés</h3>
       <p><strong>projet</strong> — 2/6 jamais invoqués : <code>pptx-framed-image</code>, <code>slide-text-polish</code></p>
-      <p><strong>BMAD</strong> — 39/39 jamais invoqués : <details><summary>Voir la liste (39)</summary><p><code>bmad-advanced-elicitation</code>, <code>bmad-agent-analyst</code>, <code>bmad-agent-architect</code>, <code>bmad-agent-dev</code>, <code>bmad-agent-pm</code>, <code>bmad-agent-tech-writer</code>, <code>bmad-agent-ux-designer</code>, <code>bmad-architecture</code>, <code>bmad-brainstorming</code>, <code>bmad-check-implementation-readiness</code>, <code>bmad-checkpoint-preview</code>, <code>bmad-code-review</code>, <code>bmad-correct-course</code>, <code>bmad-create-epics-and-stories</code>, <code>bmad-create-story</code>, <code>bmad-customize</code>, <code>bmad-dev-auto</code>, <code>bmad-dev-story</code>, <code>bmad-document-project</code>, <code>bmad-domain-research</code>, <code>bmad-editorial-review-prose</code>, <code>bmad-editorial-review-structure</code>, <code>bmad-forge-idea</code>, <code>bmad-generate-project-context</code>, <code>bmad-help</code>, <code>bmad-index-docs</code>, <code>bmad-market-research</code>, <code>bmad-party-mode</code>, <code>bmad-prd</code>, <code>bmad-prfaq</code>, <code>bmad-product-brief</code>, <code>bmad-retrospective</code>, <code>bmad-review-adversarial-general</code>, <code>bmad-review-edge-case-hunter</code>, <code>bmad-shard-doc</code>, <code>bmad-sprint-planning</code>, <code>bmad-sprint-status</code>, <code>bmad-technical-research</code>, <code>bmad-ux</code></p></details></p>
+      <p><strong>BMAD</strong> — 38/39 jamais invoqués : <details><summary>Voir la liste (38)</summary><p><code>bmad-advanced-elicitation</code>, <code>bmad-agent-analyst</code>, <code>bmad-agent-architect</code>, <code>bmad-agent-dev</code>, <code>bmad-agent-pm</code>, <code>bmad-agent-tech-writer</code>, <code>bmad-agent-ux-designer</code>, <code>bmad-architecture</code>, <code>bmad-brainstorming</code>, <code>bmad-check-implementation-readiness</code>, <code>bmad-checkpoint-preview</code>, <code>bmad-correct-course</code>, <code>bmad-create-epics-and-stories</code>, <code>bmad-create-story</code>, <code>bmad-customize</code>, <code>bmad-dev-auto</code>, <code>bmad-dev-story</code>, <code>bmad-document-project</code>, <code>bmad-domain-research</code>, <code>bmad-editorial-review-prose</code>, <code>bmad-editorial-review-structure</code>, <code>bmad-forge-idea</code>, <code>bmad-generate-project-context</code>, <code>bmad-help</code>, <code>bmad-index-docs</code>, <code>bmad-market-research</code>, <code>bmad-party-mode</code>, <code>bmad-prd</code>, <code>bmad-prfaq</code>, <code>bmad-product-brief</code>, <code>bmad-retrospective</code>, <code>bmad-review-adversarial-general</code>, <code>bmad-review-edge-case-hunter</code>, <code>bmad-shard-doc</code>, <code>bmad-sprint-planning</code>, <code>bmad-sprint-status</code>, <code>bmad-technical-research</code>, <code>bmad-ux</code></p></details></p>
       <p><strong>global</strong> — 1/5 jamais invoqués : <code>restitution-deck-design</code></p>
 
 
@@ -889,9 +890,12 @@ pytest -k "pptx or export"                                                     #
         <li><strong><code>restitution-deck-design</code></strong> (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle design-review).</li>
         <li><strong><code>bmad-code-review</code></strong> (2026-07-19) : Proposition retenue telle quelle : seuil explicite ajouté à revue-increment/SKILL.md (&gt;5 fichiers produit ou logique à risque -&gt; bmad-code-review obligatoire, sinon revue inline) — la délégation implicite ne se déclenchait jamais en pratique.</li>
         <li><strong><code>ai_common.py</code></strong> (2026-07-19) : Proposition retenue telle quelle : règle explicite ajoutée à revue-increment/SKILL.md §2 (correctif timeout/perf IA -&gt; mesurer à la taille maximale réellement configurée, pas un prompt jouet) — capitalisée en mémoire feedback-ai-timeout-fix-verify-at-configured-scale.</li>
+        <li><strong><code>revue-increment</code></strong> (2026-07-20) : Proposition retenue telle quelle : règle ajoutée à revue-increment/SKILL.md §2 — un correctif appliqué en réponse à une revue externe (bmad-code-review, sous-agent adversarial) doit être relu lui-même avant commit, la revue d'origine n'ayant validé que le code d'avant. Confirmé le jour même : un 4e bug a été trouvé ainsi (Palier 2), non vu par les 2 sous-agents de revue.</li>
+        <li><strong><code>revue-increment</code></strong> (2026-07-20) : Proposition retenue telle quelle : règle ajoutée à revue-increment/SKILL.md §4 — si les docs auto-générées de supervision (agents-supervision.md, wiki.html) apparaissent modifiées en git status en fin de séance, les inclure dans le commit plutôt que les laisser dériver (constaté : 4 commits consécutifs sans les inclure).</li>
+        <li><strong><code>bmad-code-review</code></strong> (2026-07-20) : Proposition retenue telle quelle : angle mort de mesure documenté dans catalogue.md — les sous-skills bmad-review-adversarial-general/bmad-review-edge-case-hunter, invoquées par des sous-agents via prompt naturel, n'apparaissent pas dans state.json ; absence de trace n'implique pas absence d'exécution.</li>
       </ul>
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
-      <p><em>Diagnostic ⚠️ à relancer (&gt; 14 j) — rien à signaler, tous les constats précédents ont été arbitrés.</em></p>
+      <p><em>Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés.</em></p>
     </section>
 <!-- TODO-AGENTS-HTML:END -->
 
