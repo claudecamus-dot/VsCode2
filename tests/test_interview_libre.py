@@ -1199,6 +1199,39 @@ def test_record_libre_erreur_extraction_propose_export_pdf_transcript(
     assert export.headers["content-type"] == "application/pdf"
 
 
+# --------------------------------------------------------------------------- #
+# Régression (822563f) : l'écran GET d'enregistrement libre a 2 onglets
+# (Transcription / Répartition) qui doivent utiliser la classe dédiée
+# `rec-tab-panel`. Réutiliser `tab-panel` (les onglets synthèse/aperçu, qui
+# vaut `display:none` + `.active`) masquait transcription ET répartition en
+# permanence. pytest est aveugle au CSS lui-même, mais peut garder la structure
+# du template qui déclenche la collision — un contrôle de rendu réel
+# (screenshot) est ponctuel et ne prévient pas la régression, ce test si.
+# --------------------------------------------------------------------------- #
+def test_record_libre_form_renders_tabs_with_dedicated_panel_class(
+    client: TestClient,
+) -> None:
+    response = client.post("/entretiens/libre/nouveau", follow_redirects=False)
+    mission_id = int(response.headers["location"].split("/")[2])
+
+    page = client.get(f"/missions/{mission_id}/interviews/record-libre")
+    assert page.status_code == 200
+    html = page.text
+
+    # Les 2 panneaux existent et utilisent la classe dédiée `rec-tab-panel`.
+    assert 'id="tab-transcription" class="rec-tab-panel"' in html
+    assert 'id="tab-repartition" class="rec-tab-panel"' in html
+    # Aucun panneau ne réutilise `class="tab-panel"` nu — la collision d'origine
+    # (ces assertions auraient échoué sur le template d'avant 822563f).
+    assert 'id="tab-transcription" class="tab-panel"' not in html
+    assert 'id="tab-repartition" class="tab-panel"' not in html
+    # Les 2 boutons pilotent la bascule via `data-tab` (câblage JS testé à part).
+    assert 'data-tab="transcription"' in html
+    assert 'data-tab="repartition"' in html
+    # Bouton de soumission relibellé, cohérent avec le stepper 3 étapes.
+    assert "Continuer vers les tours de parole" in html
+
+
 def test_libre_turns_review_erreur_repartition_propose_export_pdf_transcript(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

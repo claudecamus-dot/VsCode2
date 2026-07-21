@@ -9,22 +9,22 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-21T14:48:32+02:00 · **29 sessions** (transcripts) · **56** invocations de skills · **39** lancements de sous-agents.
+Dernier scan : 2026-07-21T20:11:52+02:00 · **30 sessions** (transcripts) · **61** invocations de skills · **42** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `run-dev-server` | projet | 16 | 2026-07-03 | 2026-07-20 |
-| `agent-orchestrator` | projet | 6 | 2026-07-17 | 2026-07-20 |
+| `run-dev-server` | projet | 17 | 2026-07-03 | 2026-07-21 |
+| `agent-orchestrator` | projet | 7 | 2026-07-17 | 2026-07-21 |
 | `agent-supervisor` | projet | 6 | 2026-07-18 | 2026-07-21 |
 | `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
+| `revue-increment` | projet | 5 | 2026-07-18 | 2026-07-21 |
 | `roadmap-keeper` | global | 5 | 2026-06-25 | 2026-07-15 |
-| `revue-increment` | projet | 4 | 2026-07-18 | 2026-07-20 |
+| `bmad-code-review` | BMAD | 3 | 2026-07-20 | 2026-07-21 |
+| `pptx-verify` | global | 3 | 2026-07-03 | 2026-07-21 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
-| `bmad-code-review` | BMAD | 2 | 2026-07-20 | 2026-07-20 |
 | `pptx-deck` | global | 2 | 2026-07-02 | 2026-07-03 |
-| `pptx-verify` | global | 2 | 2026-07-03 | 2026-07-18 |
 | `skill-creator` | global | 2 | 2026-07-03 | 2026-07-03 |
 | `claude-api` | (builtin/session) | 1 | 2026-06-29 | 2026-06-29 |
 | `init` | (builtin/session) | 1 | 2026-07-03 | 2026-07-03 |
@@ -34,7 +34,7 @@ Dernier scan : 2026-07-21T14:48:32+02:00 · **29 sessions** (transcripts) · **5
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
 | `Explore` | 19 | 2026-06-30 | 2026-07-21 |
-| `general-purpose` | 12 | 2026-07-15 | 2026-07-20 |
+| `general-purpose` | 15 | 2026-07-15 | 2026-07-21 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
 | `claude-code-guide` | 1 | 2026-07-03 | 2026-07-03 |
@@ -81,7 +81,7 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic à jour._
+_Diagnostic ⚠️ à relancer (> 14 j)._
 
 1. **Le playbook export-ppt-verifie -- seule justification arbitree de conserver 4 skills PPT a zero invocation -- n a jamais ete joue, sa premisse reste non exercee** — Ce n est PAS un signal agent-mort (playbook jeune, aucune tache PPT depuis) et la conservation des skills est deja arbitree -- ne pas re-litiguer. Mais l arbitrage a cree une dependance sur un mecanisme jamais exerce : la premiere tache d export PPT est le seul moment qui validera que ces skills gagnent leur place via ce playbook. · **Proposition** : Noter dans catalogue.md a l entree export-ppt-verifie : route obligatoire de TOUTE tache d export PPT (pas de plan PPT ad hoc) ; tant que le playbook reste jamais-joue, traiter la conservation des 3 skills PPT comme non verifiee -- si une tache PPT est traitee sans passer par ce playbook, rouvrir les 4 arbitrages du 2026-07-18.
 

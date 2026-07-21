@@ -109,6 +109,26 @@ ci-dessus plutôt que d'en dupliquer la logique.
     suffisait ; à la taille réellement configurée (1800 mots), le même appel
     chaud prenait 572s — quasiment le double du timeout. Voir
     [[feedback-ai-timeout-fix-verify-at-configured-scale]].
+- [ ] **Un rendu réel prouve « ça marche maintenant », pas « ça ne régressera
+      pas ».** Le screenshot `run-dev-server` est un contrôle humain *ponctuel* :
+      quand un bug frontend est corrigé, ou qu'un invariant de structure compte
+      (quelle classe CSS, quel panneau, quel élément est rendu), ajouter **en
+      plus** une assertion au niveau template dans `pytest` (GET via `TestClient`,
+      `assert '…' in response.text`). `pytest` est structurellement aveugle au CSS
+      — une suite verte donne là une fausse confiance — mais il *peut* garder la
+      structure HTML qui déclenche le défaut, et ce garde-fou survit à la séance,
+      contrairement au screenshot. Leçon du 2026-07-21 : une collision de classe
+      CSS (`.tab-panel` réutilisée pour deux systèmes d'onglets aux sémantiques
+      d'affichage opposées) masquait en permanence les 2 panneaux de l'écran
+      d'enregistrement libre ; `pytest` était vert (245) et le correctif est resté
+      non commité jusqu'à ce qu'un rendu manuel le révèle. Le test de régression
+      ajouté (le form rendu utilise `.rec-tab-panel`, jamais `.tab-panel` nu)
+      aurait été **rouge** sur le template bogué — vérifié via `git show`.
+      Corollaire de revue : réutiliser un nom de classe CSS existant avec une
+      sémantique d'affichage différente est un piège de collision silencieuse, à
+      relever au diff. Voir [[feedback-pptx-tests-need-a-real-render-check]] (même
+      principe « le parseur/rendu tolérant ment ») et
+      [[feedback-frontend-render-check-plus-template-regression-test]].
 - [ ] Les cas dégradés sont couverts (pas de clé IA, `mission.trame` absente,
       entrée vide, fichier corrompu) — ou explicitement documentés comme gap
       connu, pas silencieusement ignorés.

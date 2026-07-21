@@ -828,10 +828,10 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-21T14:48:32+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-21T20:11:52+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>29 sessions</strong> couvertes · <strong>56</strong> invocations de skills · <strong>39</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>30 sessions</strong> couvertes · <strong>61</strong> invocations de skills · <strong>42</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">scan_transcripts.py · 2026-07-21 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
@@ -841,16 +841,16 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Skill</th><th>Famille</th><th>Invocations</th><th>Première</th><th>Dernière</th></tr></thead>
           <tbody>
-            <tr><td><code>run-dev-server</code></td><td>projet</td><td>16</td><td>2026-07-03</td><td>2026-07-20</td></tr>
-            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>6</td><td>2026-07-17</td><td>2026-07-20</td></tr>
+            <tr><td><code>run-dev-server</code></td><td>projet</td><td>17</td><td>2026-07-03</td><td>2026-07-21</td></tr>
+            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>7</td><td>2026-07-17</td><td>2026-07-21</td></tr>
             <tr><td><code>agent-supervisor</code></td><td>projet</td><td>6</td><td>2026-07-18</td><td>2026-07-21</td></tr>
             <tr><td><code>update-config</code></td><td>(builtin/session)</td><td>6</td><td>2026-07-03</td><td>2026-07-16</td></tr>
+            <tr><td><code>revue-increment</code></td><td>projet</td><td>5</td><td>2026-07-18</td><td>2026-07-21</td></tr>
             <tr><td><code>roadmap-keeper</code></td><td>global</td><td>5</td><td>2026-06-25</td><td>2026-07-15</td></tr>
-            <tr><td><code>revue-increment</code></td><td>projet</td><td>4</td><td>2026-07-18</td><td>2026-07-20</td></tr>
+            <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>3</td><td>2026-07-20</td><td>2026-07-21</td></tr>
+            <tr><td><code>pptx-verify</code></td><td>global</td><td>3</td><td>2026-07-03</td><td>2026-07-21</td></tr>
             <tr><td><code>run</code></td><td>(builtin/session)</td><td>3</td><td>2026-06-29</td><td>2026-07-03</td></tr>
-            <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>2</td><td>2026-07-20</td><td>2026-07-20</td></tr>
             <tr><td><code>pptx-deck</code></td><td>global</td><td>2</td><td>2026-07-02</td><td>2026-07-03</td></tr>
-            <tr><td><code>pptx-verify</code></td><td>global</td><td>2</td><td>2026-07-03</td><td>2026-07-18</td></tr>
             <tr><td><code>skill-creator</code></td><td>global</td><td>2</td><td>2026-07-03</td><td>2026-07-03</td></tr>
             <tr><td><code>claude-api</code></td><td>(builtin/session)</td><td>1</td><td>2026-06-29</td><td>2026-06-29</td></tr>
             <tr><td><code>init</code></td><td>(builtin/session)</td><td>1</td><td>2026-07-03</td><td>2026-07-03</td></tr>
@@ -864,7 +864,7 @@ pytest -k "pptx or export"                                                     #
           <thead><tr><th>Sous-agent</th><th>Lancements</th><th>Premier</th><th>Dernier</th></tr></thead>
           <tbody>
             <tr><td><code>Explore</code></td><td>19</td><td>2026-06-30</td><td>2026-07-21</td></tr>
-            <tr><td><code>general-purpose</code></td><td>12</td><td>2026-07-15</td><td>2026-07-20</td></tr>
+            <tr><td><code>general-purpose</code></td><td>15</td><td>2026-07-15</td><td>2026-07-21</td></tr>
             <tr><td><code>claude</code></td><td>4</td><td>2026-07-16</td><td>2026-07-16</td></tr>
             <tr><td><code>Plan</code></td><td>3</td><td>2026-07-06</td><td>2026-07-17</td></tr>
             <tr><td><code>claude-code-guide</code></td><td>1</td><td>2026-07-03</td><td>2026-07-03</td></tr>
@@ -899,7 +899,7 @@ pytest -k "pptx or export"                                                     #
         <li><strong><code>revue-increment</code></strong> (2026-07-21) : Constat sanity du 2026-07-21 (priorité 3) validé et appliqué : le seuil bmad-code-review de revue-increment/SKILL.md déclenche désormais une revue adversariale pour TOUTE modification du JS de concurrence de record_libre.html / record.html (MediaRecorder, timers de rotation, compteurs pendingX, gardes de ré-entrance/génération), quel que soit le nombre de fichiers — le risque y est par fichier (concurrence), et ce fichier a un historique de 7 bugs data-loss trouvés par revue adversariale (runs 20/22) qu'une modif à 1 fichier (run 23) avait failli contourner en auto-relecture seule.</li>
       </ul>
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
-      <p><em>Diagnostic à jour.</em></p>
+      <p><em>Diagnostic ⚠️ à relancer (&gt; 14 j).</em></p>
       <div class="critical">
         <p><strong>Le playbook export-ppt-verifie -- seule justification arbitree de conserver 4 skills PPT a zero invocation -- n a jamais ete joue, sa premisse reste non exercee</strong> — Ce n est PAS un signal agent-mort (playbook jeune, aucune tache PPT depuis) et la conservation des skills est deja arbitree -- ne pas re-litiguer. Mais l arbitrage a cree une dependance sur un mecanisme jamais exerce : la premiere tache d export PPT est le seul moment qui validera que ces skills gagnent leur place via ce playbook. · <strong>Proposition</strong> : Noter dans catalogue.md a l entree export-ppt-verifie : route obligatoire de TOUTE tache d export PPT (pas de plan PPT ad hoc) ; tant que le playbook reste jamais-joue, traiter la conservation des 3 skills PPT comme non verifiee -- si une tache PPT est traitee sans passer par ce playbook, rouvrir les 4 arbitrages du 2026-07-18.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
