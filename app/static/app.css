@@ -482,10 +482,15 @@ input[type=text].turn-section-input:placeholder-shown {
 .rec-tab:hover { color: var(--text); }
 .rec-tab.active { color: var(--accent-dark); border-bottom-color: var(--accent); font-weight: 600; }
 .tab-panel { padding-top: 12px; }
-/* Aperçu répartition en lecture seule : dialogue par section, interlocuteur
-   coloré (teal = tour portant une question, navy = remarque — cf. export PDF). */
-.rec-rep-section { margin: 14px 0 6px; font-size: .95rem; color: var(--text); }
-.rec-rep-turn { margin: 4px 0; line-height: 1.5; }
+.tab-panel-actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+/* Aperçu répartition en lecture seule, calé sur le document PDF exporté
+   (build_turns_only_pdf) : cadre « page » clair, dialogue par section, préfixe
+   interlocuteur teal (tour portant une question) / navy (remarque). */
+#rec-repartition { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; }
+#rec-repartition:empty { display: none; }
+.rec-rep-section { margin: 16px 0 8px; font-size: .95rem; font-weight: 700; color: var(--text); border-bottom: 1.5px solid #0f766e; padding-bottom: 3px; }
+.rec-rep-section:first-child { margin-top: 0; }
+.rec-rep-turn { margin: 5px 0; line-height: 1.55; }
 .rec-rep-q { color: #0f766e; }
 .rec-rep-r { color: #1e3a5f; }
 #rec-preview { display: block; width: 100%; margin-bottom: 10px; }

@@ -76,18 +76,24 @@
   <div id="tab-transcription" class="tab-panel">
     <textarea class="record-transcript" id="rec-transcript" rows="10" readonly
       placeholder="Le texte transcrit apparaîtra ici au fil de l'enregistrement…">{{ identity.transcript if identity else '' }}</textarea>
-    <button class="btn-link" type="button" id="rec-reset" {% if not (identity and identity.transcript) %}hidden{% endif %}>Recommencer</button>
+    <div class="tab-panel-actions">
+      <button class="btn-link" type="button" id="rec-reset" {% if not (identity and identity.transcript) %}hidden{% endif %}>Recommencer</button>
+      <button class="btn btn-sm" type="submit" id="rec-pdf" formnovalidate
+              formaction="/interviews/transcript/export-pdf" disabled
+              title="Exporte le texte transcrit tel qu'affiché ci-dessus, sans passer par l'extraction IA">⬇️ Télécharger la transcription (PDF)</button>
+    </div>
   </div>
   <div id="tab-repartition" class="tab-panel" hidden>
     <p class="muted" id="rec-repartition-status">La répartition question/réponses (tours de parole) apparaîtra ici <strong>en lecture seule</strong>, au fil de l'enregistrement (extraite en tâche de fond par tranches de 5 min). La relecture et la correction éventuelle se font à l'étape suivante.</p>
     <div id="rec-repartition" class="preview-doc"></div>
+    <div class="tab-panel-actions">
+      <button class="btn btn-sm" type="button" id="rep-pdf" disabled
+              title="Exporte les tours de parole affichés en PDF (même document que la transcription éditée)">⬇️ Télécharger la répartition (PDF)</button>
+    </div>
   </div>
 
   <div class="form-actions">
     <a class="btn" href="/">Annuler</a>
-    <button class="btn" type="submit" id="rec-pdf" formnovalidate
-            formaction="/interviews/transcript/export-pdf" disabled
-            title="Exporte le texte transcrit tel qu'affiché ci-dessus, sans passer par l'extraction IA">⬇️ Télécharger la transcription (PDF)</button>
     <button class="btn btn-primary" type="submit" id="rec-submit" disabled>Extraire questions/réponses</button>
   </div>
 </form>
@@ -529,6 +535,7 @@
   });
 
   // ---- Onglets + aperçu live de la répartition (Palier A, lecture seule) ----
+  var latestRepartitionTurns = [];  // derniers tours affichés (pour l'export PDF de l'onglet)
   function escHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
@@ -538,7 +545,10 @@
   function renderRepartition(turns) {
     var container = document.getElementById('rec-repartition');
     var statusRep = document.getElementById('rec-repartition-status');
-    if (!turns || !turns.length) {
+    var repPdfBtn = document.getElementById('rep-pdf');
+    latestRepartitionTurns = turns || [];
+    if (repPdfBtn) repPdfBtn.disabled = !latestRepartitionTurns.length;
+    if (!latestRepartitionTurns.length) {
       container.innerHTML = '';
       statusRep.hidden = false;
       return;
@@ -552,11 +562,12 @@
       var hasQ = !!(t.question && String(t.question).trim());
       var speaker = '<strong class="' + (hasQ ? 'rec-rep-q' : 'rec-rep-r') + '">'
         + escHtml(t.interlocuteur) + '</strong>';
-      var body = hasQ ? escHtml(t.question) : '';
-      if (t.remarque && String(t.remarque).trim()) {
-        body += (body ? ' — ' : '') + escHtml(t.remarque);
-      }
-      parts.push('<p class="rec-rep-turn">' + speaker + ' ' + body + '</p>');
+      // Même assemblage que le PDF (_dialogue_flowables) : question et remarque
+      // jointes par une espace, préfixe interlocuteur puis « : » puis le propos.
+      var propos = [];
+      if (hasQ) propos.push(escHtml(t.question));
+      if (t.remarque && String(t.remarque).trim()) propos.push(escHtml(t.remarque));
+      parts.push('<p class="rec-rep-turn">' + speaker + ' : ' + propos.join(' ') + '</p>');
     });
     container.innerHTML = parts.join('');
   }
@@ -581,6 +592,36 @@
       document.getElementById('tab-repartition').hidden = (target !== 'repartition');
     });
   });
+
+  var repPdfBtn = document.getElementById('rep-pdf');
+  if (repPdfBtn) {
+    repPdfBtn.addEventListener('click', function () {
+      if (!latestRepartitionTurns.length) return;
+      // L'onglet est DANS le formulaire d'enregistrement (pas de <form> imbriqué
+      // possible) : on POST les tours affichés via un formulaire détaché vers la
+      // route d'export existante, qui rend le MÊME document PDF que le wizard.
+      var form = document.createElement('form');
+      form.method = 'post';
+      form.action = '/interviews/turns/export-pdf';
+      var addField = function (name, value) {
+        var input = document.createElement('input');
+        input.type = 'hidden';
+        input.name = name;
+        input.value = (value == null) ? '' : value;
+        form.appendChild(input);
+      };
+      addField('interviewee_name', {{ (identity.interviewee_name if identity else '') | tojson }});
+      latestRepartitionTurns.forEach(function (t) {
+        addField('turn_interlocuteur', t.interlocuteur);
+        addField('turn_question', t.question);
+        addField('turn_remarque', t.remarque);
+        addField('turn_section_title', t.section_title);
+      });
+      document.body.appendChild(form);
+      form.submit();
+      document.body.removeChild(form);
+    });
+  }
 
   // Aperçu best-effort : lit le sessionToken courant à chaque tick (vide tant
   // qu'aucun enregistrement n'a démarré). Vanilla JS + JSON, comme l'écran

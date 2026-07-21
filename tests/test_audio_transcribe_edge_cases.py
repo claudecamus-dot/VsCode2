@@ -13,6 +13,7 @@ lui-même synthétique) — aucune donnée réelle, aucun contenu privé.
 """
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -182,3 +183,49 @@ def test_transcribe_audio_transmet_bien_beam_size(monkeypatch: pytest.MonkeyPatc
     assert kwargs.get("beam_size") == audio_transcribe.BEAM_SIZE
     assert kwargs.get("language") == "fr"
     assert kwargs.get("vad_filter") is True
+
+
+# --------------------------------------------------------------------------- #
+# Qualité : le modèle chargé et les réglages livrés déterminent la qualité de
+# reconnaissance (surtout les noms propres). Mock complet -> aucun poids chargé,
+# tourne même sans faster-whisper installé.
+# --------------------------------------------------------------------------- #
+
+
+def test_get_model_constructs_with_configured_model_size(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`_get_model()` charge le modèle nommé `MODEL_SIZE` (réglage qualité,
+    « medium » par défaut) — pas un nom codé en dur ailleurs. Garde contre un
+    retour silencieux à un petit modèle qui dégraderait la reconnaissance des
+    noms propres (cf. en-tête du module + le fix small->medium du 2026-07-15)."""
+    fake_fw = MagicMock()
+    monkeypatch.setattr(audio_transcribe, "_faster_whisper", lambda: fake_fw)
+    monkeypatch.setattr(audio_transcribe, "_model", None)
+
+    audio_transcribe._get_model()
+
+    fake_fw.WhisperModel.assert_called_once()
+    args, _ = fake_fw.WhisperModel.call_args
+    assert args[0] == audio_transcribe.MODEL_SIZE
+
+
+def test_whisper_quality_defaults_are_medium_and_beam2() -> None:
+    """Réglages qualité LIVRÉS (surchargeables par env WHISPER_MODEL /
+    WHISPER_BEAM_SIZE) : modèle « medium » + beam_size 2 — compromis retenu le
+    2026-07-15 après qu'un « small »/greedy ait mal rendu les noms propres
+    (« Michel Nakache » -> « Michel Lacache »). Fige la valeur par défaut pour
+    qu'un retour accidentel à « small »/1 soit remarqué ; sauté si la machine
+    surcharge légitimement via variable d'environnement."""
+    if os.environ.get("WHISPER_MODEL") is None:
+        assert audio_transcribe.MODEL_SIZE == "medium"
+    if os.environ.get("WHISPER_BEAM_SIZE") is None:
+        assert audio_transcribe.BEAM_SIZE == 2
+
+
+def test_transcribe_segment_route_requires_a_file(client: TestClient) -> None:
+    """`/audio/transcribe-segment` exige le champ `file` : un POST sans fichier
+    doit rendre un 422 de validation (contrat clair), jamais un 500 brut.
+    Validation FastAPI en amont -> tourne sans faster-whisper."""
+    response = client.post("/audio/transcribe-segment")
+    assert response.status_code == 422
