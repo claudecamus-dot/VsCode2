@@ -52,6 +52,8 @@ FIELD_SHAPE = {
     "reco_title": dict(width_in=_W_IN - 2 * MARGIN, size_pt=D.TYPE["title"], max_lignes=2),
     "axis_title": dict(width_in=_W_IN - 2 * MARGIN - 2.0, max_h_in=1.1, size_max=D.TYPE["h3"]),
     "synthese_categorie": dict(width_in=_W_IN - 2 * (MARGIN + 0.3), max_h_in=5.0, size_max=20),
+    # Un quadrant SWOT = ~demi-largeur, ~demi-hauteur de la zone de contenu.
+    "swot_quadrant": dict(width_in=(_W_IN - 2 * (MARGIN + 0.3) - 0.25) / 2 - 0.36, max_h_in=2.2, size_max=D.TYPE["small"]),
 }
 
 
@@ -350,6 +352,48 @@ def _slide_synthese_categorie(prs: Presentation, label: str, content: str) -> No
     )
 
 
+# SWOT : Forces/Faiblesses = interne (vert/rouge), Opportunités/Menaces =
+# externe (bleu/ambre). Couleurs sémantiques prises dans D.PALETTE (design
+# system : différenciation par liseré de carte, pas de dégradé/ombre).
+_SWOT_QUADRANTS = [
+    ("forces", "Forces", "#1e6b34"),
+    ("faiblesses", "Faiblesses", "#b3261e"),
+    ("opportunites", "Opportunités", "#2c5cc5"),
+    ("menaces", "Menaces", "#b8860b"),
+]
+
+
+def _slide_swot(prs: Presentation, swot) -> None:
+    """Matrice SWOT 2×2 — une carte par quadrant (add_card, liseré coloré),
+    titre coloré + puces. Grille : Forces (haut-g), Faiblesses (haut-d),
+    Opportunités (bas-g), Menaces (bas-d)."""
+    slide, w_in, h_in, top = _new_slide(prs, "Matrice SWOT")
+    gap = 0.25
+    pad = 0.18
+    area_l = MARGIN + 0.3
+    area_w = w_in - 2 * (MARGIN + 0.3)
+    area_t = top
+    area_h = h_in - top - 0.5
+    col_w = (area_w - gap) / 2
+    row_h = (area_h - gap) / 2
+    cells = [(0, 0), (1, 0), (0, 1), (1, 1)]
+    title_h = 0.4
+    for (key, label, color), (col, row) in zip(_SWOT_QUADRANTS, cells):
+        cl = area_l + col * (col_w + gap)
+        ct = area_t + row * (row_h + gap)
+        D.add_card(slide, cl, ct, col_w, row_h, color)
+        D.add_text(
+            slide, cl + pad, ct + pad * 0.7, col_w - 2 * pad, title_h,
+            [(label, {"size": D.TYPE["h3"], "bold": True, "color": color})],
+        )
+        _add_bulleted_text(
+            slide, cl + pad, ct + pad * 0.7 + title_h, col_w - 2 * pad,
+            row_h - (pad * 0.7 + title_h) - pad,
+            getattr(swot, key) or "—",
+            anchor=MSO_ANCHOR.TOP, size_max=D.TYPE["small"], size_min=D.TYPE["tiny"],
+        )
+
+
 _AXES_ROW_H_MAX = 1.1
 _AXES_ROW_GAP = 0.15
 # En dessous de cette hauteur de ligne, le chiffre "#N" (D.TYPE["kpi"]=44pt)
@@ -510,6 +554,7 @@ def build_presentation(
     template_path: Path | None = None,
     include_sommaire: bool = True,
     include_synthese: bool = True,
+    include_swot: bool = True,
     include_axes_overview: bool = True,
     include_matrix: bool = True,
     include_axis_ids: set[int] | None = None,
@@ -537,12 +582,15 @@ def build_presentation(
     _slide_title(prs, mission)
 
     gs = mission.global_synthesis
+    swot = mission.swot
     axes = list(mission.recommendation_axes)
     selected_axes = [a for a in axes if include_axis_ids is None or a.id in include_axis_ids]
 
     sections = []
     if include_synthese and gs and gs.has_content:
         sections.append("Synthèse globale")
+    if include_swot and swot and swot.has_content:
+        sections.append("Matrice SWOT")
     if axes and include_axes_overview:
         sections.append("Recommandations")
     if axes and include_matrix:
@@ -561,6 +609,9 @@ def build_presentation(
         for label, content in categories:
             if (content or "").strip():
                 _slide_synthese_categorie(prs, label, content)
+
+    if include_swot and swot and swot.has_content:
+        _slide_swot(prs, swot)
 
     if axes and include_axes_overview:
         _slide_axes_overview(prs, axes, palette)

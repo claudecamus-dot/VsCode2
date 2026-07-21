@@ -56,6 +56,9 @@
       {% if global_synthesis and global_synthesis.has_content %}
       <label class="pptx-check"><input type="checkbox" name="synthese" value="true" checked> Synthèse globale (5 slides)</label>
       {% endif %}
+      {% if swot and swot.has_content %}
+      <label class="pptx-check"><input type="checkbox" name="swot" value="true" checked> Matrice SWOT</label>
+      {% endif %}
       {% if axes %}
       <label class="pptx-check"><input type="checkbox" name="axes_overview" value="true" checked> Vue d'ensemble des axes</label>
       <label class="pptx-check"><input type="checkbox" name="matrix" value="true" checked> Matrice effort / valeur</label>
@@ -126,6 +129,9 @@
     <button type="button" class="tab" data-tab="synth-{{ key }}">{{ label }}</button>
     {% endfor %}
     {% endif %}
+    {% if global_synthesis and global_synthesis.has_content %}
+    <button type="button" class="tab" data-tab="swot">SWOT</button>
+    {% endif %}
     {% if axes %}
     <button type="button" class="tab" data-tab="axes">Axes</button>
     <button type="button" class="tab" data-tab="matrix">Matrice</button>
@@ -187,6 +193,44 @@
       </div>
     </section>
     {% endfor %}
+    {% endif %}
+
+    {% if global_synthesis and global_synthesis.has_content %}
+    <section class="tab-panel two-col" data-panel="swot">
+      <div class="deck-pane deck-pane-form">
+        <form method="post" action="/missions/{{ mission.id }}/swot/generate" class="swot-generate">
+          <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>
+            {% if swot and swot.has_content %}🔄 Régénérer la SWOT (IA){% else %}✨ Générer la SWOT (IA){% endif %}
+          </button>
+          {% if swot %}<span class="badge badge-synth-{{ swot.status }}" id="swot-status">{{ swot.status_label }}</span>{% endif %}
+          {% if not ai_ready %}<span class="muted">Service IA indisponible ({{ api_key_env }}).</span>{% endif %}
+        </form>
+        {% if swot %}
+        {{ bullet_field('Forces — interne +', '/swot/' ~ mission.id ~ '/field', 'forces', swot.forces, 'fit-hint-swot-forces', 'preview-swot-forces', 'swot-saved-forces', rows=4, fit_key='swot_quadrant') }}
+        <span id="swot-saved-forces" class="saved"></span>
+        {{ bullet_field('Faiblesses — interne −', '/swot/' ~ mission.id ~ '/field', 'faiblesses', swot.faiblesses, 'fit-hint-swot-faiblesses', 'preview-swot-faiblesses', 'swot-saved-faiblesses', rows=4, fit_key='swot_quadrant') }}
+        <span id="swot-saved-faiblesses" class="saved"></span>
+        {{ bullet_field('Opportunités — externe +', '/swot/' ~ mission.id ~ '/field', 'opportunites', swot.opportunites, 'fit-hint-swot-opportunites', 'preview-swot-opportunites', 'swot-saved-opportunites', rows=4, fit_key='swot_quadrant') }}
+        <span id="swot-saved-opportunites" class="saved"></span>
+        {{ bullet_field('Menaces — externe −', '/swot/' ~ mission.id ~ '/field', 'menaces', swot.menaces, 'fit-hint-swot-menaces', 'preview-swot-menaces', 'swot-saved-menaces', rows=4, fit_key='swot_quadrant') }}
+        <span id="swot-saved-menaces" class="saved"></span>
+        {% else %}
+        <p class="muted">Lance la génération pour obtenir une première matrice SWOT (dérivée de la synthèse globale), puis affine-la ici — elle s'intègre à l'export PPT.</p>
+        {% endif %}
+      </div>
+      <div class="deck-pane deck-pane-preview">
+        <div class="slide-preview-body">
+          <div class="swot-grid">
+            {% for key, label in [('forces','Forces'),('faiblesses','Faiblesses'),('opportunites','Opportunités'),('menaces','Menaces')] %}
+            <div class="swot-cell swot-{{ key }}">
+              <h4>{{ label }}</h4>
+              <ul id="preview-swot-{{ key }}" class="ppt-bullets">{% for line in ((swot[key] if swot else '') or '').splitlines() if line.strip() %}<li>{{ line.strip().lstrip('-•').strip() }}</li>{% endfor %}</ul>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </section>
     {% endif %}
 
     {% if axes %}

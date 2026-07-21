@@ -554,3 +554,118 @@ def generate_demo_recommendations(global_synthesis) -> list[dict]:
             ],
         }
     ]
+
+
+# --------------------------------------------------------------------------- #
+# SWOT (Palier 1 restitution, 2026-07-21) : dérivée de la synthèse globale déjà
+# générée (comme les recommandations, via `_build_reco_prompt`). Forces /
+# faiblesses = regard INTERNE ; opportunités / menaces = regard EXTERNE (marché,
+# concurrence, risques), non déductibles des 5 catégories internes — d'où le
+# cadrage explicite du prompt. Un seul appel (la synthèse est déjà condensée),
+# pas de map-reduce. Cf. docs/reflexions/restitution-mission.md §5.1.
+# --------------------------------------------------------------------------- #
+SWOT_SYSTEM = (
+    "Tu es consultant·e senior en stratégie. À partir d'une synthèse "
+    "transverse d'entretiens (contexte, culture, forces, points "
+    "d'amélioration, aspirations), produis une matrice SWOT en français à "
+    "quatre quadrants, chacun en quelques puces factuelles :\n"
+    "- forces : atouts INTERNES de l'organisation (ce qui fonctionne, leviers "
+    "en place) ;\n"
+    "- faiblesses : limites INTERNES (douleurs, manques, ce qui bloque) ;\n"
+    "- opportunites : facteurs EXTERNES favorables (marché, technologies, "
+    "évolutions du secteur, attentes clients) que l'organisation pourrait "
+    "saisir ;\n"
+    "- menaces : facteurs EXTERNES défavorables (concurrence, risques "
+    "réglementaires ou techniques, tendances adverses).\n"
+    "Forces et faiblesses s'appuient directement sur la matière fournie. "
+    "Opportunités et menaces demandent un regard EXTERNE : déduis-les "
+    "prudemment du contexte et des aspirations, sans inventer de faits "
+    "chiffrés ; si la matière ne permet pas de les étayer, reste bref et "
+    "prudent plutôt que d'affabuler."
+)
+
+SWOT_JSON_HINT = (
+    "\nRéponds UNIQUEMENT par un objet JSON aux clés "
+    '"forces", "faiblesses", "opportunites", "menaces". La valeur de chaque '
+    "clé est UNE chaîne de caractères, une puce par ligne préfixée de « - » "
+    "(surtout pas une liste JSON ni un objet imbriqué)."
+)
+
+SWOT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "forces": {"type": "string"},
+        "faiblesses": {"type": "string"},
+        "opportunites": {"type": "string"},
+        "menaces": {"type": "string"},
+    },
+    "required": ["forces", "faiblesses", "opportunites", "menaces"],
+    "additionalProperties": False,
+}
+
+SWOT_KEYS = ("forces", "faiblesses", "opportunites", "menaces")
+
+
+def _coerce_bullets(value) -> str:
+    """Aplati une valeur de quadrant en texte à puces, quelle que soit la forme
+    renvoyée par le modèle. Ollama (`format: "json"` garantit du JSON valide,
+    pas le type EXACT demandé) renvoie très souvent une LISTE par quadrant —
+    parfois une liste de petits objets `{"poids": "..."}` — là où le schéma
+    attend une chaîne. La garde stricte de `_clean_global`/`_safe_str` (str
+    sinon "") jetait alors tout le contenu : le passage réel du 2026-07-21
+    ressortait les 4 quadrants VIDES malgré une génération pertinente. On aplati
+    plutôt que de perdre. Défense en profondeur — `SWOT_JSON_HINT` demande déjà
+    une chaîne, mais un 7-8B local n'obéit pas de façon fiable."""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, dict):
+        value = list(value.values())
+    if isinstance(value, list):
+        lines = []
+        for item in value:
+            text = item.strip() if isinstance(item, str) else _coerce_bullets(item)
+            for line in text.splitlines():
+                clean = line.strip().lstrip("-•").strip()
+                if clean:
+                    lines.append(f"- {clean}")
+        return "\n".join(lines)
+    return ""
+
+
+def _clean_swot(data) -> dict:
+    """Coerce la réponse JSON vers les 4 quadrants. Contrairement à
+    `_clean_global` (str strict, suffisant là où le prompt élicite des
+    chaînes), on APLATIT listes/objets en puces via `_coerce_bullets` — le
+    prompt SWOT (« chacun en quelques puces ») élicite au contraire des listes
+    qu'il ne faut pas perdre (cf. le correctif du 2026-07-21)."""
+    if not isinstance(data, dict):
+        data = {}
+    return {key: _coerce_bullets(data.get(key)) for key in SWOT_KEYS}
+
+
+def generate_swot(global_synthesis) -> dict:
+    """Retourne un dict aux 4 clés de `MissionSwot`. Lève SynthesisAIError.
+    Dérivée de la synthèse globale (mêmes 5 catégories que les recommandations,
+    via `_build_reco_prompt`), un seul appel — la synthèse est déjà condensée."""
+    prompt = _build_reco_prompt(global_synthesis)
+    data = _call_claude(SWOT_SYSTEM, prompt, SWOT_SCHEMA, SWOT_JSON_HINT)
+    return _clean_swot(data)
+
+
+def generate_demo_swot(global_synthesis) -> dict:
+    """Fallback hors-ligne (mode démo) — reprojette la synthèse existante sans
+    IA : forces/faiblesses depuis les catégories internes, O/M en amorce."""
+    def _short(text: str, fallback: str) -> str:
+        return (text or "").strip()[:400] or fallback
+
+    return {
+        "forces": _short(global_synthesis.forces_succes, "Forces à préciser (mode démo)."),
+        "faiblesses": _short(
+            global_synthesis.points_amelioration, "Faiblesses à préciser (mode démo)."
+        ),
+        "opportunites": _short(
+            global_synthesis.aspirations,
+            "Opportunités externes à identifier — activez une vraie génération IA.",
+        ),
+        "menaces": "Menaces externes à identifier — activez une vraie génération IA.",
+    }

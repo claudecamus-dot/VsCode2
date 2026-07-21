@@ -22,10 +22,13 @@ from ..routers.synthese import (
     _all_theme_material,
     _apply_global_synthesis_result,
     _apply_recommendations_result,
+    _apply_swot_result,
     _get_or_create_global_synthesis,
+    _get_or_create_swot,
     _total_answer_count,
 )
 from ..services.ai_common import api_key_env_name, is_configured
+from ..services.synthese_ai import SynthesisAIError, generate_swot
 from ..services.analyse_import import (
     AnalysisParseError,
     decode_text_upload,
@@ -57,6 +60,7 @@ def _synthese_context(mission: Mission, error: str | None = None) -> dict:
         "mission": mission,
         "themes": mission.trame.themes if mission.trame else [],
         "global_synthesis": mission.global_synthesis,
+        "swot": mission.swot,
         "axes": mission.recommendation_axes,
         "error": error,
         "ai_ready": is_configured(),
@@ -146,6 +150,37 @@ def apercu_view(mission_id: int, request: Request, db: Session = Depends(get_ses
     return templates.TemplateResponse(request, "synthese/apercu.html", _synthese_context(mission))
 
 
+@router.post("/missions/{mission_id}/swot/generate")
+def generate_swot_view(mission_id: int, request: Request, db: Session = Depends(get_session)):
+    """Génère la matrice SWOT à partir de la synthèse globale déjà produite (pas
+    des réponses brutes, comme les recommandations), puis ré-affiche l'aperçu —
+    l'onglet SWOT montre le résultat, éditable. Pré-condition : la synthèse
+    globale doit exister (la SWOT en découle)."""
+    mission = _get_mission(db, mission_id)
+    global_synthesis = mission.global_synthesis
+    swot = _get_or_create_swot(db, mission)
+
+    error = None
+    if not is_configured():
+        error = (
+            "Service IA indisponible — utilisez l'export pour lancer une "
+            "analyse externe, puis importez le résultat."
+        )
+    elif global_synthesis is None or not global_synthesis.has_content:
+        error = "Générez d'abord la synthèse globale — la SWOT en découle."
+    else:
+        try:
+            result = generate_swot(global_synthesis)
+            _apply_swot_result(swot, result)
+            db.commit()
+        except SynthesisAIError as exc:
+            error = str(exc)
+
+    return templates.TemplateResponse(
+        request, "synthese/apercu.html", _synthese_context(mission, error)
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Étape 4 — Export PowerPoint (respecte la sélection de slides si soumise)
 # --------------------------------------------------------------------------- #
@@ -156,6 +191,7 @@ def export_pptx(
     config_submitted: bool = False,
     sommaire: bool = False,
     synthese: bool = False,
+    swot: bool = False,
     axes_overview: bool = False,
     matrix: bool = False,
     axis: list[int] = Query(default=[]),
@@ -172,6 +208,7 @@ def export_pptx(
         include_kwargs = dict(
             include_sommaire=sommaire,
             include_synthese=synthese,
+            include_swot=swot,
             include_axes_overview=axes_overview,
             include_matrix=matrix,
             include_axis_ids=set(axis),

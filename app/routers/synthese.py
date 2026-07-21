@@ -15,13 +15,21 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from ..db import get_session
-from ..models import GlobalSynthesis, Mission, Recommendation, RecommendationAxis, Theme
+from ..models import (
+    GlobalSynthesis,
+    Mission,
+    MissionSwot,
+    Recommendation,
+    RecommendationAxis,
+    Theme,
+)
 from ..services.ai_common import api_key_env_name
 from ..services.pptx_export import field_fit_hint
 from ..services.synthese_ai import (
     SynthesisAIError,
     generate_global_synthesis,
     generate_recommendations,
+    generate_swot,
     is_configured,
 )
 from ..templating import templates
@@ -31,6 +39,7 @@ router = APIRouter(tags=["synthese"])
 GLOBAL_SYNTH_FIELDS = (
     "contexte", "culture_adn", "forces_succes", "points_amelioration", "aspirations",
 )
+SWOT_FIELDS = ("forces", "faiblesses", "opportunites", "menaces")
 RECO_TEXT_FIELDS = (
     "title", "objectif", "acteurs", "proposition_valeur", "plan_actions", "resultats_attendus",
 )
@@ -52,6 +61,20 @@ def _get_or_create_global_synthesis(db: Session, mission: Mission) -> GlobalSynt
         mission.global_synthesis = GlobalSynthesis(mission_id=mission.id)
         db.add(mission.global_synthesis)
     return mission.global_synthesis
+
+
+def _get_or_create_swot(db: Session, mission: Mission) -> MissionSwot:
+    if mission.swot is None:
+        mission.swot = MissionSwot(mission_id=mission.id)
+        db.add(mission.swot)
+    return mission.swot
+
+
+def _apply_swot_result(swot: MissionSwot, result: dict) -> None:
+    for field in SWOT_FIELDS:
+        setattr(swot, field, result[field])
+    swot.status = "generated"
+    swot.generated_at = datetime.now(timezone.utc)
 
 
 def _get_recommendation(db: Session, recommendation_id: int) -> Recommendation:
@@ -373,3 +396,31 @@ def save_axis_field(
     db.commit()
     hint = _hint_span(f"fit-hint-axis-{axis_id}", "axis_title", value)
     return HTMLResponse(f'<span class="saved">✓ enregistré</span>{hint}')
+
+
+# --------------------------------------------------------------------------- #
+# SWOT (Palier 1 restitution) : matrice dérivée de la synthèse globale, éditée
+# dans l'onglet SWOT de l'aperçu. La génération vit dans export.py (avec
+# l'aperçu) ; ici l'autosave par quadrant, même contrat que la synthèse globale.
+# --------------------------------------------------------------------------- #
+@router.post("/swot/{mission_id}/field")
+def save_swot_field(
+    mission_id: int,
+    field: str = Form(...),
+    value: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    if field not in SWOT_FIELDS:
+        raise HTTPException(status_code=400, detail="Champ inconnu.")
+    mission = _get_mission(db, mission_id)
+    swot = _get_or_create_swot(db, mission)
+    setattr(swot, field, value)
+    if swot.has_content:
+        swot.status = "edited"
+    db.commit()
+    badge = (
+        f'<span class="badge badge-synth-{swot.status}" id="swot-status" '
+        f'hx-swap-oob="true">{swot.status_label}</span>'
+    )
+    hint = _hint_span(f"fit-hint-swot-{field}", "swot_quadrant", value)
+    return HTMLResponse(f'<span class="saved">✓ enregistré</span>{badge}{hint}')

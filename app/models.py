@@ -96,6 +96,11 @@ class Mission(Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    swot: Mapped["MissionSwot | None"] = relationship(
+        back_populates="mission",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
     recommendation_axes: Mapped[list["RecommendationAxis"]] = relationship(
         back_populates="mission",
         cascade="all, delete-orphan",
@@ -399,6 +404,53 @@ class GlobalSynthesis(Base):
             or (self.forces_succes or "").strip()
             or (self.points_amelioration or "").strip()
             or (self.aspirations or "").strip()
+        )
+
+    @property
+    def status_label(self) -> str:
+        return SYNTHESIS_STATUS_LABELS.get(self.status, self.status)
+
+
+class MissionSwot(Base):
+    """Matrice SWOT transverse à la mission (Palier 1 restitution, 2026-07-21).
+
+    Dérivée de la synthèse globale déjà générée (comme les recommandations, pas
+    des réponses brutes) — 4 quadrants libres : forces/faiblesses (regard
+    INTERNE, proches de `forces_succes` / `points_amelioration`) et
+    opportunités/menaces (regard EXTERNE : marché, concurrence, risques — non
+    déductibles des 5 catégories internes, d'où une génération IA dédiée, cf.
+    `docs/reflexions/restitution-mission.md`).
+    """
+
+    __tablename__ = "mission_swots"
+    __table_args__ = (
+        UniqueConstraint("mission_id", name="uq_mission_swot_mission"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mission_id: Mapped[int] = mapped_column(
+        ForeignKey("missions.id", ondelete="CASCADE")
+    )
+    forces: Mapped[str] = mapped_column(Text, default="")
+    faiblesses: Mapped[str] = mapped_column(Text, default="")
+    opportunites: Mapped[str] = mapped_column(Text, default="")
+    menaces: Mapped[str] = mapped_column(Text, default="")
+    # empty | generated | edited
+    status: Mapped[str] = mapped_column(String(20), default="empty")
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow
+    )
+
+    mission: Mapped["Mission"] = relationship(back_populates="swot")
+
+    @property
+    def has_content(self) -> bool:
+        return bool(
+            (self.forces or "").strip()
+            or (self.faiblesses or "").strip()
+            or (self.opportunites or "").strip()
+            or (self.menaces or "").strip()
         )
 
     @property

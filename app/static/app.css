@@ -829,3 +829,15 @@ textarea.htmx-request, input.htmx-request, select.htmx-request {
   .preview-doc { box-shadow: none; border: none; padding: 0; max-width: none; }
   body { background: #fff; }
 }
+
+/* Onglet SWOT de l'aperçu : grille 2×2 (liseré + titre coloré par quadrant,
+   mêmes couleurs sémantiques que _slide_swot du PPT — vert/rouge/bleu/ambre). */
+.swot-generate { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.swot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.swot-cell { border: 1px solid var(--border); border-left-width: 3px; border-radius: 8px; padding: 8px 10px; }
+.swot-cell h4 { margin: 0 0 4px; font-size: .9rem; }
+.swot-cell .ppt-bullets { margin: 0; padding-left: 18px; }
+.swot-forces { border-left-color: #1e6b34; } .swot-forces h4 { color: #1e6b34; }
+.swot-faiblesses { border-left-color: #b3261e; } .swot-faiblesses h4 { color: #b3261e; }
+.swot-opportunites { border-left-color: #2c5cc5; } .swot-opportunites h4 { color: #2c5cc5; }
+.swot-menaces { border-left-color: #b8860b; } .swot-menaces h4 { color: #b8860b; }
