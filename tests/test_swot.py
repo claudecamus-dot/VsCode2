@@ -95,7 +95,7 @@ def test_clean_swot_flattens_ollama_list_shape(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_clean_swot_keeps_plain_string_and_drops_scalars(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Une chaîne déjà propre est conservée telle quelle (pas de re-puçage) ;
+    """Une chaîne à puces est normalisée ligne à ligne (résultat identique ici) ;
     un scalaire non textuel (int) reste traité comme absent, sans planter."""
     monkeypatch.setattr(
         synthese_ai, "_call_claude",
@@ -103,8 +103,35 @@ def test_clean_swot_keeps_plain_string_and_drops_scalars(monkeypatch: pytest.Mon
     )
     result = synthese_ai.generate_swot(GlobalSynthesis())
     assert result["forces"] == ""              # int -> vide, pas de crash
-    assert result["faiblesses"] == "- ok\n- deux"   # chaîne conservée à l'identique
+    assert result["faiblesses"] == "- ok\n- deux"
     assert result["menaces"] == ""             # None -> vide
+
+
+def test_clean_swot_joins_multi_key_object_into_one_bullet(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Constat Edge Case Hunter (revue 2026-07-21) : un objet à PLUSIEURS clés
+    par élément (ex. {force, impact}) ne doit pas être éclaté en puces
+    décorrélées mais joint en UNE seule puce, sinon le libellé perd son lien."""
+    monkeypatch.setattr(
+        synthese_ai, "_call_claude",
+        lambda *a, **k: {
+            "forces": [{"force": "Socle cloud", "impact": "élevé"}],
+            "faiblesses": "", "opportunites": "", "menaces": "",
+        },
+    )
+    result = synthese_ai.generate_swot(GlobalSynthesis())
+    assert result["forces"] == "- Socle cloud — élevé"   # une puce, pas deux
+
+
+def test_clean_swot_drops_empty_bullet_markers(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Constat Edge Case Hunter : un quadrant renvoyé comme chaîne de marqueurs
+    vides ('- \\n- ') ne doit pas passer pour du contenu (sinon has_content=True
+    et une slide/aperçu de puces vides)."""
+    monkeypatch.setattr(
+        synthese_ai, "_call_claude",
+        lambda *a, **k: {"forces": "- \n-  \n•", "faiblesses": "", "opportunites": "", "menaces": ""},
+    )
+    result = synthese_ai.generate_swot(GlobalSynthesis())
+    assert result["forces"] == ""   # marqueurs seuls -> vide, pas de faux contenu
 
 
 def test_generate_demo_swot_reprojects_synthesis() -> None:
@@ -242,3 +269,25 @@ def test_build_presentation_excludes_swot_when_toggled_off() -> None:
     finally:
         db.close()
     assert "Matrice SWOT" not in _all_slide_text(prs)
+
+
+def test_build_presentation_long_swot_quadrant_does_not_overflow() -> None:
+    """Constat Blind/Edge Case Hunter (revue 2026-07-21) : un quadrant très long
+    doit être TRONQUÉ à ce qui tient (paginate=True) et non déborder sur le
+    quadrant voisin. build_presentation appelle verifier_geometrie en fin — il
+    lèverait si une forme sortait du cadre ; le rendu visuel réel est vérifié
+    par pptx-verify (python-pptx ne mesure pas le texte rendu)."""
+    mission_id = _mission_with_global_synthesis("Mission SWOT long")
+    db = SessionLocal()
+    try:
+        mission = db.get(Mission, mission_id)
+        longue = "\n".join(f"- Point d'attention numéro {i} formulé de façon détaillée" for i in range(15))
+        mission.swot = MissionSwot(
+            mission_id=mission_id, status="generated",
+            forces=longue, faiblesses=longue, opportunites=longue, menaces=longue,
+        )
+        db.commit()
+        prs = build_presentation(db.get(Mission, mission_id))  # ne doit pas lever
+    finally:
+        db.close()
+    assert "Matrice SWOT" in _all_slide_text(prs)

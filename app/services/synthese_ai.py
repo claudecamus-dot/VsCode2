@@ -606,6 +606,21 @@ SWOT_SCHEMA = {
 SWOT_KEYS = ("forces", "faiblesses", "opportunites", "menaces")
 
 
+def _bullet_line(item) -> str:
+    """Un élément de quadrant → UNE ligne de texte (sans préfixe puce, marqueurs
+    de puce et blancs retirés). Un objet imbriqué = une seule puce : ses valeurs
+    textuelles sont JOINTES (pas éclatées en puces sans lien) — sinon
+    `[{"force": "Cloud", "impact": "élevé"}]` deviendrait deux puces «Cloud» et
+    «élevé» décorrélées. Une liste imbriquée (rare) est aplatie de même."""
+    if isinstance(item, str):
+        return item.strip().lstrip("-•").strip()
+    if isinstance(item, dict):
+        return " — ".join(t for t in (_bullet_line(v) for v in item.values()) if t)
+    if isinstance(item, list):
+        return " ; ".join(t for t in (_bullet_line(x) for x in item) if t)
+    return ""
+
+
 def _coerce_bullets(value) -> str:
     """Aplati une valeur de quadrant en texte à puces, quelle que soit la forme
     renvoyée par le modèle. Ollama (`format: "json"` garantit du JSON valide,
@@ -615,21 +630,19 @@ def _coerce_bullets(value) -> str:
     sinon "") jetait alors tout le contenu : le passage réel du 2026-07-21
     ressortait les 4 quadrants VIDES malgré une génération pertinente. On aplati
     plutôt que de perdre. Défense en profondeur — `SWOT_JSON_HINT` demande déjà
-    une chaîne, mais un 7-8B local n'obéit pas de façon fiable."""
+    une chaîne, mais un 7-8B local n'obéit pas de façon fiable. Les lignes/puces
+    vides (ex. `"- \n- "` renvoyé par le modèle pour un quadrant sans matière)
+    sont éliminées, pour ne pas faire passer du vide pour du contenu."""
     if isinstance(value, str):
-        return value.strip()
-    if isinstance(value, dict):
-        value = list(value.values())
-    if isinstance(value, list):
-        lines = []
-        for item in value:
-            text = item.strip() if isinstance(item, str) else _coerce_bullets(item)
-            for line in text.splitlines():
-                clean = line.strip().lstrip("-•").strip()
-                if clean:
-                    lines.append(f"- {clean}")
-        return "\n".join(lines)
-    return ""
+        items: list = value.splitlines()
+    elif isinstance(value, dict):
+        items = list(value.values())
+    elif isinstance(value, list):
+        items = value
+    else:
+        return ""
+    lines = [f"- {t}" for t in (_bullet_line(item) for item in items) if t]
+    return "\n".join(lines)
 
 
 def _clean_swot(data) -> dict:

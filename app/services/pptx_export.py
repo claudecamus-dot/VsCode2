@@ -52,8 +52,11 @@ FIELD_SHAPE = {
     "reco_title": dict(width_in=_W_IN - 2 * MARGIN, size_pt=D.TYPE["title"], max_lignes=2),
     "axis_title": dict(width_in=_W_IN - 2 * MARGIN - 2.0, max_h_in=1.1, size_max=D.TYPE["h3"]),
     "synthese_categorie": dict(width_in=_W_IN - 2 * (MARGIN + 0.3), max_h_in=5.0, size_max=20),
-    # Un quadrant SWOT = ~demi-largeur, ~demi-hauteur de la zone de contenu.
-    "swot_quadrant": dict(width_in=(_W_IN - 2 * (MARGIN + 0.3) - 0.25) / 2 - 0.36, max_h_in=2.2, size_max=D.TYPE["small"]),
+    # Un quadrant SWOT = ~demi-largeur de la zone de contenu ; la hauteur de la
+    # zone de PUCES (pas de la carte) = row_h - titre - paddings ≈ 1.9 in sur un
+    # deck vierge (cf. _slide_swot) — pas la demi-hauteur brute (~2.2), qui
+    # surestimait le budget du repère de ~20 % et rendait le fit-hint trompeur.
+    "swot_quadrant": dict(width_in=(_W_IN - 2 * (MARGIN + 0.3) - 0.25) / 2 - 0.36, max_h_in=1.9, size_max=D.TYPE["small"]),
 }
 
 
@@ -386,11 +389,18 @@ def _slide_swot(prs: Presentation, swot) -> None:
             slide, cl + pad, ct + pad * 0.7, col_w - 2 * pad, title_h,
             [(label, {"size": D.TYPE["h3"], "bold": True, "color": color})],
         )
+        # paginate=True : un quadrant trop long est TRONQUÉ à ce qui tient dans
+        # la carte plutôt que de déborder silencieusement sur le quadrant voisin
+        # (verifier_geometrie ne voit pas le débordement de texte intra-forme).
+        # max(0.0, …) : sur un template client au titre bas, la hauteur de zone
+        # pourrait passer négative (le /2 vertical du 2×2 l'amplifie) — jamais de
+        # dimension négative passée à python-pptx.
         _add_bulleted_text(
             slide, cl + pad, ct + pad * 0.7 + title_h, col_w - 2 * pad,
-            row_h - (pad * 0.7 + title_h) - pad,
+            max(0.0, row_h - (pad * 0.7 + title_h) - pad),
             getattr(swot, key) or "—",
             anchor=MSO_ANCHOR.TOP, size_max=D.TYPE["small"], size_min=D.TYPE["tiny"],
+            paginate=True,
         )
 
 

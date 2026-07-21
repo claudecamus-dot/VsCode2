@@ -129,7 +129,7 @@
     <button type="button" class="tab" data-tab="synth-{{ key }}">{{ label }}</button>
     {% endfor %}
     {% endif %}
-    {% if global_synthesis and global_synthesis.has_content %}
+    {% if (global_synthesis and global_synthesis.has_content) or (swot and swot.has_content) %}
     <button type="button" class="tab" data-tab="swot">SWOT</button>
     {% endif %}
     {% if axes %}
@@ -163,6 +163,8 @@
         <div class="slide-preview-body">
           {% set sommaire_sections = [] %}
           {% if global_synthesis and global_synthesis.has_content %}{% set _ = sommaire_sections.append('Synthèse globale') %}{% endif %}
+          {# Même condition que build_presentation (include_swot and swot.has_content) — tenir la parité aperçu/PPT du sommaire. #}
+          {% if swot and swot.has_content %}{% set _ = sommaire_sections.append('Matrice SWOT') %}{% endif %}
           {% if axes %}{% set _ = sommaire_sections.append('Recommandations') %}{% set _ = sommaire_sections.append('Matrice effort / valeur') %}{% endif %}
           <div class="slide-sommaire">
             {% for label in sommaire_sections %}
@@ -195,10 +197,11 @@
     {% endfor %}
     {% endif %}
 
-    {% if global_synthesis and global_synthesis.has_content %}
+    {% if (global_synthesis and global_synthesis.has_content) or (swot and swot.has_content) %}
     <section class="tab-panel two-col" data-panel="swot">
       <div class="deck-pane deck-pane-form">
-        <form method="post" action="/missions/{{ mission.id }}/swot/generate" class="swot-generate">
+        <form method="post" action="/missions/{{ mission.id }}/swot/generate" class="swot-generate"
+          {% if swot and swot.has_content %}onsubmit="return confirm('Remplacer le contenu actuel des 4 quadrants SWOT par une nouvelle génération IA ? Vos modifications manuelles seront perdues.');"{% endif %}>
           <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>
             {% if swot and swot.has_content %}🔄 Régénérer la SWOT (IA){% else %}✨ Générer la SWOT (IA){% endif %}
           </button>
