@@ -101,7 +101,12 @@ py .claude/orchestration/log_run.py '{"demande": "résumé court", "qualificatio
 ```
 
 (JSON aussi accepté sur stdin. `qualification` : `orchestre` | `direct-signale` ;
-`resultat` : `succes` | `partiel` | `echec` ; `playbook` : nom du playbook instancié ou
+`resultat` (issue **discriminante** — pas un `succes` réflexe, constat superviseur
+2026-07-21 « 29/29 succes ne porte aucun signal ») : `succes` = livrable produit ET
+toutes les exigences explicites de la demande couvertes ET vérifications obligatoires
+faites ; `partiel` = au moins une exigence non livrée, une vérification obligatoire
+sautée, OU une escalade non résolue à la remise (commit/PR bloqué renvoyé à
+l'utilisateur) ; `echec` = objectif non atteint / run abandonné ; `playbook` : nom du playbook instancié ou
 `null` en composition libre. Les exécutions directes ne se journalisent pas — le journal
 trace les orchestrations, pas la conversation.)
 

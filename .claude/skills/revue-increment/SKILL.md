@@ -72,76 +72,40 @@ ci-dessus plutôt que d'en dupliquer la logique.
 
 ## 2. Vérification réelle (pytest vert ≠ livré)
 
-- [ ] `pytest -q` passe, et le compte de tests a **augmenté** si du
-      comportement a été ajouté (sinon : pourquoi ?).
-- [ ] **Le verdict pass/fail se lit sur la sortie *réelle* de `pytest`, jamais
-      sur un résumé.** Confirmer `N passed` / `0 failed` / aucune `error` sur la
-      ligne de synthèse elle-même — pas sur un résumé filtré du proxy `rtk` (qui
-      a déjà mal reporté un run, cf.
-      [[feedback-rtk-pytest-false-no-tests-collected]]), ni sur un `[100%]` de
-      fin de sortie **tronquée** (le `FAILED`/`ERROR` sort en queue). En cas de
-      doute : relancer via `rtk proxy pytest` (sans filtrage) ou rediriger toute
-      la sortie dans un fichier et la lire (cf.
-      [[feedback-bash-tmp-path-and-encoding]] pour la capture sur Windows). « OK »
-      annoncé n'est pas « OK » prouvé — un `pytest` KO présenté comme vert est
-      l'échec le plus coûteux (il ferme la vérification au lieu de l'ouvrir).
-- [ ] **Une suite verte qui *mocke* l'intégration modifiée prouve la logique,
-      pas le comportement.** Si le correctif touche un chemin systématiquement
-      monkeypatché dans les tests (appels Ollama/Whisper, `extract_turns_from_text`,
-      export réel), le vert ne couvre que les branches — exiger au moins **un
-      passage réel de bout en bout** avant de déclarer livré (déjà la règle pour
-      l'IA-timeout et le PPT ci-dessous ; ici généralisée à tout mock de
-      l'intégration sous correctif).
-- [ ] Toute surface runtime touchée a été **exercée pour de vrai**, pas juste
-      testée en unitaire :
-  - écran / template / CSS / HTMX → skill `run-dev-server` (lancer +
-    screenshot + regarder), cf. [[feedback-pptx-tests-need-a-real-render-check]]
-    pour le principe « le parseur tolérant ment ».
-  - export `.pptx` → skill `pptx-verify` (rendre + regarder), jamais « les
-    tests passent donc c'est bon ».
-  - correctif de **timeout/perf IA** (Ollama ou autre) → mesurer au moins un
-    appel à la taille **maximale réellement configurée** (ex.
-    `OLLAMA_CHUNK_MAX_WORDS` au max, pas un prompt jouet de quelques mots) —
-    un appel rapide sur un petit échantillon prouve seulement que le modèle
-    répond, pas qu'il répond à temps à l'échelle de production. Leçon du
-    2026-07-19 : un premier correctif de timeout Ollama vérifié sur un petit
-    prompt (21s, chaud) avait conclu à tort que la chaleur du modèle
-    suffisait ; à la taille réellement configurée (1800 mots), le même appel
-    chaud prenait 572s — quasiment le double du timeout. Voir
-    [[feedback-ai-timeout-fix-verify-at-configured-scale]].
-- [ ] **Un rendu réel prouve « ça marche maintenant », pas « ça ne régressera
-      pas ».** Le screenshot `run-dev-server` est un contrôle humain *ponctuel* :
-      quand un bug frontend est corrigé, ou qu'un invariant de structure compte
-      (quelle classe CSS, quel panneau, quel élément est rendu), ajouter **en
-      plus** une assertion au niveau template dans `pytest` (GET via `TestClient`,
-      `assert '…' in response.text`). `pytest` est structurellement aveugle au CSS
-      — une suite verte donne là une fausse confiance — mais il *peut* garder la
-      structure HTML qui déclenche le défaut, et ce garde-fou survit à la séance,
-      contrairement au screenshot. Leçon du 2026-07-21 : une collision de classe
-      CSS (`.tab-panel` réutilisée pour deux systèmes d'onglets aux sémantiques
-      d'affichage opposées) masquait en permanence les 2 panneaux de l'écran
-      d'enregistrement libre ; `pytest` était vert (245) et le correctif est resté
-      non commité jusqu'à ce qu'un rendu manuel le révèle. Le test de régression
-      ajouté (le form rendu utilise `.rec-tab-panel`, jamais `.tab-panel` nu)
-      aurait été **rouge** sur le template bogué — vérifié via `git show`.
-      Corollaire de revue : réutiliser un nom de classe CSS existant avec une
-      sémantique d'affichage différente est un piège de collision silencieuse, à
-      relever au diff. Voir [[feedback-pptx-tests-need-a-real-render-check]] (même
-      principe « le parseur/rendu tolérant ment ») et
-      [[feedback-frontend-render-check-plus-template-regression-test]].
-- [ ] Les cas dégradés sont couverts (pas de clé IA, `mission.trame` absente,
-      entrée vide, fichier corrompu) — ou explicitement documentés comme gap
-      connu, pas silencieusement ignorés.
-- [ ] Correctif appliqué en réponse à une revue externe (`bmad-code-review`,
-      sous-agent adversarial) → **relire le diff du correctif lui-même** avant
-      commit, pas seulement re-vérifier les points signalés — la revue
-      d'origine n'a validé QUE le code *avant* correctif, jamais le correctif.
-      Leçon du 2026-07-20 (Palier 2, entretien segmenté) : `bmad-code-review`
-      (2 sous-agents indépendants) avait trouvé 3 bugs réels ; en les
-      corrigeant, une auto-relecture avant commit — pas les sous-agents, qui
-      n'avaient vu que le code d'avant — a trouvé un 4ᵉ bug introduit par le
-      correctif lui-même (un job frère laissé de côté, perte silencieuse de
-      contenu). Voir [[feedback-adversarial-review-then-reself-review-fixes]].
+- [ ] `pytest -q` passe, et le compte de tests a **augmenté** si du comportement
+      a été ajouté (sinon : pourquoi ?).
+- [ ] **Verdict lu sur la ligne de synthèse *réelle* de `pytest`** (`N passed`,
+      `0 failed`, aucune `error`) — jamais un résumé filtré du proxy `rtk`, ni un
+      `[100%]` de sortie tronquée, ni l'exit code seul (bruit de teardown Windows,
+      désormais neutralisé dans `tests/conftest.py`). En cas de doute, rediriger
+      toute la sortie dans un fichier et la lire.
+      cf. [[feedback-pytest-windows-teardown-noise]],
+      [[feedback-rtk-pytest-false-no-tests-collected]], [[feedback-bash-tmp-path-and-encoding]].
+- [ ] **Une suite verte qui *mocke* l'intégration modifiée prouve la logique, pas
+      le comportement.** Chemin systématiquement monkeypatché (Ollama/Whisper,
+      `extract_turns_from_text`, export réel) → exiger **un passage réel de bout en
+      bout** avant « livré ».
+- [ ] Toute surface runtime touchée **exercée pour de vrai**, pas seulement en
+      unitaire :
+  - écran / template / CSS / HTMX → `run-dev-server` (screenshot regardé).
+  - export `.pptx` → `pptx-verify` (rendu regardé) — python-pptx est un parseur tolérant.
+  - correctif **timeout/perf IA** → mesurer à la taille **maximale réellement
+    configurée** (ex. `OLLAMA_CHUNK_MAX_WORDS` au max), pas un prompt jouet.
+    cf. [[feedback-ai-timeout-fix-verify-at-configured-scale]].
+- [ ] **Un rendu réel prouve « ça marche », pas « ça ne régressera pas ».** Fix
+      frontend ou invariant de structure (quelle classe CSS, quel panneau rendu) →
+      ajouter, **en plus** du screenshot, une assertion au niveau template dans
+      `pytest` (GET `TestClient`, `assert '…' in response.text`) : durable là où le
+      screenshot est ponctuel. Réutiliser un nom de classe CSS existant à sémantique
+      d'affichage différente = collision silencieuse, à relever au diff.
+      cf. [[feedback-frontend-render-check-plus-template-regression-test]],
+      [[feedback-pptx-tests-need-real-render-check]].
+- [ ] Cas dégradés couverts (pas de clé IA, `mission.trame` absente, entrée vide,
+      fichier corrompu) — ou documentés comme gap connu, pas silencieusement ignorés.
+- [ ] Correctif en réponse à une revue externe (`bmad-code-review`, sous-agent
+      adversarial) → **relire le diff du correctif lui-même** avant commit : la revue
+      d'origine n'a validé que le code *d'avant*.
+      cf. [[feedback-adversarial-review-then-reself-review-fixes]].
 
 ## 3. Cohérence de la matière produite
 
@@ -239,6 +203,19 @@ sur une simple liste de « à faire ».
 5. **Boucler** : si une amélioration a fait apparaître un nouveau constat,
    re-trier. Sortir quand il ne reste que des items du 3ᵉ panier (proposés à
    l'utilisateur) ou des gaps explicitement documentés.
+
+## Leçons capitalisées (mémoire)
+
+Les war-stories datées qui justifient les règles ci-dessus vivent dans les mémoires
+`feedback-*` (recall global : `MEMORY.md`) — la checklist les **référence**, ne les
+recopie pas (constat superviseur 2026-07-21 : SKILL.md accumulait les anecdotes) :
+
+- [[feedback-pytest-windows-teardown-noise]] — exit 1 = bruit de teardown, compter les points.
+- [[feedback-rtk-pytest-false-no-tests-collected]] — le proxy rtk a déjà mal reporté un run.
+- [[feedback-ai-timeout-fix-verify-at-configured-scale]] — vérifier un correctif perf IA à la taille réellement configurée.
+- [[feedback-adversarial-review-then-reself-review-fixes]] — relire le correctif issu d'une revue externe.
+- [[feedback-pptx-tests-need-real-render-check]] — python-pptx est un parseur tolérant.
+- [[feedback-frontend-render-check-plus-template-regression-test]] — un fix frontend exige aussi un test au niveau template.
 
 ## Verdict
 

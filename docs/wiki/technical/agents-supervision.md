@@ -9,15 +9,15 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-21T20:11:52+02:00 · **30 sessions** (transcripts) · **61** invocations de skills · **42** lancements de sous-agents.
+Dernier scan : 2026-07-21T21:30:10+02:00 · **31 sessions** (transcripts) · **63** invocations de skills · **42** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `run-dev-server` | projet | 17 | 2026-07-03 | 2026-07-21 |
+| `run-dev-server` | projet | 18 | 2026-07-03 | 2026-07-21 |
 | `agent-orchestrator` | projet | 7 | 2026-07-17 | 2026-07-21 |
-| `agent-supervisor` | projet | 6 | 2026-07-18 | 2026-07-21 |
+| `agent-supervisor` | projet | 7 | 2026-07-18 | 2026-07-21 |
 | `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
 | `revue-increment` | projet | 5 | 2026-07-18 | 2026-07-21 |
 | `roadmap-keeper` | global | 5 | 2026-06-25 | 2026-07-15 |
@@ -78,12 +78,13 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 - **`revue-increment`** (2026-07-20) : Règle définie sur demande (analyse superviseur 2026-07-20, mode d'échec « tests indiqués OK alors qu'ils sont KO ») : revue-increment/SKILL.md §2 + contrat 'tests' du playbook dev-verifie — le verdict pass/fail se lit sur la ligne de synthèse RÉELLE de pytest, jamais sur un résumé filtré du proxy rtk (déjà mal reporté un run, mémoire feedback-rtk-pytest-false-no-tests-collected) ni un [100%] de sortie tronquée ; et une suite verte qui MOCKE l'intégration modifiée (ex. extract_turns_from_text, appels Ollama/Whisper) exige au moins un passage réel de bout en bout avant « livré ».
 - **`revue-increment`** (2026-07-20) : Règle définie sur demande (analyse superviseur 2026-07-20, mode d'échec « dev avec bug ou ne respectant pas la demande ») : revue-increment/SKILL.md §1 (conformité exigence par exigence — chaque point explicite de la demande coché contre le diff, toute exigence écartée dite dans « Reste ») + §7 (demande référençant un état introuvable -> clarifier avant de coder, run 12) + contrat 'implementation' du playbook dev-verifie. Le volet « bug malgré tests verts » reste couvert par le seuil bmad-code-review (>5 fichiers produit / logique à risque) et la relecture du correctif lui-même (arbitrages 2026-07-19/20).
 - **`revue-increment`** (2026-07-21) : Constat sanity du 2026-07-21 (priorité 3) validé et appliqué : le seuil bmad-code-review de revue-increment/SKILL.md déclenche désormais une revue adversariale pour TOUTE modification du JS de concurrence de record_libre.html / record.html (MediaRecorder, timers de rotation, compteurs pendingX, gardes de ré-entrance/génération), quel que soit le nombre de fichiers — le risque y est par fichier (concurrence), et ce fichier a un historique de 7 bugs data-loss trouvés par revue adversariale (runs 20/22) qu'une modif à 1 fichier (run 23) avait failli contourner en auto-relecture seule.
+- **`pytest`** (2026-07-21) : Proposition superviseur du 2026-07-21 appliquée : cause racine du crash de teardown pytest Windows neutralisée dans tests/conftest.py (monkeypatch gardé de cleanup_dead_symlinks, rendu non fatal) — une suite complète sort désormais exit 0 avec la ligne « N passed » visible (vérifié : 246 passed, aucun traceback). Remplace la vigilance manuelle documentée dans feedback-pytest-windows-teardown-noise (3 fausses alertes rien qu'au 2026-07-21).
+- **`runs.jsonl`** (2026-07-21) : Proposition superviseur du 2026-07-21 appliquée : critères d'issue de run définis dans agent-orchestrator/SKILL.md §5 (succes = livrable produit + exigences explicites couvertes + vérifications obligatoires faites ; partiel = au moins une exigence non livrée, une vérif sautée, ou une escalade non résolue à la remise ; echec = objectif non atteint / run abandonné). Run à escalade PR non résolue re-étiqueté « partiel » (runs.jsonl : 28 succes / 1 partiel) — le champ toujours-succes ne portait aucun signal.
+- **`revue-increment`** (2026-07-21) : Proposition superviseur du 2026-07-21 appliquée : revue-increment/SKILL.md §2 allégé (règles terses + section « Leçons capitalisées » indexant les [[feedback-*]]) — les war-stories datées vivent dans les mémoires liées, la checklist les référence sans les recopier (net -23 lignes ; sections §1-§7, Phase B, Verdict intactes ; aucune exigence perdue).
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic ⚠️ à relancer (> 14 j)._
-
-1. **Le playbook export-ppt-verifie -- seule justification arbitree de conserver 4 skills PPT a zero invocation -- n a jamais ete joue, sa premisse reste non exercee** — Ce n est PAS un signal agent-mort (playbook jeune, aucune tache PPT depuis) et la conservation des skills est deja arbitree -- ne pas re-litiguer. Mais l arbitrage a cree une dependance sur un mecanisme jamais exerce : la premiere tache d export PPT est le seul moment qui validera que ces skills gagnent leur place via ce playbook. · **Proposition** : Noter dans catalogue.md a l entree export-ppt-verifie : route obligatoire de TOUTE tache d export PPT (pas de plan PPT ad hoc) ; tant que le playbook reste jamais-joue, traiter la conservation des 3 skills PPT comme non verifiee -- si une tache PPT est traitee sans passer par ce playbook, rouvrir les 4 arbitrages du 2026-07-18.
+_Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés._
 
 ---
 
