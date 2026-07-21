@@ -9,6 +9,144 @@ client). Porte sur trois plans : le **contenu** à restituer, le **design UX/UI*
 projet frère (VSCode1, mirroir `docs/vscode1-export/`) et un brainstorm. Fait suite au
 pipeline de synthèse/recommandations déjà en place.
 
+## Relance (2026-07-21) — état construit et cadrage du rapport complet
+
+Reprise du cadrage à l'aune de l'existant : les **Paliers 1 (SWOT) et 2 (verbatims) sont
+livrés** (commits `e874cee`/`eff8b90` puis `a3ef3a1`). Cette section fait l'état des lieux du
+**rapport tel qu'il est produit aujourd'hui**, ses écarts vs l'étude ci-dessous, et les
+décisions restantes pour un rapport *complet*. Le reste du document (§0-§6) est l'étude
+initiale, conservée comme cadrage d'origine — vérifié contre le code le 2026-07-21.
+
+### A. État construit vs l'étude
+
+| Élément de l'étude (§3/§6) | État | Écart notable |
+| --- | --- | --- |
+| `_slide_swot` (2×2, IA, O/M externe) | **Livré** (Palier 1) | Réglage 5.1 tranché = génération IA (`generate_swot`, `MissionSwot`). +7 correctifs de revue `bmad-code-review` (troncature quadrant, coercion JSON liste/dict, parité sommaire). |
+| `_slide_verbatims` « Paroles d'acteurs » | **Livré** (Palier 2) | **Approche légère** retenue : sélection **manuelle** (cases à cocher), pas de modèle citation neuf — référence par ids sur `Mission.restitution_verbatim_ids`, cartes dimensionnées au contenu. |
+| `_slide_difficultes` + insert citation (§3.2) | **Non livré** | Le Palier 2 léger a sauté la planche « difficultés » dédiée et ses inserts citation ; l'« insert citation prévu de longue date » reste non construit. |
+| Sélection **IA** des verbatims représentatifs | **Non livré** | Manuel pour l'instant (l'utilisateur coche 2-4 citations). |
+| `_slide_maturite` (Palier 3) | **Non livré** | Todo ; décision de paradigme en attente (voir E). |
+
+### B. Le rapport produit aujourd'hui (fonctionnel)
+
+`build_presentation` génère, dans l'ordre, derrière bascules `include_*` (défaut : inclus si
+la matière existe) :
+**Titre → Sommaire → Synthèse** (1 slide / catégorie non vide, 5 max) **→ Matrice SWOT**
+(`include_swot`) **→ Paroles d'acteurs** (`include_verbatims`) **→ Axes d'améliorations**
+(overview) **→ Matrice effort/valeur** (nuage XY natif) **→ Détail par recommandation**
+(jauges). Garde-fou géométrie final (`D.verifier_geometrie`) ; template client hérité ou deck
+OCTO vierge 16:9 (`mission.pptx_template_path`).
+
+Éditeur aperçu (`apercu.html`) : un onglet par slide, avec **onglet SWOT** (4 zones + aperçu
+2×2 live + génération/régénération IA protégée par `confirm`) et **onglet Verbatims** (cases à
+cocher + planche live « Paroles d'acteurs »), parité sommaire aperçu↔PPT tenue. Cases
+d'inclusion export : « Matrice SWOT », « Paroles d'acteurs ».
+
+### C. Cadrage design (conventions réellement construites)
+
+- **SWOT** : grille 2×2, couleurs sémantiques (vert/rouge/bleu/ambre en repli OCTO, dérivables
+  du thème du template), liseré de carte, pagination anti-troncature d'un quadrant long.
+- **Verbatims** : cartes-citations **dimensionnées au contenu** (pas étirées à `area_h/n`,
+  évite les vides), liseré teal, troncature propre avant débordement.
+- **Charte** : template client (thème/masters/logo) ou deck OCTO vierge (Navy `#0E2356` / Cyan
+  `#00D2DD`, pas de dégradé ni d'ombre, différenciation par bordure). Les skills PPT
+  (`pptx-framed-image`, `slide-text-polish`, `restitution-deck-design`) restent le chemin
+  d'enrichissement du playbook `export-ppt-verifie` — **jamais encore exercées sur ce deck**.
+
+### D. Écarts vers le « rapport complet »
+
+1. **Planche « Difficultés » dédiée + inserts citation** (§3.2) — non construite. Aujourd'hui
+   les difficultés vivent dans la slide Synthèse (`points_amelioration`) et les axes de reco ;
+   pas de planche « top difficultés hiérarchisées, chacune avec un verbatim en encadré ». C'est
+   le principal manque *fonctionnel* vs la vision initiale. Coût : une slide + un onglet +
+   un sélecteur de verbatim par difficulté (le sélecteur était déjà prévu §4.1).
+2. **Sélection IA des verbatims** — manuelle aujourd'hui ; un tri auto (1-2 citations
+   représentatives par difficulté/quadrant) allégerait la charge, mais le manuel est défendable
+   (l'humain juge la représentativité). Priorité faible.
+3. **Palier 3 maturité** — voir E.
+4. **Passe design/rendu sur le rapport entier** — le deck a été vérifié *slide par slide*
+   (`pptx-verify` sur SWOT, sur verbatims) mais jamais traversé de bout en bout par
+   `restitution-deck-design` sur une mission réelle complète. Gain de **finition** (cohérence
+   slide-à-slide, hiérarchie visuelle), pas une correction.
+
+### E. Décisions à trancher (arbitrage utilisateur)
+
+- **Palier 3 maturité — go/no-go.** Grille 0-3 par pilier (= thème de trame), *complémentaire*
+  du nuage effort/valeur 1-5 (axes différents, cf. §5.2), pas un remplacement. À ne lancer que
+  si une lecture « maturité » a de la valeur pour la restitution visée — **ajout de paradigme,
+  pas une correction**. Si go : commencer par une **table** (robuste au texte FR long des
+  thèmes) avant le radar.
+- **Planche « Difficultés » + inserts citation — construire ?** Oui si le rapport doit
+  *hiérarchiser* les difficultés (au-delà de leur présence dans la Synthèse) et donner enfin
+  corps à l'insert citation ; sinon l'existant (Synthèse + SWOT + Paroles d'acteurs + axes)
+  couvre déjà « difficultés/améliorations » comme un recadrage d'affichage.
+- **Sélection IA des verbatims — un incrément ?** Reco : différer (manuel suffisant).
+- **Aside code-mort** : `Recommendation.status_label` (renvoie `self.status`, colonne
+  inexistante sur `Recommendation` — copiée de `GlobalSynthesis`) reste à retirer, signalé par
+  l'étude d'origine.
+
+**Synthèse de la relance** : le rapport livre déjà l'essentiel du neuf demandé (SWOT +
+verbatims restitués). Pour un rapport *complet* au sens de l'étude, l'unique manque fonctionnel
+franc est la **planche « Difficultés » hiérarchisées + inserts citation** ; la **maturité**
+(Palier 3) est un choix de paradigme à confirmer ; le reste est **finition** (passe design de
+bout en bout). Aucune de ces trois pistes n'est engagée sans arbitrage — cette relance est un
+cadrage, pas une implémentation.
+
+### F. Enseignements des decks exemples OCTO (analyse 2026-07-21)
+
+Analyse d'un corpus de decks OCTO réels (deux répertoires `Downloads/Exemples…`, ~30 fichiers) —
+en majorité des **propositions commerciales d'assessment** (démarche, équipe, budget, références
+OCTO), et **deux vraies restitutions** décortiquées : `Quality Assessment` (52 slides, structure
+de restitution complète, slides rendues en PNG via PowerPoint COM) et `EPI Assessment Infra`
+(annexes « SWOT / Recommandations », « Synthesis with green/red lights »). *N.B. : contenu client
+confidentiel — seuls les **patterns** de structure et de design sont repris ici, jamais les
+données client.*
+
+**F.1 Structure-type d'une restitution d'assessment OCTO** :
+Cover → **Sommaire numéroté** (01, 02…) → **Executive Summary** → **Méthode d'assessment** (le
+cadre) → **Findings** catégorisés et *benchmarkés* contre un « state of the art » → **Recommandations**
+(cartes d'action priorisées) → **Analyse détaillée** par sujet (derrière intercalaires numérotés)
+→ SWOT / Synthèse « feux ». Le rapport du projet couvre déjà Synthèse / SWOT / Axes / Reco ; il lui
+**manque l'Executive Summary, les intercalaires de section, et une synthèse « feux »**.
+
+**F.2 Conventions design confirmées au rendu réel** :
+- **Palette** : Navy `#0E2356` (titres/texte) + **Cyan `#00D2DD`** (accent), cartes gris clair,
+  blanc — exactement le design system OCTO déjà décrit au §4.2, **confirmé visuellement**.
+- **Titres** : CAPITALES navy précédées d'un **petit trait cyan à gauche** (le « souligné »).
+- **Bandes « key message » cyan** : chaque slide-clé se clôt sur une **bande pleine largeur cyan**,
+  texte blanc gras, portant le « so what » / message à retenir. Pattern fort **absent du générateur**.
+- **Findings / reco en cartes titrées** : titre gras + détail en *italique* + **icône sémantique**
+  (loupe, visage triste/content, boucle de feedback, post-its, le « O » mascotte). Le générateur
+  actuel est en **prose sans icônes**.
+- **Benchmark** : findings cadrés contre une norme (« state of the art > 50% », « maturity model »).
+- **Intercalaires de section** : slide pleine couleur, **gros numéro + chevron `>`** + titre blanc.
+- **Chrome de pied** : tagline « OCTO TECHNOLOGY > THERE IS A BETTER WAY », logo « O », **numéro de
+  slide dans un triangle d'angle coloré**.
+
+**F.3 Ce que ça change pour le cadrage** :
+1. **Executive Summary** *(nouveau ; fort, peu coûteux)* — slide d'ouverture « so what » (constat
+   + message-clé) après le Sommaire ; le pattern d'ouverture le plus systématique des restitutions
+   OCTO, absent du rapport.
+2. **Bandes « key message »** *(design)* — un composant `pptx_deck` « bande cyan pleine largeur »
+   pour le message à retenir de la Synthèse / SWOT / Difficultés.
+3. **Synthèse « feux » vert/ambre/rouge** *(nouveau)* — une slide de statut par thème (vue chez EPI :
+   « Synthesis with green/red lights »). **Adjacente à la maturité** : un score 0-3 se rend
+   naturellement en feux — les deux pistes convergent, à concevoir ensemble.
+4. **Benchmark → renforce la maturité (Palier 3)** — les restitutions OCTO benchmarkent réellement
+   (maturity models, state-of-the-art %). La grille 0-3 par pilier n'est pas un ajout exotique mais
+   **un pattern OCTO courant** ; l'argument « go » de la décision E gagne du poids.
+5. **Planche « Difficultés » en cartes + icônes + benchmark** — le gap fonctionnel D.1/E doit suivre
+   le pattern « findings » observé (cartes titrées, détail italique, icône, bande « so what »), pas
+   une simple liste.
+6. **Icônes + intercalaires + chrome** *(finition)* — le deck actuel est plus minimal ; la passe
+   `restitution-deck-design` (D.4) devrait viser ces conventions.
+
+**Reprise des décisions (E, mise à jour par F)** : la **maturité** est *renforcée* (benchmark =
+pattern OCTO) et **converge** avec une synthèse « feux » ; deux **pistes neuves** à fort ratio
+valeur/coût émergent — **Executive Summary** et **bandes key-message** — que je recommande de
+prioriser *avant* la maturité (ouverture et « so what » percutants, quasi sans risque). La planche
+**Difficultés** reste le manque fonctionnel franc, à construire au pattern « findings » ci-dessus.
+
 ## 0. Ce qui existe déjà et sur quoi s'appuyer (beaucoup)
 
 La restitution n'est pas un chantier vierge : le squelette est déjà là.
