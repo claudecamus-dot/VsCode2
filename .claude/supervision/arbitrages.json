@@ -96,6 +96,18 @@
       "decision": "Proposition superviseur du 2026-07-21 appliquée : revue-increment/SKILL.md §2 allégé (règles terses + section « Leçons capitalisées » indexant les [[feedback-*]]) — les war-stories datées vivent dans les mémoires liées, la checklist les référence sans les recopier (net -23 lignes ; sections §1-§7, Phase B, Verdict intactes ; aucune exigence perdue).",
       "date": "2026-07-21",
       "source": "utilisateur"
+    },
+    {
+      "cible": "revue-increment",
+      "decision": "Constat superviseur du 2026-07-22 (prio 3) appliqué : mémoire feedback-self-review-weak-gate-vs-adversarial-review + règle revue-increment/SKILL.md §2 — au-dessus du seuil bmad-code-review (fidélité frontend, JS de concurrence, >5 fichiers produit), l'auto-relecture n'est PAS le gate ; ne pas présenter « prêt à committer » sur self-review + tests verts, lister les zones à risque pour la revue. Preuve : 2 fois (2026-07-21 exec summary, 2026-07-22 bug répartition) un « rien à corriger » — une fois adossé à un harness Node 6/6 vert + pytest vert — a précédé la découverte par bmad-code-review de défauts réels dont une régression.",
+      "date": "2026-07-22",
+      "source": "utilisateur"
+    },
+    {
+      "cible": "export-ppt-verifie",
+      "decision": "Constat superviseur du 2026-07-22 (prio 1) arbitré : NE PAS rouvrir les arbitrages PPT — la prémisse du playbook (les 3 skills conditionnelles gagnent leur place via export-ppt-verifie) sera exercée lors de la GÉNÉRATION du deck PPT complet à venir, à laquelle ce constat est relié. Une slide isolée ajoutée au générateur existant (ex. Executive Summary, commit 2e43358) se vérifie par pptx-verify seul et ne déclenche pas le playbook, qui vise un livrable = deck de restitution complet.",
+      "date": "2026-07-22",
+      "source": "utilisateur"
     }
   ]
 }

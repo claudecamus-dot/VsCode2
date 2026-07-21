@@ -106,6 +106,15 @@ ci-dessus plutôt que d'en dupliquer la logique.
       adversarial) → **relire le diff du correctif lui-même** avant commit : la revue
       d'origine n'a validé que le code *d'avant*.
       cf. [[feedback-adversarial-review-then-reself-review-fixes]].
+- [ ] **Au-dessus du seuil bmad-code-review** (fidélité frontend, JS de concurrence,
+      > 5 fichiers produit), **l'auto-relecture n'est PAS le gate** : ne jamais
+      présenter « prêt à committer » sur la seule foi de la self-review + tests verts.
+      La revue adversariale tranche ; en self-review, *lister les zones à risque à lui
+      soumettre*, pas conclure « rien à corriger ». Constat superviseur 2026-07-22 :
+      2 fois (2026-07-21 exec summary, 2026-07-22 bug répartition) un « rien à corriger »
+      — une fois adossé à un harness Node 6/6 vert + pytest vert — a précédé la
+      découverte par bmad-code-review de défauts réels, dont une **régression**.
+      cf. [[feedback-self-review-weak-gate-vs-adversarial-review]].
 
 ## 3. Cohérence de la matière produite
 

@@ -828,12 +828,12 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-21T21:30:10+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-22T01:46:24+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>31 sessions</strong> couvertes · <strong>63</strong> invocations de skills · <strong>42</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>31 sessions</strong> couvertes · <strong>65</strong> invocations de skills · <strong>42</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-07-21 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
+        <div class="tag-source">scan_transcripts.py · 2026-07-22 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
 
       <h3>Skills — usage réel</h3>
@@ -842,12 +842,12 @@ pytest -k "pptx or export"                                                     #
           <thead><tr><th>Skill</th><th>Famille</th><th>Invocations</th><th>Première</th><th>Dernière</th></tr></thead>
           <tbody>
             <tr><td><code>run-dev-server</code></td><td>projet</td><td>18</td><td>2026-07-03</td><td>2026-07-21</td></tr>
+            <tr><td><code>agent-supervisor</code></td><td>projet</td><td>8</td><td>2026-07-18</td><td>2026-07-21</td></tr>
             <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>7</td><td>2026-07-17</td><td>2026-07-21</td></tr>
-            <tr><td><code>agent-supervisor</code></td><td>projet</td><td>7</td><td>2026-07-18</td><td>2026-07-21</td></tr>
             <tr><td><code>update-config</code></td><td>(builtin/session)</td><td>6</td><td>2026-07-03</td><td>2026-07-16</td></tr>
             <tr><td><code>revue-increment</code></td><td>projet</td><td>5</td><td>2026-07-18</td><td>2026-07-21</td></tr>
             <tr><td><code>roadmap-keeper</code></td><td>global</td><td>5</td><td>2026-06-25</td><td>2026-07-15</td></tr>
-            <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>3</td><td>2026-07-20</td><td>2026-07-21</td></tr>
+            <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>4</td><td>2026-07-20</td><td>2026-07-21</td></tr>
             <tr><td><code>pptx-verify</code></td><td>global</td><td>3</td><td>2026-07-03</td><td>2026-07-21</td></tr>
             <tr><td><code>run</code></td><td>(builtin/session)</td><td>3</td><td>2026-06-29</td><td>2026-07-03</td></tr>
             <tr><td><code>pptx-deck</code></td><td>global</td><td>2</td><td>2026-07-02</td><td>2026-07-03</td></tr>
@@ -900,6 +900,8 @@ pytest -k "pptx or export"                                                     #
         <li><strong><code>pytest</code></strong> (2026-07-21) : Proposition superviseur du 2026-07-21 appliquée : cause racine du crash de teardown pytest Windows neutralisée dans tests/conftest.py (monkeypatch gardé de cleanup_dead_symlinks, rendu non fatal) — une suite complète sort désormais exit 0 avec la ligne « N passed » visible (vérifié : 246 passed, aucun traceback). Remplace la vigilance manuelle documentée dans feedback-pytest-windows-teardown-noise (3 fausses alertes rien qu'au 2026-07-21).</li>
         <li><strong><code>runs.jsonl</code></strong> (2026-07-21) : Proposition superviseur du 2026-07-21 appliquée : critères d'issue de run définis dans agent-orchestrator/SKILL.md §5 (succes = livrable produit + exigences explicites couvertes + vérifications obligatoires faites ; partiel = au moins une exigence non livrée, une vérif sautée, ou une escalade non résolue à la remise ; echec = objectif non atteint / run abandonné). Run à escalade PR non résolue re-étiqueté « partiel » (runs.jsonl : 28 succes / 1 partiel) — le champ toujours-succes ne portait aucun signal.</li>
         <li><strong><code>revue-increment</code></strong> (2026-07-21) : Proposition superviseur du 2026-07-21 appliquée : revue-increment/SKILL.md §2 allégé (règles terses + section « Leçons capitalisées » indexant les [[feedback-*]]) — les war-stories datées vivent dans les mémoires liées, la checklist les référence sans les recopier (net -23 lignes ; sections §1-§7, Phase B, Verdict intactes ; aucune exigence perdue).</li>
+        <li><strong><code>revue-increment</code></strong> (2026-07-22) : Constat superviseur du 2026-07-22 (prio 3) appliqué : mémoire feedback-self-review-weak-gate-vs-adversarial-review + règle revue-increment/SKILL.md §2 — au-dessus du seuil bmad-code-review (fidélité frontend, JS de concurrence, &gt;5 fichiers produit), l'auto-relecture n'est PAS le gate ; ne pas présenter « prêt à committer » sur self-review + tests verts, lister les zones à risque pour la revue. Preuve : 2 fois (2026-07-21 exec summary, 2026-07-22 bug répartition) un « rien à corriger » — une fois adossé à un harness Node 6/6 vert + pytest vert — a précédé la découverte par bmad-code-review de défauts réels dont une régression.</li>
+        <li><strong><code>export-ppt-verifie</code></strong> (2026-07-22) : Constat superviseur du 2026-07-22 (prio 1) arbitré : NE PAS rouvrir les arbitrages PPT — la prémisse du playbook (les 3 skills conditionnelles gagnent leur place via export-ppt-verifie) sera exercée lors de la GÉNÉRATION du deck PPT complet à venir, à laquelle ce constat est relié. Une slide isolée ajoutée au générateur existant (ex. Executive Summary, commit 2e43358) se vérifie par pptx-verify seul et ne déclenche pas le playbook, qui vise un livrable = deck de restitution complet.</li>
       </ul>
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
       <p><em>Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés.</em></p>
