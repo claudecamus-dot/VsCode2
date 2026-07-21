@@ -481,7 +481,11 @@ input[type=text].turn-section-input:placeholder-shown {
 }
 .rec-tab:hover { color: var(--text); }
 .rec-tab.active { color: var(--accent-dark); border-bottom-color: var(--accent); font-weight: 600; }
-.tab-panel { padding-top: 12px; }
+/* Classe DISTINCTE de `.tab-panel` (onglets de la synthèse/aperçu, qui vaut
+   display:none + .active plus bas) : ici les panneaux sont visibles par défaut
+   et masqués via l'attribut `hidden` (JS). Réutiliser `.tab-panel` faisait que
+   `.tab-panel{display:none}` cachait transcription ET répartition en permanence. */
+.rec-tab-panel { padding-top: 12px; }
 .tab-panel-actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
 /* Aperçu répartition en lecture seule, calé sur le document PDF exporté
    (build_turns_only_pdf) : cadre « page » clair, dialogue par section, préfixe

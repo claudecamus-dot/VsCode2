@@ -73,7 +73,7 @@
     <button type="button" role="tab" aria-selected="true" class="rec-tab active" data-tab="transcription">Transcription</button>
     <button type="button" role="tab" aria-selected="false" class="rec-tab" data-tab="repartition">Répartition (Q/R)</button>
   </div>
-  <div id="tab-transcription" class="tab-panel">
+  <div id="tab-transcription" class="rec-tab-panel">
     <textarea class="record-transcript" id="rec-transcript" rows="10" readonly
       placeholder="Le texte transcrit apparaîtra ici au fil de l'enregistrement…">{{ identity.transcript if identity else '' }}</textarea>
     <div class="tab-panel-actions">
@@ -83,7 +83,7 @@
               title="Exporte le texte transcrit tel qu'affiché ci-dessus, sans passer par l'extraction IA">⬇️ Télécharger la transcription (PDF)</button>
     </div>
   </div>
-  <div id="tab-repartition" class="tab-panel" hidden>
+  <div id="tab-repartition" class="rec-tab-panel" hidden>
     <p class="muted" id="rec-repartition-status">La répartition question/réponses (tours de parole) apparaîtra ici <strong>en lecture seule</strong>, au fil de l'enregistrement (extraite en tâche de fond par tranches de 5 min). La relecture et la correction éventuelle se font à l'étape suivante.</p>
     <div id="rec-repartition" class="preview-doc"></div>
     <div class="tab-panel-actions">
@@ -94,7 +94,7 @@
 
   <div class="form-actions">
     <a class="btn" href="/">Annuler</a>
-    <button class="btn btn-primary" type="submit" id="rec-submit" disabled>Extraire questions/réponses</button>
+    <button class="btn btn-primary" type="submit" id="rec-submit" disabled>Continuer vers les tours de parole →</button>
   </div>
 </form>
 
