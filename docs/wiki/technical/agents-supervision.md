@@ -9,7 +9,7 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-21T08:56:30+02:00 · **28 sessions** (transcripts) · **56** invocations de skills · **38** lancements de sous-agents.
+Dernier scan : 2026-07-21T09:11:05+02:00 · **28 sessions** (transcripts) · **56** invocations de skills · **38** lancements de sous-agents.
 
 ## Skills — usage réel
 
@@ -77,6 +77,7 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 - **`revue-design-parallele`** (2026-07-20) : Proposition ① du diagnostic 2026-07-20 retenue et appliquée : garde déterministe ajoutée au contrat de l'étape consolidation (playbook revue-design-parallele) — quand le fan-out sert à une énumération exhaustive AVANT suppression/renommage, un grep -r final de chaque identifiant retiré est obligatoire et prime sur les rapports des sous-agents (extraits, non exhaustifs). Preuve : réf bmad-spec (bmad-architecture:29) ratée par un fan-out de 3 Explore, rattrapée seulement au grep final avant un git rm (runs 2026-07-18).
 - **`revue-increment`** (2026-07-20) : Règle définie sur demande (analyse superviseur 2026-07-20, mode d'échec « tests indiqués OK alors qu'ils sont KO ») : revue-increment/SKILL.md §2 + contrat 'tests' du playbook dev-verifie — le verdict pass/fail se lit sur la ligne de synthèse RÉELLE de pytest, jamais sur un résumé filtré du proxy rtk (déjà mal reporté un run, mémoire feedback-rtk-pytest-false-no-tests-collected) ni un [100%] de sortie tronquée ; et une suite verte qui MOCKE l'intégration modifiée (ex. extract_turns_from_text, appels Ollama/Whisper) exige au moins un passage réel de bout en bout avant « livré ».
 - **`revue-increment`** (2026-07-20) : Règle définie sur demande (analyse superviseur 2026-07-20, mode d'échec « dev avec bug ou ne respectant pas la demande ») : revue-increment/SKILL.md §1 (conformité exigence par exigence — chaque point explicite de la demande coché contre le diff, toute exigence écartée dite dans « Reste ») + §7 (demande référençant un état introuvable -> clarifier avant de coder, run 12) + contrat 'implementation' du playbook dev-verifie. Le volet « bug malgré tests verts » reste couvert par le seuil bmad-code-review (>5 fichiers produit / logique à risque) et la relecture du correctif lui-même (arbitrages 2026-07-19/20).
+- **`revue-increment`** (2026-07-21) : Constat sanity du 2026-07-21 (priorité 3) validé et appliqué : le seuil bmad-code-review de revue-increment/SKILL.md déclenche désormais une revue adversariale pour TOUTE modification du JS de concurrence de record_libre.html / record.html (MediaRecorder, timers de rotation, compteurs pendingX, gardes de ré-entrance/génération), quel que soit le nombre de fichiers — le risque y est par fichier (concurrence), et ce fichier a un historique de 7 bugs data-loss trouvés par revue adversariale (runs 20/22) qu'une modif à 1 fichier (run 23) avait failli contourner en auto-relecture seule.
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 

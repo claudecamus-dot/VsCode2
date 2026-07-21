@@ -31,10 +31,17 @@ skill BMAD est plus outillé — ne pas réimplémenter à la main :
 - Revue de code adversariale (Blind Hunter / Edge Case / Acceptance) →
   **`bmad-code-review`** (Phase B, panier « qualité ») — **obligatoire** si le diff
   touche plus de 5 fichiers produit (`app/`, hors tests/docs) ou une logique à risque
-  (suppression/écrasement de données, authentification, export irréversible) ; en
-  dessous de ce seuil, la revue inline de la Phase A suffit. Seuil ajouté le 2026-07-19
-  après constat du superviseur (étage 2) : sans règle explicite, la délégation ne s'était
-  jamais déclenchée en pratique malgré plusieurs incréments qui l'auraient justifiée.
+  (suppression/écrasement de données, authentification, export irréversible) ; **et
+  toujours, quel que soit le nombre de fichiers, pour toute modification du JS de
+  concurrence de `record_libre.html` / `record.html`** (MediaRecorder, timers de
+  rotation, compteurs `pendingX`, gardes de ré-entrance/génération) — ce fichier a un
+  historique de 7 bugs data-loss trouvés par revue adversariale (Palier 2 + bugs du
+  2026-07-20) que l'auto-relecture avait laissés passer ; le risque y est **par
+  fichier** (concurrence), pas au nombre de fichiers. En dessous de ces seuils, la revue
+  inline de la Phase A suffit. Seuil > 5 fichiers ajouté le 2026-07-19 après constat du
+  superviseur (étage 2) ; volet « JS d'enregistrement » ajouté le 2026-07-21 (même
+  source, données run 20/22/23 : une modif de concurrence à 1 fichier était passée en
+  auto-relecture seule sous le seuil).
 - Rétrospective de fin d'epic (leçons, succès) → **`bmad-retrospective`**
   (recouvre la Phase A §7 « façon de travailler » à l'échelle epic).
 - Changement de cap significatif en cours de sprint → **`bmad-correct-course`**.

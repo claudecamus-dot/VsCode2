@@ -72,6 +72,12 @@
       "decision": "Règle définie sur demande (analyse superviseur 2026-07-20, mode d'échec « dev avec bug ou ne respectant pas la demande ») : revue-increment/SKILL.md §1 (conformité exigence par exigence — chaque point explicite de la demande coché contre le diff, toute exigence écartée dite dans « Reste ») + §7 (demande référençant un état introuvable -> clarifier avant de coder, run 12) + contrat 'implementation' du playbook dev-verifie. Le volet « bug malgré tests verts » reste couvert par le seuil bmad-code-review (>5 fichiers produit / logique à risque) et la relecture du correctif lui-même (arbitrages 2026-07-19/20).",
       "date": "2026-07-20",
       "source": "utilisateur"
+    },
+    {
+      "cible": "revue-increment",
+      "decision": "Constat sanity du 2026-07-21 (priorité 3) validé et appliqué : le seuil bmad-code-review de revue-increment/SKILL.md déclenche désormais une revue adversariale pour TOUTE modification du JS de concurrence de record_libre.html / record.html (MediaRecorder, timers de rotation, compteurs pendingX, gardes de ré-entrance/génération), quel que soit le nombre de fichiers — le risque y est par fichier (concurrence), et ce fichier a un historique de 7 bugs data-loss trouvés par revue adversariale (runs 20/22) qu'une modif à 1 fichier (run 23) avait failli contourner en auto-relecture seule.",
+      "date": "2026-07-21",
+      "source": "utilisateur"
     }
   ]
 }
