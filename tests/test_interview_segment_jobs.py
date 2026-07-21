@@ -549,6 +549,43 @@ def test_record_libre_recovers_failed_job_individually_never_whole_transcript(
     assert calls == ["texte de la tranche 2 (échouée)"]
 
 
+def test_record_libre_surfaces_actionable_error_when_all_jobs_fail(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """B1 (revue adversariale 2026-07-22) : quand la finalisation passe par le
+    chemin JOB (le fix « répartition Q/R vide » force désormais un job même pour
+    un entretien court) et que TOUS les jobs échouent (ex. timeout Ollama), l'écran
+    doit resurfacer le message ACTIONABLE du job (levier OLLAMA_TIMEOUT/…), pas le
+    générique trompeur « Aucun tour de parole détecté ». Parité avec le chemin
+    synchrone (status total==0) qui le remonte déjà via str(exc). Sans ce fix, le
+    chemin job avalait l'exception dans job.error et l'utilisateur voyait « aucun
+    tour détecté » alors qu'Ollama avait simplement timeouté."""
+    mission_id = _make_draft_mission()
+    db = SessionLocal()
+    db.add(InterviewSegmentJob(
+        session_token="err-tok", position=0, status="failed",
+        text="texte de la tranche", error="ancienne erreur",
+    ))
+    db.commit()
+    db.close()
+
+    ACTIONABLE = "Ollama n a pas repondu a temps — augmentez OLLAMA_TIMEOUT ou reduisez OLLAMA_CHUNK_MAX_WORDS."
+
+    def _boom(text):
+        raise interview_segment_jobs.InterviewLibreExtractAIError(ACTIONABLE)
+
+    monkeypatch.setattr(interview_segment_jobs, "extract_turns_from_text", _boom)
+    monkeypatch.setattr(interviews_router, "extract_turns_from_text", _boom)
+
+    resp = client.post(
+        f"/missions/{mission_id}/interviews/record-libre",
+        data={"transcript": "un entretien court", "session_token": "err-tok", "segment_tail": ""},
+    )
+    assert resp.status_code == 200
+    assert "OLLAMA_TIMEOUT" in resp.text                    # message actionable resurface
+    assert "Aucun tour de parole détecté" not in resp.text  # jamais le generique trompeur
+
+
 def test_record_libre_stale_job_recovered_at_finalize(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

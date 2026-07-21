@@ -217,6 +217,7 @@
     if (!slice.trim()) return;  // rien de neuf à traiter sur cette tranche
     var pos = segmentJobPosition;
     var sliceEnd = coveredLen + slice.length;
+    var gen = backupGeneration;  // session courante : garde anti-poison inter-session (E2)
     var formData = new FormData();
     formData.append('session_token', sessionToken);
     formData.append('position', pos);
@@ -226,6 +227,12 @@
     fetch('/interviews/segment-jobs', { method: 'POST', body: formData })
       .then(function (res) {
         if (!res.ok) throw new Error('job non créé');
+        // Garde de génération (Edge Case Hunter 2026-07-22) : un POST de job encore
+        // en vol au moment d'un reset/redémarrage ne doit PAS avancer le coveredLen
+        // de la NOUVELLE session — sinon `sliceEnd > coveredLen(=0)` empoisonne
+        // l'enregistrement suivant, dont les 1ers caractères ne sont alors ni dans
+        // un job de la nouvelle session ni dans segment_tail : perte silencieuse.
+        if (gen !== backupGeneration) return;
         // Job bien créé : on avance le curseur, ce texte est pris en charge
         // en tâche de fond.
         if (sliceEnd > coveredLen) {
@@ -240,7 +247,10 @@
         // à l'arrêt. Aucune tranche perdue.
       })
       .finally(function () {
-        pendingSegmentJobSubmits--;
+        // Planché : un job en vol traversant un reset/redémarrage résout dans une
+        // nouvelle session (compteur remis à zéro) — sans plancher, le décrément
+        // le passerait négatif et le gate « Extraire » ne bloquerait plus jamais.
+        pendingSegmentJobSubmits = Math.max(0, pendingSegmentJobSubmits - 1);
         updateSubmitState();
       });
   }
@@ -289,6 +299,13 @@
   }
 
   function uploadSegment(blob) {
+    // Garde de génération (calquée sur uploadBackup) : un segment de transcription
+    // encore en vol au moment d'un « Recommencer »/redémarrage ne doit pas
+    // ressusciter le texte d'une session abandonnée dans la nouvelle (constat Edge
+    // Case Hunter 2026-07-22 : sans ça le texte jeté était réaffiché PUIS soumis
+    // comme job d'extraction + rendu dans l'onglet Répartition + « Continuer »
+    // réactivé sur un contenu que l'utilisateur croyait supprimé).
+    var gen = backupGeneration;
     pendingSegments++;
     updateSubmitState();
     var formData = new FormData();
@@ -298,6 +315,7 @@
         return res.json().then(function (data) { return { ok: res.ok, data: data }; });
       })
       .then(function (result) {
+        if (gen !== backupGeneration) return;  // session abandonnée : ne pas ressusciter
         if (result.ok && result.data.text) {
           appendTranscript(result.data.text);
         } else if (!result.ok) {
@@ -311,6 +329,7 @@
       .finally(function () {
         pendingSegments--;
         updateSubmitState();
+        maybeSubmitFinalJob();  // transcription stabilisée -> job final si aucun n'a couvert le reliquat
       });
   }
 
@@ -410,6 +429,7 @@
       .finally(function () {
         pendingSegments--;
         updateSubmitState();
+        maybeSubmitFinalJob();  // transcription stabilisée -> job final si aucun n'a couvert le reliquat
       });
   });
 
@@ -482,6 +502,28 @@
       statusEl.textContent = 'Micro inaccessible : ' + err.message;
     });
   });
+
+  function maybeSubmitFinalJob() {
+    // Bug 2026-07-22 : une transcription complète mais AUCUN job d'extraction
+    // laisse l'onglet Répartition VIDE — cas d'un entretien plus court que
+    // JOB_SEGMENT_MS (5 min : le timer 5 min n'a jamais fired), du reliquat final
+    // d'un entretien long, et du widget « Test » (transcription seule, sans
+    // session d'enregistrement). Dès que la transcription est STABILISÉE (plus
+    // d'enregistrement en cours, plus de segment de transcription en vol), on
+    // soumet le reliquat non couvert comme un dernier job d'extraction ; le poll
+    // (sessionToken conservé après l'arrêt) l'affiche. submitSegmentJob avance
+    // coveredLen puis vide segment_tail -> pas de double traitement à l'extraction
+    // finale ; ses gardes (pendingSegmentJobSubmits, slice.trim) le rendent
+    // idempotent, donc un appel par .finally de segment est sûr.
+    if (recordingActive) return;      // encore en cours : le timer 5 min s'en charge
+    if (pendingSegments > 0) return;  // une transcription de segment est encore en vol
+    if (!transcriptSoFar.slice(coveredLen).trim()) return;  // rien de neuf à extraire
+    if (!sessionToken) {              // widget Test : aucune session d'enregistrement encore
+      sessionToken = newSessionToken();
+      sessionTokenHidden.value = sessionToken;
+    }
+    submitSegmentJob();
+  }
 
   stopBtn.addEventListener('click', function () {
     recordingActive = false;

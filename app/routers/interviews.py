@@ -458,9 +458,17 @@ def _finalize_libre_turns(
             return _libre_turns_error(request, mission, identity, str(exc))
         merged = merge_segment_turns(status["jobs"], tail_result)
         if not merged["turns"]:
+            # B1 (revue adversariale 2026-07-22) : un job qui échoue (ex. timeout
+            # Ollama) avale son exception dans `job.error` — sans ce resurfaçage,
+            # l'utilisateur ne verrait que le message générique ci-dessous, trompeur
+            # (« aucun tour détecté » alors qu'Ollama a timeouté), et le message
+            # actionable (levier OLLAMA_TIMEOUT/OLLAMA_CHUNK_MAX_WORDS/SYNTHESE_MODEL,
+            # patiemment construit dans ai_common) serait perdu. Le chemin synchrone
+            # (status total==0) le remonte déjà via str(exc) — on tient la parité.
+            job_error = next((j.error for j in status["jobs"] if j.error), None)
             return _libre_turns_error(
                 request, mission, identity,
-                "Aucun tour de parole détecté (tranches et reliquat vides).",
+                job_error or "Aucun tour de parole détecté (tranches et reliquat vides).",
             )
         extracted = merged
 
