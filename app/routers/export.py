@@ -20,15 +20,21 @@ from ..db import PPTX_TEMPLATES_DIR, get_session
 from ..models import Mission
 from ..routers.synthese import (
     _all_theme_material,
+    _apply_executive_summary_result,
     _apply_global_synthesis_result,
     _apply_recommendations_result,
     _apply_swot_result,
+    _get_or_create_executive_summary,
     _get_or_create_global_synthesis,
     _get_or_create_swot,
     _total_answer_count,
 )
 from ..services.ai_common import api_key_env_name, is_configured
-from ..services.synthese_ai import SynthesisAIError, generate_swot
+from ..services.synthese_ai import (
+    SynthesisAIError,
+    generate_executive_summary,
+    generate_swot,
+)
 from ..services.analyse_import import (
     AnalysisParseError,
     decode_text_upload,
@@ -61,6 +67,7 @@ def _synthese_context(mission: Mission, error: str | None = None) -> dict:
         "themes": mission.trame.themes if mission.trame else [],
         "global_synthesis": mission.global_synthesis,
         "swot": mission.swot,
+        "executive_summary": mission.executive_summary,
         "axes": mission.recommendation_axes,
         "error": error,
         "ai_ready": is_configured(),
@@ -181,6 +188,38 @@ def generate_swot_view(mission_id: int, request: Request, db: Session = Depends(
     )
 
 
+@router.post("/missions/{mission_id}/executive-summary/generate")
+def generate_executive_summary_view(
+    mission_id: int, request: Request, db: Session = Depends(get_session)
+):
+    """Génère l'executive summary à partir de la synthèse globale déjà produite
+    (comme la SWOT), puis ré-affiche l'aperçu — l'onglet Executive Summary montre
+    le résultat, éditable. Pré-condition : la synthèse globale doit exister."""
+    mission = _get_mission(db, mission_id)
+    global_synthesis = mission.global_synthesis
+    es = _get_or_create_executive_summary(db, mission)
+
+    error = None
+    if not is_configured():
+        error = (
+            "Service IA indisponible — utilisez l'export pour lancer une "
+            "analyse externe, puis importez le résultat."
+        )
+    elif global_synthesis is None or not global_synthesis.has_content:
+        error = "Générez d'abord la synthèse globale — l'executive summary en découle."
+    else:
+        try:
+            result = generate_executive_summary(global_synthesis)
+            _apply_executive_summary_result(es, result)
+            db.commit()
+        except SynthesisAIError as exc:
+            error = str(exc)
+
+    return templates.TemplateResponse(
+        request, "synthese/apercu.html", _synthese_context(mission, error)
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Étape 4 — Export PowerPoint (respecte la sélection de slides si soumise)
 # --------------------------------------------------------------------------- #
@@ -190,6 +229,7 @@ def export_pptx(
     db: Session = Depends(get_session),
     config_submitted: bool = False,
     sommaire: bool = False,
+    executive_summary: bool = False,
     synthese: bool = False,
     swot: bool = False,
     verbatims: bool = False,
@@ -208,6 +248,7 @@ def export_pptx(
     if config_submitted:
         include_kwargs = dict(
             include_sommaire=sommaire,
+            include_executive_summary=executive_summary,
             include_synthese=synthese,
             include_swot=swot,
             include_verbatims=verbatims,

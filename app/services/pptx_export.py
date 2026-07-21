@@ -57,6 +57,17 @@ FIELD_SHAPE = {
     # deck vierge (cf. _slide_swot) — pas la demi-hauteur brute (~2.2), qui
     # surestimait le budget du repère de ~20 % et rendait le fit-hint trompeur.
     "swot_quadrant": dict(width_in=(_W_IN - 2 * (MARGIN + 0.3) - 0.25) / 2 - 0.36, max_h_in=1.9, size_max=D.TYPE["small"]),
+    # Executive summary (piste F) : panneau pleine largeur (constat + points) et
+    # bande cyan « key message » — mêmes contraintes que la slide (cf.
+    # _slide_executive_summary), pour un fit-hint fidèle dans l'aperçu.
+    # headline / key_message : rendus à taille FIXE (h3) et tronqués à 2 lignes par
+    # _slide_executive_summary -> hint en mode size_pt/max_lignes (annonce la
+    # troncature, ne PROMET pas de réduction de police que la slide ne fait pas).
+    # Constat revue adversariale 2026-07-21 : l'ancien mode max_h_in promettait un
+    # shrink inexistant (même classe de dérive que le fit-hint SWOT déjà corrigé).
+    "es_headline": dict(width_in=_W_IN - 2 * (MARGIN + 0.3) - 0.48, size_pt=D.TYPE["h3"], max_lignes=2),
+    "es_points": dict(width_in=_W_IN - 2 * (MARGIN + 0.3) - 0.48, max_h_in=2.5, size_max=D.TYPE["body"]),
+    "es_key_message": dict(width_in=_W_IN - 2 * (MARGIN + 0.3) - 0.48, size_pt=D.TYPE["h3"], max_lignes=2),
 }
 
 
@@ -366,6 +377,65 @@ _SWOT_QUADRANTS = [
 ]
 
 
+def _slide_executive_summary(prs: Presentation, es) -> None:
+    """Slide d'ouverture « Executive Summary » (piste F restitution, 2026-07-21) :
+    un panneau constat + points clés, et une bande cyan « key message » (le
+    so-what) en bas — pattern relevé sur les vraies restitutions OCTO (Executive
+    Summary + bande de message à retenir), cf.
+    docs/reflexions/restitution-mission.md §F. Placée juste après le sommaire."""
+    slide, w_in, h_in, top = _new_slide(prs, "Executive Summary")
+    accent = "#00D2DD"  # cyan OCTO
+    area_l = MARGIN + 0.3
+    area_w = w_in - 2 * (MARGIN + 0.3)
+    pad = 0.24
+    band_h = 0.9
+    band_gap = 0.3
+    band_t = h_in - 0.5 - band_h
+    # max(0.0, …) : sur un template client au titre bas, la hauteur de carte
+    # pourrait passer négative — jamais de dimension négative à python-pptx.
+    card_h = max(0.0, band_t - band_gap - top)
+
+    D.add_card(slide, area_l, top, area_w, card_h, accent)
+    headline = (getattr(es, "headline", "") or "").strip()
+    # hl_h borné à card_h : garde le bloc constat AU-DESSUS de la bande (fixée en
+    # bas, toujours on-slide) même sur un template client au titre bas — sans ça
+    # une carte écrasée laissait le constat déborder/entrer en collision avec la
+    # bande, voire sortir du cadre (crash verifier_geometrie). Constat Edge Case
+    # Hunter 2026-07-21 : le garde-fou max(0.0) sur card_h ne couvrait pas ce bloc.
+    hl_h = min(0.7, card_h) if headline else 0.0
+    if headline:
+        # Tronqué à 2 lignes (comme le key message) : taille fixe h3, la boîte ne
+        # shrink pas — un headline long (ou une liste Ollama aplatie en une ligne)
+        # déborderait sinon sur les puces (constat Blind/Edge Case Hunter 2026-07-21).
+        headline = D.tronquer_a_lignes(headline, area_w - 2 * pad, D.TYPE["h3"], 2)
+        D.add_text(
+            slide, area_l + pad, top + pad, area_w - 2 * pad, hl_h,
+            [(headline, {"size": D.TYPE["h3"], "bold": True, "color": D.INK})],
+        )
+    # paginate=True : des points trop longs sont TRONQUÉS à la carte plutôt que
+    # de déborder (verifier_geometrie ne voit pas le débordement intra-forme).
+    _add_bulleted_text(
+        slide, area_l + pad, top + pad + hl_h, area_w - 2 * pad,
+        max(0.0, card_h - (pad + hl_h) - pad),
+        getattr(es, "points", "") or "—",
+        anchor=MSO_ANCHOR.TOP, size_max=D.TYPE["body"], size_min=D.TYPE["small"],
+        paginate=True,
+    )
+
+    key_message = (getattr(es, "key_message", "") or "").strip()
+    if key_message:
+        D.add_rect(slide, area_l, band_t, area_w, band_h, fill=accent, rounded=True, radius=0.12)
+        # Bande à hauteur fixe : un message trop long déborderait sans que
+        # verifier_geometrie ne le voie -> tronqué à 2 lignes.
+        msg = D.tronquer_a_lignes(key_message, area_w - 2 * pad, D.TYPE["h3"], 2)
+        D.add_text(
+            slide, area_l + pad, band_t, area_w - 2 * pad, band_h,
+            [(msg, {"size": D.TYPE["h3"], "bold": True, "color": "#ffffff",
+                    "align": PP_ALIGN.CENTER})],
+            anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER,
+        )
+
+
 def _slide_swot(prs: Presentation, swot) -> None:
     """Matrice SWOT 2×2 — une carte par quadrant (add_card, liseré coloré),
     titre coloré + puces. Grille : Forces (haut-g), Faiblesses (haut-d),
@@ -596,6 +666,7 @@ def build_presentation(
     mission: Mission,
     template_path: Path | None = None,
     include_sommaire: bool = True,
+    include_executive_summary: bool = True,
     include_synthese: bool = True,
     include_swot: bool = True,
     include_verbatims: bool = True,
@@ -627,11 +698,14 @@ def build_presentation(
 
     gs = mission.global_synthesis
     swot = mission.swot
+    executive_summary = mission.executive_summary
     verbatims = mission.selected_verbatims
     axes = list(mission.recommendation_axes)
     selected_axes = [a for a in axes if include_axis_ids is None or a.id in include_axis_ids]
 
     sections = []
+    if include_executive_summary and executive_summary and executive_summary.has_content:
+        sections.append("Executive Summary")
     if include_synthese and gs and gs.has_content:
         sections.append("Synthèse globale")
     if include_swot and swot and swot.has_content:
@@ -644,6 +718,9 @@ def build_presentation(
         sections.append("Matrice effort / valeur")
     if include_sommaire:
         _slide_sommaire(prs, sections or ["Synthèse globale", "Recommandations"])
+
+    if include_executive_summary and executive_summary and executive_summary.has_content:
+        _slide_executive_summary(prs, executive_summary)
 
     if include_synthese and gs and gs.has_content:
         categories = [

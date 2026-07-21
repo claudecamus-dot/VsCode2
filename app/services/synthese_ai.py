@@ -682,3 +682,94 @@ def generate_demo_swot(global_synthesis) -> dict:
         ),
         "menaces": "Menaces externes à identifier — activez une vraie génération IA.",
     }
+
+
+# --------------------------------------------------------------------------- #
+# Executive summary (piste F restitution, 2026-07-21) : synthèse d'ouverture
+# « so what » (constat + points clés + message à retenir), dérivée de la synthèse
+# globale (comme la SWOT). Pattern des vraies restitutions OCTO — cf.
+# docs/reflexions/restitution-mission.md §F. Un seul appel, pas de map-reduce.
+# --------------------------------------------------------------------------- #
+EXEC_SUMMARY_SYSTEM = (
+    "Tu es consultant·e senior. À partir d'une synthèse transverse d'entretiens "
+    "(contexte, culture, forces, points d'amélioration, aspirations), produis "
+    "l'executive summary d'une restitution en français — le « so what » du "
+    "rapport, percutant et court :\n"
+    "- headline : UNE phrase de constat d'ensemble (la situation telle qu'elle est) ;\n"
+    "- points : 2 à 4 points clés en puces (les enseignements majeurs) ;\n"
+    "- key_message : UNE phrase, le message à retenir / la décision à prendre.\n"
+    "Reste factuel, synthétique, orienté décision."
+)
+
+EXEC_SUMMARY_JSON_HINT = (
+    "\nRéponds UNIQUEMENT par un objet JSON aux clés \"headline\", \"points\", "
+    "\"key_message\". \"headline\" et \"key_message\" sont des chaînes ; "
+    "\"points\" est une chaîne à puces (une par ligne, préfixée « - »)."
+)
+
+EXEC_SUMMARY_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "headline": {"type": "string"},
+        "points": {"type": "string"},
+        "key_message": {"type": "string"},
+    },
+    "required": ["headline", "points", "key_message"],
+    "additionalProperties": False,
+}
+
+EXEC_SUMMARY_KEYS = ("headline", "points", "key_message")
+
+
+def _coerce_line(value) -> str:
+    """Aplati une valeur (str/list/dict) en UNE ligne — même défense que
+    `_coerce_bullets` contre les types inattendus d'Ollama (cf.
+    feedback-ollama-json-type-coercion-flatten-not-drop), mais SANS marqueurs de
+    puces : `headline` et `key_message` sont des phrases, pas des listes."""
+    bulleted = _coerce_bullets(value)
+    if not bulleted:
+        return ""
+    lignes = [ln.lstrip("-•* \t").strip() for ln in bulleted.split("\n")]
+    return " ".join(ln for ln in lignes if ln)
+
+
+def _clean_executive_summary(data) -> dict:
+    """Coerce la réponse JSON vers les 3 champs de `MissionExecutiveSummary` :
+    `points` aplati en puces (comme la SWOT), `headline`/`key_message` en une
+    ligne — jamais jeter un type inattendu, aplatir."""
+    if not isinstance(data, dict):
+        data = {}
+    return {
+        "headline": _coerce_line(data.get("headline")),
+        "points": _coerce_bullets(data.get("points")),
+        "key_message": _coerce_line(data.get("key_message")),
+    }
+
+
+def generate_executive_summary(global_synthesis) -> dict:
+    """Retourne un dict aux 3 clés de `MissionExecutiveSummary`. Lève
+    SynthesisAIError. Dérivée de la synthèse globale (comme la SWOT), un seul
+    appel — la synthèse est déjà condensée."""
+    prompt = _build_reco_prompt(global_synthesis)
+    data = _call_claude(
+        EXEC_SUMMARY_SYSTEM, prompt, EXEC_SUMMARY_SCHEMA, EXEC_SUMMARY_JSON_HINT
+    )
+    return _clean_executive_summary(data)
+
+
+def generate_demo_executive_summary(global_synthesis) -> dict:
+    """Repli hors-ligne (mode démo) — reprojette la synthèse sans IA."""
+    gs = global_synthesis
+    forces = (getattr(gs, "forces_succes", "") or "").strip()
+    points = (getattr(gs, "points_amelioration", "") or "").strip()
+    aspir = (getattr(gs, "aspirations", "") or "").strip()
+    corps = "\n".join(x for x in (forces, points) if x)
+    return {
+        "headline": "Restitution : des forces à capitaliser, des points d'amélioration à traiter.",
+        "points": corps or "- Synthèse à générer (mode démo).",
+        "key_message": (
+            aspir.split("\n")[0].lstrip("-•* ").strip()
+            if aspir
+            else "Prioriser les actions à plus forte valeur."
+        ),
+    }

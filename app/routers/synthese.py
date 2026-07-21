@@ -18,6 +18,7 @@ from ..db import get_session
 from ..models import (
     GlobalSynthesis,
     Mission,
+    MissionExecutiveSummary,
     MissionSwot,
     Recommendation,
     RecommendationAxis,
@@ -40,6 +41,7 @@ GLOBAL_SYNTH_FIELDS = (
     "contexte", "culture_adn", "forces_succes", "points_amelioration", "aspirations",
 )
 SWOT_FIELDS = ("forces", "faiblesses", "opportunites", "menaces")
+EXEC_SUMMARY_FIELDS = ("headline", "points", "key_message")
 RECO_TEXT_FIELDS = (
     "title", "objectif", "acteurs", "proposition_valeur", "plan_actions", "resultats_attendus",
 )
@@ -75,6 +77,24 @@ def _apply_swot_result(swot: MissionSwot, result: dict) -> None:
         setattr(swot, field, result[field])
     swot.status = "generated"
     swot.generated_at = datetime.now(timezone.utc)
+
+
+def _get_or_create_executive_summary(
+    db: Session, mission: Mission
+) -> MissionExecutiveSummary:
+    if mission.executive_summary is None:
+        mission.executive_summary = MissionExecutiveSummary(mission_id=mission.id)
+        db.add(mission.executive_summary)
+    return mission.executive_summary
+
+
+def _apply_executive_summary_result(
+    es: MissionExecutiveSummary, result: dict
+) -> None:
+    for field in EXEC_SUMMARY_FIELDS:
+        setattr(es, field, result[field])
+    es.status = "generated"
+    es.generated_at = datetime.now(timezone.utc)
 
 
 def _get_recommendation(db: Session, recommendation_id: int) -> Recommendation:
@@ -423,6 +443,29 @@ def save_swot_field(
         f'hx-swap-oob="true">{swot.status_label}</span>'
     )
     hint = _hint_span(f"fit-hint-swot-{field}", "swot_quadrant", value)
+    return HTMLResponse(f'<span class="saved">✓ enregistré</span>{badge}{hint}')
+
+
+@router.post("/executive-summary/{mission_id}/field")
+def save_executive_summary_field(
+    mission_id: int,
+    field: str = Form(...),
+    value: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    if field not in EXEC_SUMMARY_FIELDS:
+        raise HTTPException(status_code=400, detail="Champ inconnu.")
+    mission = _get_mission(db, mission_id)
+    es = _get_or_create_executive_summary(db, mission)
+    setattr(es, field, value)
+    if es.has_content:
+        es.status = "edited"
+    db.commit()
+    badge = (
+        f'<span class="badge badge-synth-{es.status}" id="es-status" '
+        f'hx-swap-oob="true">{es.status_label}</span>'
+    )
+    hint = _hint_span(f"fit-hint-es-{field}", f"es_{field}", value)
     return HTMLResponse(f'<span class="saved">✓ enregistré</span>{badge}{hint}')
 
 

@@ -106,6 +106,11 @@ class Mission(Base):
         cascade="all, delete-orphan",
         uselist=False,
     )
+    executive_summary: Mapped["MissionExecutiveSummary | None"] = relationship(
+        back_populates="mission",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
     recommendation_axes: Mapped[list["RecommendationAxis"]] = relationship(
         back_populates="mission",
         cascade="all, delete-orphan",
@@ -472,6 +477,51 @@ class MissionSwot(Base):
             or (self.faiblesses or "").strip()
             or (self.opportunites or "").strip()
             or (self.menaces or "").strip()
+        )
+
+    @property
+    def status_label(self) -> str:
+        return SYNTHESIS_STATUS_LABELS.get(self.status, self.status)
+
+
+class MissionExecutiveSummary(Base):
+    """Synthèse d'ouverture (« executive summary ») d'une restitution de mission.
+
+    Le « so what » du rapport, en tête de deck : un constat d'ensemble
+    (`headline`), quelques points clés (`points`, en puces) et un message à
+    retenir (`key_message`, rendu en bande cyan). Dérivé de la synthèse globale
+    déjà produite (comme la SWOT et les recommandations), éditable dans l'aperçu.
+    Pattern relevé sur les vraies restitutions OCTO (Executive Summary + bande
+    « key message »), cf. `docs/reflexions/restitution-mission.md` §F.
+    """
+
+    __tablename__ = "mission_executive_summaries"
+    __table_args__ = (
+        UniqueConstraint("mission_id", name="uq_mission_exec_summary_mission"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mission_id: Mapped[int] = mapped_column(
+        ForeignKey("missions.id", ondelete="CASCADE")
+    )
+    headline: Mapped[str] = mapped_column(Text, default="")
+    points: Mapped[str] = mapped_column(Text, default="")
+    key_message: Mapped[str] = mapped_column(Text, default="")
+    # empty | generated | edited
+    status: Mapped[str] = mapped_column(String(20), default="empty")
+    generated_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow
+    )
+
+    mission: Mapped["Mission"] = relationship(back_populates="executive_summary")
+
+    @property
+    def has_content(self) -> bool:
+        return bool(
+            (self.headline or "").strip()
+            or (self.points or "").strip()
+            or (self.key_message or "").strip()
         )
 
     @property

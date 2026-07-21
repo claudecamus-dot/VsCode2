@@ -53,6 +53,9 @@
     <input type="hidden" name="config_submitted" value="1">
     <div class="pptx-config-grid">
       <label class="pptx-check"><input type="checkbox" name="sommaire" value="true" checked> Sommaire</label>
+      {% if executive_summary and executive_summary.has_content %}
+      <label class="pptx-check"><input type="checkbox" name="executive_summary" value="true" checked> Executive Summary</label>
+      {% endif %}
       {% if global_synthesis and global_synthesis.has_content %}
       <label class="pptx-check"><input type="checkbox" name="synthese" value="true" checked> Synthèse globale (5 slides)</label>
       {% endif %}
@@ -124,6 +127,9 @@
   <div class="tab-strip">
     <button type="button" class="tab" data-tab="title">Titre</button>
     <button type="button" class="tab" data-tab="sommaire">Sommaire</button>
+    {% if (global_synthesis and global_synthesis.has_content) or (executive_summary and executive_summary.has_content) %}
+    <button type="button" class="tab" data-tab="executive-summary">Executive Summary</button>
+    {% endif %}
     {% if global_synthesis %}
     {% for key, label in [
       ('contexte', 'Contexte'), ('culture_adn', 'Culture & ADN'), ('forces_succes', 'Forces & succès'),
@@ -168,6 +174,7 @@
       <div class="deck-pane deck-pane-preview">
         <div class="slide-preview-body">
           {% set sommaire_sections = [] %}
+          {% if executive_summary and executive_summary.has_content %}{% set _ = sommaire_sections.append('Executive Summary') %}{% endif %}
           {% if global_synthesis and global_synthesis.has_content %}{% set _ = sommaire_sections.append('Synthèse globale') %}{% endif %}
           {# Même condition que build_presentation (include_swot and swot.has_content) — tenir la parité aperçu/PPT du sommaire. #}
           {% if swot and swot.has_content %}{% set _ = sommaire_sections.append('Matrice SWOT') %}{% endif %}
@@ -202,6 +209,40 @@
       </div>
     </section>
     {% endfor %}
+    {% endif %}
+
+    {% if (global_synthesis and global_synthesis.has_content) or (executive_summary and executive_summary.has_content) %}
+    <section class="tab-panel two-col" data-panel="executive-summary">
+      <div class="deck-pane deck-pane-form">
+        <form method="post" action="/missions/{{ mission.id }}/executive-summary/generate" class="swot-generate"
+          {% if executive_summary and executive_summary.has_content %}onsubmit="return confirm('Remplacer cet executive summary par une nouvelle génération IA ? Vos modifications manuelles seront perdues.');"{% endif %}>
+          <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>
+            {% if executive_summary and executive_summary.has_content %}🔄 Régénérer l'executive summary (IA){% else %}✨ Générer l'executive summary (IA){% endif %}
+          </button>
+          {% if executive_summary %}<span class="badge badge-synth-{{ executive_summary.status }}" id="es-status">{{ executive_summary.status_label }}</span>{% endif %}
+          {% if not ai_ready %}<span class="muted">Service IA indisponible ({{ api_key_env }}).</span>{% endif %}
+        </form>
+        {% if executive_summary %}
+        {{ text_field("Constat d'ensemble (headline)", '/executive-summary/' ~ mission.id ~ '/field', 'headline', executive_summary.headline, 'fit-hint-es-headline', 'preview-es-headline', 'es-saved-headline', rows=2, fit_key='es_headline') }}
+        <span id="es-saved-headline" class="saved"></span>
+        {{ bullet_field('Points clés', '/executive-summary/' ~ mission.id ~ '/field', 'points', executive_summary.points, 'fit-hint-es-points', 'preview-es-points', 'es-saved-points', rows=4, fit_key='es_points') }}
+        <span id="es-saved-points" class="saved"></span>
+        {{ text_field('Message à retenir (key message)', '/executive-summary/' ~ mission.id ~ '/field', 'key_message', executive_summary.key_message, 'fit-hint-es-key_message', 'preview-es-key_message', 'es-saved-key_message', rows=2, fit_key='es_key_message') }}
+        <span id="es-saved-key_message" class="saved"></span>
+        {% else %}
+        <p class="muted">Lance la génération pour obtenir un premier executive summary (dérivé de la synthèse globale), puis affine-le ici — il ouvre le deck de restitution.</p>
+        {% endif %}
+      </div>
+      <div class="deck-pane deck-pane-preview">
+        <div class="slide-preview-body">
+          <div class="es-preview">
+            <p class="es-headline" id="preview-es-headline">{{ executive_summary.headline if executive_summary else '' }}</p>
+            <ul id="preview-es-points" class="ppt-bullets">{% for line in ((executive_summary.points if executive_summary else '') or '').splitlines() if line.strip() %}<li>{{ line.strip().lstrip('-•').strip() }}</li>{% endfor %}</ul>
+            <div class="es-band" id="preview-es-key_message">{{ executive_summary.key_message if executive_summary else '' }}</div>
+          </div>
+        </div>
+      </div>
+    </section>
     {% endif %}
 
     {% if (global_synthesis and global_synthesis.has_content) or (swot and swot.has_content) %}
