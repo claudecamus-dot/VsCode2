@@ -398,6 +398,31 @@ def test_status_endpoint_unknown_token_is_empty(client: TestClient) -> None:
     assert body == {"total": 0, "done": 0, "failed": 0, "all_done": False, "any_failed": False}
 
 
+def test_turns_endpoint_merges_done_jobs_in_position_order(client: TestClient) -> None:
+    """Aperçu live (onglet « Répartition », Palier A) : fusionne les tours des
+    jobs TERMINÉS par position, exclut ceux encore en cours, sans appel IA."""
+    db = SessionLocal()
+    db.add(InterviewSegmentJob(session_token="turns-tok", position=1, status="done",
+                               text="x", turns_result=_turns_payload("Bob", "Q1")))
+    db.add(InterviewSegmentJob(session_token="turns-tok", position=0, status="done",
+                               text="x", turns_result=_turns_payload("Alice", "Q0")))
+    db.add(InterviewSegmentJob(session_token="turns-tok", position=2, status="running",
+                               text="x"))  # pas encore terminé -> absent de l'aperçu
+    db.commit()
+    db.close()
+
+    resp = client.get("/interviews/segment-jobs/turns", params={"session_token": "turns-tok"})
+    body = resp.json()
+    assert body["total"] == 3
+    assert body["done"] == 2
+    assert [t["question"] for t in body["turns"]] == ["Q0", "Q1"]
+
+
+def test_turns_endpoint_unknown_token_is_empty(client: TestClient) -> None:
+    resp = client.get("/interviews/segment-jobs/turns", params={"session_token": "nope"})
+    assert resp.json() == {"turns": [], "done": 0, "total": 0}
+
+
 # --------------------------------------------------------------------------- #
 # HTTP — record_libre : attente vs fusion vs récupération bornée
 # --------------------------------------------------------------------------- #

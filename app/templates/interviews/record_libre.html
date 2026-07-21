@@ -69,9 +69,19 @@
     <a class="btn-link" id="rec-audio-download" download>Télécharger l'enregistrement</a>
   </div>
 
-  <textarea class="record-transcript" id="rec-transcript" rows="10" readonly
-    placeholder="Le texte transcrit apparaîtra ici au fil de l'enregistrement…">{{ identity.transcript if identity else '' }}</textarea>
-  <button class="btn-link" type="button" id="rec-reset" {% if not (identity and identity.transcript) %}hidden{% endif %}>Recommencer</button>
+  <div class="rec-tabs" role="tablist">
+    <button type="button" role="tab" aria-selected="true" class="rec-tab active" data-tab="transcription">Transcription</button>
+    <button type="button" role="tab" aria-selected="false" class="rec-tab" data-tab="repartition">Répartition (Q/R)</button>
+  </div>
+  <div id="tab-transcription" class="tab-panel">
+    <textarea class="record-transcript" id="rec-transcript" rows="10" readonly
+      placeholder="Le texte transcrit apparaîtra ici au fil de l'enregistrement…">{{ identity.transcript if identity else '' }}</textarea>
+    <button class="btn-link" type="button" id="rec-reset" {% if not (identity and identity.transcript) %}hidden{% endif %}>Recommencer</button>
+  </div>
+  <div id="tab-repartition" class="tab-panel" hidden>
+    <p class="muted" id="rec-repartition-status">La répartition question/réponses (tours de parole) apparaîtra ici <strong>en lecture seule</strong>, au fil de l'enregistrement (extraite en tâche de fond par tranches de 5 min). La relecture et la correction éventuelle se font à l'étape suivante.</p>
+    <div id="rec-repartition" class="preview-doc"></div>
+  </div>
 
   <div class="form-actions">
     <a class="btn" href="/">Annuler</a>
@@ -85,7 +95,7 @@
 <script>
 (function () {
   var SEGMENT_MS = 60000;
-  var BACKUP_SEGMENT_MS = 30 * 60000;
+  var BACKUP_SEGMENT_MS = 20 * 60000;
   // Extraction « au fil de l'eau » : cadence de soumission des jobs d'extraction,
   // DÉCOUPLÉE de la rotation audio 30min. Un job toutes les 5 min tient à peu
   // près le rythme de l'inférence CPU (~5min de parole ≈ ~750 mots, traités en
@@ -517,6 +527,65 @@
     submitBtn.disabled = true;
     pdfBtn.disabled = true;
   });
+
+  // ---- Onglets + aperçu live de la répartition (Palier A, lecture seule) ----
+  function escHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+    });
+  }
+
+  function renderRepartition(turns) {
+    var container = document.getElementById('rec-repartition');
+    var statusRep = document.getElementById('rec-repartition-status');
+    if (!turns || !turns.length) {
+      container.innerHTML = '';
+      statusRep.hidden = false;
+      return;
+    }
+    statusRep.hidden = true;
+    var parts = [];
+    turns.forEach(function (t) {
+      if (t.section_title && String(t.section_title).trim()) {
+        parts.push('<h3 class="rec-rep-section">' + escHtml(t.section_title) + '</h3>');
+      }
+      var hasQ = !!(t.question && String(t.question).trim());
+      var speaker = '<strong class="' + (hasQ ? 'rec-rep-q' : 'rec-rep-r') + '">'
+        + escHtml(t.interlocuteur) + '</strong>';
+      var body = hasQ ? escHtml(t.question) : '';
+      if (t.remarque && String(t.remarque).trim()) {
+        body += (body ? ' — ' : '') + escHtml(t.remarque);
+      }
+      parts.push('<p class="rec-rep-turn">' + speaker + ' ' + body + '</p>');
+    });
+    container.innerHTML = parts.join('');
+  }
+
+  function pollRepartition() {
+    if (!sessionToken) return;  // pas encore d'enregistrement -> rien à afficher
+    fetch('/interviews/segment-jobs/turns?session_token=' + encodeURIComponent(sessionToken))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { if (data) renderRepartition(data.turns); })
+      .catch(function () { /* aperçu best-effort : un échec réseau ne casse rien */ });
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.rec-tab'), function (btn) {
+    btn.addEventListener('click', function () {
+      var target = btn.getAttribute('data-tab');
+      Array.prototype.forEach.call(document.querySelectorAll('.rec-tab'), function (b) {
+        var on = (b === btn);
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      document.getElementById('tab-transcription').hidden = (target !== 'transcription');
+      document.getElementById('tab-repartition').hidden = (target !== 'repartition');
+    });
+  });
+
+  // Aperçu best-effort : lit le sessionToken courant à chaque tick (vide tant
+  // qu'aucun enregistrement n'a démarré). Vanilla JS + JSON, comme l'écran
+  // d'attente ; l'onglet 2 se remplit au fil des jobs 5 min terminés en fond.
+  setInterval(pollRepartition, 5000);
 })();
 </script>
 {% endif %}

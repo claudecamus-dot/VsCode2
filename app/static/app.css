@@ -468,10 +468,26 @@ input[type=text].turn-section-input:placeholder-shown {
 .record-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
 .rec-timer { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
 .record-audio-player { max-width: 100%; vertical-align: middle; margin-right: 10px; }
-/* Une tranche audio (entretien > 30 min, plusieurs sauvegardes) : label +
+/* Une tranche audio (entretien > 20 min, plusieurs sauvegardes) : label +
    lecteur + lien de téléchargement sur une ligne, séparées verticalement. */
 .audio-segment { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 0; }
 .audio-segment + .audio-segment { border-top: 1px solid var(--border, #e2e2e2); }
+
+/* Onglets de l'écran d'enregistrement libre : Transcription | Répartition (Q/R) live. */
+.rec-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-top: 12px; }
+.rec-tab {
+  background: none; border: none; padding: 8px 16px; cursor: pointer; font: inherit;
+  color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.rec-tab:hover { color: var(--text); }
+.rec-tab.active { color: var(--accent-dark); border-bottom-color: var(--accent); font-weight: 600; }
+.tab-panel { padding-top: 12px; }
+/* Aperçu répartition en lecture seule : dialogue par section, interlocuteur
+   coloré (teal = tour portant une question, navy = remarque — cf. export PDF). */
+.rec-rep-section { margin: 14px 0 6px; font-size: .95rem; color: var(--text); }
+.rec-rep-turn { margin: 4px 0; line-height: 1.5; }
+.rec-rep-q { color: #0f766e; }
+.rec-rep-r { color: #1e3a5f; }
 #rec-preview { display: block; width: 100%; margin-bottom: 10px; }
 
 /* Protocole / infos de référence (encadré par entretien) */

@@ -34,8 +34,8 @@
 {% set segs = interview.audio_segments | sort(attribute='position') %}
 <div class="card">
   {% if segs | length > 1 %}
-  <h3>Enregistrement audio (par tranche de 30 min)</h3>
-  <p class="muted">Enregistrement de plus de 30 min, sauvegardé en tranches successives pour ne rien perdre en cas d'incident — chaque tranche est écoutable et téléchargeable ci-dessous.</p>
+  <h3>Enregistrement audio (par tranche de 20 min)</h3>
+  <p class="muted">Enregistrement de plus de 20 min, sauvegardé en tranches successives pour ne rien perdre en cas d'incident — chaque tranche est écoutable et téléchargeable ci-dessous.</p>
   {% else %}
   <h3>Enregistrement audio</h3>
   {% endif %}

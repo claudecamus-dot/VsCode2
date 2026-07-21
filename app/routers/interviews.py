@@ -584,6 +584,27 @@ def segment_jobs_status_json(
     )
 
 
+@router.get("/interviews/segment-jobs/turns")
+def segment_jobs_turns_json(
+    session_token: str, db: Session = Depends(get_session)
+):
+    """Tours de parole DÉJÀ extraits (jobs terminés) d'une session — alimente
+    l'aperçu live en lecture seule de l'onglet « Répartition » de
+    `record_libre.html` (Palier A). Lecture seule stricte, AUCUN appel IA : ne
+    fait que fusionner (par `position`) les `turns_result` déjà calculés en
+    tâche de fond. Les tours du reliquat final (< 5 min) et de la synthèse
+    n'apparaissent qu'à l'enregistrement, par le flux existant."""
+    status = segment_jobs_status(db, session_token)
+    merged = merge_segment_turns(status["jobs"], None)
+    return JSONResponse(
+        {
+            "turns": merged["turns"],
+            "done": status["done"],
+            "total": status["total"],
+        }
+    )
+
+
 @router.post("/missions/{mission_id}/interviews/record-libre/from-jobs")
 def record_libre_from_jobs(
     mission_id: int,
