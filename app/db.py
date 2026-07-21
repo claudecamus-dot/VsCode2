@@ -68,7 +68,7 @@ def _add_missing_columns() -> None:
         },
         "trames": {"intro_text": "TEXT"},
         "questions": {"help_text": "TEXT"},
-        "missions": {"pptx_template_path": "TEXT", "is_draft": "BOOLEAN DEFAULT 0"},
+        "missions": {"pptx_template_path": "TEXT", "is_draft": "BOOLEAN DEFAULT 0", "restitution_verbatim_ids": "JSON"},
         "interview_turns": {"section_title": "TEXT"},
         "interview_segment_jobs": {"text": "TEXT DEFAULT ''"},
     }

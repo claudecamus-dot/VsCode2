@@ -424,3 +424,32 @@ def save_swot_field(
     )
     hint = _hint_span(f"fit-hint-swot-{field}", "swot_quadrant", value)
     return HTMLResponse(f'<span class="saved">✓ enregistré</span>{badge}{hint}')
+
+
+# --------------------------------------------------------------------------- #
+# Verbatims restitués (Palier 2) : sélection des citations pour la planche
+# « Paroles d'acteurs ». Approche légère — on maintient sur la mission la liste
+# ordonnée d'ids de `Verbatim` déjà en base (aucun nouveau modèle de citation).
+# --------------------------------------------------------------------------- #
+@router.post("/missions/{mission_id}/verbatims/toggle")
+def toggle_verbatim_selection(
+    mission_id: int,
+    verbatim_id: int = Form(...),
+    selected: bool = Form(False),
+    db: Session = Depends(get_session),
+):
+    mission = _get_mission(db, mission_id)
+    valid = {v.id for v in mission.all_verbatims}
+    # Repart de la sélection courante nettoyée des ids périmés, préserve l'ordre.
+    current = [i for i in (mission.restitution_verbatim_ids or []) if i in valid]
+    if selected and verbatim_id in valid and verbatim_id not in current:
+        current.append(verbatim_id)
+    elif not selected:
+        current = [i for i in current if i != verbatim_id]
+    # Réassignation (pas de mutation in-place) pour que SQLAlchemy voie le JSON changé.
+    mission.restitution_verbatim_ids = current
+    db.commit()
+    return HTMLResponse(
+        f'<span class="saved" id="verbatims-count" hx-swap-oob="true">'
+        f'✓ {len(current)} citation(s) retenue(s) pour la planche</span>'
+    )

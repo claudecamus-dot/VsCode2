@@ -72,6 +72,11 @@ class Mission(Base):
     # existante via /missions/{id}/finaliser. Une mission "classique" (choix
     # « nouvelle mission ») ne passe jamais par cet état.
     is_draft: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Verbatims (`Verbatim.id`) sélectionnés pour la planche « Paroles d'acteurs »
+    # de la restitution (Palier 2, 2026-07-21) — approche légère : on référence
+    # des `Verbatim` déjà en base par id plutôt qu'un nouveau modèle de citation.
+    # Filtré à l'affichage sur les verbatims encore existants (ids périmés ignorés).
+    restitution_verbatim_ids: Mapped[list] = mapped_column(JSON, default=list)
 
     # Une mission possède au plus une trame (1:1). Absente pour une mission
     # brouillon née d'un entretien libre (incr.9, `is_draft`) tant qu'aucune
@@ -106,6 +111,22 @@ class Mission(Base):
         cascade="all, delete-orphan",
         order_by="RecommendationAxis.position",
     )
+
+    @property
+    def all_verbatims(self) -> list["Verbatim"]:
+        """Tous les verbatims de la mission (tous entretiens confondus) — la
+        source de sélection de la planche « Paroles d'acteurs » (Palier 2). Les
+        entretiens libres n'ont pas de `Verbatim` (ils ont des `InterviewTurn`),
+        donc la liste ne contient que des citations d'entretiens structurés."""
+        return [v for iv in self.interviews for v in iv.verbatims]
+
+    @property
+    def selected_verbatims(self) -> list["Verbatim"]:
+        """Les verbatims retenus pour la restitution, dans l'ordre de sélection
+        (`restitution_verbatim_ids`), en ignorant les ids périmés (verbatim
+        supprimé depuis) — jamais de KeyError sur un id obsolète."""
+        by_id = {v.id: v for v in self.all_verbatims}
+        return [by_id[i] for i in (self.restitution_verbatim_ids or []) if i in by_id]
 
 
 class Trame(Base):

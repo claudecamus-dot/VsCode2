@@ -59,6 +59,9 @@
       {% if swot and swot.has_content %}
       <label class="pptx-check"><input type="checkbox" name="swot" value="true" checked> Matrice SWOT</label>
       {% endif %}
+      {% if mission.selected_verbatims %}
+      <label class="pptx-check"><input type="checkbox" name="verbatims" value="true" checked> Paroles d'acteurs ({{ mission.selected_verbatims|length }})</label>
+      {% endif %}
       {% if axes %}
       <label class="pptx-check"><input type="checkbox" name="axes_overview" value="true" checked> Vue d'ensemble des axes</label>
       <label class="pptx-check"><input type="checkbox" name="matrix" value="true" checked> Matrice effort / valeur</label>
@@ -132,6 +135,9 @@
     {% if (global_synthesis and global_synthesis.has_content) or (swot and swot.has_content) %}
     <button type="button" class="tab" data-tab="swot">SWOT</button>
     {% endif %}
+    {% if mission.all_verbatims %}
+    <button type="button" class="tab" data-tab="verbatims">Verbatims</button>
+    {% endif %}
     {% if axes %}
     <button type="button" class="tab" data-tab="axes">Axes</button>
     <button type="button" class="tab" data-tab="matrix">Matrice</button>
@@ -165,6 +171,7 @@
           {% if global_synthesis and global_synthesis.has_content %}{% set _ = sommaire_sections.append('Synthèse globale') %}{% endif %}
           {# Même condition que build_presentation (include_swot and swot.has_content) — tenir la parité aperçu/PPT du sommaire. #}
           {% if swot and swot.has_content %}{% set _ = sommaire_sections.append('Matrice SWOT') %}{% endif %}
+          {% if mission.selected_verbatims %}{% set _ = sommaire_sections.append("Paroles d'acteurs") %}{% endif %}
           {% if axes %}{% set _ = sommaire_sections.append('Recommandations') %}{% set _ = sommaire_sections.append('Matrice effort / valeur') %}{% endif %}
           <div class="slide-sommaire">
             {% for label in sommaire_sections %}
@@ -230,6 +237,45 @@
               <ul id="preview-swot-{{ key }}" class="ppt-bullets">{% for line in ((swot[key] if swot else '') or '').splitlines() if line.strip() %}<li>{{ line.strip().lstrip('-•').strip() }}</li>{% endfor %}</ul>
             </div>
             {% endfor %}
+          </div>
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if mission.all_verbatims %}
+    {% set selected_ids = mission.selected_verbatims | map(attribute='id') | list %}
+    <section class="tab-panel two-col" data-panel="verbatims">
+      <div class="deck-pane deck-pane-form">
+        <p class="muted">Coche les citations à faire figurer sur la planche « Paroles d'acteurs » du deck (2 à 4 recommandées).</p>
+        <p><span class="saved" id="verbatims-count">✓ {{ selected_ids|length }} citation(s) retenue(s) pour la planche</span></p>
+        <ul class="verbatim-picker">
+          {% for v in mission.all_verbatims %}
+          <li class="verbatim-item">
+            <label>
+              <input type="checkbox" value="true"
+                     hx-post="/missions/{{ mission.id }}/verbatims/toggle"
+                     hx-vals='{"verbatim_id": {{ v.id }}}' name="selected" hx-swap="none"
+                     onchange="i2dVerbatimToggle(this, {{ v.id }})"
+                     {% if v.id in selected_ids %}checked{% endif %}>
+              <span class="verbatim-quote">« {{ v.quote }} »</span>
+              <span class="verbatim-who">— {{ v.interview.interviewee_name or 'Anonyme' }}</span>
+            </label>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+      <div class="deck-pane deck-pane-preview">
+        <div class="slide-preview-body">
+          <h3 class="verbatim-board-title">Paroles d'acteurs</h3>
+          <div class="verbatim-board">
+            {% for v in mission.all_verbatims %}
+            <blockquote class="verbatim-card" id="preview-verbatim-{{ v.id }}"{% if v.id not in selected_ids %} hidden{% endif %}>
+              <span class="verbatim-card-who">{{ v.interview.interviewee_name or 'Anonyme' }}</span>
+              <p>« {{ v.quote }} »</p>
+            </blockquote>
+            {% endfor %}
+            <p class="muted verbatim-board-empty"{% if selected_ids %} hidden{% endif %}>Aucune citation retenue — coche des verbatims à gauche.</p>
           </div>
         </div>
       </div>
@@ -414,6 +460,18 @@ function i2dLiveScore(el) {
   target.textContent = n;
   var gauge = target.closest('.ppt-gauge');
   if (gauge) gauge.style.setProperty('--gauge-frac', n / 5);
+}
+
+// Palier 2 — planche « Paroles d'acteurs » : affiche/masque la carte-citation
+// d'aperçu correspondant au verbatim coché (l'autosave serveur passe en HTMX,
+// cf. hx-post sur la case). Met aussi à jour le message « aucune citation ».
+function i2dVerbatimToggle(el, id) {
+  var card = document.getElementById('preview-verbatim-' + id);
+  if (card) card.hidden = !el.checked;
+  var root = el.closest('[data-tabs]') || document;
+  var anyShown = root.querySelectorAll('.verbatim-card:not([hidden])').length > 0;
+  var empty = root.querySelector('.verbatim-board-empty');
+  if (empty) empty.hidden = anyShown;
 }
 </script>
 {% endif %}

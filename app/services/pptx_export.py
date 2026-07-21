@@ -404,6 +404,39 @@ def _slide_swot(prs: Presentation, swot) -> None:
         )
 
 
+def _slide_verbatims(prs: Presentation, verbatims) -> None:
+    """Planche « Paroles d'acteurs » (Palier 2) — une carte-citation par
+    verbatim retenu (attribution en libellé discret, citation en corps italique),
+    empilées depuis le haut, chaque carte DIMENSIONNÉE À SON CONTENU (2 lignes de
+    citation au plus) plutôt qu'étirée à `area_h / n` — sinon une citation d'une
+    ligne laisse un grand vide dans sa carte (constat pptx-verify). Le surplus se
+    reporte en blanc en bas de slide. On s'arrête avant de déborder du cadre
+    (garantit le garde-fou géométrie) — l'onglet aperçu invite à 2-4 citations."""
+    slide, w_in, h_in, top = _new_slide(prs, "Paroles d'acteurs")
+    pad, gap = 0.18, 0.18
+    label_h = 0.3
+    area_l = MARGIN + 0.3
+    area_w = w_in - 2 * (MARGIN + 0.3)
+    area_bottom = h_in - 0.5
+    size = D.TYPE["body"]
+    line_h = _per_line_height_in(size)
+    y = top
+    for v in verbatims:
+        quote = f"«  {(v.quote or '').strip()}  »"
+        q_lines = min(3, max(1, D.estimer_lignes(quote, area_w - 2 * pad, size)))
+        card_h = pad + label_h + q_lines * line_h + pad
+        if y + card_h > area_bottom:  # ne jamais déborder du cadre
+            break
+        D.add_card(slide, area_l, y, area_w, card_h, "#138086")
+        who = (getattr(v.interview, "interviewee_name", "") or "Anonyme").strip() or "Anonyme"
+        _add_measured_field(
+            slide, area_l + pad, y + pad, area_w - 2 * pad,
+            label=who, text=quote, max_h=label_h + q_lines * line_h,
+            size_max=size, size_min=D.TYPE["tiny"], italic=True,
+        )
+        y += card_h + gap
+
+
 _AXES_ROW_H_MAX = 1.1
 _AXES_ROW_GAP = 0.15
 # En dessous de cette hauteur de ligne, le chiffre "#N" (D.TYPE["kpi"]=44pt)
@@ -565,6 +598,7 @@ def build_presentation(
     include_sommaire: bool = True,
     include_synthese: bool = True,
     include_swot: bool = True,
+    include_verbatims: bool = True,
     include_axes_overview: bool = True,
     include_matrix: bool = True,
     include_axis_ids: set[int] | None = None,
@@ -593,6 +627,7 @@ def build_presentation(
 
     gs = mission.global_synthesis
     swot = mission.swot
+    verbatims = mission.selected_verbatims
     axes = list(mission.recommendation_axes)
     selected_axes = [a for a in axes if include_axis_ids is None or a.id in include_axis_ids]
 
@@ -601,6 +636,8 @@ def build_presentation(
         sections.append("Synthèse globale")
     if include_swot and swot and swot.has_content:
         sections.append("Matrice SWOT")
+    if include_verbatims and verbatims:
+        sections.append("Paroles d'acteurs")
     if axes and include_axes_overview:
         sections.append("Recommandations")
     if axes and include_matrix:
@@ -622,6 +659,9 @@ def build_presentation(
 
     if include_swot and swot and swot.has_content:
         _slide_swot(prs, swot)
+
+    if include_verbatims and verbatims:
+        _slide_verbatims(prs, verbatims)
 
     if axes and include_axes_overview:
         _slide_axes_overview(prs, axes, palette)
