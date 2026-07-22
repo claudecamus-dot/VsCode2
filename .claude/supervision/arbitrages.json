@@ -2,6 +2,18 @@
   "_doc": "Décisions humaines qui closent un constat automatique du superviseur (fichier VERSIONNÉ, édité à la main — le scan le lit, ne l'écrit jamais). cible : nom de skill, ou famille:<Nom> pour une famille entière. Un constat arbitré disparaît des TODO auto mais reste visible dans la section « Arbitrages enregistrés » du tableau de bord ; l'usage réel reste mesuré (un arbitrage n'est pas une preuve d'utilité — le superviseur étage 2 peut le re-challenger avec des données nouvelles).",
   "arbitrages": [
     {
+      "cible": "export-ppt-verifie",
+      "decision": "Rétrospective 2026-07-22 (« charte VSCode4 affirmée de mémoire → add-then-revert ») arbitrée : l'étape CADRAGE du playbook exige désormais, quand la demande cite un deck/charte de référence (VSCode3/4, template client), de RENDRE 2-3 slides de la référence (pptx-verify) et d'en extraire les motifs AVANT d'implémenter — interdit d'affirmer une conformité charte de mémoire. Preuve : 816ab02 (ajoute barre d'accent « charte VSCode4 ») → 09c7ba3 (la retire « VSCode4 n'en a pas »), + sommaire/numéro/encarts corrigés seulement après render VSCode4. Mémoire feedback-ground-charte-claims-in-a-render.",
+      "date": "2026-07-22",
+      "source": "utilisateur"
+    },
+    {
+      "cible": "run-dev-server",
+      "decision": "Rétrospective 2026-07-22 arbitrée : run-dev-server/SKILL.md documente le repli quand le screenshot Edge échoue (error 577 malgré les flags, ou hang) — se limiter à la vérif de structure servie (curl) et le DIRE explicitement, ne jamais prétendre avoir vu le rendu. Un échec unique de test réel opt-in (LibreOffice/Ollama) sous charge machine se réexécute isolé avant d'être qualifié régression.",
+      "date": "2026-07-22",
+      "source": "utilisateur"
+    },
+    {
       "cible": "restitution-deck-design",
       "decision": "Diagnostic 2026-07-22 (ppt-designer jamais lancé) arbitré : la passe design n'est plus CONDITIONNELLE auto-jugée mais OBLIGATOIRE dès que le diff touche un layout/composant/couleur de slide (seuil objectif, comme pptx-verify) — étape design-review du playbook export-ppt-verifie amendée. Déclencheur : la skill avait 0 invocation malgré 6+ runs deck, d'où un design ad hoc et une qualité insuffisante signalée à répétition. Lancée pour la 1re fois le 2026-07-22 (encarts gris, sommaire teardrop, image propre).",
       "date": "2026-07-22",

@@ -9,7 +9,7 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-22T12:25:40+02:00 · **32 sessions** (transcripts) · **70** invocations de skills · **45** lancements de sous-agents.
+Dernier scan : 2026-07-22T13:03:24+02:00 · **32 sessions** (transcripts) · **71** invocations de skills · **45** lancements de sous-agents.
 
 ## Skills — usage réel
 
@@ -28,6 +28,7 @@ Dernier scan : 2026-07-22T12:25:40+02:00 · **32 sessions** (transcripts) · **7
 | `skill-creator` | global | 2 | 2026-07-03 | 2026-07-03 |
 | `claude-api` | (builtin/session) | 1 | 2026-06-29 | 2026-06-29 |
 | `init` | (builtin/session) | 1 | 2026-07-03 | 2026-07-03 |
+| `restitution-deck-design` | global | 1 | 2026-07-22 | 2026-07-22 |
 | `slide-text-polish` | projet | 1 | 2026-07-22 | 2026-07-22 |
 
 ## Sous-agents
@@ -54,10 +55,6 @@ Dernier scan : 2026-07-22T12:25:40+02:00 · **32 sessions** (transcripts) · **7
 
 </details>
 
-**global** — 1/5 jamais invoqués :
-
-`restitution-deck-design`
-
 ## TODO agents (constats automatiques)
 
 _(aucun constat — rien à signaler sur les données actuelles)_
@@ -66,6 +63,9 @@ _(aucun constat — rien à signaler sur les données actuelles)_
 
 _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) — l'usage réel reste mesuré ci-dessus._
 
+- **`export-ppt-verifie`** (2026-07-22) : Rétrospective 2026-07-22 (« charte VSCode4 affirmée de mémoire → add-then-revert ») arbitrée : l'étape CADRAGE du playbook exige désormais, quand la demande cite un deck/charte de référence (VSCode3/4, template client), de RENDRE 2-3 slides de la référence (pptx-verify) et d'en extraire les motifs AVANT d'implémenter — interdit d'affirmer une conformité charte de mémoire. Preuve : 816ab02 (ajoute barre d'accent « charte VSCode4 ») → 09c7ba3 (la retire « VSCode4 n'en a pas »), + sommaire/numéro/encarts corrigés seulement après render VSCode4. Mémoire feedback-ground-charte-claims-in-a-render.
+- **`run-dev-server`** (2026-07-22) : Rétrospective 2026-07-22 arbitrée : run-dev-server/SKILL.md documente le repli quand le screenshot Edge échoue (error 577 malgré les flags, ou hang) — se limiter à la vérif de structure servie (curl) et le DIRE explicitement, ne jamais prétendre avoir vu le rendu. Un échec unique de test réel opt-in (LibreOffice/Ollama) sous charge machine se réexécute isolé avant d'être qualifié régression.
+- **`restitution-deck-design`** (2026-07-22) : Diagnostic 2026-07-22 (ppt-designer jamais lancé) arbitré : la passe design n'est plus CONDITIONNELLE auto-jugée mais OBLIGATOIRE dès que le diff touche un layout/composant/couleur de slide (seuil objectif, comme pptx-verify) — étape design-review du playbook export-ppt-verifie amendée. Déclencheur : la skill avait 0 invocation malgré 6+ runs deck, d'où un design ad hoc et une qualité insuffisante signalée à répétition. Lancée pour la 1re fois le 2026-07-22 (encarts gris, sommaire teardrop, image propre).
 - **`export-ppt-verifie`** (2026-07-22) : Plan d'amélioration demandé (2026-07-22, « pour que mes demandes soient prises en compte ») appliqué : une exigence utilisateur explicite (surtout visuelle) est PERSISTANTE d'un tour au suivant — checklist des éléments demandés reportée d'itération en itération et vérifiée au rendu (revue-increment §1 + contrat verification-rendu du playbook). Une contrainte de gabarit se résout en dessinant l'élément, jamais en l'omettant. Déclencheur : numéro de chapitre écarté 3 fois puis corrigé (commit 482c301). Mémoire feedback-persistent-user-request-draw-dont-omit.
 - **`famille:BMAD`** (2026-07-18) : Tri exécuté : 7 skills retirés, 39 conservés (routage sur demande explicite via bmad-help) — docs/reflexions/tri-skills-bmad.md, commit f604c39.
 - **`pptx-framed-image`** (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle cadres-photo).

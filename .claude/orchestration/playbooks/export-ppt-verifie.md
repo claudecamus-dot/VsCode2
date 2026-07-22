@@ -42,7 +42,7 @@ Les deux partagent l'obligation `pptx-verify` et la terminaison `revue-increment
       "modele": "(session)",
       "contrat": {
         "type": "deterministe",
-        "critere": "données de la mission identifiées (synthèse globale, axes, recommandations), template client ou deck vierge choisi, FIELD_SHAPE relu si les constantes de layout bougent (parité aperçu web / PPT)"
+        "critere": "données de la mission identifiées (synthèse globale, axes, recommandations), template client ou deck vierge choisi, FIELD_SHAPE relu si les constantes de layout bougent (parité aperçu web / PPT). SI la demande référence un deck/charte externe (VSCode3/4, template client) : RENDRE 2-3 slides de la référence (pptx-verify) et en extraire les motifs concrets AVANT d'implémenter — INTERDIT d'affirmer une conformité « charte VSCodeN » de mémoire (rétro 2026-07-22 : barre d'accent ajoutée « charte VSCode4 » 816ab02 puis retirée « VSCode4 n'en a pas » 09c7ba3, + sommaire/numéro/encarts corrigés seulement après avoir enfin rendu VSCode4 — l'essentiel des reprises deck venait de là)."
       },
       "checkpoint": false
     },

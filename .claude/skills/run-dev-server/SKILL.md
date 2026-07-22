@@ -87,7 +87,14 @@ environment:
 ```
 
 Then read the PNG. This only captures the page's initial state — it does
-not click or execute interactions. For verifying client-side JS behavior
+not click or execute interactions.
+
+**Si le screenshot échoue quand même (`error code 577` MALGRÉ les flags, ou Edge
+qui hang sur un profil neuf — vu le 2026-07-22)** : ne pas s'acharner. Replier sur
+une **vérif de structure servie** — `curl` la page et vérifier que les éléments
+attendus + le `/static/app.css` sont bien servis (classes, libellés, gating cookie…) —
+et **dire explicitement que le rendu pixel n'a pas pu être vu** (la 1re page démo P5a-1
+a été livrée ainsi). Ne jamais prétendre avoir vu un rendu qu'on n'a pas obtenu. For verifying client-side JS behavior
 (e.g. the apercu editor's tab-switching/live-preview logic in
 `apercu.html`), extract the relevant `<script>` block and exercise it under
 Node with a minimal stubbed `document` object (`getElementById`,

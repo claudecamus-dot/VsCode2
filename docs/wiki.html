@@ -835,10 +835,10 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-22T12:25:40+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-22T13:03:24+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>32 sessions</strong> couvertes · <strong>70</strong> invocations de skills · <strong>45</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>32 sessions</strong> couvertes · <strong>71</strong> invocations de skills · <strong>45</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">scan_transcripts.py · 2026-07-22 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
@@ -861,6 +861,7 @@ pytest -k "pptx or export"                                                     #
             <tr><td><code>skill-creator</code></td><td>global</td><td>2</td><td>2026-07-03</td><td>2026-07-03</td></tr>
             <tr><td><code>claude-api</code></td><td>(builtin/session)</td><td>1</td><td>2026-06-29</td><td>2026-06-29</td></tr>
             <tr><td><code>init</code></td><td>(builtin/session)</td><td>1</td><td>2026-07-03</td><td>2026-07-03</td></tr>
+            <tr><td><code>restitution-deck-design</code></td><td>global</td><td>1</td><td>2026-07-22</td><td>2026-07-22</td></tr>
             <tr><td><code>slide-text-polish</code></td><td>projet</td><td>1</td><td>2026-07-22</td><td>2026-07-22</td></tr>
           </tbody>
         </table>
@@ -883,7 +884,6 @@ pytest -k "pptx or export"                                                     #
       <h3>Jamais utilisés</h3>
       <p><strong>projet</strong> — 1/6 jamais invoqués : <code>pptx-framed-image</code></p>
       <p><strong>BMAD</strong> — 38/39 jamais invoqués : <details><summary>Voir la liste (38)</summary><p><code>bmad-advanced-elicitation</code>, <code>bmad-agent-analyst</code>, <code>bmad-agent-architect</code>, <code>bmad-agent-dev</code>, <code>bmad-agent-pm</code>, <code>bmad-agent-tech-writer</code>, <code>bmad-agent-ux-designer</code>, <code>bmad-architecture</code>, <code>bmad-brainstorming</code>, <code>bmad-check-implementation-readiness</code>, <code>bmad-checkpoint-preview</code>, <code>bmad-correct-course</code>, <code>bmad-create-epics-and-stories</code>, <code>bmad-create-story</code>, <code>bmad-customize</code>, <code>bmad-dev-auto</code>, <code>bmad-dev-story</code>, <code>bmad-document-project</code>, <code>bmad-domain-research</code>, <code>bmad-editorial-review-prose</code>, <code>bmad-editorial-review-structure</code>, <code>bmad-forge-idea</code>, <code>bmad-generate-project-context</code>, <code>bmad-help</code>, <code>bmad-index-docs</code>, <code>bmad-market-research</code>, <code>bmad-party-mode</code>, <code>bmad-prd</code>, <code>bmad-prfaq</code>, <code>bmad-product-brief</code>, <code>bmad-retrospective</code>, <code>bmad-review-adversarial-general</code>, <code>bmad-review-edge-case-hunter</code>, <code>bmad-shard-doc</code>, <code>bmad-sprint-planning</code>, <code>bmad-sprint-status</code>, <code>bmad-technical-research</code>, <code>bmad-ux</code></p></details></p>
-      <p><strong>global</strong> — 1/5 jamais invoqués : <code>restitution-deck-design</code></p>
 
 
       <h3>TODO agents — chantiers à lancer (constats automatiques)</h3>
@@ -892,6 +892,9 @@ pytest -k "pptx or export"                                                     #
       <h3>Arbitrages enregistrés</h3>
       <p><em>Constats clos par décision humaine (<code>.claude/supervision/arbitrages.json</code>) — l'usage réel reste mesuré ci-dessus.</em></p>
       <ul>
+        <li><strong><code>export-ppt-verifie</code></strong> (2026-07-22) : Rétrospective 2026-07-22 (« charte VSCode4 affirmée de mémoire → add-then-revert ») arbitrée : l'étape CADRAGE du playbook exige désormais, quand la demande cite un deck/charte de référence (VSCode3/4, template client), de RENDRE 2-3 slides de la référence (pptx-verify) et d'en extraire les motifs AVANT d'implémenter — interdit d'affirmer une conformité charte de mémoire. Preuve : 816ab02 (ajoute barre d'accent « charte VSCode4 ») → 09c7ba3 (la retire « VSCode4 n'en a pas »), + sommaire/numéro/encarts corrigés seulement après render VSCode4. Mémoire feedback-ground-charte-claims-in-a-render.</li>
+        <li><strong><code>run-dev-server</code></strong> (2026-07-22) : Rétrospective 2026-07-22 arbitrée : run-dev-server/SKILL.md documente le repli quand le screenshot Edge échoue (error 577 malgré les flags, ou hang) — se limiter à la vérif de structure servie (curl) et le DIRE explicitement, ne jamais prétendre avoir vu le rendu. Un échec unique de test réel opt-in (LibreOffice/Ollama) sous charge machine se réexécute isolé avant d'être qualifié régression.</li>
+        <li><strong><code>restitution-deck-design</code></strong> (2026-07-22) : Diagnostic 2026-07-22 (ppt-designer jamais lancé) arbitré : la passe design n'est plus CONDITIONNELLE auto-jugée mais OBLIGATOIRE dès que le diff touche un layout/composant/couleur de slide (seuil objectif, comme pptx-verify) — étape design-review du playbook export-ppt-verifie amendée. Déclencheur : la skill avait 0 invocation malgré 6+ runs deck, d'où un design ad hoc et une qualité insuffisante signalée à répétition. Lancée pour la 1re fois le 2026-07-22 (encarts gris, sommaire teardrop, image propre).</li>
         <li><strong><code>export-ppt-verifie</code></strong> (2026-07-22) : Plan d'amélioration demandé (2026-07-22, « pour que mes demandes soient prises en compte ») appliqué : une exigence utilisateur explicite (surtout visuelle) est PERSISTANTE d'un tour au suivant — checklist des éléments demandés reportée d'itération en itération et vérifiée au rendu (revue-increment §1 + contrat verification-rendu du playbook). Une contrainte de gabarit se résout en dessinant l'élément, jamais en l'omettant. Déclencheur : numéro de chapitre écarté 3 fois puis corrigé (commit 482c301). Mémoire feedback-persistent-user-request-draw-dont-omit.</li>
         <li><strong><code>famille:BMAD</code></strong> (2026-07-18) : Tri exécuté : 7 skills retirés, 39 conservés (routage sur demande explicite via bmad-help) — docs/reflexions/tri-skills-bmad.md, commit f604c39.</li>
         <li><strong><code>pptx-framed-image</code></strong> (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle cadres-photo).</li>
