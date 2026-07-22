@@ -39,6 +39,14 @@ depuis l'outil Bash survit à `Stop-Process`/`taskkill` PowerShell (split de nam
 cf. [[feedback-powershell-bash-process-namespace-split]]) — le tuer depuis le shell
 d'origine ; en dernier recours, repartir sur un port vierge.
 
+**Un port peut rester EMPOISONNÉ même « propre »** (2026-07-22, 8010 PUIS 8020) : après
+kills + restart vérifié + netstat montrant UN seul listener frais, le port servait
+TOUJOURS du vieux code (un fantôme hors de portée des deux shells continue d'intercepter).
+Le test discriminant : le MÊME code sur un port jamais utilisé sert le bon contenu.
+**Règle : si un port sert du contenu périmé après UN restart vérifié, ne pas s'acharner —
+déménager sur un port vierge** (8010 → 8020 → 8030 dans la vraie session) et re-vérifier
+le marqueur. Purger aussi `app/**/__pycache__` au passage (écarte l'hypothèse bytecode).
+
 Use a port other than 8000 (e.g. 8010) to avoid colliding with a server the
 user may already have running for manual testing. This uses `data/app.db`
 (the real dev DB, gitignored) — not the disposable test DB pytest uses — so

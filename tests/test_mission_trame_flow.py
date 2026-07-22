@@ -1925,7 +1925,9 @@ def test_export_pptx_axes_overview_paginates_when_many_axes(client: TestClient) 
     numbers = []
     for slide, _, _ in axes_slides:
         for text in _slide_texts(slide):
-            m = re.fullmatch(r"#(\d+)", text)
+            # numéro d'axe : « #N » historique, ou « N » nu dans la pastille
+            # teardrop depuis le redesign 2026-07-22 de la vue d'ensemble.
+            m = re.fullmatch(r"#?(\d+)", text)
             if m:
                 numbers.append(int(m.group(1)))
     assert sorted(numbers) == list(range(1, 11))  # les 10 axes, une seule fois chacun

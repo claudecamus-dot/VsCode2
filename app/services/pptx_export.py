@@ -446,7 +446,12 @@ def _slide_cover(prs: Presentation, mission: Mission) -> None:
         if 1 in phs:
             phs[1].text_frame.text = subtitle
             D.appliquer_police(phs[1].text_frame)
-        # idx2 = « OCTO Technology » (natif, laissé tel quel) ; idx3 = date.
+        # idx2 = « OCTO Technology » : le texte d'invite du layout ne REND pas —
+        # laissé vide, la pastille affichait « | date » avec un trou à gauche
+        # (constat utilisateur 2026-07-22) ; à remplir explicitement. idx3 = date.
+        if 2 in phs:
+            phs[2].text_frame.text = "OCTO Technology"
+            D.appliquer_police(phs[2].text_frame)
         if 3 in phs:
             phs[3].text_frame.text = date_str
             D.appliquer_police(phs[3].text_frame)
@@ -549,14 +554,25 @@ def _resoudre_image_cachee(base: str, scene: str, seed: int, aspect: float,
     if not no_fetch:
         if photo.exists():
             return photo
-        try:
-            ar = "wide" if aspect > 1.15 else "tall" if aspect < 0.85 else "square"
-            brut = _IMG_CACHE / f"_brut_{scene}_{seed}.jpg"
-            _stock_images.fetch_to(str(brut), requete, seed=seed, aspect_ratio=ar)
-            _cover_crop_to_aspect(str(brut), str(photo), aspect)
-            return photo
-        except Exception:
-            pass  # réseau/API KO : repli procédural ci-dessous, slot photo intact
+        # Échelle de retry (constat 2026-07-22, slides 7/10 restées procédurales) :
+        # les échecs Openverse sont INTERMITTENTS (SSL sporadique) → 2 tentatives ;
+        # et une requête précise peut n'avoir AUCUN résultat CC0 pour cet aspect →
+        # repli sur la requête simplifiée « {scene} photography » avant d'abandonner.
+        ar = "wide" if aspect > 1.15 else "tall" if aspect < 0.85 else "square"
+        variantes = [requete]
+        simple = f"{scene} photography"
+        if simple != requete:
+            variantes.append(simple)
+        for req in variantes:
+            for _tentative in range(2):
+                try:
+                    brut = _IMG_CACHE / f"_brut_{scene}_{seed}.jpg"
+                    _stock_images.fetch_to(str(brut), req, seed=seed, aspect_ratio=ar)
+                    _cover_crop_to_aspect(str(brut), str(photo), aspect)
+                    return photo
+                except Exception:
+                    continue  # réseau/API KO : tentative/variante suivante
+        # tout a échoué : repli procédural ci-dessous, slot photo intact
     if not proc.exists():
         _nature_images.generate_to(str(proc), scene, px_w, px_h, seed=seed)
     return proc
@@ -780,48 +796,59 @@ def _slide_executive_summary(prs: Presentation, es) -> None:
     slide, w_in, h_in, top = _new_slide(prs, "Executive Summary")
     area_l = MARGIN + 0.3
     area_w = w_in - 2 * (MARGIN + 0.3)
-    y = top
     headline = (getattr(es, "headline", "") or "").strip()
     key_message = (getattr(es, "key_message", "") or "").strip()
     points = _bullet_lines(getattr(es, "points", "") or "")
 
-    # Claim (headline) — navy bold, pleine largeur (format VSCode3).
+    # Le GROUPE (claim + sous-claim + cartes) est CENTRÉ verticalement dans la
+    # bande — claim en haut + cartes plaquées en bas laissaient un grand vide au
+    # milieu (constat utilisateur 2026-07-22 « contenu mieux centré »). On mesure
+    # donc chaque bloc AVANT de dessiner.
+    hl = km = ""
+    hl_h = km_h = cards_h = 0.0
+    gap_claim = 0.14
+    gap_cards = 0.4
     if headline:
         hl = D.tronquer_a_lignes(headline, area_w, D.TYPE["h2"], 2)
         hl_h = D.estimer_lignes(hl, area_w, D.TYPE["h2"]) * _per_line_height_in(D.TYPE["h2"])
-        D.add_text(slide, area_l, y, area_w, hl_h,
-                   [(hl, {"size": D.TYPE["h2"], "bold": True, "color": D.INK})])
-        y += hl_h + 0.14
-    # Sous-claim (key_message) — italique gris, pleine largeur : le « so-what ».
     if key_message:
         km = D.tronquer_a_lignes(key_message, area_w, D.TYPE["body"], 2)
         km_h = D.estimer_lignes(km, area_w, D.TYPE["body"]) * _per_line_height_in(D.TYPE["body"])
-        D.add_text(slide, area_l, y, area_w, km_h,
-                   [(km, {"size": D.TYPE["body"], "italic": True, "color": D.MUTED})])
-        y += km_h + 0.3
-
-    # Points clés en CARTES COULEUR (rangée en bas) — signature VSCode3 (Doctrine/
-    # Méthode/Maturité/Posture). Carte blanche + liseré couleur (add_card) + titre nul,
-    # le point comme corps. Tronqué à ce qui tient (jamais de débordement).
+    n = min(len(points), 4)
+    gap = 0.2
+    cpad = 0.18
+    col_w = (area_w - gap * (n - 1)) / n if n else area_w
     if points:
-        n = min(len(points), 4)
-        gap = 0.2
-        cpad = 0.18
-        # Hauteur adaptée au point le plus long (≥2 lignes pour ne pas être trapue),
-        # bornée ; rangée ANCRÉE EN BAS (format VSCode3) ; texte centré verticalement
-        # pour qu'un point court ne soit pas plaqué en haut d'une carte vide.
-        col_w = (area_w - gap * (n - 1)) / n
         lh = _per_line_height_in(D.TYPE["small"])
         max_lines = max(2, max(D.estimer_lignes(pt, col_w - 2 * cpad, D.TYPE["small"])
                                for pt in points[:n]))
-        cards_h = min(max(0.9, (h_in - 0.5) - (y + 0.2)), 2 * cpad + max_lines * lh + 0.1)
-        cards_top = (h_in - 0.5) - cards_h
+        cards_h = min(1.6, 2 * cpad + max_lines * lh + 0.1)
+
+    band = (h_in - 0.5) - top
+    total = hl_h + (gap_claim if hl and km else 0.0) + km_h + (gap_cards if points else 0.0) + cards_h
+    y = top + max(0.0, (band - total) / 2)
+
+    # Claim (headline) — navy bold, pleine largeur (format VSCode3).
+    if hl:
+        D.add_text(slide, area_l, y, area_w, hl_h,
+                   [(hl, {"size": D.TYPE["h2"], "bold": True, "color": D.INK})])
+        y += hl_h + gap_claim
+    # Sous-claim (key_message) — italique gris : le « so-what ».
+    if km:
+        D.add_text(slide, area_l, y, area_w, km_h,
+                   [(km, {"size": D.TYPE["body"], "italic": True, "color": D.MUTED})])
+        y += km_h
+    y += gap_cards
+
+    # Points clés en CARTES COULEUR — signature VSCode3. Carte blanche + liseré
+    # couleur, texte centré, tronqué à ce qui tient (jamais de débordement).
+    if points:
         for i, pt in enumerate(points[:n]):
             cx = area_l + i * (col_w + gap)
             color = _EXEC_CARD_COLORS[i % len(_EXEC_CARD_COLORS)]
-            D.add_card(slide, cx, cards_top, col_w, cards_h, color)
+            D.add_card(slide, cx, y, col_w, cards_h, color)
             D.add_text(
-                slide, cx + cpad, cards_top + cpad, col_w - 2 * cpad, cards_h - 2 * cpad,
+                slide, cx + cpad, y + cpad, col_w - 2 * cpad, cards_h - 2 * cpad,
                 [(D.tronquer_a_lignes(pt, col_w - 2 * cpad, D.TYPE["small"], max_lines),
                   {"size": D.TYPE["small"], "color": D.INK})],
                 anchor=MSO_ANCHOR.MIDDLE,
@@ -829,14 +856,15 @@ def _slide_executive_summary(prs: Presentation, es) -> None:
 
 
 def _label_axe_vertical(slide, cx: float, cy: float, longueur: float,
-                        epaisseur: float, texte: str) -> None:
+                        epaisseur: float, texte: str,
+                        size: float | None = None) -> None:
     """Label d'axe roté 270° (lecture bas→haut), centré sur (cx, cy). `longueur`
     = dimension le long du texte (≈ hauteur de la ligne couverte), `epaisseur` =
     largeur de la gouttière. Sert aux libellés de ligne INTERNE/EXTERNE de la
-    matrice SWOT, posés dans la gouttière gauche."""
+    matrice SWOT et à l'axe Valeur de la matrice de priorisation."""
     box = D.add_text(
         slide, cx - longueur / 2, cy - epaisseur / 2, longueur, epaisseur,
-        [(texte, {"size": D.TYPE["tiny"], "bold": True, "color": D.MUTED})],
+        [(texte, {"size": size or D.TYPE["small"], "bold": True, "color": D.MUTED})],
         anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER,
     )
     box.rotation = 270
@@ -1049,16 +1077,25 @@ def _slide_axes_overview(prs: Presentation, axes: list, palette: list[str]) -> N
         for i, axis in page:
             accent = palette[i % len(palette)]
             D.add_card(slide, MARGIN, y, w_in - 2 * MARGIN, row_h, accent)
-            D.add_text(
-                slide, MARGIN + 0.3, y, 1.0, row_h,
-                [(f"#{i + 1}", {"size": D.TYPE["kpi"], "bold": True, "color": accent})],
-                anchor=MSO_ANCHOR.MIDDLE,
+            # Pastille teardrop numérotée (signature OCTO du sommaire) plutôt que
+            # « #N » nu, et les INTITULÉS des recos en 2e ligne plutôt qu'un simple
+            # compte « 2 recommandations » — la rangée était à moitié vide et le
+            # texte creux (constat utilisateur 2026-07-22, slide 16).
+            td = min(0.62, row_h - 0.16)
+            D.add_teardrop(slide, MARGIN + 0.28, y + (row_h - td) / 2, td,
+                           str(i + 1), accent, size=D.TYPE["h3"])
+            text_x = MARGIN + 0.28 + td + 0.3
+            text_w = w_in - MARGIN - text_x - 0.3
+            recos_txt = "   ·   ".join(
+                f"{i + 1}.{j + 1}  {r.title}" for j, r in enumerate(axis.recommendations)
             )
             D.add_text(
-                slide, MARGIN + 1.5, y, w_in - 2 * MARGIN - 2.0, row_h,
+                slide, text_x, y, text_w, row_h,
                 [
-                    (axis.title, {"size": D.TYPE["h3"], "bold": True, "color": D.INK}),
-                    (f"{len(axis.recommendations)} recommandation{'s' if len(axis.recommendations) > 1 else ''}", {"size": D.TYPE["small"], "color": D.MUTED}),
+                    (axis.title, {"size": D.TYPE["h3"], "bold": True, "color": D.INK,
+                                  "space_after": 4}),
+                    (D.tronquer_a_lignes(recos_txt, text_w, D.TYPE["small"], 2),
+                     {"size": D.TYPE["small"], "color": D.MUTED}),
                 ],
                 anchor=MSO_ANCHOR.MIDDLE,
             )
@@ -1069,10 +1106,12 @@ def _slide_axes_overview(prs: Presentation, axes: list, palette: list[str]) -> N
 # chaque quadrant est écrit dessus — c'est ce qui transforme un nuage de points en
 # outil de décision. (label, couleur) par position (colonne, ligne) de la grille.
 _PRIO_QUADRANTS = {
-    (0, 0): ("QUICK WINS", "#1e6b34"),               # valeur haute, effort faible
-    (1, 0): ("CHANTIERS STRUCTURANTS", "#2c5cc5"),   # valeur haute, effort fort
-    (0, 1): ("OPPORTUNISTES", "#6b7280"),            # valeur basse, effort faible
-    (1, 1): ("À DIFFÉRER", "#b8860b"),               # valeur basse, effort fort
+    # Libellés courts exprès : à `small` bold ils doivent tenir sur UNE ligne dans
+    # une demi-grille (« CHANTIERS STRUCTURANTS » wrappait derrière les bulles).
+    (0, 0): ("QUICK WINS", "#1e6b34"),          # valeur haute, effort faible
+    (1, 0): ("CHANTIERS DE FOND", "#2c5cc5"),   # valeur haute, effort fort
+    (0, 1): ("OPPORTUNISTES", "#6b7280"),       # valeur basse, effort faible
+    (1, 1): ("À DIFFÉRER", "#b8860b"),          # valeur basse, effort fort
 }
 
 
@@ -1095,20 +1134,21 @@ def _slide_matrice_effort_valeur(prs: Presentation, axes: list,
     lw = w_in - MARGIN - lx
     qw, qh = pw / 2, ph / 2
 
-    # Quadrants teintés + libellé de sens dans chaque coin.
+    # Quadrants teintés + libellé de sens dans chaque coin — en `small`, pas
+    # `tiny` : lisibilité relevée par l'utilisateur (2026-07-22, slide 17).
     for (col, row), (lbl, color) in _PRIO_QUADRANTS.items():
         qx, qy = pl + col * qw, pt + row * qh
         D.add_rect(slide, qx, qy, qw, qh, fill=D.melanger_blanc(color, 0.93),
                    line=D.melanger_blanc(color, 0.70), line_w=0.75)
         D.add_text(
-            slide, qx + 0.10, qy + 0.06, qw - 0.20, 0.22,
-            [(lbl, {"size": D.TYPE["tiny"], "bold": True,
+            slide, qx + 0.10, qy + 0.06, qw - 0.20, 0.26,
+            [(lbl, {"size": D.TYPE["small"], "bold": True,
                     "color": D.melanger_blanc(color, 0.15)})],
             align=PP_ALIGN.LEFT if col == 0 else PP_ALIGN.RIGHT,
         )
     # Labels d'axes : X sous la zone, Y roté dans la gouttière gauche.
     D.add_text(slide, pl, pb + 0.08, pw, 0.3,
-               [("Complexité (effort) →", {"size": D.TYPE["tiny"], "bold": True,
+               [("Complexité (effort) →", {"size": D.TYPE["small"], "bold": True,
                                            "color": D.MUTED})],
                align=PP_ALIGN.CENTER)
     _label_axe_vertical(slide, MARGIN + 0.18, pt + ph / 2, min(ph, 1.5), 0.3,
@@ -1120,7 +1160,7 @@ def _slide_matrice_effort_valeur(prs: Presentation, axes: list,
     # par LIGNE (même valeur → même y, les lignes sont espacées de ph/5 > d) :
     # balayage gauche→droite qui impose un écart minimal à partir des positions
     # cibles, puis recalage si la ligne déborde à droite.
-    d = 0.40
+    d = 0.46  # bulle agrandie + numéro en `small` (lisibilité, 2026-07-22)
     gap = 0.06
     lignes_bulles: dict[int, list] = {}
     for i, axis in enumerate(axes):
@@ -1128,9 +1168,12 @@ def _slide_matrice_effort_valeur(prs: Presentation, axes: list,
             c = max(1, min(5, r.complexite or 3))
             v = max(1, min(5, r.valeur or 3))
             lignes_bulles.setdefault(v, []).append((c, f"{i + 1}.{j + 1}", i))
+    # Les bulles vivent SOUS la bande des libellés de quadrant (0.38 réservé en
+    # haut) : à valeur=5 elles venaient sinon recouvrir le libellé (constat rendu).
+    ph_bulles = ph - 0.38
     for v, membres in lignes_bulles.items():
         membres.sort(key=lambda m: (m[0], m[1]))
-        by = pb - (v - 0.5) / 5 * ph - d / 2
+        by = pb - (v - 0.5) / 5 * ph_bulles - d / 2
         xs: list[float] = []
         for c, _num, _ai in membres:
             cible = pl + (c - 0.5) / 5 * pw - d / 2
@@ -1140,30 +1183,32 @@ def _slide_matrice_effort_valeur(prs: Presentation, axes: list,
             xs = [max(pl + 0.02, x - depassement) for x in xs]
         for x, (c, num, ai) in zip(xs, membres):
             D.add_badge(slide, x, by, d, num, palette[ai % len(palette)],
-                        size=D.TYPE["tiny"], bold=True, radius=0.5)
+                        size=D.TYPE["small"], bold=True, radius=0.5)
 
-    # Légende par axe : pastille couleur + intitulé, puis ses recos numérotées.
+    # Légende par axe : pastille couleur + intitulé, puis ses recos numérotées —
+    # tout en `small` (les lignes reco en `tiny` étaient illisibles, 2026-07-22).
     y = pt
-    line_h = 0.26
+    line_h = 0.28
+    reco_line_h = 0.26
     for i, axis in enumerate(axes):
         if y + line_h > pb:
             break
         color = palette[i % len(palette)]
-        D.add_rect(slide, lx, y + 0.06, 0.14, 0.14, fill=color, rounded=True, radius=0.5)
+        D.add_rect(slide, lx, y + 0.07, 0.14, 0.14, fill=color, rounded=True, radius=0.5)
         D.add_text(slide, lx + 0.24, y, lw - 0.24, line_h,
                    [(D.tronquer_a_lignes(f"Axe {i + 1} — {axis.title}", lw - 0.24,
                                          D.TYPE["small"], 1),
                      {"size": D.TYPE["small"], "bold": True, "color": D.INK})])
         y += line_h
         for j, r in enumerate(axis.recommendations):
-            if y + line_h > pb:
+            if y + reco_line_h > pb:
                 break
-            D.add_text(slide, lx + 0.24, y, lw - 0.24, line_h,
+            D.add_text(slide, lx + 0.24, y, lw - 0.24, reco_line_h,
                        [(D.tronquer_a_lignes(f"{i + 1}.{j + 1}  {r.title}", lw - 0.24,
-                                             D.TYPE["tiny"], 1),
-                         {"size": D.TYPE["tiny"], "color": D.MUTED})])
-            y += line_h
-        y += 0.08
+                                             D.TYPE["small"], 1),
+                         {"size": D.TYPE["small"], "color": D.MUTED})])
+            y += reco_line_h
+        y += 0.05
 
 
 def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: object,
@@ -1185,7 +1230,11 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
     card_l_w = w_in * 0.34 + 0.2
     right_x = MARGIN + card_l_w + 0.3
     right_w = w_in - right_x - MARGIN
-    band_h = h_in - top - 0.35
+    # -0.65 (pas -0.35) : le badge n° de page du chrome OCTO occupe le coin
+    # bas-droit (~0.45 de haut, à partir de ~5.15in) — les cartes venaient
+    # marcher dessus (constat utilisateur 2026-07-22, slides 18-25) ; -0.55
+    # laissait encore le texte au ras du badge au rendu.
+    band_h = h_in - top - 0.65
     bottom = top + band_h
 
     # ---- Colonne gauche : carte arrondie, liseré couleur d'axe ----

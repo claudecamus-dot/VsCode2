@@ -181,7 +181,7 @@ def test_design_matrice_dessinee_pas_de_scatter_excel() -> None:
                 assert "scatterChart" not in xml, "scatter Excel réintroduit (priority-matrix)"
     assert matrice is not None, "slide matrice de priorisation absente"
     textes = " ".join(sh.text_frame.text for sh in matrice.shapes if sh.has_text_frame)
-    for lbl in ("QUICK WINS", "CHANTIERS STRUCTURANTS", "OPPORTUNISTES", "À DIFFÉRER"):
+    for lbl in ("QUICK WINS", "CHANTIERS DE FOND", "OPPORTUNISTES", "À DIFFÉRER"):
         assert lbl in textes, f"libellé de quadrant manquant : {lbl}"
     assert "1.1" in textes, "bulle de reco absente de la matrice"
 

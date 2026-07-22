@@ -17,11 +17,14 @@ draw it with shapes.
 1. **Four tinted quadrants whose MEANING is written on them.** The reader must
    get the decision at a glance, without decoding coordinates:
    - haut-gauche (valeur haute / effort faible) : `QUICK WINS` — vert `#1e6b34`
-   - haut-droite (valeur haute / effort fort) : `CHANTIERS STRUCTURANTS` — bleu `#2c5cc5`
+   - haut-droite (valeur haute / effort fort) : `CHANTIERS DE FOND` — bleu `#2c5cc5`
    - bas-gauche (valeur basse / effort faible) : `OPPORTUNISTES` — gris `#6b7280`
    - bas-droite (valeur basse / effort fort) : `À DIFFÉRER` — ambre `#b8860b`
-   Tint = `melanger_blanc(color, ~0.93)`, border a mid-tint, label tiny bold in
-   a dark tint of the quadrant colour, tucked in the outer corner.
+   Tint = `melanger_blanc(color, ~0.93)`, border a mid-tint, label **small** bold
+   in a dark tint of the quadrant colour, tucked in the outer corner — labels
+   short enough to fit ONE line at `small` in a half-grid (that's why «
+   CHANTIERS DE FOND », not « STRUCTURANTS » which wrapped behind the bubbles),
+   and the bubble rows map into `ph - 0.38` so a valeur=5 row never covers them.
 
 2. **One bubble per recommendation, identity-colored by AXIS.** Bubble colour =
    the axis's palette colour — the *same* palette as the axes-overview slide
