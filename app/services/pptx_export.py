@@ -385,12 +385,32 @@ def _layout_by_name(prs: Presentation, *keywords: str):
 # narratifs (couleur = repère de navigation, reprise sur l'intercalaire).
 _CH_RETENIR, _CH_DIAGNOSTIC, _CH_PAROLE, _CH_TRAJECTOIRE = 0, 1, 2, 3
 # (intitulé, couleur, scène image de l'intercalaire — cf. _slide_chapitre P3).
+# (intitulé, couleur, scène, sous-titre italique — format d'intercalaire VSCode3 :
+# le placeholder de titre porte titre + sous-titre, cf. _slide_chapitre).
 _CHAPITRES = [
-    ("Ce qu'il faut retenir", "#00D2DD", "sunset"),     # cyan
-    ("Le diagnostic", "#0E2356", "mountains"),          # navy
-    ("La parole des équipes", "#138086", "forest"),     # teal
-    ("La trajectoire proposée", "#6a3d9a", "ocean"),    # violet
+    ("Ce qu'il faut retenir", "#00D2DD", "sunset", "L'essentiel de la mission, en une page."),
+    ("Le diagnostic", "#0E2356", "mountains", "Ce que les entretiens révèlent, sans détour."),
+    ("La parole des équipes", "#138086", "forest", "Les mots des acteurs, tels quels."),
+    ("La trajectoire proposée", "#6a3d9a", "ocean", "Où aller, et par quoi commencer."),
 ]
+
+
+def _sans_puce(paragraph) -> None:
+    """Retire l'indentation de puce héritée (marL/indent) et la puce elle-même —
+    reproduit tel quel le helper du générateur de référence VSCode3. Cause réelle
+    du « 01 » qui wrappe dans le petit encart numéro du layout Chapitre : le style
+    de liste hérité pose marL=0.5in dans un encart de ~0.55in. python-pptx n'expose
+    pas ces attributs -> manipulation XML directe."""
+    pPr = paragraph._p.get_or_add_pPr()
+    pPr.set("marL", "0")
+    pPr.set("indent", "0")
+    for tag in ("a:buChar", "a:buAutoNum", "a:buNone"):
+        for el in pPr.findall(qn(tag)):
+            pPr.remove(el)
+    # Forcer explicitement l'absence de puce : notre template hérite un caractère de
+    # puce à un niveau que le retrait ci-dessus ne couvre pas (un ◉ résiduel
+    # apparaissait avant le numéro) — buNone le neutralise à coup sûr.
+    pPr.append(pPr.makeelement(qn("a:buNone"), {}))
 # Scène -> requête photo Openverse (vraies photos CC0, comme les decks OCTO réels /
 # VSCode3-4). Repli sur la génération procédurale `nature_images` (nom = la scène).
 _SCENE_REQUETE = {
@@ -533,48 +553,42 @@ def _remplir_cadre_chapitre(slide, cadre, scene: str, seed: int = 0) -> None:
 
 
 def _slide_chapitre(prs: Presentation, numero: int, titre: str, color: str,
-                    scene: str | None = None) -> None:
-    """Intercalaire de chapitre. P3 : vrai layout de marque « 50 - Chapitre » —
-    titre (idx0) coloré + numéro (idx1, 17pt marges à zéro comme le REX source, un
-    28pt débordait le petit encart) + cadre photo teardrop rempli via
-    pptx-framed-image. Repli P2 (numéro + filet + titre dessinés sur un layout de
-    contenu) si le layout de marque ou le skill image manquent."""
+                    scene: str | None = None, sous_titre: str | None = None) -> None:
+    """Intercalaire de chapitre — reproduit le format du générateur de référence
+    VSCode3 (« 50 - Chapitre ») : idx0 = titre coloré + sous-titre italique gris ;
+    idx1 = numéro DANS l'encart logo (17pt, marges à zéro, centré, sans puce — ce qui
+    empêche « 01 » de wrapper) ; cadre photo teardrop rempli. Repli dessiné sinon."""
     layout = _layout_by_name(prs, "chapitre") if _FRAMED_OK else None
     if layout is not None:
         slide = prs.slides.add_slide(layout)
         phs = {ph.placeholder_format.idx: ph for ph in slide.placeholders}
         if 0 in phs:
-            title_ph = phs[0]
-            title_ph.text_frame.text = titre
-            for p in title_ph.text_frame.paragraphs:
-                for r in p.runs:
-                    r.font.color.rgb = D.rgb(color)
-            # Numéro de chapitre GRAND et DESSINÉ (pas le placeholder natif idx1, trop
-            # étroit — il replie « 01 » en « 0 »/« 1 » au rendu) : posé au-dessus du
-            # titre, même couleur de chapitre, avec un filet. Le rendu d'un « 01 »
-            # dessiné est fiable (cf. les badges du sommaire). Demande explicite et
-            # répétée de l'utilisateur — le numéro DOIT figurer sur l'intercalaire.
-            try:
-                tl = Emu(title_ph.left).inches
-                tt = Emu(title_ph.top).inches
-                # Numéro dans un BLOC navy (charte VSCode4 : grand numéro blanc dans un
-                # bloc plein, au-dessus du titre) — demande 2026-07-22.
-                block = 1.05
-                blk_top = max(0.2, tt - block - 0.05)
-                D.add_rect(slide, tl, blk_top, block, block, fill="#0E2356",
-                           rounded=True, radius=0.14)
-                D.add_text(
-                    slide, tl, blk_top, block, block,
-                    [(f"{numero:02d}", {"size": D.TYPE["kpi"], "bold": True,
-                                        "color": "#ffffff", "align": PP_ALIGN.CENTER})],
-                    anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER,
-                )
-            except Exception:
-                pass  # placeholder de titre sans géométrie exploitable : numéro sur le repli
-        # Placeholder numéro natif (idx1) laissé vide : on dessine le numéro nous-mêmes
-        # (ci-dessus) car cet encart est trop étroit et « tofu » le « 01 ».
+            # idx0 = titre (couleur de chapitre) + sous-titre italique gris.
+            tf0 = phs[0].text_frame
+            tf0.text = titre
+            for r in tf0.paragraphs[0].runs:
+                r.font.color.rgb = D.rgb(color)
+            if sous_titre:
+                p2 = tf0.add_paragraph()
+                p2.text = sous_titre
+                for r in p2.runs:
+                    r.font.size = Pt(D.TYPE["small"])
+                    r.font.italic = True
+                    r.font.color.rgb = D.rgb(D.MUTED)
         if 1 in phs:
-            phs[1].text_frame.text = ""
+            # idx1 = numéro DANS l'encart logo (format VSCode3) : marges à zéro + 17pt
+            # + centré + sans puce — ce qui empêche « 01 » de wrapper dans le petit
+            # encart. Reproduit à l'identique du générateur de référence VSCode3.
+            tf1 = phs[1].text_frame
+            tf1.text = f"{numero:02d}"
+            tf1.margin_left = tf1.margin_right = tf1.margin_top = tf1.margin_bottom = 0
+            tf1.vertical_anchor = MSO_ANCHOR.MIDDLE
+            for p in tf1.paragraphs:
+                p.alignment = PP_ALIGN.CENTER
+                _sans_puce(p)
+                for r in p.runs:
+                    r.font.size = Pt(17)
+                    r.font.color.rgb = D.rgb(color)
         _remplir_cadre_chapitre(slide, _find_teardrop_frame(slide.slide_layout.shapes),
                                 scene or "mountains")
         return
@@ -699,11 +713,31 @@ def _image_dans_zone(slide, left, top, width, height, scene: str, requete: str,
                 _cover_crop_to_aspect(str(brut), str(path), aspect)
             except Exception:
                 _nature_images.generate_to(str(path), scene, px_w, px_h, seed=seed)
-        slide.shapes.add_picture(str(path), Inches(left), Inches(top),
-                                 Inches(width), Inches(height))
+        pic = slide.shapes.add_picture(str(path), Inches(left), Inches(top),
+                                       Inches(width), Inches(height))
+        _clip_octo_frame(pic)  # cadre OCTO round2DiagRect (format image VSCode3)
         return True
     except Exception:
         return False
+
+
+def _clip_octo_frame(pic) -> None:
+    """Clippe une image au cadre OCTO « round2DiagRect » (rectangle à 2 coins diagonaux
+    arrondis, 2 vifs) — format « image encadrée » des slides de contenu VSCode3, au lieu
+    d'un rectangle plat. python-pptx n'expose pas prstGeom sur une image -> XML direct."""
+    try:
+        spPr = pic._element.spPr
+        for tag in ("a:prstGeom", "a:custGeom"):
+            for el in spPr.findall(qn(tag)):
+                spPr.remove(el)
+        geom = spPr.makeelement(qn("a:prstGeom"), {"prst": "round2DiagRect"})
+        av = geom.makeelement(qn("a:avLst"), {})
+        for name, val in (("adj1", "33000"), ("adj2", "0")):
+            av.append(av.makeelement(qn("a:gd"), {"name": name, "fmla": f"val {val}"}))
+        geom.append(av)
+        spPr.append(geom)
+    except Exception:
+        pass  # image en rectangle plat si le clip échoue — jamais un export cassé
 
 
 def _slide_executive_summary(prs: Presentation, es) -> None:
@@ -1166,8 +1200,8 @@ def build_presentation(
     def _chapitre(ci: int) -> None:
         nonlocal numero
         numero += 1
-        label, color, scene = _CHAPITRES[ci]
-        _slide_chapitre(prs, numero, label, color, scene)
+        label, color, scene, sous_titre = _CHAPITRES[ci]
+        _slide_chapitre(prs, numero, label, color, scene, sous_titre=sous_titre)
 
     # Chapitre 1 — Ce qu'il faut retenir
     if ch_sections[_CH_RETENIR]:
