@@ -210,6 +210,42 @@ def add_dot(slide, x, y, d, color):
     return add_rect(slide, x, y, d, d, fill=color, rounded=True, radius=0.5)
 
 
+def add_chip(slide, x, y, w, h, label, color, text_color="#ffffff", size=None,
+             outline=False):
+    """Pastille etiquette (pill) a coins pleins arrondis — tag de categorisation
+    (« Quick win », « Court terme », un numero de rang…), motif repere sur les
+    decks OCTO reels (VSCode4). `outline=True` : fond blanc, bordure + texte de
+    la couleur (variante sobre pour un tag discret, charte « cards nets ») ;
+    sinon fond plein `color`, texte `text_color`. Texte centre, sans ombre."""
+    size = TYPE["tiny"] if size is None else size
+    if outline:
+        add_rect(slide, x, y, w, h, fill="#ffffff", line=color, line_w=1.0,
+                 rounded=True, radius=0.5)
+        txt = color
+    else:
+        add_rect(slide, x, y, w, h, fill=color, rounded=True, radius=0.5)
+        txt = text_color
+    add_text(slide, x, y, w, h,
+             [(label, dict(size=size, bold=True, color=txt, align=PP_ALIGN.CENTER))],
+             anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER)
+
+
+def add_badge(slide, x, y, d, glyph, color, text_color="#ffffff", size=None,
+              bold=True, radius=0.28):
+    """Badge-icone : petite tuile carree a coins arrondis (couleur pleine, sans
+    ombre — regle dure OCTO : differenciation par couleur/bordure, pas d'ombre)
+    portant un glyphe monochrome ou un numero centre. Marqueur de section /
+    quadrant (« icone par pilier » des decks OCTO reels). `radius` : 0.5 = pastille
+    ronde, ~0.28 = tuile. `bold` a False pour un glyphe qui « tofu » en gras dans
+    la police du template (cf. certains symboles Unicode). Retourne la tuile."""
+    size = TYPE["h3"] if size is None else size
+    shp = add_rect(slide, x, y, d, d, fill=color, rounded=True, radius=radius)
+    add_text(slide, x, y, d, d,
+             [(glyph, dict(size=size, bold=bold, color=text_color, align=PP_ALIGN.CENTER))],
+             anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER)
+    return shp
+
+
 def add_range_bar(slide, l, t, w, h, mn, mx, scale_max, fill, marker=None,
                   track=TRACK):
     """Barre d'amplitude min..max sur une echelle 0..scale_max (piste complete +

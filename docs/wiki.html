@@ -283,6 +283,13 @@
       <h2>Interview-to-Deck — Index Wiki</h2>
       <p class="file-meta"><span>docs/wiki/index.md</span><span>confidence: confirmed</span></p>
 
+      <h3>Exemple de restitution générée</h3>
+      <div class="fact">
+        <p>Un deck de restitution complet produit par le générateur (données de démo, template de marque OCTO) : couverture éditoriale, sommaire quali chapitré, executive summary, synthèse, difficultés, SWOT, verbatims, axes et fiches de recommandation — avec les <strong>chips</strong> et <strong>badges-icônes</strong> de la charte (VSCode4). Télécharger : <a href="exemples/deck-restitution-exemple.pptx">deck-restitution-exemple.pptx</a> (.pptx, ~4&nbsp;Mo).</p>
+        <span class="tag tag-confirme">EXEMPLE</span>
+        <div class="tag-source">généré par app/services/pptx_export.py · 2026-07-22</div>
+      </div>
+
       <h3>Stack critique</h3>
       <div class="fact">
         <p>Python 3.12+ · FastAPI 0.115+ · SQLAlchemy 2.0 / SQLite · Jinja2 + HTMX 2.0 · Ollama (local, llama3.1, fournisseur IA par défaut depuis le 2026-07-17 — le SDK Anthropic a été retiré du code et des dépendances suite à une limite de crédit atteinte par l'utilisateur ; OpenAI/Mistral restent disponibles comme fournisseurs alternatifs) · reportlab (export PDF par entretien).</p>
@@ -828,10 +835,10 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-22T02:43:19+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-22T10:23:36+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>31 sessions</strong> couvertes · <strong>65</strong> invocations de skills · <strong>42</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>31 sessions</strong> couvertes · <strong>67</strong> invocations de skills · <strong>45</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">scan_transcripts.py · 2026-07-22 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
@@ -845,10 +852,10 @@ pytest -k "pptx or export"                                                     #
             <tr><td><code>agent-supervisor</code></td><td>projet</td><td>8</td><td>2026-07-18</td><td>2026-07-21</td></tr>
             <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>7</td><td>2026-07-17</td><td>2026-07-21</td></tr>
             <tr><td><code>update-config</code></td><td>(builtin/session)</td><td>6</td><td>2026-07-03</td><td>2026-07-16</td></tr>
+            <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>5</td><td>2026-07-20</td><td>2026-07-22</td></tr>
             <tr><td><code>revue-increment</code></td><td>projet</td><td>5</td><td>2026-07-18</td><td>2026-07-21</td></tr>
             <tr><td><code>roadmap-keeper</code></td><td>global</td><td>5</td><td>2026-06-25</td><td>2026-07-15</td></tr>
-            <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>4</td><td>2026-07-20</td><td>2026-07-21</td></tr>
-            <tr><td><code>pptx-verify</code></td><td>global</td><td>3</td><td>2026-07-03</td><td>2026-07-21</td></tr>
+            <tr><td><code>pptx-verify</code></td><td>global</td><td>4</td><td>2026-07-03</td><td>2026-07-22</td></tr>
             <tr><td><code>run</code></td><td>(builtin/session)</td><td>3</td><td>2026-06-29</td><td>2026-07-03</td></tr>
             <tr><td><code>pptx-deck</code></td><td>global</td><td>2</td><td>2026-07-02</td><td>2026-07-03</td></tr>
             <tr><td><code>skill-creator</code></td><td>global</td><td>2</td><td>2026-07-03</td><td>2026-07-03</td></tr>
@@ -864,7 +871,7 @@ pytest -k "pptx or export"                                                     #
           <thead><tr><th>Sous-agent</th><th>Lancements</th><th>Premier</th><th>Dernier</th></tr></thead>
           <tbody>
             <tr><td><code>Explore</code></td><td>19</td><td>2026-06-30</td><td>2026-07-21</td></tr>
-            <tr><td><code>general-purpose</code></td><td>15</td><td>2026-07-15</td><td>2026-07-21</td></tr>
+            <tr><td><code>general-purpose</code></td><td>18</td><td>2026-07-15</td><td>2026-07-22</td></tr>
             <tr><td><code>claude</code></td><td>4</td><td>2026-07-16</td><td>2026-07-16</td></tr>
             <tr><td><code>Plan</code></td><td>3</td><td>2026-07-06</td><td>2026-07-17</td></tr>
             <tr><td><code>claude-code-guide</code></td><td>1</td><td>2026-07-03</td><td>2026-07-03</td></tr>
@@ -904,7 +911,7 @@ pytest -k "pptx or export"                                                     #
         <li><strong><code>export-ppt-verifie</code></strong> (2026-07-22) : Constat superviseur du 2026-07-22 (prio 1) arbitré : NE PAS rouvrir les arbitrages PPT — la prémisse du playbook (les 3 skills conditionnelles gagnent leur place via export-ppt-verifie) sera exercée lors de la GÉNÉRATION du deck PPT complet à venir, à laquelle ce constat est relié. Une slide isolée ajoutée au générateur existant (ex. Executive Summary, commit 2e43358) se vérifie par pptx-verify seul et ne déclenche pas le playbook, qui vise un livrable = deck de restitution complet.</li>
       </ul>
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
-      <p><em>Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés.</em></p>
+      <p><em>Diagnostic ⚠️ à relancer (&gt; 14 j) — rien à signaler, tous les constats précédents ont été arbitrés.</em></p>
     </section>
 <!-- TODO-AGENTS-HTML:END -->
 

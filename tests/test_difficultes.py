@@ -294,9 +294,11 @@ def test_build_presentation_numbers_only_nonblank_contiguously() -> None:
     finally:
         db.close()
     txt = _all_slide_text(prs)
-    assert "1.  Alpha" in txt
-    assert "2.  Gamma" in txt  # Gamma = n°2 (la vide n'occupe pas de rang), pas n°3
-    assert "3.  " not in txt
+    # Le rang est rendu en chip numéroté (shape texte « N ») juste avant le libellé
+    # -> forme « N\nLibellé » dans le texte concaténé des shapes.
+    assert "1\nAlpha" in txt
+    assert "2\nGamma" in txt  # Gamma = n°2 (la vide n'occupe pas de rang), pas n°3
+    assert "3\nGamma" not in txt
 
 
 # --------------------------------------------------------------------------- #

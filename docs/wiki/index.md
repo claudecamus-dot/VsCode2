@@ -6,6 +6,11 @@ agents: [onboarder, claude]
 
 # Interview-to-Deck — Index Wiki
 
+## Exemple de restitution générée
+
+Un deck de restitution complet produit par le générateur (données de démo, template de marque OCTO) : couverture éditoriale, sommaire quali chapitré, executive summary, synthèse, difficultés, SWOT, verbatims, axes et fiches de recommandation — avec les **chips** et **badges-icônes** de la charte (VSCode4). Télécharger : [`docs/exemples/deck-restitution-exemple.pptx`](../exemples/deck-restitution-exemple.pptx) (.pptx, ~4 Mo).
+— `EXEMPLE` · généré par `app/services/pptx_export.py` · 2026-07-22
+
 ## Stack critique
 
 Python 3.12+ · FastAPI 0.115+ · SQLAlchemy 2.0 / SQLite · Jinja2 + HTMX 2.0 · Ollama (local, llama3.1, fournisseur IA par défaut depuis le 2026-07-17 — le SDK Anthropic a été retiré du code et des dépendances suite à une limite de crédit atteinte par l'utilisateur ; OpenAI/Mistral restent disponibles comme fournisseurs alternatifs) · reportlab (export PDF par entretien)

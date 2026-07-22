@@ -93,8 +93,9 @@ FIELD_SHAPE = {
     "es_points": dict(width_in=_W_IN - 2 * (MARGIN + 0.3) - 0.48, max_h_in=2.5, size_max=D.TYPE["body"]),
     "es_key_message": dict(width_in=_W_IN - 2 * (MARGIN + 0.3) - 0.48, size_pt=D.TYPE["h3"], max_lignes=2),
     # Difficulté (planche §D.1) : libellé d'une carte, taille fixe body, tronqué à
-    # 3 lignes par _slide_difficultes -> hint size_pt/max_lignes (honnête).
-    "difficulty_label": dict(width_in=_W_IN - 2 * (MARGIN + 0.3) - 0.36, size_pt=D.TYPE["body"], max_lignes=3),
+    # 3 lignes par _slide_difficultes -> hint size_pt/max_lignes (honnête). Largeur
+    # réduite du chip de rang à gauche (2*pad + rang_w 0.46 + gap 0.16 = 0.98).
+    "difficulty_label": dict(width_in=_W_IN - 2 * (MARGIN + 0.3) - 0.98, size_pt=D.TYPE["body"], max_lignes=3),
 }
 
 
@@ -452,23 +453,39 @@ def _slide_sommaire(prs: Presentation, ch_sections: list[list[str]]) -> None:
     couleur reprise sur l'intercalaire) — au lieu d'une liste plate de sections."""
     slide, w_in, h_in, top = _new_slide(prs, "Sommaire")
     y = top + 0.25
+    # Pas vertical adaptatif : chaque chapitre occupe 2 niveaux (badge+titre, puis
+    # ses sections en chips) — le pas se calcule sur le nombre de chapitres ACTIFS
+    # pour ne jamais déborder sous la slide OCTO (10×5.625, courte).
+    active = [ci for ci, subs in enumerate(ch_sections) if subs]
+    pitch = min(0.9, (h_in - 0.5 - y) / max(1, len(active)))
+    badge_d = min(0.44, pitch - 0.36)
+    label_x = MARGIN + 0.3 + badge_d + 0.22
     numero = 0
-    for ci, subs in enumerate(ch_sections):
-        if not subs:
-            continue
+    for ci in active:
+        subs = ch_sections[ci]
         numero += 1
         label, color = _CHAPITRES[ci][0], _CHAPITRES[ci][1]
-        D.add_rect(slide, MARGIN + 0.3, y + 0.13, 0.18, 0.18, fill=color, rounded=True, radius=0.5)
+        # Badge-icône numéro de chapitre (remplace la pastille) — couleur reprise
+        # sur l'intercalaire, repère de navigation cohérent.
+        D.add_badge(slide, MARGIN + 0.3, y, badge_d, f"{numero:02d}", color,
+                    size=D.TYPE["h3"], bold=True, radius=0.28)
         D.add_text(
-            slide, MARGIN + 0.65, y, 3.8, 0.5,
-            [(f"{numero:02d} · {label}", {"size": D.TYPE["h2"], "bold": True, "color": D.INK})],
-        )
-        D.add_text(
-            slide, MARGIN + 4.6, y + 0.06, w_in - (MARGIN + 4.6) - MARGIN, 0.5,
-            [(" · ".join(subs), {"size": D.TYPE["small"], "color": D.MUTED})],
+            slide, label_x, y, w_in - label_x - MARGIN, badge_d,
+            [(label, {"size": D.TYPE["h2"], "bold": True, "color": D.INK})],
             anchor=MSO_ANCHOR.MIDDLE,
         )
-        y += 0.72
+        # Sections regroupées, en chips contour (tags) sous le titre du chapitre.
+        cx = label_x
+        chip_h = 0.28
+        chip_y = y + badge_d + 0.08
+        for sub in subs:
+            cw = min(2.6, 0.34 + 0.082 * len(sub))
+            if cx + cw > w_in - MARGIN:
+                break  # ne pas déborder à droite
+            D.add_chip(slide, cx, chip_y, cw, chip_h, sub, color,
+                       size=D.TYPE["tiny"], outline=True)
+            cx += cw + 0.12
+        y += pitch
 
 
 def _find_teardrop_frame(shapes):
@@ -581,6 +598,12 @@ _SWOT_QUADRANTS = [
     ("opportunites", "Opportunités", "#2c5cc5"),
     ("menaces", "Menaces", "#b8860b"),
 ]
+
+# Badge-icône par quadrant : flèches directionnelles (bloc Arrows, monochrome,
+# rendu fiable — cf. l'usage de « → » sur les decks OCTO réels VSCode4). Sémantique
+# de la grille : interne haut/bas (↑ force / ↓ faiblesse), externe haut/bas
+# (↗ opportunité / ↘ menace). bold=False au badge (certains glyphes « tofu » en gras).
+_SWOT_ICONS = {"forces": "↑", "faiblesses": "↓", "opportunites": "↗", "menaces": "↘"}
 
 
 def _image_dans_zone(slide, left, top, width, height, scene: str, requete: str,
@@ -715,9 +738,15 @@ def _slide_swot(prs: Presentation, swot) -> None:
         cl = area_l + col * (col_w + gap)
         ct = area_t + row * (row_h + gap)
         D.add_card(slide, cl, ct, col_w, row_h, color)
+        # Badge-icône du quadrant devant le titre (icône par quadrant).
+        badge_d = min(0.32, title_h)
+        D.add_badge(slide, cl + pad, ct + pad * 0.7, badge_d, _SWOT_ICONS[key],
+                    color, size=D.TYPE["small"], bold=False, radius=0.28)
         D.add_text(
-            slide, cl + pad, ct + pad * 0.7, col_w - 2 * pad, title_h,
+            slide, cl + pad + badge_d + 0.12, ct + pad * 0.7,
+            col_w - 2 * pad - badge_d - 0.12, title_h,
             [(label, {"size": D.TYPE["h3"], "bold": True, "color": color})],
+            anchor=MSO_ANCHOR.MIDDLE,
         )
         # paginate=True : un quadrant trop long est TRONQUÉ à ce qui tient dans
         # la carte plutôt que de déborder silencieusement sur le quadrant voisin
@@ -752,34 +781,43 @@ def _slide_difficultes(prs: Presentation, difficulties) -> None:
     q_size = D.TYPE["small"]
     line_h = _per_line_height_in(size)
     q_line_h = _per_line_height_in(q_size)
+    # Rang en chip numéroté (ambre) à gauche de la carte, au lieu du préfixe « N. »
+    # dans le libellé — le texte du constat démarre après le chip (largeur réduite,
+    # reflétée dans FIELD_SHAPE["difficulty_label"]).
+    rang_w, rang_h = 0.46, 0.30
+    lab_x = area_l + pad + rang_w + 0.16
+    lab_w = area_w - 2 * pad - rang_w - 0.16
     for i, d in enumerate(difficulties, 1):
         label = (getattr(d, "label", "") or "").strip()
         if not label:
             continue
-        head = f"{i}.  {label}"
-        lab_lines = min(3, max(1, D.estimer_lignes(head, area_w - 2 * pad, size)))
+        lab_lines = min(3, max(1, D.estimer_lignes(label, lab_w, size)))
         v = getattr(d, "verbatim", None)
         quote = ""
         if v is not None and (getattr(v, "quote", "") or "").strip():
             who = (getattr(getattr(v, "interview", None), "interviewee_name", "") or "Anonyme").strip() or "Anonyme"
             quote = f"«  {v.quote.strip()}  » — {who}"
-        q_lines = min(2, max(1, D.estimer_lignes(quote, area_w - 2 * pad, q_size))) if quote else 0
-        card_h = pad + lab_lines * line_h + (0.06 + q_lines * q_line_h if quote else 0.0) + pad
+        q_lines = min(2, max(1, D.estimer_lignes(quote, lab_w, q_size))) if quote else 0
+        head_block = max(rang_h, lab_lines * line_h)
+        card_h = pad + head_block + (0.06 + q_lines * q_line_h if quote else 0.0) + pad
         if top + card_h > area_bottom and i > 1:  # au moins la 1re carte, sinon stop
             break
         if top + card_h > area_bottom:
             card_h = max(0.0, area_bottom - top)  # 1re carte trop haute : bornée au cadre
         D.add_card(slide, area_l, top, area_w, card_h, accent)
+        D.add_chip(slide, area_l + pad, top + pad, rang_w, rang_h, str(i), accent,
+                   size=D.TYPE["small"])
         D.add_text(
-            slide, area_l + pad, top + pad, area_w - 2 * pad, lab_lines * line_h,
-            [(D.tronquer_a_lignes(head, area_w - 2 * pad, size, lab_lines),
+            slide, lab_x, top + pad, lab_w, head_block,
+            [(D.tronquer_a_lignes(label, lab_w, size, lab_lines),
               {"size": size, "bold": True, "color": D.INK})],
+            anchor=MSO_ANCHOR.MIDDLE,
         )
         if quote:
             D.add_text(
-                slide, area_l + pad, top + pad + lab_lines * line_h + 0.06,
-                area_w - 2 * pad, q_lines * q_line_h,
-                [(D.tronquer_a_lignes(quote, area_w - 2 * pad, q_size, q_lines),
+                slide, lab_x, top + pad + head_block + 0.06,
+                lab_w, q_lines * q_line_h,
+                [(D.tronquer_a_lignes(quote, lab_w, q_size, q_lines),
                   {"size": q_size, "italic": True, "color": teal})],
             )
         top += card_h + gap
