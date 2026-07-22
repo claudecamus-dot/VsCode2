@@ -2,6 +2,12 @@
   "_doc": "Décisions humaines qui closent un constat automatique du superviseur (fichier VERSIONNÉ, édité à la main — le scan le lit, ne l'écrit jamais). cible : nom de skill, ou famille:<Nom> pour une famille entière. Un constat arbitré disparaît des TODO auto mais reste visible dans la section « Arbitrages enregistrés » du tableau de bord ; l'usage réel reste mesuré (un arbitrage n'est pas une preuve d'utilité — le superviseur étage 2 peut le re-challenger avec des données nouvelles).",
   "arbitrages": [
     {
+      "cible": "famille:orchestrateur+superviseur",
+      "decision": "Demande utilisateur 2026-07-22 (« c'est toujours KO, ma demande n'est pas traitée — fais évoluer supervisor + orchestrator ») : évolutions APPLIQUÉES après ~15 tours de boucle deck non convergente. Orchestrateur §4 : vérif obligatoire « livrable utilisateur = artefact EXACT de l'app (export réel, pas build maison), rendu ENTIER, validé PAR l'utilisateur » + règle de non-convergence (≥3 rejets → demander le défaut précis, ne pas re-deviner). Orchestrateur §5 : nouvel état de run 'en-attente-validation' (jamais 'succes' auto-décerné sur un livrable utilisateur). Superviseur §3 : catégorie 'non-convergence' (constat critique) + write_diagnostic.py l'accepte. Réflexion : docs/reflexions/evolution-agents-acceptance-utilisateur.md. Mémoires feedback-non-convergence-user-is-oracle + feedback-verify-the-real-app-export-all-slides.",
+      "date": "2026-07-22",
+      "source": "utilisateur"
+    },
+    {
       "cible": "export-ppt-verifie",
       "decision": "Rétrospective 2026-07-22 (« charte VSCode4 affirmée de mémoire → add-then-revert ») arbitrée : l'étape CADRAGE du playbook exige désormais, quand la demande cite un deck/charte de référence (VSCode3/4, template client), de RENDRE 2-3 slides de la référence (pptx-verify) et d'en extraire les motifs AVANT d'implémenter — interdit d'affirmer une conformité charte de mémoire. Preuve : 816ab02 (ajoute barre d'accent « charte VSCode4 ») → 09c7ba3 (la retire « VSCode4 n'en a pas »), + sommaire/numéro/encarts corrigés seulement après render VSCode4. Mémoire feedback-ground-charte-claims-in-a-render.",
       "date": "2026-07-22",

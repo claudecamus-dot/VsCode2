@@ -33,7 +33,7 @@ DIAGNOSTIC_PATH = os.environ.get("AGENT_SUPERVISION_DIAGNOSTIC") or os.path.join
 )
 CATEGORIES = (
     "ko-repete", "inefficacite", "agent-mort", "interaction",
-    "verification-manquante", "autre",
+    "verification-manquante", "non-convergence", "autre",
 )
 
 

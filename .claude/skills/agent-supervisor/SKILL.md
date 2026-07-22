@@ -53,6 +53,7 @@ mesure ; cet étage **qualifie** — et l'humain tranche. Sortie unique :
 | `agent-mort` | Quoi désinstaller/mettre en sommeil (jamais utilisé ou > 30 j malgré rappels) ? | `jamais_utilises` + date d'install ; `en_sommeil` |
 | `interaction` | Quel enchaînement échoue entre agents (sortie de N inutilisable par N+1) ? | même étape relancée dans plusieurs runs ; `resolution:` récurrente |
 | `verification-manquante` | Quelle vérification réelle est systématiquement sautée ? | `verifications_oubliees` ; commit touchant `pptx_export.py` sans passage `pptx-verify` |
+| `non-convergence` (évol 2026-07-22) | Un même livrable est-il **rejeté à répétition** par l'utilisateur sans converger ? | même playbook/livrable rejoué ≥ 3 tours + corrections « toujours KO / pas traité » ; série de fix + un **revert** sur le même fichier. **Constat CRITIQUE** — proposition type : passer en **mode acceptance** (l'utilisateur est l'oracle, sur l'artefact EXACT qu'il ouvre ; demander le défaut précis) au lieu d'un énième correctif deviné. La cause est un dispositif où le même modèle évalue ce qu'il produit — l'auto-validation ne remplace pas la validation utilisateur. |
 
 Ne retenir que ce qui est **actionnable** (une recommandation concrète par constat) et
 **pas déjà couvert** par un TODO déterministe du scan (ex. « trier BMAD » y est déjà —

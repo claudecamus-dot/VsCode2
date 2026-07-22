@@ -88,9 +88,18 @@ plans (leçons payées du projet — mémoires `feedback_*`) :
 | --- | --- |
 | Template Jinja / CSS / JS | Screenshot via `run-dev-server` (pas seulement pytest) |
 | `pptx_export.py` / `pptx_deck.py` | `pptx-verify` (rendu réel — python-pptx est un parseur tolérant) |
+| **Livrable consommé par l'utilisateur** (deck exporté, écran) | Produire l'**artefact EXACT qu'il ouvre** (export réel de la route de l'app — `GET …/export/pptx` — **pas** un `build_presentation` maison), le rendre **ENTIER** (toutes les slides, pas 2-3), et le faire **VALIDER par l'utilisateur** avant tout « fait » (évol 2026-07-22, boucle deck non convergente — `feedback-verify-the-real-app-export-all-slides`) |
 | Fin d'incrément / avant commit | `revue-increment` en étape terminale |
 | Exploration volumineuse | Sous-agent `Explore`, jamais la session principale |
 | Skills BMAD | Uniquement sur demande explicite, via `bmad-help` (statut « à trier ») |
+
+**Règle de non-convergence (évol 2026-07-22).** Si le MÊME livrable est rejeté par
+l'utilisateur **≥ 3 tours** (« toujours KO », « pas traité »), la boucle ne converge pas :
+**STOP l'itération à l'aveugle** — ne pas re-deviner le défaut. Reproduire l'artefact
+utilisateur exact (§ ligne ci-dessus) ET **demander à l'utilisateur de pointer le défaut
+précis** (numéro de slide, capture, écran) avant de retoucher quoi que ce soit. Re-deviner
+produit l'oscillation (ex. barre d'accent ajoutée puis retirée, numéro navy-block puis
+pill) ; l'oracle, c'est l'utilisateur sur SON artefact.
 
 ### 5. Journaliser
 
@@ -104,10 +113,14 @@ py .claude/orchestration/log_run.py '{"demande": "résumé court", "qualificatio
 `resultat` (issue **discriminante** — pas un `succes` réflexe, constat superviseur
 2026-07-21 « 29/29 succes ne porte aucun signal ») : `succes` = livrable produit ET
 toutes les exigences explicites de la demande couvertes ET vérifications obligatoires
-faites ; `partiel` = au moins une exigence non livrée, une vérification obligatoire
-sautée, OU une escalade non résolue à la remise (commit/PR bloqué renvoyé à
-l'utilisateur) ; `echec` = objectif non atteint / run abandonné ; `playbook` : nom du playbook instancié ou
-`null` en composition libre. Les exécutions directes ne se journalisent pas — le journal
+faites **ET, pour un livrable consommé par l'utilisateur, validé PAR l'utilisateur sur
+l'artefact exact** ; `en-attente-validation` = livrable design-intent produit et
+auto-vérifié mais **pas encore validé par l'utilisateur** — état par défaut d'un livrable
+utilisateur tant que le « OK » n'est pas donné (évol 2026-07-22 : ne JAMAIS logger `succes`
+sur une auto-évaluation d'un livrable que l'utilisateur doit approuver) ; `partiel` = au
+moins une exigence non livrée, une vérification obligatoire sautée, OU une escalade non
+résolue à la remise (commit/PR bloqué renvoyé à l'utilisateur) ; `echec` = objectif non
+atteint / run abandonné ; `playbook` : nom du playbook instancié ou `null` en composition libre. Les exécutions directes ne se journalisent pas — le journal
 trace les orchestrations, pas la conversation.)
 
 ## Politique de modèle (sous-agents uniquement)
