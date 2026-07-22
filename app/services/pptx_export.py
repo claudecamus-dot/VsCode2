@@ -61,6 +61,13 @@ MARGIN = 0.6
 _W_IN, _H_IN = 10.0, 5.625  # dims du template OCTO de marque (16:9) — FIELD_SHAPE (hints web) aligné dessus
 _LEFT_W = _W_IN * 0.34
 _RIGHT_W = _W_IN - (MARGIN + _LEFT_W + 0.4) - MARGIN
+# Slide de synthèse enrichie (claim + visuel + encart) : largeur de la carte de puces
+# une fois la bande photo réservée à droite (2.7in), sinon pleine largeur (repli).
+_SYNTH_VIS_W = 2.7
+_SYNTH_AREA_W = (
+    ((_W_IN - MARGIN - _SYNTH_VIS_W) - 0.3 - (MARGIN + 0.3))
+    if _FRAMED_OK else (_W_IN - 2 * (MARGIN + 0.3))
+)
 
 # Template OCTO de marque, versionné (masters/layouts/thème + police Outfit) : défaut de
 # build_presentation. Un template client (mission.pptx_template_path) reste prioritaire ;
@@ -75,7 +82,9 @@ FIELD_SHAPE = {
     "plan_actions": dict(width_in=_RIGHT_W, max_h_in=2.8),
     "reco_title": dict(width_in=_W_IN - 2 * MARGIN, size_pt=D.TYPE["title"], max_lignes=2),
     "axis_title": dict(width_in=_W_IN - 2 * MARGIN - 2.0, max_h_in=1.1, size_max=D.TYPE["h3"]),
-    "synthese_categorie": dict(width_in=_W_IN - 2 * (MARGIN + 0.3), max_h_in=5.0, size_max=20),
+    # Slide enrichie (carte de puces à gauche, visuel à droite, 1re puce en encart) :
+    # largeur = carte réduite du visuel ; hauteur = zone au-dessus de l'encart « à retenir ».
+    "synthese_categorie": dict(width_in=_SYNTH_AREA_W - 0.48, max_h_in=1.9, size_max=D.TYPE["body"]),
     # Un quadrant SWOT = ~demi-largeur de la zone de contenu ; la hauteur de la
     # zone de PUCES (pas de la carte) = row_h - titre - paddings ≈ 1.9 in sur un
     # deck vierge (cf. _slide_swot) — pas la demi-hauteur brute (~2.2), qui
@@ -452,40 +461,33 @@ def _slide_sommaire(prs: Presentation, ch_sections: list[list[str]]) -> None:
     couleur + intitulé narratif + les sections qu'il regroupe (repère de navigation,
     couleur reprise sur l'intercalaire) — au lieu d'une liste plate de sections."""
     slide, w_in, h_in, top = _new_slide(prs, "Sommaire")
-    y = top + 0.25
-    # Pas vertical adaptatif : chaque chapitre occupe 2 niveaux (badge+titre, puis
-    # ses sections en chips) — le pas se calcule sur le nombre de chapitres ACTIFS
-    # pour ne jamais déborder sous la slide OCTO (10×5.625, courte).
     active = [ci for ci, subs in enumerate(ch_sections) if subs]
-    pitch = min(0.9, (h_in - 0.5 - y) / max(1, len(active)))
-    badge_d = min(0.44, pitch - 0.36)
-    label_x = MARGIN + 0.3 + badge_d + 0.22
-    numero = 0
-    for ci in active:
+    # Grille 2×2 de badges GOUTTE (teardrop) à contour — signature du sommaire des
+    # decks OCTO réels (VSCode4) : numéro dans la goutte, intitulé narratif + sections
+    # en regard. Remplissage colonne par colonne (01,02 à gauche ; 03,04 à droite).
+    area_t = top + 0.2
+    row_h = (h_in - 0.5 - area_t) / 2
+    col_w = (w_in - 2 * MARGIN) / 2
+    d = 0.92  # diamètre du badge goutte
+    for idx, ci in enumerate(active):
         subs = ch_sections[ci]
-        numero += 1
         label, color = _CHAPITRES[ci][0], _CHAPITRES[ci][1]
-        # Badge-icône numéro de chapitre (remplace la pastille) — couleur reprise
-        # sur l'intercalaire, repère de navigation cohérent.
-        D.add_badge(slide, MARGIN + 0.3, y, badge_d, f"{numero:02d}", color,
-                    size=D.TYPE["h3"], bold=True, radius=0.28)
+        col, r = idx // 2, idx % 2
+        cell_x = MARGIN + col * col_w
+        cell_y = area_t + r * row_h
+        bx = cell_x + 0.15
+        by = cell_y + (row_h - d) / 2
+        D.add_teardrop(slide, bx, by, d, f"{idx + 1:02d}", color, size=D.TYPE["h2"])
+        tx = bx + d + 0.3
+        tw = col_w - (bx - cell_x) - d - 0.3 - 0.2
         D.add_text(
-            slide, label_x, y, w_in - label_x - MARGIN, badge_d,
-            [(label, {"size": D.TYPE["h2"], "bold": True, "color": D.INK})],
+            slide, tx, cell_y, max(1.0, tw), row_h,
+            [
+                (label, {"size": D.TYPE["h3"], "bold": True, "color": D.INK, "space_after": 4}),
+                (" · ".join(subs), {"size": D.TYPE["small"], "color": D.MUTED}),
+            ],
             anchor=MSO_ANCHOR.MIDDLE,
         )
-        # Sections regroupées, en chips contour (tags) sous le titre du chapitre.
-        cx = label_x
-        chip_h = 0.28
-        chip_y = y + badge_d + 0.08
-        for sub in subs:
-            cw = min(2.6, 0.34 + 0.082 * len(sub))
-            if cx + cw > w_in - MARGIN:
-                break  # ne pas déborder à droite
-            D.add_chip(slide, cx, chip_y, cw, chip_h, sub, color,
-                       size=D.TYPE["tiny"], outline=True)
-            cx += cw + 0.12
-        y += pitch
 
 
 def _find_teardrop_frame(shapes):
@@ -594,15 +596,68 @@ def _slide_chapitre(prs: Presentation, numero: int, titre: str, color: str,
     )
 
 
+# Enrichissement synthèse (ask design 2026-07-22) : pattern claim + visuel + encart
+# des decks OCTO réels (VSCode4). Scène/requête photo par catégorie (repli procédural
+# offline, comme les têtes de chapitre) — clé = libellé exact passé par build_presentation.
+# Scènes NATURE (comme les têtes de chapitre) : rendu procédural fiable hors ligne
+# ET vraie photo Openverse en prod — cohérent avec l'imagerie de marque du deck.
+# (scène, requête photo, seed distinct pour varier des intercalaires).
+_SYNTHESE_VISUEL = {
+    "Contexte": ("mountains", "mountains landscape", 11),
+    "Culture & ADN": ("forest", "green forest sunlight", 12),
+    "Forces & succès": ("sunset", "sunset sky", 13),
+    "Points d'amélioration": ("ocean", "turquoise water", 14),
+    "Aspirations (baguette magique)": ("sunset", "sunrise horizon sky", 15),
+}
+
+
 def _slide_synthese_categorie(prs: Presentation, label: str, content: str) -> None:
+    """Slide de catégorie de synthèse, ENRICHIE (claim + visuel + encart) : puces à
+    gauche dans une carte, photo métier à droite, 1re puce promue en encart « à
+    retenir » cyan en bas — au lieu d'un titre + puces sur fond vide. Repli propre
+    (carte pleine largeur, pas d'encart) si l'infra image manque ou si la catégorie
+    n'a qu'une puce. Même pattern que _slide_executive_summary."""
     slide, w_in, h_in, top = _new_slide(prs, f"Synthèse globale — {label}")
-    # Ancré en haut (pas MIDDLE) : un paragraphe court dans une grande bande
-    # centrée verticalement laisse un vide au-dessus ET en dessous, plus
-    # visible qu'un unique vide en bas — cf. skill pptx-deck, principe n°2.
+    accent = (D.theme_colors(prs).get("accent3") or "#00D2DD")  # cyan OCTO
+    area_l = MARGIN + 0.3
+    has_vis = _FRAMED_OK
+    vis_w = _SYNTH_VIS_W
+    vis_l = w_in - MARGIN - vis_w
+    area_w = (vis_l - 0.3 - area_l) if has_vis else (w_in - 2 * (MARGIN + 0.3))
+    pad = 0.24
+    band_h, band_gap = 0.9, 0.3
+    band_t = h_in - 0.5 - band_h
+
+    lines = _bullet_lines(content) or ["—"]
+    # 1re puce -> encart « à retenir » si au moins 2 puces (sinon tout dans la carte).
+    retenir = lines[0] if len(lines) >= 2 else None
+    rest = lines[1:] if retenir else lines
+
+    zone_bottom = (band_t - band_gap) if retenir else (h_in - 0.5)
+    avail = max(0.0, zone_bottom - top)
+
+    body = D.TYPE["body"]
+    rest_text = "\n".join(rest) or "—"
+    # La carte occupe TOUTE la zone (même hauteur que le visuel à droite → colonnes
+    # équilibrées, pas de vide sous une carte trop courte) ; puces centrées verticalement.
+    card_h = avail
+    D.add_card(slide, area_l, top, area_w, card_h, accent)
     _add_bulleted_text(
-        slide, MARGIN + 0.3, top, w_in - 2 * (MARGIN + 0.3), h_in - top - 0.5, content,
-        anchor=MSO_ANCHOR.TOP, size_max=20, size_min=D.TYPE["small"],
+        slide, area_l + pad, top + pad, area_w - 2 * pad, max(0.0, card_h - 2 * pad),
+        rest_text, anchor=MSO_ANCHOR.MIDDLE, size_max=body, size_min=D.TYPE["small"],
+        paginate=True,
     )
+
+    if has_vis:
+        scene, requete, seed = _SYNTHESE_VISUEL.get(label, ("mountains", "mountains landscape", 11))
+        if not _image_dans_zone(slide, vis_l, top, vis_w, avail, scene, requete, seed=seed):
+            D.add_rect(slide, vis_l, top, vis_w, avail, fill=accent, rounded=True, radius=0.06)
+
+    if retenir:
+        # Encart « à retenir » gris (même composant add_encart que l'executive summary
+        # — cohérence de composant §5, sobriété §3/§7, motif VSCode4).
+        msg = D.tronquer_a_lignes(retenir, area_w - 0.6, D.TYPE["h3"], 2)
+        D.add_encart(slide, area_l, band_t, area_w, band_h, msg, accent=accent)
 
 
 # SWOT : Forces/Faiblesses = interne (vert/rouge), Opportunités/Menaces =
@@ -717,22 +772,20 @@ def _slide_executive_summary(prs: Presentation, es) -> None:
     # repli sur un bloc couleur accent net si la photo n'est pas disponible (fetch
     # KO + scène non procédurale) plutôt qu'une photo hors-sujet ou du vide.
     if has_vis:
-        if not _image_dans_zone(slide, vis_l, top, vis_w, avail, "office",
-                                "modern office team collaboration"):
+        # Scène NATURE (repli procédural propre hors ligne, vraie photo en prod) —
+        # cohérent avec l'imagerie de marque du deck ; « office » procédural rendait
+        # un aplat criard (défaut relevé par la passe restitution-deck-design §7).
+        if not _image_dans_zone(slide, vis_l, top, vis_w, avail, "sunset",
+                                "city skyline sunrise", seed=7):
             D.add_rect(slide, vis_l, top, vis_w, avail, fill=accent, rounded=True, radius=0.06)
 
     key_message = (getattr(es, "key_message", "") or "").strip()
     if key_message:
-        D.add_rect(slide, area_l, band_t, area_w, band_h, fill=accent, rounded=True, radius=0.12)
-        # Bande à hauteur fixe : un message trop long déborderait sans que
-        # verifier_geometrie ne le voie -> tronqué à 2 lignes.
-        msg = D.tronquer_a_lignes(key_message, area_w - 2 * pad, D.TYPE["h3"], 2)
-        D.add_text(
-            slide, area_l + pad, band_t, area_w - 2 * pad, band_h,
-            [(msg, {"size": D.TYPE["h3"], "bold": True, "color": "#ffffff",
-                    "align": PP_ALIGN.CENTER})],
-            anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER,
-        )
+        # Encart « à retenir » gris (composant unique add_encart) — sobre, liseré
+        # accent, texte foncé : la couleur est un accent, pas une bande criarde.
+        # Hauteur fixe -> message tronqué à 2 lignes (débordement invisible sinon).
+        msg = D.tronquer_a_lignes(key_message, area_w - 0.6, D.TYPE["h3"], 2)
+        D.add_encart(slide, area_l, band_t, area_w, band_h, msg, accent=accent)
 
 
 def _slide_swot(prs: Presentation, swot) -> None:

@@ -246,6 +246,49 @@ def add_badge(slide, x, y, d, glyph, color, text_color="#ffffff", size=None,
     return shp
 
 
+def add_teardrop(slide, x, y, d, label, color, size=None, rot=180, line_w=1.75):
+    """Badge goutte (prstGeom « tear ») à CONTOUR — signature OCTO du sommaire des
+    decks réels (VSCode4) : fond blanc, bordure couleur, numéro/label centré (posé
+    en zone de texte séparée pour rester droit quand la goutte est pivotée). `rot`
+    oriente la pointe (défaut 180 = pointe en bas-gauche). Sans ombre (règle dure)."""
+    size = TYPE["h2"] if size is None else size
+    shp = slide.shapes.add_shape(MSO_SHAPE.TEAR, Inches(x), Inches(y), Inches(d), Inches(d))
+    _no_shadow(shp)
+    shp.fill.solid()
+    shp.fill.fore_color.rgb = rgb("#ffffff")
+    shp.line.color.rgb = rgb(color)
+    shp.line.width = Pt(line_w)
+    shp.rotation = rot
+    shp.text_frame.paragraphs[0].text = ""
+    add_text(slide, x, y, d, d,
+             [(label, dict(size=size, bold=True, color=color, align=PP_ALIGN.CENTER))],
+             anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER)
+    return shp
+
+
+ENCART_BG = "#eceef2"  # gris clair d'encart (structural, cf. LINE/TRACK) — motif OCTO réel
+
+
+def add_encart(slide, l, t, w, h, text, accent=None, label=None, size=None,
+               align=PP_ALIGN.CENTER):
+    """Encart « à retenir / so-what » — boîte GRIS CLAIR arrondie, sans ombre, texte
+    foncé. Un encart est QUIET (gris), pas une bande de couleur criarde : la couleur
+    est un accent, pas de la décoration (restitution-deck-design §3/§7 ; motif des
+    decks OCTO réels VSCode4). `accent` pose un fin liseré gauche coloré (repère sans
+    crier) ; `label` un préfixe gras. Composant unique réutilisé partout (§5)."""
+    size = TYPE["h3"] if size is None else size
+    add_rect(slide, l, t, w, h, fill=ENCART_BG, rounded=True, radius=0.12)
+    pad = 0.24
+    if accent:
+        add_rect(slide, l, t, 0.06, h, fill=accent, rounded=True, radius=0.5)
+        pad = 0.28
+    lignes = []
+    if label:
+        lignes.append((label, dict(size=size, bold=True, color=INK, align=align)))
+    lignes.append((text, dict(size=size, bold=(label is None), color=INK, align=align)))
+    add_text(slide, l + pad, t, w - 2 * pad, h, lignes, anchor=MSO_ANCHOR.MIDDLE, align=align)
+
+
 def add_range_bar(slide, l, t, w, h, mn, mx, scale_max, fill, marker=None,
                   track=TRACK):
     """Barre d'amplitude min..max sur une echelle 0..scale_max (piste complete +
