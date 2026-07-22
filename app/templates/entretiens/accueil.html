@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Bienvenue — Interview-to-Deck{% endblock %}
+{% block content %}
+<div class="page-head"><h1>Comment souhaitez-vous démarrer ?</h1></div>
+<p class="muted">Choisissez un mode. Vous pourrez en changer à tout moment depuis le bandeau en haut de l'écran.</p>
+
+<div class="entree-choices">
+  <form method="post" action="/mode/demo" class="card entree-choice mode-demo">
+    <span class="mode-etiquette">Démonstration</span>
+    <h2>Découvrir avec des données fictives</h2>
+    <p class="muted">
+      Explorez tout le parcours — entretiens, synthèse, deck de restitution — sur une
+      mission de démonstration. Ces données sont isolées : elles ne se mélangent jamais
+      à vos vraies missions.
+    </p>
+    <button class="btn btn-primary" type="submit">Entrer en mode démo</button>
+  </form>
+
+  <form method="post" action="/mode/reel" class="card entree-choice mode-reel">
+    <span class="mode-etiquette">Usage réel</span>
+    <h2>Utilisation réelle</h2>
+    <p class="muted">
+      Créez vos missions, menez vos entretiens et générez vos restitutions. Aucune
+      donnée de démonstration n'apparaît dans ce mode.
+    </p>
+    <button class="btn" type="submit">Démarrer en usage réel</button>
+  </form>
+</div>
+{% endblock %}

@@ -119,6 +119,21 @@ h2 { font-size: 1.1rem; margin: 0; }
 .entree-choice h2 { margin: 0; font-size: 1.1rem; }
 .entree-choice .btn { align-self: flex-start; margin-top: auto; }
 
+/* 1ère page démo/réel (P5a-1) : liseré de tête cyan (démo) / accent (réel). */
+.mode-etiquette { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.mode-demo { border-top: 4px solid #00a3e0; }
+.mode-reel { border-top: 4px solid var(--accent); }
+.mode-demo .mode-etiquette { color: #0087bd; }
+.mode-reel .mode-etiquette { color: var(--accent-dark); }
+
+/* Bandeau MODE DÉMO — sticky, cyan, sans ombre (rappel permanent qu'on est en démo). */
+.demo-banner {
+  position: sticky; top: 0; z-index: 9999;
+  background: #00a3e0; color: #10233b; text-align: center;
+  font-weight: 600; font-size: .8rem; letter-spacing: .04em; padding: 4px 10px;
+}
+.demo-banner a { color: inherit; text-decoration: underline; }
+
 .agent-status { display: flex; align-items: center; gap: 10px; }
 .agent-grid {
   display: grid;

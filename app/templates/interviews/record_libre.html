@@ -13,7 +13,7 @@
 {% if not recording_available %}
 <p class="ai-error">⚠ La transcription locale n'est pas installée sur ce poste
   (<code>pip install faster-whisper</code>).</p>
-<a class="btn" href="/">Retour</a>
+<a class="btn" href="/demarrer">Retour</a>
 {% else %}
 <p class="muted">
   Pas de trame à suivre ici : enregistre la conversation librement. La
@@ -93,7 +93,7 @@
   </div>
 
   <div class="form-actions">
-    <a class="btn" href="/">Annuler</a>
+    <a class="btn" href="/demarrer">Annuler</a>
     <button class="btn btn-primary" type="submit" id="rec-submit" disabled>Continuer vers les tours de parole →</button>
   </div>
 </form>

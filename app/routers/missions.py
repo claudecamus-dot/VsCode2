@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_session
 from ..models import Interview, Mission, Trame
+from ..services.mode import est_mode_demo
 from ..templating import templates
 
 router = APIRouter(prefix="/missions", tags=["missions"])
@@ -35,8 +36,13 @@ def _draft_vide(mission: Mission) -> bool:
 
 @router.get("")
 def list_missions(request: Request, db: Session = Depends(get_session)):
+    # Filtré par le mode courant (P5a-1) : démo et réel ne se mélangent jamais
+    # dans la liste. Le compteur de brouillons vides porte donc sur le seul mode
+    # affiché (il itère `missions`, déjà filtré).
     missions = db.scalars(
-        select(Mission).order_by(Mission.created_at.desc())
+        select(Mission)
+        .where(Mission.is_demo.is_(est_mode_demo(request)))
+        .order_by(Mission.created_at.desc())
     ).all()
     return templates.TemplateResponse(
         request,
@@ -49,12 +55,16 @@ def list_missions(request: Request, db: Session = Depends(get_session)):
 
 
 @router.post("/brouillons/nettoyer")
-def nettoyer_brouillons(db: Session = Depends(get_session)):
+def nettoyer_brouillons(request: Request, db: Session = Depends(get_session)):
     """Supprime d'un coup les missions brouillon vides (abandonnées avant
     toute saisie — elles s'accumulent car chaque entrée « entretien libre/
     structuré » en crée une, cf. entretiens.py). Déclenché par un bouton
-    explicite de la liste, jamais automatiquement."""
-    for mission in db.scalars(select(Mission).where(Mission.is_draft.is_(True))).all():
+    explicite de la liste, jamais automatiquement. Borné au mode courant (P5a-1)
+    — un nettoyage en réel ne touche jamais aux brouillons démo, et inversement."""
+    q = select(Mission).where(
+        Mission.is_draft.is_(True), Mission.is_demo.is_(est_mode_demo(request))
+    )
+    for mission in db.scalars(q).all():
         if _draft_vide(mission):
             db.delete(mission)
     db.commit()
@@ -68,6 +78,7 @@ def new_mission(request: Request):
 
 @router.post("")
 def create_mission(
+    request: Request,
     name: str = Form(...),
     description: str = Form(""),
     db: Session = Depends(get_session),
@@ -78,6 +89,7 @@ def create_mission(
     mission = Mission(
         name=name,
         description=description.strip() or None,
+        is_demo=est_mode_demo(request),
         trame=Trame(name="Trame d'entretien"),
     )
     db.add(mission)
@@ -99,7 +111,14 @@ def finaliser_mission_form(
     if not mission.is_draft:
         return RedirectResponse(f"/missions/{mission.id}", status_code=303)
 
-    query = select(Mission).where(Mission.is_draft.is_(False), Mission.id != mission.id)
+    # Même mode que le brouillon (P5a-1) : on ne rattache jamais un brouillon démo
+    # à une mission réelle, ni l'inverse (le brouillon porte son propre is_demo,
+    # posé à sa création selon le mode courant).
+    query = select(Mission).where(
+        Mission.is_draft.is_(False),
+        Mission.id != mission.id,
+        Mission.is_demo.is_(mission.is_demo),
+    )
     if mission.trame is not None:
         query = query.where(~Mission.trame.has())
     eligible = db.scalars(query.order_by(Mission.created_at.desc())).all()
@@ -136,7 +155,12 @@ def finaliser_mission(
 
     if action == "rattacher":
         target = db.get(Mission, target_mission_id) if target_mission_id else None
-        if target is None or target.is_draft or target.id == mission.id:
+        if (
+            target is None
+            or target.is_draft
+            or target.id == mission.id
+            or target.is_demo != mission.is_demo  # jamais de rattachement cross-mode
+        ):
             raise HTTPException(status_code=400, detail="Mission cible invalide.")
         if mission.trame is not None and target.trame is not None:
             raise HTTPException(

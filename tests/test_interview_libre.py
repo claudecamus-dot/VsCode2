@@ -347,7 +347,8 @@ def test_generate_repartition_single_group_skips_reduce_call(
 # Écran d'entrée
 # --------------------------------------------------------------------------- #
 def test_entree_screen_lists_three_choices(client: TestClient) -> None:
-    response = client.get("/")
+    # L'entrée à 3 choix est désormais sous /demarrer (P5a-1 : `/` = choix démo/réel).
+    response = client.get("/demarrer")
     assert response.status_code == 200
     assert "Entretien libre" in response.text
     assert "Entretien structuré" in response.text

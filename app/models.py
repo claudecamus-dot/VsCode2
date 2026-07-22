@@ -72,6 +72,12 @@ class Mission(Base):
     # existante via /missions/{id}/finaliser. Une mission "classique" (choix
     # « nouvelle mission ») ne passe jamais par cet état.
     is_draft: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Séparation démo / réel (P5a-1, 2026-07-22 — modèle VSCode1). Une mission de
+    # démonstration (`is_demo=True`) porte tout son contenu fictif ; défaut False
+    # (réel — on ne marque JAMAIS des données existantes démo par accident). Le
+    # mode courant (cookie `mode`, cf. services/mode.py) filtre les listings et
+    # tague les créations, pour ne jamais mélanger démo et vraies données.
+    is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
     # Verbatims (`Verbatim.id`) sélectionnés pour la planche « Paroles d'acteurs »
     # de la restitution (Palier 2, 2026-07-21) — approche légère : on référence
     # des `Verbatim` déjà en base par id plutôt qu'un nouveau modèle de citation.

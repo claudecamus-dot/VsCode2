@@ -10,9 +10,12 @@
   <script src="/static/autosave.js" defer></script>
 </head>
 <body>
+  {% if request.cookies.get('mode') == 'demo' %}
+  <div class="demo-banner">MODE DÉMO — données fictives · <a href="/">changer de mode</a></div>
+  {% endif %}
   <header class="topbar">
     <a class="brand" href="/">Interview&#8209;to&#8209;Deck</a>
-    <nav><a href="/">Démarrer</a> <a href="/missions">Missions</a></nav>
+    <nav><a href="/demarrer">Démarrer</a> <a href="/missions">Missions</a></nav>
   </header>
   <main class="container">
     {% block content %}{% endblock %}
