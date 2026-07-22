@@ -79,7 +79,7 @@
       {% endif %}
       {% if axes %}
       <label class="pptx-check"><input type="checkbox" name="axes_overview" value="true" checked> Vue d'ensemble des axes</label>
-      <label class="pptx-check"><input type="checkbox" name="matrix" value="true" checked> Matrice effort / valeur</label>
+      <label class="pptx-check"><input type="checkbox" name="matrix" value="true" checked> Matrice de priorisation (valeur / effort)</label>
       {% endif %}
     </div>
     {% if axes %}
@@ -196,7 +196,7 @@
           {# Même condition que build_presentation (include_swot and swot.has_content) — tenir la parité aperçu/PPT du sommaire. #}
           {% if swot and swot.has_content %}{% set _ = sommaire_sections.append('Matrice SWOT') %}{% endif %}
           {% if mission.selected_verbatims %}{% set _ = sommaire_sections.append("Paroles d'acteurs") %}{% endif %}
-          {% if axes %}{% set _ = sommaire_sections.append('Recommandations') %}{% set _ = sommaire_sections.append('Matrice effort / valeur') %}{% endif %}
+          {% if axes %}{% set _ = sommaire_sections.append('Recommandations') %}{% set _ = sommaire_sections.append('Matrice de priorisation') %}{% endif %}
           <div class="slide-sommaire">
             {% for label in sommaire_sections %}
             <div class="slide-sommaire-row"><span class="slide-sommaire-num">{{ '%02d'|format(loop.index) }}</span><span>{{ label }}</span></div>

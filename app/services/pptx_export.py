@@ -17,8 +17,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from pptx import Presentation
-from pptx.chart.data import XyChartData
-from pptx.enum.chart import XL_CHART_TYPE
 from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from pptx.oxml.ns import qn
@@ -59,8 +57,12 @@ MARGIN = 0.6
 # les blocs précédents (variable) ; ici on prend une estimation généreuse
 # mais fixe, cohérente avec une slide "normale".
 _W_IN, _H_IN = 10.0, 5.625  # dims du template OCTO de marque (16:9) — FIELD_SHAPE (hints web) aligné dessus
-_LEFT_W = _W_IN * 0.34
-_RIGHT_W = _W_IN - (MARGIN + _LEFT_W + 0.4) - MARGIN
+# Fiche reco en encarts arrondis (2026-07-22) : le contenu vit DANS des cartes
+# (carte gauche + encart proposition + carte plan), les largeurs utiles sont donc
+# les largeurs de carte moins les marges internes (pad 0.2 ×2 + liseré 0.05).
+_CARD_L_W = _W_IN * 0.34 + 0.2
+_LEFT_W = _CARD_L_W - 0.45
+_RIGHT_W = (_W_IN - MARGIN - (MARGIN + _CARD_L_W + 0.3)) - 0.45
 # Slide de synthèse enrichie (claim + visuel + encart) : largeur de la carte de puces
 # une fois la bande photo réservée à droite (2.7in), sinon pleine largeur (repli).
 _SYNTH_VIS_W = 2.7
@@ -77,9 +79,11 @@ OCTO_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "assets" / "templa
 FIELD_SHAPE = {
     "objectif": dict(width_in=_LEFT_W, max_h_in=1.1),
     "acteurs": dict(width_in=_LEFT_W, max_h_in=0.5),
-    "resultats_attendus": dict(width_in=_LEFT_W, max_h_in=1.5),
-    "proposition_valeur": dict(width_in=_RIGHT_W, max_h_in=1.6),
-    "plan_actions": dict(width_in=_RIGHT_W, max_h_in=2.8),
+    # resultats_attendus vit dans la carte droite (sous le plan) depuis les
+    # encarts arrondis 2026-07-22 — ~35 % de la zone de la carte plan.
+    "resultats_attendus": dict(width_in=_RIGHT_W, max_h_in=0.8),
+    "proposition_valeur": dict(width_in=_RIGHT_W, max_h_in=1.05),
+    "plan_actions": dict(width_in=_RIGHT_W, max_h_in=2.0),
     "reco_title": dict(width_in=_W_IN - 2 * MARGIN, size_pt=D.TYPE["title"], max_lignes=2),
     "axis_title": dict(width_in=_W_IN - 2 * MARGIN - 2.0, max_h_in=1.1, size_max=D.TYPE["h3"]),
     # Slide enrichie (carte de puces à gauche, visuel à droite, 1re puce en encart) :
@@ -89,7 +93,9 @@ FIELD_SHAPE = {
     # zone de PUCES (pas de la carte) = row_h - titre - paddings ≈ 1.9 in sur un
     # deck vierge (cf. _slide_swot) — pas la demi-hauteur brute (~2.2), qui
     # surestimait le budget du repère de ~20 % et rendait le fit-hint trompeur.
-    "swot_quadrant": dict(width_in=(_W_IN - 2 * (MARGIN + 0.3) - 0.25) / 2 - 0.36, max_h_in=1.9, size_max=D.TYPE["small"]),
+    # Matrice SWOT (skill swot-matrix) : cellule teintée = gouttière 0.30 à gauche +
+    # bandeau d'axe en haut ; largeur de puces = demi-grille moins paddings.
+    "swot_quadrant": dict(width_in=(_W_IN - MARGIN - (MARGIN + 0.30) - 0.22) / 2 - 0.36, max_h_in=1.2, size_max=D.TYPE["small"]),
     # Executive summary (piste F) : panneau pleine largeur (constat + points) et
     # bande cyan « key message » — mêmes contraintes que la slide (cf.
     # _slide_executive_summary), pour un fit-hint fidèle dans l'aperçu.
@@ -243,6 +249,8 @@ def _new_slide(prs: Presentation, title: str):
             for run in p.runs:
                 run.font.size = Pt(size)
                 run.font.bold = True
+                if D.POLICE:  # police du deck (thème), pas l'Outfit hérité du layout
+                    run.font.name = D.POLICE
         lignes = D.estimer_lignes(title, title_w_in, size)
         needed_h = lignes * _per_line_height_in(size) + 0.15
         # Pas de barre d'accent avant le titre : les decks OCTO réels (VSCode4) n'en
@@ -434,11 +442,14 @@ def _slide_cover(prs: Presentation, mission: Mission) -> None:
         phs = {ph.placeholder_format.idx: ph for ph in slide.placeholders}
         if 0 in phs:
             phs[0].text_frame.text = mission.name
+            D.appliquer_police(phs[0].text_frame)
         if 1 in phs:
             phs[1].text_frame.text = subtitle
+            D.appliquer_police(phs[1].text_frame)
         # idx2 = « OCTO Technology » (natif, laissé tel quel) ; idx3 = date.
         if 3 in phs:
             phs[3].text_frame.text = date_str
+            D.appliquer_police(phs[3].text_frame)
         return
     _slide_title(prs, mission, subtitle, date_str)
 
@@ -517,10 +528,43 @@ def _find_teardrop_frame(shapes):
     return None
 
 
+def _resoudre_image_cachee(base: str, scene: str, seed: int, aspect: float,
+                           px_w: int, px_h: int, requete: str):
+    """Résout l'image d'une zone : vraie photo Openverse CC0 si le fetch est permis
+    et réussit, repli procédural sinon — avec un cache SÉPARÉ PAR SOURCE
+    (`…_photo.png` / `…_proc.png`). Leçon 2026-07-22 (demande « ne pas générer des
+    images ») : avec un seul slot de cache, un repli procédural écrit pendant un run
+    de tests (PPTX_NO_PHOTO_FETCH=1, posé par conftest) restait servi À VIE par le
+    serveur — le slot photo n'était jamais retenté. Ici un échec de fetch remplit le
+    slot `_proc` sans jamais occuper `_photo` : le prochain run en ligne re-tente la
+    vraie photo. Renvoie le Path de l'image utilisable."""
+    import hashlib
+    _IMG_CACHE.mkdir(parents=True, exist_ok=True)
+    no_fetch = os.environ.get("PPTX_NO_PHOTO_FETCH") == "1"
+    # Le slot photo dépend AUSSI de la requête : affiner une requête doit
+    # re-déclencher un fetch, pas resservir l'ancien résultat mis en cache.
+    qh = hashlib.md5(requete.encode("utf-8")).hexdigest()[:6]
+    photo = _IMG_CACHE / f"{base}_{qh}_photo.png"
+    proc = _IMG_CACHE / f"{base}_proc.png"
+    if not no_fetch:
+        if photo.exists():
+            return photo
+        try:
+            ar = "wide" if aspect > 1.15 else "tall" if aspect < 0.85 else "square"
+            brut = _IMG_CACHE / f"_brut_{scene}_{seed}.jpg"
+            _stock_images.fetch_to(str(brut), requete, seed=seed, aspect_ratio=ar)
+            _cover_crop_to_aspect(str(brut), str(photo), aspect)
+            return photo
+        except Exception:
+            pass  # réseau/API KO : repli procédural ci-dessous, slot photo intact
+    if not proc.exists():
+        _nature_images.generate_to(str(proc), scene, px_w, px_h, seed=seed)
+    return proc
+
+
 def _remplir_cadre_chapitre(slide, cadre, scene: str, seed: int = 0) -> None:
     """Remplit le cadre teardrop d'un intercalaire avec une image à l'aspect exact
-    du cadre (génération procédurale offline `nature_images` — reproductible, sans
-    réseau ; l'arbitrage prévoit un fetch Openverse en amont, ajoutable plus tard).
+    du cadre — vraie photo Openverse via _resoudre_image_cachee (repli procédural).
     Silencieux sur échec : l'intercalaire reste lisible sans image."""
     if not _FRAMED_OK or cadre is None:
         return
@@ -529,24 +573,10 @@ def _remplir_cadre_chapitre(slide, cadre, scene: str, seed: int = 0) -> None:
         aspect = Emu(width).inches / Emu(height).inches
         px_w = 900
         px_h = max(1, int(round(px_w / aspect)))
-        _IMG_CACHE.mkdir(parents=True, exist_ok=True)
-        path = _IMG_CACHE / f"{scene}_{seed}_{px_w}x{px_h}.png"
-        if not path.exists():
-            # Vraie photo libre de droits (Openverse CC0) — lit mieux qu'un aplat
-            # procédural, aligne la charte sur les decks OCTO réels (VSCode4) ; repli
-            # procédural offline si le réseau/l'API échoue (arbitrage fetch + repli).
-            # PPTX_NO_PHOTO_FETCH=1 force le procédural (tests offline/déterministes, CI).
-            no_fetch = os.environ.get("PPTX_NO_PHOTO_FETCH") == "1"
-            aspect_ratio = "wide" if aspect > 1.15 else "tall" if aspect < 0.85 else "square"
-            try:
-                if no_fetch:
-                    raise RuntimeError("fetch désactivé")
-                brut = _IMG_CACHE / f"_brut_{scene}_{seed}.jpg"
-                _stock_images.fetch_to(str(brut), _SCENE_REQUETE.get(scene, scene),
-                                       seed=seed, aspect_ratio=aspect_ratio)
-                _cover_crop_to_aspect(str(brut), str(path), aspect)
-            except Exception:
-                _nature_images.generate_to(str(path), scene, px_w, px_h, seed=seed)
+        path = _resoudre_image_cachee(
+            f"{scene}_{seed}_{px_w}x{px_h}", scene, seed, aspect, px_w, px_h,
+            requete=_SCENE_REQUETE.get(scene, scene),
+        )
         _place_image_in_frame(slide, str(path), left, top, width, height, geom=geom)
     except Exception:
         pass  # repli : intercalaire sans image, jamais un export cassé
@@ -575,6 +605,7 @@ def _slide_chapitre(prs: Presentation, numero: int, titre: str, color: str,
                     r.font.size = Pt(D.TYPE["small"])
                     r.font.italic = True
                     r.font.color.rgb = D.rgb(D.MUTED)
+            D.appliquer_police(tf0)  # police du deck, pas l'Outfit du layout
         if 1 in phs:
             # idx1 = numéro DANS l'encart logo (format VSCode3) : marges à zéro + 17pt
             # + centré + sans puce — ce qui empêche « 01 » de wrapper dans le petit
@@ -589,6 +620,7 @@ def _slide_chapitre(prs: Presentation, numero: int, titre: str, color: str,
                 for r in p.runs:
                     r.font.size = Pt(17)
                     r.font.color.rgb = D.rgb(color)
+            D.appliquer_police(tf1)  # police du deck, pas l'Outfit du layout
         _remplir_cadre_chapitre(slide, _find_teardrop_frame(slide.slide_layout.shapes),
                                 scene or "mountains")
         return
@@ -614,11 +646,14 @@ def _slide_chapitre(prs: Presentation, numero: int, titre: str, color: str,
 # ET vraie photo Openverse en prod — cohérent avec l'imagerie de marque du deck.
 # (scène, requête photo, seed distinct pour varier des intercalaires).
 _SYNTHESE_VISUEL = {
-    "Contexte": ("mountains", "mountains landscape", 11),
-    "Culture & ADN": ("forest", "green forest sunlight", 12),
-    "Forces & succès": ("sunset", "sunset sky", 13),
-    "Points d'amélioration": ("ocean", "turquoise water", 14),
-    "Aspirations (baguette magique)": ("sunset", "sunrise horizon sky", 15),
+    # « photography » dans la requête : Openverse mélange photos et illustrations —
+    # sans ce biais, une requête générique peut renvoyer un clipart (constat
+    # pptx-verify 2026-07-22 : « mountains landscape » → illustration Fuji).
+    "Contexte": ("mountains", "mountain landscape photography", 11),
+    "Culture & ADN": ("forest", "forest sunlight nature photography", 12),
+    "Forces & succès": ("sunset", "sunset sky photography", 13),
+    "Points d'amélioration": ("ocean", "ocean waves photography", 14),
+    "Aspirations (baguette magique)": ("sunset", "sunrise horizon photography", 15),
 }
 
 
@@ -700,19 +735,10 @@ def _image_dans_zone(slide, left, top, width, height, scene: str, requete: str,
         aspect = width / height
         px_w = 900
         px_h = max(1, int(round(px_w / aspect)))
-        _IMG_CACHE.mkdir(parents=True, exist_ok=True)
-        path = _IMG_CACHE / f"zone_{scene}_{seed}_{px_w}x{px_h}.png"
-        if not path.exists():
-            no_fetch = os.environ.get("PPTX_NO_PHOTO_FETCH") == "1"
-            ar = "tall" if aspect < 0.85 else "wide" if aspect > 1.15 else "square"
-            try:
-                if no_fetch:
-                    raise RuntimeError("fetch désactivé")
-                brut = _IMG_CACHE / f"_brutz_{scene}_{seed}.jpg"
-                _stock_images.fetch_to(str(brut), requete, seed=seed, aspect_ratio=ar)
-                _cover_crop_to_aspect(str(brut), str(path), aspect)
-            except Exception:
-                _nature_images.generate_to(str(path), scene, px_w, px_h, seed=seed)
+        path = _resoudre_image_cachee(
+            f"zone_{scene}_{seed}_{px_w}x{px_h}", scene, seed, aspect, px_w, px_h,
+            requete=requete,
+        )
         pic = slide.shapes.add_picture(str(path), Inches(left), Inches(top),
                                        Inches(width), Inches(height))
         _clip_octo_frame(pic)  # cadre OCTO round2DiagRect (format image VSCode3)
@@ -802,42 +828,85 @@ def _slide_executive_summary(prs: Presentation, es) -> None:
             )
 
 
+def _label_axe_vertical(slide, cx: float, cy: float, longueur: float,
+                        epaisseur: float, texte: str) -> None:
+    """Label d'axe roté 270° (lecture bas→haut), centré sur (cx, cy). `longueur`
+    = dimension le long du texte (≈ hauteur de la ligne couverte), `epaisseur` =
+    largeur de la gouttière. Sert aux libellés de ligne INTERNE/EXTERNE de la
+    matrice SWOT, posés dans la gouttière gauche."""
+    box = D.add_text(
+        slide, cx - longueur / 2, cy - epaisseur / 2, longueur, epaisseur,
+        [(texte, {"size": D.TYPE["tiny"], "bold": True, "color": D.MUTED})],
+        anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER,
+    )
+    box.rotation = 270
+
+
 def _slide_swot(prs: Presentation, swot) -> None:
-    """Matrice SWOT 2×2 — une carte par quadrant (add_card, liseré coloré),
-    titre coloré + puces. Grille : Forces (haut-g), Faiblesses (haut-d),
-    Opportunités (bas-g), Menaces (bas-d)."""
+    """Matrice SWOT 2×2 — cf. skill `swot-matrix`. Ce n'est PAS quatre cartes
+    posées côte à côte : c'est une matrice dont les deux axes sont explicites —
+    lignes INTERNE (Forces/Faiblesses) / EXTERNE (Opportunités/Menaces) dans la
+    gouttière gauche (labels rotés), colonnes FAVORABLE (Forces/Opportunités) /
+    DÉFAVORABLE (Faiblesses/Menaces) au-dessus. Chaque quadrant est une CELLULE
+    TEINTÉE (fond = melanger_blanc de sa couleur) : le fond rempli rend le vide
+    sous les puces intentionnel, au lieu de la carte blanche sur-étirée que
+    pptx-verify signalait. Grille figée par les axes : Forces (h-g), Faiblesses
+    (h-d), Opportunités (b-g), Menaces (b-d)."""
     slide, w_in, h_in, top = _new_slide(prs, "Matrice SWOT")
-    gap = 0.25
-    pad = 0.18
-    area_l = MARGIN + 0.3
-    area_w = w_in - 2 * (MARGIN + 0.3)
-    area_t = top
-    area_h = h_in - top - 0.5
+    gutter = 0.30   # gouttière gauche : labels de ligne INTERNE/EXTERNE (rotés)
+    axis_h = 0.30   # bandeau haut : labels de colonne FAVORABLE/DÉFAVORABLE
+    gap = 0.22
+    pad = 0.16
+    area_l = MARGIN + gutter
+    area_w = w_in - MARGIN - area_l
+    area_t = top + axis_h
+    area_h = h_in - area_t - 0.45
     col_w = (area_w - gap) / 2
     row_h = (area_h - gap) / 2
     cells = [(0, 0), (1, 0), (0, 1), (1, 1)]
-    title_h = 0.4
+    title_h = 0.40
+
+    # Axe horizontal (effet sur l'objectif) : FAVORABLE (vert) / DÉFAVORABLE (rouge).
+    for ci, (lbl, col) in enumerate((("FAVORABLE", D.OK), ("DÉFAVORABLE", D.WARN))):
+        D.add_text(
+            slide, area_l + ci * (col_w + gap), top, col_w, axis_h,
+            [(lbl, {"size": D.TYPE["tiny"], "bold": True, "color": col})],
+            anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER,
+        )
+    # Axe vertical (origine) : INTERNE / EXTERNE (neutre — l'origine n'est pas +/-).
+    # `longueur` bornée (< 2×cx) pour que le cadre NON roté du label — celui que
+    # verifier_geometrie contrôle — reste dans la slide ; le label roté visuel, lui,
+    # tient dans la gouttière quoi qu'il arrive.
+    for ri, lbl in enumerate(("INTERNE", "EXTERNE")):
+        cy = area_t + ri * (row_h + gap) + row_h / 2
+        _label_axe_vertical(slide, MARGIN + gutter / 2, cy, min(row_h, 1.3), gutter, lbl)
+
     for (key, label, color), (col, row) in zip(_SWOT_QUADRANTS, cells):
         cl = area_l + col * (col_w + gap)
         ct = area_t + row * (row_h + gap)
-        D.add_card(slide, cl, ct, col_w, row_h, color)  # carte blanche + liseré couleur (VSCode3)
-        # Badge-icône + titre coloré du quadrant (la couleur porte le SENS —
-        # interne/externe, +/-). Style VSCode3 : liseré + titre coloré, pas de filet.
-        badge_d = min(0.32, title_h)
-        hy = ct + pad * 0.7
-        D.add_badge(slide, cl + pad, hy, badge_d, _SWOT_ICONS[key],
+        # Cellule teintée + liseré coloré (style de carte du deck). Le fond rempli
+        # supprime l'effet « carte blanche vide » sous des puces courtes.
+        D.add_rect(slide, cl, ct, col_w, row_h,
+                   fill=D.melanger_blanc(color, 0.90),
+                   line=D.melanger_blanc(color, 0.55), line_w=1.0,
+                   rounded=True, radius=0.05)
+        D.add_rect(slide, cl, ct, 0.06, row_h, fill=color, rounded=True, radius=0.5)
+        # En-tête : badge icône + titre coloré du quadrant.
+        badge_d = 0.30
+        hy = ct + pad
+        D.add_badge(slide, cl + pad + 0.04, hy, badge_d, _SWOT_ICONS[key],
                     color, size=D.TYPE["small"], bold=False, radius=0.28)
         D.add_text(
-            slide, cl + pad + badge_d + 0.12, hy,
-            col_w - 2 * pad - badge_d - 0.12, title_h,
+            slide, cl + pad + 0.04 + badge_d + 0.12, hy,
+            col_w - 2 * pad - badge_d - 0.16, title_h,
             [(label, {"size": D.TYPE["h3"], "bold": True, "color": color})],
             anchor=MSO_ANCHOR.MIDDLE,
         )
-        # paginate=True : un quadrant trop long est TRONQUÉ à ce qui tient dans la
-        # carte plutôt que de déborder sur le voisin. max(0.0, …) : jamais négatif.
+        # paginate=True : un quadrant trop long est TRONQUÉ à la cellule plutôt que
+        # de déborder sur le voisin. max(0.0, …) : jamais négatif.
         _add_bulleted_text(
-            slide, cl + pad, ct + pad * 0.7 + title_h, col_w - 2 * pad,
-            max(0.0, row_h - (pad * 0.7 + title_h) - pad),
+            slide, cl + pad + 0.04, ct + pad + title_h + 0.04, col_w - 2 * pad - 0.04,
+            max(0.0, row_h - (pad + title_h + 0.04) - pad),
             getattr(swot, key) or "—",
             anchor=MSO_ANCHOR.TOP, size_max=D.TYPE["small"], size_min=D.TYPE["tiny"],
             paginate=True,
@@ -996,99 +1065,208 @@ def _slide_axes_overview(prs: Presentation, axes: list, palette: list[str]) -> N
             y += row_h + _AXES_ROW_GAP
 
 
-def _slide_matrice_effort_valeur(prs: Presentation, axes: list) -> None:
-    slide, w_in, h_in, top = _new_slide(prs, "Matrice effort / valeur")
-    # Libellé de légende court : la zone de légende (à droite du nuage) est étroite —
-    # tronquer le titre à ~1.5in évite que PowerPoint le coupe lui-même en plein mot
-    # (finding pptx-verify 2026-07-22). Le numéro (1.1, 2.1) identifie la reco, le titre
-    # complet vit sur la fiche détaillée.
-    recos = [(f"{i + 1}.{j + 1} {D.tronquer_a_lignes(r.title, 1.5, D.TYPE['small'], 1)}", r) for i, axis in enumerate(axes) for j, r in enumerate(axis.recommendations)]
-
-    chart_data = XyChartData()
-    for name, reco in recos:
-        series = chart_data.add_series(name)
-        series.add_data_point(reco.complexite, reco.valeur)
-
-    chart_w = w_in - 2 * MARGIN
-    chart_h = h_in - top - 0.5
-    gf = slide.shapes.add_chart(
-        XL_CHART_TYPE.XY_SCATTER, Inches(MARGIN), Inches(top), Inches(chart_w), Inches(chart_h), chart_data
-    )
-    chart = gf.chart
-    chart.has_legend = bool(recos)
-    chart.has_title = False
-    try:
-        chart.category_axis.minimum_scale = 0
-        chart.category_axis.maximum_scale = 5.5
-        chart.category_axis.axis_title.text_frame.text = "Complexité (effort)"
-        chart.value_axis.minimum_scale = 0
-        chart.value_axis.maximum_scale = 5.5
-        chart.value_axis.axis_title.text_frame.text = "Valeur (impact)"
-    except Exception:
-        pass  # garde-fou : un axe non personnalisable ne doit pas casser l'export
+# Quadrants de la matrice de priorisation (skill priority-matrix) : le SENS de
+# chaque quadrant est écrit dessus — c'est ce qui transforme un nuage de points en
+# outil de décision. (label, couleur) par position (colonne, ligne) de la grille.
+_PRIO_QUADRANTS = {
+    (0, 0): ("QUICK WINS", "#1e6b34"),               # valeur haute, effort faible
+    (1, 0): ("CHANTIERS STRUCTURANTS", "#2c5cc5"),   # valeur haute, effort fort
+    (0, 1): ("OPPORTUNISTES", "#6b7280"),            # valeur basse, effort faible
+    (1, 1): ("À DIFFÉRER", "#b8860b"),               # valeur basse, effort fort
+}
 
 
-def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: object) -> None:
+def _slide_matrice_effort_valeur(prs: Presentation, axes: list,
+                                 palette: list[str]) -> None:
+    """Matrice de priorisation valeur/effort DESSINÉE (skill priority-matrix) — le
+    graphique scatter natif PowerPoint rendait « très mauvais » (constat utilisateur
+    2026-07-22 : marqueurs Excel minuscules gris, légende cryptique ◆■▲, aucun
+    quadrant). Ici : 4 quadrants teintés dont le SENS est écrit dessus, une bulle
+    par reco (couleur = axe, même palette que la vue d'ensemble ; numéro dedans),
+    bulles co-localisées déployées en éventail, légende par axe à droite."""
+    slide, w_in, h_in, top = _new_slide(prs, "Matrice de priorisation — valeur / effort")
+    # Zone de tracé (gouttière gauche pour le label d'axe Y roté, bande basse pour X).
+    pl = MARGIN + 0.45
+    pt = top + 0.10
+    pb = h_in - 0.72
+    ph = pb - pt
+    pw = 4.4
+    lx = pl + pw + 0.35   # légende à droite
+    lw = w_in - MARGIN - lx
+    qw, qh = pw / 2, ph / 2
+
+    # Quadrants teintés + libellé de sens dans chaque coin.
+    for (col, row), (lbl, color) in _PRIO_QUADRANTS.items():
+        qx, qy = pl + col * qw, pt + row * qh
+        D.add_rect(slide, qx, qy, qw, qh, fill=D.melanger_blanc(color, 0.93),
+                   line=D.melanger_blanc(color, 0.70), line_w=0.75)
+        D.add_text(
+            slide, qx + 0.10, qy + 0.06, qw - 0.20, 0.22,
+            [(lbl, {"size": D.TYPE["tiny"], "bold": True,
+                    "color": D.melanger_blanc(color, 0.15)})],
+            align=PP_ALIGN.LEFT if col == 0 else PP_ALIGN.RIGHT,
+        )
+    # Labels d'axes : X sous la zone, Y roté dans la gouttière gauche.
+    D.add_text(slide, pl, pb + 0.08, pw, 0.3,
+               [("Complexité (effort) →", {"size": D.TYPE["tiny"], "bold": True,
+                                           "color": D.MUTED})],
+               align=PP_ALIGN.CENTER)
+    _label_axe_vertical(slide, MARGIN + 0.18, pt + ph / 2, min(ph, 1.5), 0.3,
+                        "Valeur (impact) →")
+
+    # Bulles : les scores sont des entiers 1-5, les collisions sont la norme — y
+    # compris ENTRE scores voisins (constat pptx-verify : deux bulles de scores
+    # adjacents se chevauchaient, la 2e masquait le numéro de la 1re). Résolution
+    # par LIGNE (même valeur → même y, les lignes sont espacées de ph/5 > d) :
+    # balayage gauche→droite qui impose un écart minimal à partir des positions
+    # cibles, puis recalage si la ligne déborde à droite.
+    d = 0.40
+    gap = 0.06
+    lignes_bulles: dict[int, list] = {}
+    for i, axis in enumerate(axes):
+        for j, r in enumerate(axis.recommendations):
+            c = max(1, min(5, r.complexite or 3))
+            v = max(1, min(5, r.valeur or 3))
+            lignes_bulles.setdefault(v, []).append((c, f"{i + 1}.{j + 1}", i))
+    for v, membres in lignes_bulles.items():
+        membres.sort(key=lambda m: (m[0], m[1]))
+        by = pb - (v - 0.5) / 5 * ph - d / 2
+        xs: list[float] = []
+        for c, _num, _ai in membres:
+            cible = pl + (c - 0.5) / 5 * pw - d / 2
+            xs.append(cible if not xs else max(cible, xs[-1] + d + gap))
+        depassement = xs[-1] - (pl + pw - d - 0.02)
+        if depassement > 0:  # recale toute la ligne dans la zone (sans re-chevaucher)
+            xs = [max(pl + 0.02, x - depassement) for x in xs]
+        for x, (c, num, ai) in zip(xs, membres):
+            D.add_badge(slide, x, by, d, num, palette[ai % len(palette)],
+                        size=D.TYPE["tiny"], bold=True, radius=0.5)
+
+    # Légende par axe : pastille couleur + intitulé, puis ses recos numérotées.
+    y = pt
+    line_h = 0.26
+    for i, axis in enumerate(axes):
+        if y + line_h > pb:
+            break
+        color = palette[i % len(palette)]
+        D.add_rect(slide, lx, y + 0.06, 0.14, 0.14, fill=color, rounded=True, radius=0.5)
+        D.add_text(slide, lx + 0.24, y, lw - 0.24, line_h,
+                   [(D.tronquer_a_lignes(f"Axe {i + 1} — {axis.title}", lw - 0.24,
+                                         D.TYPE["small"], 1),
+                     {"size": D.TYPE["small"], "bold": True, "color": D.INK})])
+        y += line_h
+        for j, r in enumerate(axis.recommendations):
+            if y + line_h > pb:
+                break
+            D.add_text(slide, lx + 0.24, y, lw - 0.24, line_h,
+                       [(D.tronquer_a_lignes(f"{i + 1}.{j + 1}  {r.title}", lw - 0.24,
+                                             D.TYPE["tiny"], 1),
+                         {"size": D.TYPE["tiny"], "color": D.MUTED})])
+            y += line_h
+        y += 0.08
+
+
+def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: object,
+                          accent: str | None = None) -> None:
+    """Fiche recommandation en ENCARTS ARRONDIS format OCTO (demande 2026-07-22 —
+    les sections flottaient sur fond blanc) : colonne gauche (objectif / acteurs /
+    jauges / résultats) dans une carte arrondie au liseré couleur d'AXE (identité,
+    même palette que la vue d'ensemble et la matrice de priorisation) ; colonne
+    droite en deux encarts empilés — PROPOSITION DE VALEUR en encart gris arrondi
+    (le « so-what » de la fiche, même composant que l'exec/synthèse) puis PLAN
+    D'ACTIONS en carte arrondie. OBJECTIF/ACTEURS gardent la hauteur MESURÉE
+    (_add_measured_field) pour s'empiler sans déborder ; l'encart proposition est
+    à hauteur FIXE (rythme identique de fiche en fiche, l'espace gris restant est
+    intentionnel — même principe que les cellules teintées de la SWOT)."""
     slide, w_in, h_in, top = _new_slide(prs, f"{index} — {reco.title}")
-    left_w = w_in * 0.34
-    right_x = MARGIN + left_w + 0.4
+    accent = accent or (D.theme_colors(prs).get("accent1") or D.PALETTE[0])
+    pad = 0.2
+    lis = 0.05  # dégagement du liseré de carte
+    card_l_w = w_in * 0.34 + 0.2
+    right_x = MARGIN + card_l_w + 0.3
     right_w = w_in - right_x - MARGIN
-    band_h = h_in - top - 0.4
+    band_h = h_in - top - 0.35
+    bottom = top + band_h
 
-    # Colonne gauche : objectif / acteurs / jauges valeur-complexité / résultats.
-    # OBJECTIF et ACTEURS adaptent leur police à un plafond (D.ajuster_police,
-    # troncature en dernier recours) et renvoient leur hauteur RÉELLEMENT
-    # occupée — le bloc suivant s'empile sur cette hauteur mesurée plutôt
-    # qu'un décalage fixe, qui déborderait avec une réponse d'entretien plus
-    # longue que le jeu de données de test habituel.
-    y = top
-    y += _add_measured_field(slide, MARGIN, y, left_w, "OBJECTIF", reco.objectif, max_h=1.1)
-    y += 0.15
-    y += _add_measured_field(slide, MARGIN, y, left_w, "ACTEURS", reco.acteurs, max_h=0.5)
-    y += 0.15
-    D.add_text(slide, MARGIN, y, left_w, 0.3, [("CRITÈRES DE PRIORISATION", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
-    # Jauge dimensionnée pour que ses labels ("Valeur"/"Complexité") restent sur la
-    # slide même sur un gabarit court (OCTO 5.625in) : sans ce plafond, la colonne
-    # gauche (objectif+acteurs+jauges+labels) débordait le bas sur une fiche chargée
-    # (verifier_geometrie 2026-07-22, adoption du template OCTO). label_h = 0.25.
-    gauge_size = max(0.7, min(1.1, (h_in - 0.5) - (y + 0.35) - 0.05 - 0.25))
-    D.add_gauge(slide, MARGIN, y + 0.35, gauge_size, reco.valeur / 5, D.OK)
+    # ---- Colonne gauche : carte arrondie, liseré couleur d'axe ----
+    D.add_card(slide, MARGIN, top, card_l_w, band_h, accent)
+    lx = MARGIN + pad + lis
+    lw = card_l_w - 2 * pad - lis
+    inner_bottom = bottom - pad
+    y = top + pad
+    y += _add_measured_field(slide, lx, y, lw, "OBJECTIF", reco.objectif, max_h=1.1)
+    y += 0.10
+    y += _add_measured_field(slide, lx, y, lw, "ACTEURS", reco.acteurs, max_h=0.5)
+    y += 0.10
+    D.add_text(slide, lx, y, lw, 0.26, [("CRITÈRES DE PRIORISATION", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
+    # Jauge plafonnée pour que ses labels restent DANS la carte. RÉSULTATS vit
+    # dans la carte de droite (pas ici) : avec objectif+acteurs+jauges+résultats,
+    # la colonne étroite envoyait systématiquement les résultats en slide de
+    # suite (33 slides au lieu de 25 — constat pptx-verify à l'introduction des
+    # encarts arrondis). label_h = 0.25.
+    gauge_size = max(0.55, min(0.85, inner_bottom - (y + 0.30) - 0.25))
+    D.add_gauge(slide, lx, y + 0.30, gauge_size, reco.valeur / 5, D.OK)
     D.add_text(
-        slide, MARGIN, y + 0.35, gauge_size, gauge_size,
+        slide, lx, y + 0.30, gauge_size, gauge_size,
         [(str(reco.valeur), {"size": D.TYPE["h3"], "bold": True, "color": D.INK, "align": PP_ALIGN.CENTER})],
         anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER,
     )
-    D.add_text(slide, MARGIN, y + 0.35 + gauge_size + 0.05, gauge_size, 0.25, [("Valeur", {"size": D.TYPE["tiny"], "color": D.MUTED, "align": PP_ALIGN.CENTER})], align=PP_ALIGN.CENTER)
-    gx2 = MARGIN + gauge_size + 0.3
-    D.add_gauge(slide, gx2, y + 0.35, gauge_size, reco.complexite / 5, D.WARN)
+    D.add_text(slide, lx, y + 0.30 + gauge_size, gauge_size, 0.25, [("Valeur", {"size": D.TYPE["tiny"], "color": D.MUTED, "align": PP_ALIGN.CENTER})], align=PP_ALIGN.CENTER)
+    gx2 = lx + gauge_size + 0.3
+    D.add_gauge(slide, gx2, y + 0.30, gauge_size, reco.complexite / 5, D.WARN)
     D.add_text(
-        slide, gx2, y + 0.35, gauge_size, gauge_size,
+        slide, gx2, y + 0.30, gauge_size, gauge_size,
         [(str(reco.complexite), {"size": D.TYPE["h3"], "bold": True, "color": D.INK, "align": PP_ALIGN.CENTER})],
         anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER,
     )
-    D.add_text(slide, gx2, y + 0.35 + gauge_size + 0.05, gauge_size, 0.25, [("Complexité", {"size": D.TYPE["tiny"], "color": D.MUTED, "align": PP_ALIGN.CENTER})], align=PP_ALIGN.CENTER)
-    y += 0.35 + gauge_size + 0.35
-    remaining = top + band_h - y
-    resultats_overflow: list[str] = []
-    if remaining > 0.4:
-        D.add_text(slide, MARGIN, y, left_w, 0.3, [("RÉSULTATS ATTENDUS", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
-        resultats_overflow = _add_bulleted_text(
-            slide, MARGIN, y + 0.3, left_w, remaining - 0.3, reco.resultats_attendus,
-            size=D.TYPE["small"], paginate=True,
-        )
+    D.add_text(slide, gx2, y + 0.30 + gauge_size, gauge_size, 0.25, [("Complexité", {"size": D.TYPE["tiny"], "color": D.MUTED, "align": PP_ALIGN.CENTER})], align=PP_ALIGN.CENTER)
 
-    # Colonne droite : proposition de valeur / plan d'actions — même logique
-    # de hauteur mesurée qu'à gauche pour PROPOSITION DE VALEUR, PLAN
-    # D'ACTIONS prend ensuite tout l'espace restant réellement disponible.
-    right_h = _add_measured_field(
-        slide, right_x, top, right_w, "PROPOSITION DE VALEUR", reco.proposition_valeur, max_h=1.6,
+    # ---- Colonne droite : encart « proposition » + carte « plan + résultats » ----
+    prop_h = 1.35
+    D.add_rect(slide, right_x, top, right_w, prop_h, fill=D.ENCART_BG,
+               rounded=True, radius=0.12)
+    D.add_rect(slide, right_x, top, 0.06, prop_h, fill=accent, rounded=True, radius=0.5)
+    _add_measured_field(
+        slide, right_x + pad + lis, top + 0.14, right_w - 2 * pad - lis,
+        "PROPOSITION DE VALEUR", reco.proposition_valeur, max_h=prop_h - 0.28,
         bold=True, italic=True,
     )
-    plan_top = top + right_h + 0.2
-    D.add_text(slide, right_x, plan_top, right_w, 0.3, [("PLAN D'ACTIONS", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
+    plan_top = top + prop_h + 0.2
+    plan_h = bottom - plan_top
+    D.add_card(slide, right_x, plan_top, right_w, plan_h, accent)
+    rcx = right_x + pad + lis
+    rcw = right_w - 2 * pad - lis
+    r_top = plan_top + pad
+    r_bottom = plan_top + plan_h - pad
+    D.add_text(slide, rcx, r_top, rcw, 0.26,
+               [("PLAN D'ACTIONS", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
+    # Le plan prend sa hauteur ESTIMÉE (bornée à 65 % de l'espace quand des
+    # résultats suivent), les résultats attendus le reste — deux blocs paginés,
+    # la slide de suite ne sert plus que de vraie soupape sur données longues.
+    avail = r_bottom - (r_top + 0.26)
+    a_resultats = bool((reco.resultats_attendus or "").strip())
+    plan_lines = _bullet_lines(reco.plan_actions) or ["—"]
+    # +0.15 de marge : estimer_lignes sous-compte parfois d'une ligne le vrai
+    # repli PowerPoint — sans marge, la ligne surnuméraire sort de la carte
+    # (constat pptx-verify sur la 1re version de cette carte).
+    besoin = sum(
+        max(1, D.estimer_lignes(l, rcw, D.TYPE["body"])) for l in plan_lines
+    ) * _per_line_height_in(D.TYPE["body"])
+    plan_zone = min(besoin + 0.15, avail * 0.65) if a_resultats else avail
     plan_overflow = _add_bulleted_text(
-        slide, right_x, plan_top + 0.3, right_w, top + band_h - plan_top - 0.3, reco.plan_actions, paginate=True,
+        slide, rcx, r_top + 0.26, rcw, plan_zone, reco.plan_actions, paginate=True,
     )
+    resultats_overflow: list[str] = []
+    if a_resultats:
+        ry = r_top + 0.26 + plan_zone + 0.14
+        D.add_text(slide, rcx, ry, rcw, 0.26,
+                   [("RÉSULTATS ATTENDUS", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
+        # size_max (adaptatif) + marge basse 0.10 : jamais de texte qui déborde
+        # sous le bord arrondi de la carte.
+        resultats_overflow = _add_bulleted_text(
+            slide, rcx, ry + 0.26, rcw, max(0.0, r_bottom - (ry + 0.26) - 0.10),
+            reco.resultats_attendus, size_max=D.TYPE["small"], paginate=True,
+        )
 
     base_title = f"{index} — {reco.title}"
     if resultats_overflow:
@@ -1131,10 +1309,15 @@ def build_presentation(
         prs.slide_height = Inches(_H_IN)
         prs._i2d_synthetic = True
 
-    # Police de marque du template (Outfit sur OCTO) appliquée à TOUT texte dessiné
-    # via pptx_deck.add_text — détectée sur les placeholders, pas le fontScheme (repli
-    # Arial). None sur le deck synthétique -> héritage par défaut (inchangé).
-    D.set_police(D.police_marque(prs))
+    # Police effective du deck. On PRÉFÈRE la police du THÈME (fontScheme, Arial sur
+    # OCTO) à celle des placeholders (Outfit) : Outfit n'étant pas installée, elle est
+    # rendue en substitution — c'est la cause du « la police ne matche pas la référence »
+    # (bmad-iap-cadrage-synthese utilise, lui, la police du thème). Repli sur la police
+    # des placeholders puis héritage. None sur le deck synthétique (inchangé).
+    if getattr(prs, "_i2d_synthetic", False):
+        D.set_police(None)
+    else:
+        D.set_police(D.police_theme(prs) or D.police_marque(prs))
 
     # Ancre la palette catégorielle des axes sur la couleur de marque du
     # template injecté, sans jamais remplacer toute la palette par elle
@@ -1170,7 +1353,7 @@ def build_presentation(
     if (axes and include_axes_overview) or selected_axes:
         ch_sections[_CH_TRAJECTOIRE].append("Recommandations")
     if axes and include_matrix:
-        ch_sections[_CH_TRAJECTOIRE].append("Matrice effort / valeur")
+        ch_sections[_CH_TRAJECTOIRE].append("Matrice de priorisation")
 
     if include_sommaire and any(ch_sections):
         _slide_sommaire(prs, ch_sections)
@@ -1218,12 +1401,15 @@ def build_presentation(
         if axes and include_axes_overview:
             _slide_axes_overview(prs, axes, palette)
         if axes and include_matrix:
-            _slide_matrice_effort_valeur(prs, axes)
+            _slide_matrice_effort_valeur(prs, axes, palette)
         for i, axis in enumerate(axes):
             if axis not in selected_axes:
                 continue
             for j, reco in enumerate(axis.recommendations):
-                _slide_recommendation(prs, axis, f"{i + 1}.{j + 1}", reco)
+                # accent = couleur d'axe (identité) — même palette que la vue
+                # d'ensemble et les bulles de la matrice de priorisation.
+                _slide_recommendation(prs, axis, f"{i + 1}.{j + 1}", reco,
+                                      accent=palette[i % len(palette)])
 
     # Garde-fou géométrique (US7.1) : un texte trop long ou un template client
     # aux dimensions inattendues peut faire déborder une forme de la slide —

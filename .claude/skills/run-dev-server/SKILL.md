@@ -27,6 +27,18 @@ l'utilisateur dit « l'export/l'app est toujours faux » alors que tes rendus fr
 bons : exporte depuis l'app en marche et compare à un build frais — s'ils diffèrent, le
 serveur est périmé, redémarre-le.** cf. [[feedback-stale-dev-server-root-cause]].
 
+**ET `--reload` ne SUFFIT pas** (2026-07-22, observé 2× le même jour) : le watcher
+WatchFiles a raté des modifications réelles — un serveur `--reload` a servi du code
+vieux de plusieurs heures d'édits. Après toute modif de code destinée au serveur :
+**redémarrer le serveur, puis RE-VÉRIFIER le contenu servi** (exporter/`curl` et
+contrôler un marqueur du changement) — la vérification du contenu est le gate, jamais
+le flag. Pièges de nettoyage associés (même journée) : (1) deux serveurs peuvent être
+liés au MÊME port via `SO_REUSEADDR` (netstat montre 2 listeners, les requêtes vont au
+vieux) — vérifier `netstat -ano | grep :PORT` après tout kill ; (2) un process spawné
+depuis l'outil Bash survit à `Stop-Process`/`taskkill` PowerShell (split de namespace,
+cf. [[feedback-powershell-bash-process-namespace-split]]) — le tuer depuis le shell
+d'origine ; en dernier recours, repartir sur un port vierge.
+
 Use a port other than 8000 (e.g. 8010) to avoid colliding with a server the
 user may already have running for manual testing. This uses `data/app.db`
 (the real dev DB, gitignored) — not the disposable test DB pytest uses — so

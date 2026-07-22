@@ -14,8 +14,11 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.oxml.ns import qn
 
 # --- Echelle typographique (pt) — une seule source de verite ---
+# Échelle typographique. `title` = 20 (aligné sur la charte de référence
+# bmad-iap-cadrage-synthese, dont les titres de contenu sont à ~18-20pt — 26
+# faisait des titres surdimensionnés qui débordaient/wrappaient, cf. demande 2026-07-22).
 TYPE = {
-    "title": 26, "h2": 18, "h3": 14, "body": 12, "small": 10.5, "tiny": 9,
+    "title": 20, "h2": 18, "h3": 14, "body": 12, "small": 10.5, "tiny": 9,
     "kpi": 44, "kpi_unit": 16,
 }
 
@@ -36,6 +39,19 @@ def rgb(hexa):
     return RGBColor.from_string(hexa.lstrip("#"))
 
 
+def melanger_blanc(hexa, frac):
+    """Éclaircit une couleur en la mélangeant avec du blanc. `frac`=0.0 -> couleur
+    d'origine, 1.0 -> blanc pur. Sert aux fonds teintés (cellules de matrice SWOT,
+    encarts) qui doivent rester lisibles sous du texte foncé."""
+    frac = max(0.0, min(1.0, float(frac)))
+    h = hexa.lstrip("#")
+    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+    r = round(r + (255 - r) * frac)
+    g = round(g + (255 - g) * frac)
+    b = round(b + (255 - b) * frac)
+    return f"#{r:02x}{g:02x}{b:02x}"
+
+
 def couleur_pilier(i):
     return PALETTE[i % len(PALETTE)]
 
@@ -48,12 +64,20 @@ def _no_shadow(shape):
         pass
 
 
-# --- Police de marque du template (Outfit sur les templates OCTO) ---
-# Portee depuis VSCode1 (app/scripts/pptx_deck.py) : la charte vit sur les
-# placeholders des layouts, PAS dans le fontScheme du theme (souvent un repli
-# Arial generique). set_police() pose la famille dominante detectee ; add_text
-# l'applique a chaque run (le bold/italic de python-pptx s'applique ensuite
-# normalement). POLICE = None -> heritage par defaut (comportement historique).
+# --- Police effective du deck ---
+# Deux sources possibles pour la police d'un template OCTO :
+#  - police_marque() : la famille dominante sur les PLACEHOLDERS des layouts
+#    (Outfit sur OCTO). C'est la charte "de conception" — mais Outfit n'est pas
+#    une police systeme : sur une machine ou elle n'est pas installee, PowerPoint
+#    la rend en SUBSTITUTION (rendu visuellement != charte).
+#  - police_theme() : le fontScheme du theme (minorFont = corps). Sur OCTO c'est
+#    Arial, police systeme => rendu garanti. C'est ce que le deck de reference
+#    (bmad-iap-cadrage-synthese, VSCode3) utilise reellement, et pourquoi ses
+#    titres/corps "matchent" alors que les notres, forces en Outfit, divergaient.
+# build_presentation() prefere donc police_theme() (repli police_marque()).
+# set_police() pose la famille ; add_text l'applique a chaque run dessine, et
+# appliquer_police() la force sur les runs de PLACEHOLDER (titres/couverture/
+# chapitre, qui heriteraient sinon l'Outfit du layout). POLICE = None -> heritage.
 POLICE = None
 
 _SUFFIXES_POIDS = (" SemiBold", " Semibold", " Semi Bold", " ExtraBold",
@@ -94,6 +118,50 @@ def police_marque(prs):
                     continue
                 compte[_famille_police(tf)] += 1
     return compte.most_common(1)[0][0] if compte else None
+
+
+def police_theme(prs):
+    """Police du THEME du template (fontScheme, minorFont = corps de texte).
+    Sur OCTO c'est Arial — une police systeme, donc rendue telle quelle par
+    PowerPoint, contrairement a l'Outfit des placeholders (non installee ->
+    substitution). C'est la police que le deck de reference utilise reellement.
+    Renvoie la famille (suffixe de poids retire), ou None si illisible."""
+    import re
+    xml = None
+    try:
+        from pptx.opc.constants import RELATIONSHIP_TYPE as RT
+        xml = prs.slide_masters[0].part.part_related_by(RT.THEME).blob.decode(
+            "utf-8", "ignore")
+    except Exception:
+        xml = None
+    if xml is None:
+        try:
+            for part in prs.part.package.iter_parts():
+                if "theme" in str(part.partname):
+                    xml = part.blob.decode("utf-8", "ignore")
+                    break
+        except Exception:
+            return None
+    if not xml:
+        return None
+    m = re.search(r'<a:minorFont>.*?<a:latin typeface="([^"]*)"', xml, re.S)
+    if m and m.group(1) and not m.group(1).startswith("+"):
+        return _famille_police(m.group(1))
+    return None
+
+
+def appliquer_police(text_frame):
+    """Force la police effective du deck (POLICE) sur tous les runs d'un
+    text_frame de PLACEHOLDER. Les placeholders (titre natif, couverture,
+    intercalaire de chapitre) heritent la police du layout — l'Outfit non
+    installee des templates OCTO — qui serait rendue en substitution ; on la
+    remplace par POLICE (police du theme, Arial) pour que le texte de placeholder
+    coincide avec le texte dessine par add_text. No-op si POLICE est None."""
+    if not POLICE:
+        return
+    for p in text_frame.paragraphs:
+        for run in p.runs:
+            run.font.name = POLICE
 
 
 def add_text(slide, l, t, w, h, lignes, anchor=MSO_ANCHOR.TOP, align=PP_ALIGN.LEFT,
