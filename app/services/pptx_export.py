@@ -39,9 +39,14 @@ MARGIN = 0.6
 # plan_actions/resultats_attendus utilisent en vrai l'espace *restant* après
 # les blocs précédents (variable) ; ici on prend une estimation généreuse
 # mais fixe, cohérente avec une slide "normale".
-_W_IN, _H_IN = 13.333, 7.5
+_W_IN, _H_IN = 10.0, 5.625  # dims du template OCTO de marque (16:9) — FIELD_SHAPE (hints web) aligné dessus
 _LEFT_W = _W_IN * 0.34
 _RIGHT_W = _W_IN - (MARGIN + _LEFT_W + 0.4) - MARGIN
+
+# Template OCTO de marque, versionné (masters/layouts/thème + police Outfit) : défaut de
+# build_presentation. Un template client (mission.pptx_template_path) reste prioritaire ;
+# le chrome (logo/pied de page/n° de slide) survit via _pick_layout (« titre seul »).
+OCTO_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "assets" / "template-octo.pptx"
 
 FIELD_SHAPE = {
     "objectif": dict(width_in=_LEFT_W, max_h_in=1.1),
@@ -151,7 +156,8 @@ def _pick_layout(prs: Presentation, preferred: int = 6):
     chargé en autres placeholders, sinon le comportement historique (repli
     toujours valide même sur un template client mal structuré)."""
     layouts = list(prs.slide_layouts)
-    for kw in ("title only", "section"):
+    # « titre seul » = le layout de contenu OCTO (idx0 titre, garde logo/pied/n° de slide).
+    for kw in ("titre seul", "title only", "section"):
         for layout in layouts:
             if kw in (layout.name or "").lower() and _has_title_placeholder(layout):
                 return layout
@@ -334,17 +340,25 @@ def _add_measured_field(
 def _slide_title(prs: Presentation, mission: Mission) -> None:
     slide = prs.slides.add_slide(_pick_layout(prs))
     w_in, h_in = _dims(prs)
-    cy = h_in * 0.4
+    title_w = w_in - 2.0
+    size = 32
+    # Le sous-titre se place sous la hauteur RÉELLE du titre (un nom long passe sur
+    # 2 lignes sur une slide étroite type OCTO 10in) plutôt qu'à un offset fixe qui
+    # supposait un titre sur 1 ligne — sinon la 2e ligne chevauche le sous-titre.
+    title_lines = max(1, min(3, D.estimer_lignes(mission.name, title_w - 0.2, size)))
+    title_h = title_lines * _per_line_height_in(size)
+    cy = h_in * 0.38
     D.add_text(
-        slide, 1.0, cy, w_in - 2.0, 1.0,
-        [(mission.name, {"size": 32, "bold": True, "color": D.INK, "align": PP_ALIGN.CENTER})],
+        slide, 1.0, cy, title_w, title_h,
+        [(mission.name, {"size": size, "bold": True, "color": D.INK, "align": PP_ALIGN.CENTER})],
     )
+    y = cy + title_h + 0.15
     D.add_text(
-        slide, 1.0, cy + 0.9, w_in - 2.0, 0.6,
+        slide, 1.0, y, title_w, 0.5,
         [("Synthèse transverse & recommandations", {"size": D.TYPE["h2"], "color": D.MUTED, "align": PP_ALIGN.CENTER})],
     )
     D.add_text(
-        slide, 1.0, cy + 1.5, w_in - 2.0, 0.4,
+        slide, 1.0, y + 0.55, title_w, 0.4,
         [(datetime.now(timezone.utc).strftime("%d/%m/%Y"), {"size": D.TYPE["small"], "color": D.MUTED, "align": PP_ALIGN.CENTER})],
     )
 
@@ -679,7 +693,11 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
     y += _add_measured_field(slide, MARGIN, y, left_w, "ACTEURS", reco.acteurs, max_h=0.5)
     y += 0.15
     D.add_text(slide, MARGIN, y, left_w, 0.3, [("CRITÈRES DE PRIORISATION", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
-    gauge_size = 1.1
+    # Jauge dimensionnée pour que ses labels ("Valeur"/"Complexité") restent sur la
+    # slide même sur un gabarit court (OCTO 5.625in) : sans ce plafond, la colonne
+    # gauche (objectif+acteurs+jauges+labels) débordait le bas sur une fiche chargée
+    # (verifier_geometrie 2026-07-22, adoption du template OCTO). label_h = 0.25.
+    gauge_size = max(0.7, min(1.1, (h_in - 0.5) - (y + 0.35) - 0.05 - 0.25))
     D.add_gauge(slide, MARGIN, y + 0.35, gauge_size, reco.valeur / 5, D.OK)
     D.add_text(
         slide, MARGIN, y + 0.35, gauge_size, gauge_size,
@@ -749,11 +767,20 @@ def build_presentation(
     if template_path and Path(template_path).exists():
         prs = Presentation(str(template_path))
         _clear_slides(prs)
+    elif OCTO_TEMPLATE_PATH.exists():
+        # Défaut : le template de marque OCTO (chrome + layouts + thème + Outfit).
+        prs = Presentation(str(OCTO_TEMPLATE_PATH))
+        _clear_slides(prs)
     else:
         prs = Presentation()
-        prs.slide_width = Inches(13.333)
-        prs.slide_height = Inches(7.5)
+        prs.slide_width = Inches(_W_IN)
+        prs.slide_height = Inches(_H_IN)
         prs._i2d_synthetic = True
+
+    # Police de marque du template (Outfit sur OCTO) appliquée à TOUT texte dessiné
+    # via pptx_deck.add_text — détectée sur les placeholders, pas le fontScheme (repli
+    # Arial). None sur le deck synthétique -> héritage par défaut (inchangé).
+    D.set_police(D.police_marque(prs))
 
     # Ancre la palette catégorielle des axes sur la couleur de marque du
     # template injecté, sans jamais remplacer toute la palette par elle

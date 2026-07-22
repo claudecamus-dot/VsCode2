@@ -48,6 +48,54 @@ def _no_shadow(shape):
         pass
 
 
+# --- Police de marque du template (Outfit sur les templates OCTO) ---
+# Portee depuis VSCode1 (app/scripts/pptx_deck.py) : la charte vit sur les
+# placeholders des layouts, PAS dans le fontScheme du theme (souvent un repli
+# Arial generique). set_police() pose la famille dominante detectee ; add_text
+# l'applique a chaque run (le bold/italic de python-pptx s'applique ensuite
+# normalement). POLICE = None -> heritage par defaut (comportement historique).
+POLICE = None
+
+_SUFFIXES_POIDS = (" SemiBold", " Semibold", " Semi Bold", " ExtraBold",
+                   " Extra Bold", " Bold", " Medium", " Light", " Regular",
+                   " Black", " Thin", " ExtraLight", " Extra Light")
+
+
+def set_police(nom):
+    global POLICE
+    POLICE = nom or None
+
+
+def _famille_police(typeface):
+    for suf in _SUFFIXES_POIDS:
+        if typeface.endswith(suf):
+            return typeface[: -len(suf)].strip()
+    return typeface
+
+
+def police_marque(prs):
+    """Detecte la police de marque du template : la famille (suffixe de poids
+    retire) la plus frequente sur les placeholders des layouts. Placeholders et
+    pas fontScheme : sur les templates OCTO, les titres portent la charte (Outfit,
+    decline en poids nommes) alors que le fontScheme peut n'etre qu'un repli
+    generique (Arial). Les references de theme (+mn-lt/+mj-lt) sont ignorees.
+    Renvoie None si rien d'exploitable (l'appelant garde l'heritage par defaut)."""
+    import re
+    from collections import Counter
+    try:
+        layouts = prs.slide_masters[0].slide_layouts
+    except Exception:
+        return None
+    compte = Counter()
+    for lay in layouts:
+        for ph in lay.placeholders:
+            for tf in re.findall(r'<a:latin typeface="([^"]+)"', ph._element.xml):
+                if tf.startswith("+"):
+                    continue
+                compte[_famille_police(tf)] += 1
+    return compte.most_common(1)[0][0] if compte else None
+
+
 def add_text(slide, l, t, w, h, lignes, anchor=MSO_ANCHOR.TOP, align=PP_ALIGN.LEFT,
              wrap=True):
     """Ajoute une zone de texte. `lignes` = liste de (texte, opts) ; chaque
@@ -76,6 +124,9 @@ def add_text(slide, l, t, w, h, lignes, anchor=MSO_ANCHOR.TOP, align=PP_ALIGN.LE
         f.bold = opts.get("bold", False)
         f.italic = opts.get("italic", False)
         f.color.rgb = rgb(opts.get("color", INK))
+        nom = opts.get("font", POLICE)  # police de marque du deck (cf. set_police)
+        if nom:
+            f.name = nom
     return box
 
 
