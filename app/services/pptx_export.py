@@ -89,7 +89,7 @@ FIELD_SHAPE = {
     # zone de PUCES (pas de la carte) = row_h - titre - paddings ≈ 1.9 in sur un
     # deck vierge (cf. _slide_swot) — pas la demi-hauteur brute (~2.2), qui
     # surestimait le budget du repère de ~20 % et rendait le fit-hint trompeur.
-    "swot_quadrant": dict(width_in=(_W_IN - 2 * (MARGIN + 0.3) - 0.25) / 2 - 0.36, max_h_in=1.9, size_max=D.TYPE["small"]),
+    "swot_quadrant": dict(width_in=(_W_IN - 2 * (MARGIN + 0.3) - 0.25) / 2 - 0.36, max_h_in=1.8, size_max=D.TYPE["small"]),
     # Executive summary (piste F) : panneau pleine largeur (constat + points) et
     # bande cyan « key message » — mêmes contraintes que la slide (cf.
     # _slide_executive_summary), pour un fit-hint fidèle dans l'aperçu.
@@ -245,15 +245,8 @@ def _new_slide(prs: Presentation, title: str):
                 run.font.bold = True
         lignes = D.estimer_lignes(title, title_w_in, size)
         needed_h = lignes * _per_line_height_in(size) + 0.15
-        # Barre d'accent cyan verticale avant le titre — signature OCTO repérée sur
-        # les decks de restitution réels (VSCode4). Alignée sur les lignes du titre.
-        try:
-            _bar_left = Emu(title_shape.left).inches - 0.16
-            _bar_h = max(0.30, lignes * _per_line_height_in(size) - 0.06)
-            D.add_rect(slide, max(0.12, _bar_left), title_top_in + 0.05, 0.07, _bar_h,
-                       fill=(D.theme_colors(prs).get("accent3") or "#00D2DD"))
-        except Exception:
-            pass
+        # Pas de barre d'accent avant le titre : les decks OCTO réels (VSCode4) n'en
+        # ont pas — titre navy + logo suffisent (retrait demandé 2026-07-22, charte VSCode4).
         content_top = title_top_in + max(title_box_h_in, needed_h) + 0.25
     else:
         D.add_text(
@@ -564,14 +557,18 @@ def _slide_chapitre(prs: Presentation, numero: int, titre: str, color: str,
             try:
                 tl = Emu(title_ph.left).inches
                 tt = Emu(title_ph.top).inches
-                tw = Emu(title_ph.width).inches
-                num_h = 0.95
-                num_top = max(0.25, tt - num_h + 0.05)
+                # Numéro dans un BLOC navy (charte VSCode4 : grand numéro blanc dans un
+                # bloc plein, au-dessus du titre) — demande 2026-07-22.
+                block = 1.05
+                blk_top = max(0.2, tt - block - 0.05)
+                D.add_rect(slide, tl, blk_top, block, block, fill="#0E2356",
+                           rounded=True, radius=0.14)
                 D.add_text(
-                    slide, tl, num_top, min(tw, 3.0), num_h,
-                    [(f"{numero:02d}", {"size": D.TYPE["kpi"], "bold": True, "color": color})],
+                    slide, tl, blk_top, block, block,
+                    [(f"{numero:02d}", {"size": D.TYPE["kpi"], "bold": True,
+                                        "color": "#ffffff", "align": PP_ALIGN.CENTER})],
+                    anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER,
                 )
-                D.add_rect(slide, tl + 0.04, num_top + num_h + 0.02, 0.9, 0.05, fill=color)
             except Exception:
                 pass  # placeholder de titre sans géométrie exploitable : numéro sur le repli
         # Placeholder numéro natif (idx1) laissé vide : on dessine le numéro nous-mêmes
@@ -806,26 +803,27 @@ def _slide_swot(prs: Presentation, swot) -> None:
     for (key, label, color), (col, row) in zip(_SWOT_QUADRANTS, cells):
         cl = area_l + col * (col_w + gap)
         ct = area_t + row * (row_h + gap)
-        D.add_card(slide, cl, ct, col_w, row_h, color)
-        # Badge-icône du quadrant devant le titre (icône par quadrant).
+        D.add_card(slide, cl, ct, col_w, row_h, color)  # carte blanche, sans liseré (VSCode4)
+        # Header façon VSCode4 : badge-icône + libellé en capitales + filet d'accent
+        # dessous (la couleur porte le SENS du quadrant — interne/externe, +/-).
         badge_d = min(0.32, title_h)
-        D.add_badge(slide, cl + pad, ct + pad * 0.7, badge_d, _SWOT_ICONS[key],
+        hy = ct + pad * 0.7
+        D.add_badge(slide, cl + pad, hy, badge_d, _SWOT_ICONS[key],
                     color, size=D.TYPE["small"], bold=False, radius=0.28)
+        lab_x = cl + pad + badge_d + 0.12
         D.add_text(
-            slide, cl + pad + badge_d + 0.12, ct + pad * 0.7,
-            col_w - 2 * pad - badge_d - 0.12, title_h,
-            [(label, {"size": D.TYPE["h3"], "bold": True, "color": color})],
+            slide, lab_x, hy, col_w - 2 * pad - badge_d - 0.12, 0.32,
+            [(label.upper(), {"size": D.TYPE["h3"], "bold": True, "color": color})],
             anchor=MSO_ANCHOR.MIDDLE,
         )
+        D.add_rect(slide, lab_x, hy + 0.34, 0.5, 0.045, fill=color)  # filet
         # paginate=True : un quadrant trop long est TRONQUÉ à ce qui tient dans
-        # la carte plutôt que de déborder silencieusement sur le quadrant voisin
-        # (verifier_geometrie ne voit pas le débordement de texte intra-forme).
-        # max(0.0, …) : sur un template client au titre bas, la hauteur de zone
-        # pourrait passer négative (le /2 vertical du 2×2 l'amplifie) — jamais de
-        # dimension négative passée à python-pptx.
+        # la carte plutôt que de déborder sur le quadrant voisin (invisible à
+        # verifier_geometrie). max(0.0, …) : jamais de dimension négative.
+        bullets_top = hy + 0.34 + 0.045 + 0.1
         _add_bulleted_text(
-            slide, cl + pad, ct + pad * 0.7 + title_h, col_w - 2 * pad,
-            max(0.0, row_h - (pad * 0.7 + title_h) - pad),
+            slide, cl + pad, bullets_top, col_w - 2 * pad,
+            max(0.0, row_h - (bullets_top - ct) - pad),
             getattr(swot, key) or "—",
             anchor=MSO_ANCHOR.TOP, size_max=D.TYPE["small"], size_min=D.TYPE["tiny"],
             paginate=True,

@@ -198,11 +198,24 @@ def add_gauge(slide, l, t, size, frac, fill, track=TRACK, hole=62):
     return gf
 
 
-def add_card(slide, l, t, w, h, accent):
-    """Carte blanche a coins arrondis + liseré couleur a gauche (style infographie)."""
+def add_card(slide, l, t, w, h, accent=None):
+    """Carte blanche a coins arrondis, fine bordure grise, SANS liseré latéral
+    (charte OCTO/VSCode4 : la couleur d'accent vit dans le header/le contenu de la
+    carte, cf. add_card_header — pas un liseré). `accent` conservé pour compat mais
+    non dessiné."""
     add_rect(slide, l, t, w, h, fill="#ffffff", line=LINE, line_w=0.75,
              rounded=True, radius=0.06)
-    add_rect(slide, l, t, 0.07, h, fill=accent, rounded=True, radius=0.5)
+
+
+def add_card_header(slide, l, t, w, label, color, size=None):
+    """En-tête de carte façon OCTO (VSCode4) : libellé en petites capitales couleur
+    `color` + court filet d'accent dessous. Retourne le y où le contenu peut démarrer."""
+    size = TYPE["h3"] if size is None else size
+    pad = 0.0
+    add_text(slide, l, t, w, 0.34,
+             [(label.upper(), dict(size=size, bold=True, color=color))])
+    add_rect(slide, l + pad, t + 0.36, 0.5, 0.045, fill=color)
+    return t + 0.36 + 0.045 + 0.14  # y de départ du contenu sous le filet
 
 
 def add_dot(slide, x, y, d, color):

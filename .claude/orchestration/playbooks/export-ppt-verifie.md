@@ -8,13 +8,14 @@ qui parse peut ne pas s'ouvrir dans PowerPoint (mémoire
 `feedback_pptx_tests_need_real_render_check`).
 
 Précédent (statut `eprouve`) : la colonne vertébrale génération → vérification rendu est la
-pratique effective du projet — paire `pptx-deck` + `pptx-verify` jouée le 2026-07-03
-(construction du deck puis rendu inspecté), `pptx-verify` rejoué le 2026-07-18. Les trois
-étapes conditionnelles s'appuient en revanche sur des skills **jamais utilisées à ce jour**
-(`pptx-framed-image`, `slide-text-polish`, `restitution-deck-design`) — conservées par
-arbitrage utilisateur du 2026-07-18 (`.claude/supervision/arbitrages.json`) et reliées ici
-pour exister dans le routage : les proposer avec prudence explicite et vérifier leur
-résultat au rendu.
+pratique effective du projet — paire `pptx-deck` + `pptx-verify` jouée le 2026-07-03,
+rejouée tout au long des refontes deck (2026-07-18 → 2026-07-22). Les trois skills
+d'enrichissement (`pptx-framed-image`, `slide-text-polish`, `restitution-deck-design`),
+longtemps `jamais utilisées`, ont **toutes été mises en œuvre le 2026-07-22** (cadres photo
+des têtes de chapitre, lint copy, passe design). **`restitution-deck-design` (le
+« ppt-designer ») n'est plus conditionnelle auto-jugée mais OBLIGATOIRE** dès que le diff
+touche un layout/composant/couleur (diagnostic superviseur 2026-07-22 : conditionnelle
+auto-jugée = jamais lancée → design ad hoc, qualité insuffisante — cf. étape design-review).
 
 Frontière avec `dev-verifie` : si la demande est un changement de code générique (routes,
 services, templates web), c'est `dev-verifie` qui s'applique — ce playbook-ci est la
@@ -96,7 +97,7 @@ Les deux partagent l'obligation `pptx-verify` et la terminaison `revue-increment
       "modele": "(session)",
       "contrat": {
         "type": "reel",
-        "critere": "SI le rendu passe la géométrie mais reste visuellement pauvre (mur de boîtes, hiérarchie absente) : passe design appliquée puis retour à verification-rendu (skill jamais utilisée à ce jour — prudence)"
+        "critere": "OBLIGATOIRE dès que le diff touche un layout / composant / couleur de slide (seuil OBJECTIF, pas un auto-jugement « ça a l'air pauvre » — c'était le défaut : conditionnelle auto-jugée = jamais lancée, diagnostic superviseur 2026-07-22). Lancer restitution-deck-design et appliquer sa review checklist au rendu réel (hiérarchie 1 headline/slide, rythme d'espacement unique, couleur=sens non décorative, alignement exact, cohérence de composant — un même composant identique partout via un helper pptx_deck, retenue : pas d'aplat criard là où un accent suffit), corriger, puis retour à verification-rendu."
       },
       "checkpoint": false
     },
