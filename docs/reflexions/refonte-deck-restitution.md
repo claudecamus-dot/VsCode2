@@ -151,7 +151,17 @@ Intention : un **mode démo** cloisonné du réel, où l'on peut parcourir les i
 simulées, rejouer tout le parcours (capture → analyse → synthèse → export), et voir une
 **cinématique** de la génération du PPT (les slides qui se construisent).
 
-### 6.1 Cloisonnement démo/réel — **DÉCIDÉ : bases séparées dès le départ (modèle VSCode1)**
+### 6.1 Cloisonnement démo/réel — **RECTIFIÉ (2026-07-22) : voir `espace-demo-reel.md`**
+
+> **Rectification (2026-07-22)** : après lecture du code VSCode1, la décision
+> ci-dessous (« bases séparées ») reposait sur une lecture erronée de VSCode1 —
+> ce qu'il sépare par base distincte, ce sont ses **environnements** (dev/preprod/
+> prod), pas la démo/réel. Sa vraie démo/réel est un **flag `est_demo` même base +
+> cookie + 1ère page + bandeau**. Arbitrage rouvert et tranché dans le sous-cadrage
+> dédié `docs/reflexions/espace-demo-reel.md` : **flag `Mission.is_demo` (same-DB)**,
+> démo modifiable/rejouable. Le texte ci-dessous est conservé pour mémoire.
+
+### 6.1-bis (obsolète) Cloisonnement démo/réel — ~~DÉCIDÉ : bases séparées dès le départ (modèle VSCode1)~~
 
 Arbitrage utilisateur (2026-07-22) : **séparer l'espace démo de l'espace réel dès le
 départ, identique à VSCode1**. VSCode1 sépare ses environnements par **bases distinctes +
