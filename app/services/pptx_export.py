@@ -549,15 +549,31 @@ def _slide_chapitre(prs: Presentation, numero: int, titre: str, color: str,
         slide = prs.slides.add_slide(layout)
         phs = {ph.placeholder_format.idx: ph for ph in slide.placeholders}
         if 0 in phs:
-            phs[0].text_frame.text = titre
-            for p in phs[0].text_frame.paragraphs:
+            title_ph = phs[0]
+            title_ph.text_frame.text = titre
+            for p in title_ph.text_frame.paragraphs:
                 for r in p.runs:
                     r.font.color.rgb = D.rgb(color)
-        # Encart numéro (idx1) : l'encart de ce template est trop étroit pour « 01 »
-        # (se replie « 0 » / « 1 » au rendu, vérifié), et le REX source ne le remplit
-        # que sur un layout à encart plus large. On le vide (pas de prompt « ajouter du
-        # texte ») ; le numéro vit sur le sommaire quali, la couleur + le titre suffisent
-        # à identifier le chapitre. Le grand numéro dessiné reste sur le repli texte-seul.
+            # Numéro de chapitre GRAND et DESSINÉ (pas le placeholder natif idx1, trop
+            # étroit — il replie « 01 » en « 0 »/« 1 » au rendu) : posé au-dessus du
+            # titre, même couleur de chapitre, avec un filet. Le rendu d'un « 01 »
+            # dessiné est fiable (cf. les badges du sommaire). Demande explicite et
+            # répétée de l'utilisateur — le numéro DOIT figurer sur l'intercalaire.
+            try:
+                tl = Emu(title_ph.left).inches
+                tt = Emu(title_ph.top).inches
+                tw = Emu(title_ph.width).inches
+                num_h = 0.95
+                num_top = max(0.25, tt - num_h + 0.05)
+                D.add_text(
+                    slide, tl, num_top, min(tw, 3.0), num_h,
+                    [(f"{numero:02d}", {"size": D.TYPE["kpi"], "bold": True, "color": color})],
+                )
+                D.add_rect(slide, tl + 0.04, num_top + num_h + 0.02, 0.9, 0.05, fill=color)
+            except Exception:
+                pass  # placeholder de titre sans géométrie exploitable : numéro sur le repli
+        # Placeholder numéro natif (idx1) laissé vide : on dessine le numéro nous-mêmes
+        # (ci-dessus) car cet encart est trop étroit et « tofu » le « 01 ».
         if 1 in phs:
             phs[1].text_frame.text = ""
         _remplir_cadre_chapitre(slide, _find_teardrop_frame(slide.slide_layout.shapes),

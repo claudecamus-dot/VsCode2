@@ -9,25 +9,26 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-22T10:23:36+02:00 · **31 sessions** (transcripts) · **67** invocations de skills · **45** lancements de sous-agents.
+Dernier scan : 2026-07-22T11:32:23+02:00 · **32 sessions** (transcripts) · **70** invocations de skills · **45** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `run-dev-server` | projet | 18 | 2026-07-03 | 2026-07-21 |
+| `run-dev-server` | projet | 19 | 2026-07-03 | 2026-07-22 |
 | `agent-supervisor` | projet | 8 | 2026-07-18 | 2026-07-21 |
 | `agent-orchestrator` | projet | 7 | 2026-07-17 | 2026-07-21 |
 | `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
 | `bmad-code-review` | BMAD | 5 | 2026-07-20 | 2026-07-22 |
+| `pptx-verify` | global | 5 | 2026-07-03 | 2026-07-22 |
 | `revue-increment` | projet | 5 | 2026-07-18 | 2026-07-21 |
 | `roadmap-keeper` | global | 5 | 2026-06-25 | 2026-07-15 |
-| `pptx-verify` | global | 4 | 2026-07-03 | 2026-07-22 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
 | `pptx-deck` | global | 2 | 2026-07-02 | 2026-07-03 |
 | `skill-creator` | global | 2 | 2026-07-03 | 2026-07-03 |
 | `claude-api` | (builtin/session) | 1 | 2026-06-29 | 2026-06-29 |
 | `init` | (builtin/session) | 1 | 2026-07-03 | 2026-07-03 |
+| `slide-text-polish` | projet | 1 | 2026-07-22 | 2026-07-22 |
 
 ## Sous-agents
 
@@ -41,9 +42,9 @@ Dernier scan : 2026-07-22T10:23:36+02:00 · **31 sessions** (transcripts) · **6
 
 ## Jamais utilisés
 
-**projet** — 2/6 jamais invoqués :
+**projet** — 1/6 jamais invoqués :
 
-`pptx-framed-image`, `slide-text-polish`
+`pptx-framed-image`
 
 **BMAD** — 38/39 jamais invoqués :
 
@@ -86,7 +87,7 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic ⚠️ à relancer (> 14 j) — rien à signaler, tous les constats précédents ont été arbitrés._
+_Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés._
 
 ---
 
