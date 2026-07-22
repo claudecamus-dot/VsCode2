@@ -89,7 +89,7 @@ FIELD_SHAPE = {
     # zone de PUCES (pas de la carte) = row_h - titre - paddings ≈ 1.9 in sur un
     # deck vierge (cf. _slide_swot) — pas la demi-hauteur brute (~2.2), qui
     # surestimait le budget du repère de ~20 % et rendait le fit-hint trompeur.
-    "swot_quadrant": dict(width_in=(_W_IN - 2 * (MARGIN + 0.3) - 0.25) / 2 - 0.36, max_h_in=1.8, size_max=D.TYPE["small"]),
+    "swot_quadrant": dict(width_in=(_W_IN - 2 * (MARGIN + 0.3) - 0.25) / 2 - 0.36, max_h_in=1.9, size_max=D.TYPE["small"]),
     # Executive summary (piste F) : panneau pleine largeur (constat + points) et
     # bande cyan « key message » — mêmes contraintes que la slide (cf.
     # _slide_executive_summary), pour un fit-hint fidèle dans l'aperçu.
@@ -740,6 +740,11 @@ def _clip_octo_frame(pic) -> None:
         pass  # image en rectangle plat si le clip échoue — jamais un export cassé
 
 
+# Couleurs des cartes de points clés de l'exec summary (format VSCode3 :
+# Doctrine bleu / Méthode vert / Maturité ambre / Posture rouge).
+_EXEC_CARD_COLORS = ["#2c5cc5", "#1e6b34", "#b8860b", "#b3261e"]
+
+
 def _slide_executive_summary(prs: Presentation, es) -> None:
     """Slide d'ouverture « Executive Summary » (piste F restitution, 2026-07-21) :
     un panneau constat + points clés, et une bande cyan « key message » (le
@@ -747,76 +752,54 @@ def _slide_executive_summary(prs: Presentation, es) -> None:
     Summary + bande de message à retenir), cf.
     docs/reflexions/restitution-mission.md §F. Placée juste après le sommaire."""
     slide, w_in, h_in, top = _new_slide(prs, "Executive Summary")
-    accent = (D.theme_colors(prs).get("accent3") or "#00D2DD")  # cyan OCTO
     area_l = MARGIN + 0.3
-    # Pattern claim + visuel (P3b, repéré sur les decks OCTO réels VSCode4) : réserve
-    # une bande photo à droite si l'infra image est dispo ; sinon la carte-claim reprend
-    # toute la largeur (repli propre).
-    has_vis = _FRAMED_OK
-    vis_w = 2.7
-    vis_l = w_in - MARGIN - vis_w
-    area_w = (vis_l - 0.3 - area_l) if has_vis else (w_in - 2 * (MARGIN + 0.3))
-    pad = 0.24
-    band_h = 0.9
-    band_gap = 0.3
-    band_t = h_in - 0.5 - band_h
-    # max(0.0, …) : sur un template client au titre bas, l'espace dispo pourrait
-    # passer négatif — jamais de dimension négative à python-pptx.
-    avail = max(0.0, band_t - band_gap - top)  # espace max entre le titre et la bande
-
+    area_w = w_in - 2 * (MARGIN + 0.3)
+    y = top
     headline = (getattr(es, "headline", "") or "").strip()
-    # hl_h : 2 lignes h3 max (le headline est tronqué à 2 lignes, taille fixe — un
-    # headline long ou une liste Ollama aplatie déborderait sinon sur les puces,
-    # constat Blind/Edge Case Hunter 2026-07-21).
-    hl_h = 0.7 if headline else 0.0
-    if headline:
-        headline = D.tronquer_a_lignes(headline, area_w - 2 * pad, D.TYPE["h3"], 2)
-
-    # Carte DIMENSIONNÉE AU CONTENU (comme _slide_difficultes/_slide_verbatims) plutôt
-    # qu'étirée jusqu'à la bande — évite une grande carte à moitié vide quand l'exec
-    # summary est court (finding pptx-verify 2026-07-22). Bornée à l'espace dispo
-    # (paginate tronque au besoin) ; la bande « key message » reste ancrée en bas.
-    body = D.TYPE["body"]
-    pts_text = getattr(es, "points", "") or "—"
-    pts_lines = _bullet_lines(pts_text) or ["—"]
-    pts_h = sum(D.estimer_lignes(l, area_w - 2 * pad, body) for l in pts_lines) * _per_line_height_in(body)
-    card_h = min(avail, pad + hl_h + pts_h + pad)
-    hl_h = min(hl_h, card_h)  # garde le bloc constat dans la carte (template au titre bas)
-
-    D.add_card(slide, area_l, top, area_w, card_h, accent)
-    if headline:
-        D.add_text(
-            slide, area_l + pad, top + pad, area_w - 2 * pad, hl_h,
-            [(headline, {"size": D.TYPE["h3"], "bold": True, "color": D.INK})],
-        )
-    # paginate=True : des points trop longs sont TRONQUÉS à la carte plutôt que
-    # de déborder (verifier_geometrie ne voit pas le débordement intra-forme).
-    _add_bulleted_text(
-        slide, area_l + pad, top + pad + hl_h, area_w - 2 * pad,
-        max(0.0, card_h - (pad + hl_h) - pad),
-        pts_text,
-        anchor=MSO_ANCHOR.TOP, size_max=body, size_min=D.TYPE["small"],
-        paginate=True,
-    )
-
-    # Visuel à droite (claim à gauche) — photo métier cover-croppée à la zone ;
-    # repli sur un bloc couleur accent net si la photo n'est pas disponible (fetch
-    # KO + scène non procédurale) plutôt qu'une photo hors-sujet ou du vide.
-    if has_vis:
-        # Scène NATURE (repli procédural propre hors ligne, vraie photo en prod) —
-        # cohérent avec l'imagerie de marque du deck ; « office » procédural rendait
-        # un aplat criard (défaut relevé par la passe restitution-deck-design §7).
-        if not _image_dans_zone(slide, vis_l, top, vis_w, avail, "sunset",
-                                "city skyline sunrise", seed=7):
-            D.add_rect(slide, vis_l, top, vis_w, avail, fill=accent, rounded=True, radius=0.06)
-
     key_message = (getattr(es, "key_message", "") or "").strip()
+    points = _bullet_lines(getattr(es, "points", "") or "")
+
+    # Claim (headline) — navy bold, pleine largeur (format VSCode3).
+    if headline:
+        hl = D.tronquer_a_lignes(headline, area_w, D.TYPE["h2"], 2)
+        hl_h = D.estimer_lignes(hl, area_w, D.TYPE["h2"]) * _per_line_height_in(D.TYPE["h2"])
+        D.add_text(slide, area_l, y, area_w, hl_h,
+                   [(hl, {"size": D.TYPE["h2"], "bold": True, "color": D.INK})])
+        y += hl_h + 0.14
+    # Sous-claim (key_message) — italique gris, pleine largeur : le « so-what ».
     if key_message:
-        # Encart « à retenir » gris (composant unique add_encart) — sobre, liseré
-        # accent, texte foncé : la couleur est un accent, pas une bande criarde.
-        # Hauteur fixe -> message tronqué à 2 lignes (débordement invisible sinon).
-        msg = D.tronquer_a_lignes(key_message, area_w - 0.6, D.TYPE["h3"], 2)
-        D.add_encart(slide, area_l, band_t, area_w, band_h, msg, accent=accent)
+        km = D.tronquer_a_lignes(key_message, area_w, D.TYPE["body"], 2)
+        km_h = D.estimer_lignes(km, area_w, D.TYPE["body"]) * _per_line_height_in(D.TYPE["body"])
+        D.add_text(slide, area_l, y, area_w, km_h,
+                   [(km, {"size": D.TYPE["body"], "italic": True, "color": D.MUTED})])
+        y += km_h + 0.3
+
+    # Points clés en CARTES COULEUR (rangée en bas) — signature VSCode3 (Doctrine/
+    # Méthode/Maturité/Posture). Carte blanche + liseré couleur (add_card) + titre nul,
+    # le point comme corps. Tronqué à ce qui tient (jamais de débordement).
+    if points:
+        n = min(len(points), 4)
+        gap = 0.2
+        cpad = 0.18
+        # Hauteur adaptée au point le plus long (≥2 lignes pour ne pas être trapue),
+        # bornée ; rangée ANCRÉE EN BAS (format VSCode3) ; texte centré verticalement
+        # pour qu'un point court ne soit pas plaqué en haut d'une carte vide.
+        col_w = (area_w - gap * (n - 1)) / n
+        lh = _per_line_height_in(D.TYPE["small"])
+        max_lines = max(2, max(D.estimer_lignes(pt, col_w - 2 * cpad, D.TYPE["small"])
+                               for pt in points[:n]))
+        cards_h = min(max(0.9, (h_in - 0.5) - (y + 0.2)), 2 * cpad + max_lines * lh + 0.1)
+        cards_top = (h_in - 0.5) - cards_h
+        for i, pt in enumerate(points[:n]):
+            cx = area_l + i * (col_w + gap)
+            color = _EXEC_CARD_COLORS[i % len(_EXEC_CARD_COLORS)]
+            D.add_card(slide, cx, cards_top, col_w, cards_h, color)
+            D.add_text(
+                slide, cx + cpad, cards_top + cpad, col_w - 2 * cpad, cards_h - 2 * cpad,
+                [(D.tronquer_a_lignes(pt, col_w - 2 * cpad, D.TYPE["small"], max_lines),
+                  {"size": D.TYPE["small"], "color": D.INK})],
+                anchor=MSO_ANCHOR.MIDDLE,
+            )
 
 
 def _slide_swot(prs: Presentation, swot) -> None:
@@ -837,27 +820,24 @@ def _slide_swot(prs: Presentation, swot) -> None:
     for (key, label, color), (col, row) in zip(_SWOT_QUADRANTS, cells):
         cl = area_l + col * (col_w + gap)
         ct = area_t + row * (row_h + gap)
-        D.add_card(slide, cl, ct, col_w, row_h, color)  # carte blanche, sans liseré (VSCode4)
-        # Header façon VSCode4 : badge-icône + libellé en capitales + filet d'accent
-        # dessous (la couleur porte le SENS du quadrant — interne/externe, +/-).
+        D.add_card(slide, cl, ct, col_w, row_h, color)  # carte blanche + liseré couleur (VSCode3)
+        # Badge-icône + titre coloré du quadrant (la couleur porte le SENS —
+        # interne/externe, +/-). Style VSCode3 : liseré + titre coloré, pas de filet.
         badge_d = min(0.32, title_h)
         hy = ct + pad * 0.7
         D.add_badge(slide, cl + pad, hy, badge_d, _SWOT_ICONS[key],
                     color, size=D.TYPE["small"], bold=False, radius=0.28)
-        lab_x = cl + pad + badge_d + 0.12
         D.add_text(
-            slide, lab_x, hy, col_w - 2 * pad - badge_d - 0.12, 0.32,
-            [(label.upper(), {"size": D.TYPE["h3"], "bold": True, "color": color})],
+            slide, cl + pad + badge_d + 0.12, hy,
+            col_w - 2 * pad - badge_d - 0.12, title_h,
+            [(label, {"size": D.TYPE["h3"], "bold": True, "color": color})],
             anchor=MSO_ANCHOR.MIDDLE,
         )
-        D.add_rect(slide, lab_x, hy + 0.34, 0.5, 0.045, fill=color)  # filet
-        # paginate=True : un quadrant trop long est TRONQUÉ à ce qui tient dans
-        # la carte plutôt que de déborder sur le quadrant voisin (invisible à
-        # verifier_geometrie). max(0.0, …) : jamais de dimension négative.
-        bullets_top = hy + 0.34 + 0.045 + 0.1
+        # paginate=True : un quadrant trop long est TRONQUÉ à ce qui tient dans la
+        # carte plutôt que de déborder sur le voisin. max(0.0, …) : jamais négatif.
         _add_bulleted_text(
-            slide, cl + pad, bullets_top, col_w - 2 * pad,
-            max(0.0, row_h - (bullets_top - ct) - pad),
+            slide, cl + pad, ct + pad * 0.7 + title_h, col_w - 2 * pad,
+            max(0.0, row_h - (pad * 0.7 + title_h) - pad),
             getattr(swot, key) or "—",
             anchor=MSO_ANCHOR.TOP, size_max=D.TYPE["small"], size_min=D.TYPE["tiny"],
             paginate=True,

@@ -199,12 +199,14 @@ def add_gauge(slide, l, t, size, frac, fill, track=TRACK, hole=62):
 
 
 def add_card(slide, l, t, w, h, accent=None):
-    """Carte blanche a coins arrondis, fine bordure grise, SANS liseré latéral
-    (charte OCTO/VSCode4 : la couleur d'accent vit dans le header/le contenu de la
-    carte, cf. add_card_header — pas un liseré). `accent` conservé pour compat mais
-    non dessiné."""
+    """Carte blanche a coins arrondis, fine bordure grise, + **liseré couleur à
+    gauche** (charte VSCode3 / bmad-iap-cadrage-synthese — arbitrage utilisateur
+    2026-07-22 : réf VSCode3 retenue contre le header+filet de VSCode4). `accent`
+    None -> pas de liseré (repli)."""
     add_rect(slide, l, t, w, h, fill="#ffffff", line=LINE, line_w=0.75,
              rounded=True, radius=0.06)
+    if accent:
+        add_rect(slide, l, t, 0.07, h, fill=accent, rounded=True, radius=0.5)
 
 
 def add_card_header(slide, l, t, w, label, color, size=None):
