@@ -7,7 +7,14 @@
 <div class="breadcrumb"><a href="/missions">Missions</a> / {{ mission.name }}</div>
 
 <div class="page-head">
-  <h1>{{ mission.name }}</h1>
+  <div class="mission-title-edit">
+    <input class="mission-name-input" name="name" value="{{ mission.name }}"
+           hx-post="/missions/{{ mission.id }}/name"
+           hx-trigger="change, blur changed delay:400ms"
+           hx-target="#mission-name-saved" hx-swap="innerHTML"
+           aria-label="Nom de la mission" required>
+    <span id="mission-name-saved" class="saved"></span>
+  </div>
   <form method="post" action="/missions/{{ mission.id }}/delete"
         onsubmit="return confirm('Supprimer cette mission ? Tous ses entretiens, sa trame et sa synthèse seront supprimés avec elle, sans possibilité de retour en arrière.');">
     <button class="btn btn-danger btn-sm" type="submit">Supprimer la mission</button>

@@ -14,9 +14,18 @@ is the verified path for getting it running and actually looking at a page
 
 ```bash
 cd <repo root>
-.venv/Scripts/python.exe -m uvicorn app.main:app --port 8010 > /tmp/server.log 2>&1 &
+.venv/Scripts/python.exe -m uvicorn app.main:app --port 8010 --reload > /tmp/server.log 2>&1 &
 until curl -sf -o /dev/null http://127.0.0.1:8010/missions; do sleep 1; done
 ```
+
+**`--reload` n'est pas optionnel** (surtout si l'utilisateur va s'en servir) : un
+uvicorn sans `--reload` **fige le code importé au démarrage** — après tout commit, l'app
+(donc l'export/écran que l'utilisateur consomme) reflète l'ANCIEN code. Piège réel
+2026-07-22 : ~15 tours de « tu dis OK, je vois KO » car le serveur servait un deck périmé
+(l'export montrait l'ancien format quand mon build frais montrait le nouveau). **Si
+l'utilisateur dit « l'export/l'app est toujours faux » alors que tes rendus frais ont l'air
+bons : exporte depuis l'app en marche et compare à un build frais — s'ils diffèrent, le
+serveur est périmé, redémarre-le.** cf. [[feedback-stale-dev-server-root-cause]].
 
 Use a port other than 8000 (e.g. 8010) to avoid colliding with a server the
 user may already have running for manual testing. This uses `data/app.db`

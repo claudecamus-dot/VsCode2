@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
@@ -203,6 +203,24 @@ def mission_detail(
     return templates.TemplateResponse(
         request, "missions/detail.html", {"mission": mission}
     )
+
+
+@router.post("/{mission_id}/name")
+def update_mission_name(
+    mission_id: int,
+    name: str = Form(...),
+    db: Session = Depends(get_session),
+):
+    """Renomme la mission (autosave HTMX depuis la page mission) — le nom sert de
+    titre au deck PPT, jusqu'ici non modifiable après création (US demandée
+    2026-07-22). Un nom vide est refusé (le nom est obligatoire)."""
+    mission = _get_mission(db, mission_id)
+    name = name.strip()
+    if not name:
+        return HTMLResponse('<span class="saved error">⚠ nom obligatoire</span>')
+    mission.name = name
+    db.commit()
+    return HTMLResponse('<span class="saved">✓ enregistré</span>')
 
 
 @router.post("/{mission_id}/delete")

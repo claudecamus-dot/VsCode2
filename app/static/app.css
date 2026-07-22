@@ -73,6 +73,15 @@ h2 { font-size: 1.1rem; margin: 0; }
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 20px; gap: 16px;
 }
+/* Nom de mission éditable (autosave) — rendu comme un h1, éditable au clic. */
+.mission-title-edit { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.mission-name-input {
+  font-size: 1.7rem; font-weight: 700; color: var(--text); font-family: inherit;
+  border: 1px solid transparent; background: transparent; border-radius: 6px;
+  padding: 3px 7px; margin: 0; flex: 1; min-width: 0;
+}
+.mission-name-input:hover { border-color: var(--border); }
+.mission-name-input:focus { border-color: var(--accent); background: #fff; outline: none; }
 .breadcrumb { color: var(--muted); font-size: .88rem; margin-bottom: 8px; }
 .breadcrumb a { color: var(--muted); text-decoration: none; }
 .breadcrumb a:hover { color: var(--text); }
