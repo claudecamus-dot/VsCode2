@@ -146,13 +146,13 @@ def seed() -> int:
                 pool = REPONSES[q_theme[qi]]
                 db.add(Answer(interview_id=iv.id, question_id=q.id,
                               text=pool[(pi + qi) % len(pool)], status="answered"))
-            # 1 à 2 verbatims par entretien
-            for j in range((pi % 2) + 1):
-                v = Verbatim(interview_id=iv.id, question_id=questions[(pi + j) % len(questions)].id,
-                             quote=VERBATIMS[(pi + j) % len(VERBATIMS)])
-                db.add(v)
-                db.flush()
-                verbatims.append(v)
+            # 1 verbatim par entretien (1:1 avec l'interlocuteur) — les 4 retenus pour
+            # la planche « Paroles d'acteurs » couvrent ainsi 4 personnes distinctes.
+            v = Verbatim(interview_id=iv.id, question_id=questions[pi % len(questions)].id,
+                         quote=VERBATIMS[pi % len(VERBATIMS)])
+            db.add(v)
+            db.flush()
+            verbatims.append(v)
 
         # --- Contenu de restitution (niveau mission) ---
         db.add(GlobalSynthesis(
@@ -197,16 +197,28 @@ def seed() -> int:
         db.add_all([
             Recommendation(axis_id=ax1.id, title="Nommer des data owners par domaine",
                            objectif="Attribuer une responsabilité claire sur chaque jeu de données",
-                           acteurs="DSI, métiers", valeur=5, complexite=2, position=0),
+                           acteurs="DSI, métiers", valeur=5, complexite=2, position=0,
+                           proposition_valeur="Une donnée qui a un propriétaire est une donnée fiable : la responsabilité crée la qualité, sans nouvel outil.",
+                           plan_actions="- Cartographier les domaines de données\n- Désigner un owner par domaine (fiche de rôle)\n- Rituel trimestriel de revue qualité",
+                           resultats_attendus="- Responsabilités traçables sous 3 mois\n- Réduction des incidents data faute de propriétaire"),
             Recommendation(axis_id=ax1.id, title="Instaurer un comité data mensuel",
                            objectif="Arbitrer les priorités data au bon niveau",
-                           acteurs="COMEX", valeur=4, complexite=2, position=1),
+                           acteurs="COMEX", valeur=4, complexite=2, position=1,
+                           proposition_valeur="Un lieu unique de décision remplace les arbitrages au fil de l'eau : la priorisation devient lisible.",
+                           plan_actions="- Définir le mandat et les membres du comité\n- Cadence mensuelle, ordre du jour type\n- Tableau de bord des priorités partagé",
+                           resultats_attendus="- Priorités data explicites et partagées\n- Délai de décision divisé par deux"),
             Recommendation(axis_id=ax2.id, title="Généraliser les squads produit mixtes",
                            objectif="Casser les silos par des équipes pluridisciplinaires",
-                           acteurs="DSI, métiers", valeur=4, complexite=4, position=0),
+                           acteurs="DSI, métiers", valeur=4, complexite=4, position=0,
+                           proposition_valeur="Mettre métier et DSI dans la même équipe supprime les allers-retours par ticket — c'est déjà ce qui marche sur les squads existantes.",
+                           plan_actions="- Identifier 2 produits pilotes\n- Constituer des squads mixtes dédiées\n- Mesurer le time-to-value avant/après",
+                           resultats_attendus="- Silos réduits sur les produits pilotes\n- Modèle rejouable au-delà du pilote"),
             Recommendation(axis_id=ax2.id, title="Mettre en place un langage data commun",
                            objectif="Un glossaire et des indicateurs partagés métiers/DSI",
-                           acteurs="CDO", valeur=3, complexite=2, position=1),
+                           acteurs="CDO", valeur=3, complexite=2, position=1,
+                           proposition_valeur="Un vocabulaire partagé évite que « le même mot » désigne deux choses — la base de toute collaboration data.",
+                           plan_actions="- Construire un glossaire des termes clés\n- Aligner les indicateurs de référence\n- Publier et maintenir dans le catalogue",
+                           resultats_attendus="- Indicateurs non ambigus\n- Moins de retravail par incompréhension"),
         ])
 
         db.commit()
