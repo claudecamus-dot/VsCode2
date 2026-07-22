@@ -337,7 +337,53 @@ def _add_measured_field(
     return label_h + body_h
 
 
-def _slide_title(prs: Presentation, mission: Mission) -> None:
+def _layout_by_name(prs: Presentation, *keywords: str):
+    """Premier layout dont le nom contient l'un des mots-clés (insensible à la
+    casse) — repérage robuste des layouts de marque OCTO (« 40 - Couverture »,
+    « 50 - Chapitre ») par nom plutôt que par indice. None si aucun ne matche."""
+    for layout in prs.slide_layouts:
+        name = (layout.name or "").lower()
+        if any(kw in name for kw in keywords):
+            return layout
+    return None
+
+
+# Refonte P2 — structure narrative : 4 chapitres. Chaque section du deck appartient
+# à un chapitre ; un intercalaire (layout « 50 - Chapitre ») ouvre chaque chapitre
+# qui a du contenu, et le sommaire quali regroupe les sections sous ces intitulés
+# narratifs (couleur = repère de navigation, reprise sur l'intercalaire).
+_CH_RETENIR, _CH_DIAGNOSTIC, _CH_PAROLE, _CH_TRAJECTOIRE = 0, 1, 2, 3
+_CHAPITRES = [
+    ("Ce qu'il faut retenir", "#00D2DD"),    # cyan
+    ("Le diagnostic", "#0E2356"),            # navy
+    ("La parole des équipes", "#138086"),    # teal
+    ("La trajectoire proposée", "#6a3d9a"),  # violet
+]
+
+
+def _slide_cover(prs: Presentation, mission: Mission) -> None:
+    """Couverture : sur un template OCTO, remplit les placeholders du layout de
+    marque « 40 - Couverture » (titre/sous-titre/date) — la mise en forme (police
+    Outfit, tailles, éventuelle photo de couverture) vient du template. Repli sur un
+    titre dessiné centré si le layout n'existe pas (deck synthétique sans marque)."""
+    subtitle = "Synthèse transverse & recommandations"
+    date_str = datetime.now(timezone.utc).strftime("%d/%m/%Y")
+    cover = _layout_by_name(prs, "couverture", "cover")
+    if cover is not None:
+        slide = prs.slides.add_slide(cover)
+        phs = {ph.placeholder_format.idx: ph for ph in slide.placeholders}
+        if 0 in phs:
+            phs[0].text_frame.text = mission.name
+        if 1 in phs:
+            phs[1].text_frame.text = subtitle
+        # idx2 = « OCTO Technology » (natif, laissé tel quel) ; idx3 = date.
+        if 3 in phs:
+            phs[3].text_frame.text = date_str
+        return
+    _slide_title(prs, mission, subtitle, date_str)
+
+
+def _slide_title(prs: Presentation, mission: Mission, subtitle: str, date_str: str) -> None:
     slide = prs.slides.add_slide(_pick_layout(prs))
     w_in, h_in = _dims(prs)
     title_w = w_in - 2.0
@@ -355,21 +401,56 @@ def _slide_title(prs: Presentation, mission: Mission) -> None:
     y = cy + title_h + 0.15
     D.add_text(
         slide, 1.0, y, title_w, 0.5,
-        [("Synthèse transverse & recommandations", {"size": D.TYPE["h2"], "color": D.MUTED, "align": PP_ALIGN.CENTER})],
+        [(subtitle, {"size": D.TYPE["h2"], "color": D.MUTED, "align": PP_ALIGN.CENTER})],
     )
     D.add_text(
         slide, 1.0, y + 0.55, title_w, 0.4,
-        [(datetime.now(timezone.utc).strftime("%d/%m/%Y"), {"size": D.TYPE["small"], "color": D.MUTED, "align": PP_ALIGN.CENTER})],
+        [(date_str, {"size": D.TYPE["small"], "color": D.MUTED, "align": PP_ALIGN.CENTER})],
     )
 
 
-def _slide_sommaire(prs: Presentation, sections: list[str]) -> None:
+def _slide_sommaire(prs: Presentation, ch_sections: list[list[str]]) -> None:
+    """Sommaire quali (P2) : les chapitres AYANT du contenu, chacun avec sa pastille
+    couleur + intitulé narratif + les sections qu'il regroupe (repère de navigation,
+    couleur reprise sur l'intercalaire) — au lieu d'une liste plate de sections."""
     slide, w_in, h_in, top = _new_slide(prs, "Sommaire")
-    lines = [
-        (f"{i:02d}   {label}", {"size": D.TYPE["h2"], "color": D.INK, "space_after": 14})
-        for i, label in enumerate(sections, start=1)
-    ]
-    D.add_text(slide, MARGIN + 0.3, top + 0.1, w_in - 2 * (MARGIN + 0.3), h_in - top - 0.7, lines)
+    y = top + 0.25
+    numero = 0
+    for ci, subs in enumerate(ch_sections):
+        if not subs:
+            continue
+        numero += 1
+        label, color = _CHAPITRES[ci]
+        D.add_rect(slide, MARGIN + 0.3, y + 0.13, 0.18, 0.18, fill=color, rounded=True, radius=0.5)
+        D.add_text(
+            slide, MARGIN + 0.65, y, 3.8, 0.5,
+            [(f"{numero:02d} · {label}", {"size": D.TYPE["h2"], "bold": True, "color": D.INK})],
+        )
+        D.add_text(
+            slide, MARGIN + 4.6, y + 0.06, w_in - (MARGIN + 4.6) - MARGIN, 0.5,
+            [(" · ".join(subs), {"size": D.TYPE["small"], "color": D.MUTED})],
+            anchor=MSO_ANCHOR.MIDDLE,
+        )
+        y += 0.72
+
+
+def _slide_chapitre(prs: Presentation, numero: int, titre: str, color: str) -> None:
+    """Intercalaire de chapitre (P2) : grand numéro coloré + filet + titre, sur un
+    layout de contenu propre (le chrome de marque survit). La version avec image
+    encadrée (vrai layout « 50 - Chapitre ») viendra au palier visuels P3."""
+    slide = prs.slides.add_slide(_pick_layout(prs))
+    w_in, h_in = _dims(prs)
+    cy = h_in * 0.30
+    D.add_text(
+        slide, MARGIN + 0.3, cy, 3.0, 1.3,
+        [(f"{numero:02d}", {"size": D.TYPE["kpi"], "bold": True, "color": color})],
+    )
+    ty = cy + 1.35
+    D.add_rect(slide, MARGIN + 0.36, ty, 1.2, 0.06, fill=color)
+    D.add_text(
+        slide, MARGIN + 0.3, ty + 0.18, w_in - 2 * MARGIN - 0.6, 1.0,
+        [(titre, {"size": D.TYPE["title"], "bold": True, "color": D.INK})],
+    )
 
 
 def _slide_synthese_categorie(prs: Presentation, label: str, content: str) -> None:
@@ -788,7 +869,7 @@ def build_presentation(
     brand_accent = D.theme_colors(prs).get("accent1")
     palette = ([brand_accent] + D.PALETTE) if brand_accent else D.PALETTE
 
-    _slide_title(prs, mission)
+    _slide_cover(prs, mission)
 
     gs = mission.global_synthesis
     swot = mission.swot
@@ -798,57 +879,77 @@ def build_presentation(
     axes = list(mission.recommendation_axes)
     selected_axes = [a for a in axes if include_axis_ids is None or a.id in include_axis_ids]
 
-    sections = []
+    # Sections présentes, groupées par chapitre (P2 — structure narrative). Un
+    # intercalaire ouvre chaque chapitre qui a du contenu ; le sommaire quali les liste.
+    ch_sections: list[list[str]] = [[] for _ in _CHAPITRES]
     if include_executive_summary and executive_summary and executive_summary.has_content:
-        sections.append("Executive Summary")
+        ch_sections[_CH_RETENIR].append("Executive Summary")
     if include_synthese and gs and gs.has_content:
-        sections.append("Synthèse globale")
+        ch_sections[_CH_DIAGNOSTIC].append("Synthèse globale")
     if include_difficultes and difficulties:
-        sections.append("Difficultés")
+        ch_sections[_CH_DIAGNOSTIC].append("Difficultés")
     if include_swot and swot and swot.has_content:
-        sections.append("Matrice SWOT")
+        ch_sections[_CH_DIAGNOSTIC].append("Matrice SWOT")
     if include_verbatims and verbatims:
-        sections.append("Paroles d'acteurs")
-    if axes and include_axes_overview:
-        sections.append("Recommandations")
+        ch_sections[_CH_PAROLE].append("Paroles d'acteurs")
+    # « Recommandations » dès qu'il y a des axes à détailler (les fiches reco
+    # s'émettent indépendamment des toggles overview/matrice) OU la vue d'ensemble.
+    if (axes and include_axes_overview) or selected_axes:
+        ch_sections[_CH_TRAJECTOIRE].append("Recommandations")
     if axes and include_matrix:
-        sections.append("Matrice effort / valeur")
-    if include_sommaire:
-        _slide_sommaire(prs, sections or ["Synthèse globale", "Recommandations"])
+        ch_sections[_CH_TRAJECTOIRE].append("Matrice effort / valeur")
 
-    if include_executive_summary and executive_summary and executive_summary.has_content:
+    if include_sommaire and any(ch_sections):
+        _slide_sommaire(prs, ch_sections)
+
+    numero = 0
+
+    def _chapitre(ci: int) -> None:
+        nonlocal numero
+        numero += 1
+        _slide_chapitre(prs, numero, _CHAPITRES[ci][0], _CHAPITRES[ci][1])
+
+    # Chapitre 1 — Ce qu'il faut retenir
+    if ch_sections[_CH_RETENIR]:
+        _chapitre(_CH_RETENIR)
         _slide_executive_summary(prs, executive_summary)
 
-    if include_synthese and gs and gs.has_content:
-        categories = [
-            ("Contexte", gs.contexte),
-            ("Culture & ADN", gs.culture_adn),
-            ("Forces & succès", gs.forces_succes),
-            ("Points d'amélioration", gs.points_amelioration),
-            ("Aspirations (baguette magique)", gs.aspirations),
-        ]
-        for label, content in categories:
-            if (content or "").strip():
-                _slide_synthese_categorie(prs, label, content)
+    # Chapitre 2 — Le diagnostic
+    if ch_sections[_CH_DIAGNOSTIC]:
+        _chapitre(_CH_DIAGNOSTIC)
+        if include_synthese and gs and gs.has_content:
+            categories = [
+                ("Contexte", gs.contexte),
+                ("Culture & ADN", gs.culture_adn),
+                ("Forces & succès", gs.forces_succes),
+                ("Points d'amélioration", gs.points_amelioration),
+                ("Aspirations (baguette magique)", gs.aspirations),
+            ]
+            for label, content in categories:
+                if (content or "").strip():
+                    _slide_synthese_categorie(prs, label, content)
+        if include_difficultes and difficulties:
+            _slide_difficultes(prs, difficulties)
+        if include_swot and swot and swot.has_content:
+            _slide_swot(prs, swot)
 
-    if include_difficultes and difficulties:
-        _slide_difficultes(prs, difficulties)
-
-    if include_swot and swot and swot.has_content:
-        _slide_swot(prs, swot)
-
-    if include_verbatims and verbatims:
+    # Chapitre 3 — La parole des équipes
+    if ch_sections[_CH_PAROLE]:
+        _chapitre(_CH_PAROLE)
         _slide_verbatims(prs, verbatims)
 
-    if axes and include_axes_overview:
-        _slide_axes_overview(prs, axes, palette)
-    if axes and include_matrix:
-        _slide_matrice_effort_valeur(prs, axes)
-    for i, axis in enumerate(axes):
-        if axis not in selected_axes:
-            continue
-        for j, reco in enumerate(axis.recommendations):
-            _slide_recommendation(prs, axis, f"{i + 1}.{j + 1}", reco)
+    # Chapitre 4 — La trajectoire proposée
+    if ch_sections[_CH_TRAJECTOIRE]:
+        _chapitre(_CH_TRAJECTOIRE)
+        if axes and include_axes_overview:
+            _slide_axes_overview(prs, axes, palette)
+        if axes and include_matrix:
+            _slide_matrice_effort_valeur(prs, axes)
+        for i, axis in enumerate(axes):
+            if axis not in selected_axes:
+                continue
+            for j, reco in enumerate(axis.recommendations):
+                _slide_recommendation(prs, axis, f"{i + 1}.{j + 1}", reco)
 
     # Garde-fou géométrique (US7.1) : un texte trop long ou un template client
     # aux dimensions inattendues peut faire déborder une forme de la slide —
