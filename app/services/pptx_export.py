@@ -394,23 +394,31 @@ def _slide_executive_summary(prs: Presentation, es) -> None:
     band_h = 0.9
     band_gap = 0.3
     band_t = h_in - 0.5 - band_h
-    # max(0.0, …) : sur un template client au titre bas, la hauteur de carte
-    # pourrait passer négative — jamais de dimension négative à python-pptx.
-    card_h = max(0.0, band_t - band_gap - top)
+    # max(0.0, …) : sur un template client au titre bas, l'espace dispo pourrait
+    # passer négatif — jamais de dimension négative à python-pptx.
+    avail = max(0.0, band_t - band_gap - top)  # espace max entre le titre et la bande
+
+    headline = (getattr(es, "headline", "") or "").strip()
+    # hl_h : 2 lignes h3 max (le headline est tronqué à 2 lignes, taille fixe — un
+    # headline long ou une liste Ollama aplatie déborderait sinon sur les puces,
+    # constat Blind/Edge Case Hunter 2026-07-21).
+    hl_h = 0.7 if headline else 0.0
+    if headline:
+        headline = D.tronquer_a_lignes(headline, area_w - 2 * pad, D.TYPE["h3"], 2)
+
+    # Carte DIMENSIONNÉE AU CONTENU (comme _slide_difficultes/_slide_verbatims) plutôt
+    # qu'étirée jusqu'à la bande — évite une grande carte à moitié vide quand l'exec
+    # summary est court (finding pptx-verify 2026-07-22). Bornée à l'espace dispo
+    # (paginate tronque au besoin) ; la bande « key message » reste ancrée en bas.
+    body = D.TYPE["body"]
+    pts_text = getattr(es, "points", "") or "—"
+    pts_lines = _bullet_lines(pts_text) or ["—"]
+    pts_h = sum(D.estimer_lignes(l, area_w - 2 * pad, body) for l in pts_lines) * _per_line_height_in(body)
+    card_h = min(avail, pad + hl_h + pts_h + pad)
+    hl_h = min(hl_h, card_h)  # garde le bloc constat dans la carte (template au titre bas)
 
     D.add_card(slide, area_l, top, area_w, card_h, accent)
-    headline = (getattr(es, "headline", "") or "").strip()
-    # hl_h borné à card_h : garde le bloc constat AU-DESSUS de la bande (fixée en
-    # bas, toujours on-slide) même sur un template client au titre bas — sans ça
-    # une carte écrasée laissait le constat déborder/entrer en collision avec la
-    # bande, voire sortir du cadre (crash verifier_geometrie). Constat Edge Case
-    # Hunter 2026-07-21 : le garde-fou max(0.0) sur card_h ne couvrait pas ce bloc.
-    hl_h = min(0.7, card_h) if headline else 0.0
     if headline:
-        # Tronqué à 2 lignes (comme le key message) : taille fixe h3, la boîte ne
-        # shrink pas — un headline long (ou une liste Ollama aplatie en une ligne)
-        # déborderait sinon sur les puces (constat Blind/Edge Case Hunter 2026-07-21).
-        headline = D.tronquer_a_lignes(headline, area_w - 2 * pad, D.TYPE["h3"], 2)
         D.add_text(
             slide, area_l + pad, top + pad, area_w - 2 * pad, hl_h,
             [(headline, {"size": D.TYPE["h3"], "bold": True, "color": D.INK})],
@@ -420,8 +428,8 @@ def _slide_executive_summary(prs: Presentation, es) -> None:
     _add_bulleted_text(
         slide, area_l + pad, top + pad + hl_h, area_w - 2 * pad,
         max(0.0, card_h - (pad + hl_h) - pad),
-        getattr(es, "points", "") or "—",
-        anchor=MSO_ANCHOR.TOP, size_max=D.TYPE["body"], size_min=D.TYPE["small"],
+        pts_text,
+        anchor=MSO_ANCHOR.TOP, size_max=body, size_min=D.TYPE["small"],
         paginate=True,
     )
 
@@ -613,7 +621,7 @@ def _slide_axes_overview(prs: Presentation, axes: list, palette: list[str]) -> N
                 slide, MARGIN + 1.5, y, w_in - 2 * MARGIN - 2.0, row_h,
                 [
                     (axis.title, {"size": D.TYPE["h3"], "bold": True, "color": D.INK}),
-                    (f"{len(axis.recommendations)} recommandation(s)", {"size": D.TYPE["small"], "color": D.MUTED}),
+                    (f"{len(axis.recommendations)} recommandation{'s' if len(axis.recommendations) > 1 else ''}", {"size": D.TYPE["small"], "color": D.MUTED}),
                 ],
                 anchor=MSO_ANCHOR.MIDDLE,
             )
@@ -622,7 +630,11 @@ def _slide_axes_overview(prs: Presentation, axes: list, palette: list[str]) -> N
 
 def _slide_matrice_effort_valeur(prs: Presentation, axes: list) -> None:
     slide, w_in, h_in, top = _new_slide(prs, "Matrice effort / valeur")
-    recos = [(f"{i + 1}.{j + 1} {D.tronquer_a_lignes(r.title, 3.0, D.TYPE['small'], 1)}", r) for i, axis in enumerate(axes) for j, r in enumerate(axis.recommendations)]
+    # Libellé de légende court : la zone de légende (à droite du nuage) est étroite —
+    # tronquer le titre à ~1.5in évite que PowerPoint le coupe lui-même en plein mot
+    # (finding pptx-verify 2026-07-22). Le numéro (1.1, 2.1) identifie la reco, le titre
+    # complet vit sur la fiche détaillée.
+    recos = [(f"{i + 1}.{j + 1} {D.tronquer_a_lignes(r.title, 1.5, D.TYPE['small'], 1)}", r) for i, axis in enumerate(axes) for j, r in enumerate(axis.recommendations)]
 
     chart_data = XyChartData()
     for name, reco in recos:
