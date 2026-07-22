@@ -19,7 +19,9 @@
 #          [-Port 8020] [-StopOnly] [-KeepIfFresh]
 
 param(
-    [int]$Port = 8020,
+    # 8030 : 8010 puis 8020 sont HANTÉS sur ce poste (socket détenu par un PID
+    # mort, insensible aux kills des deux namespaces — vécu 2026-07-22 ×3).
+    [int]$Port = 8030,
     [switch]$StopOnly,
     [switch]$KeepIfFresh
 )

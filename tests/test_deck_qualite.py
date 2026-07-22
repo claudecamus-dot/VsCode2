@@ -334,6 +334,34 @@ def test_fiche_reco_pas_de_bandeau_pour_resultats_reduits_a_des_puces_vides() ->
     )
 
 
+def test_design_encart_a_retenir_reduit_avant_de_tronquer() -> None:
+    """Régression (batterie design 2026-07-22) : l'encart « à retenir » des slides
+    de synthèse tronquait son claim en plein mot à h3 fixe/2 lignes (« …la DSI
+    Groupe, le Marketing, la… ») — un so-what coupé ne dit plus rien. La police
+    descend désormais h3→body→small avant l'ellipse : ce claim réaliste de
+    ~110 caractères doit apparaître EN ENTIER."""
+    claim = ("L'analyse couvre dix entretiens représentant la DSI Groupe, le "
+             "Marketing, la Finance et les Opérations sur deux mois.")
+    db = SessionLocal()
+    try:
+        m = Mission(name="Audit qualité — Encart à retenir")
+        db.add(m); db.flush()
+        db.add(Interview(mission_id=m.id, interviewee_name="Témoin", status="done"))
+        db.add(GlobalSynthesis(
+            mission_id=m.id, status="generated",
+            contexte=f"- {claim}\n- Une seconde puce pour activer l'encart.",
+            culture_adn="- C", forces_succes="- F",
+            points_amelioration="- P", aspirations="- A"))
+        db.commit()
+        prs = build_presentation(db.get(Mission, m.id))
+    finally:
+        db.close()
+    contexte = next((s for s in prs.slides if "Contexte" in _slide_titre(s)), None)
+    assert contexte is not None
+    textes = " ".join(sh.text_frame.text for sh in contexte.shapes if sh.has_text_frame)
+    assert claim in textes, "claim de l'encart « à retenir » tronqué au lieu d'être réduit"
+
+
 def test_design_bulles_matrice_jamais_superposees_meme_a_9_par_ligne() -> None:
     """Régression (defer revue adversariale corrigé) : sur une ligne de valeur
     saturée (9 recos de même valeur), le recalage `max(pl+0.02, x-depassement)`

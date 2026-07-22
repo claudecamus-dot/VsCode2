@@ -768,9 +768,18 @@ def _slide_synthese_categorie(prs: Presentation, label: str, content: str) -> No
 
     if retenir:
         # Encart « à retenir » gris (même composant add_encart que l'executive summary
-        # — cohérence de composant §5, sobriété §3/§7, motif VSCode4).
-        msg = D.tronquer_a_lignes(retenir, area_w - 0.6, D.TYPE["h3"], 2)
-        D.add_encart(slide, area_l, band_t, area_w, band_h, msg, accent=accent)
+        # — cohérence de composant §5, sobriété §3/§7, motif VSCode4). Shrink-to-fit
+        # AVANT troncature (batterie design 2026-07-22 : à h3 fixe, le claim était
+        # coupé en plein mot sur les 5 synthèses — un « so-what » tronqué ne dit
+        # plus rien) : h3 → body → small, ellipse en tout dernier recours.
+        t_enc, l_enc = next(
+            ((t, lm) for t, lm in ((D.TYPE["h3"], 2), (D.TYPE["body"], 2),
+                                   (D.TYPE["small"], 2), (D.TYPE["small"], 3))
+             if D.estimer_lignes(retenir, area_w - 0.6, t) <= lm),
+            (D.TYPE["small"], 3),
+        )
+        msg = D.tronquer_a_lignes(retenir, area_w - 0.6, t_enc, l_enc)
+        D.add_encart(slide, area_l, band_t, area_w, band_h, msg, accent=accent, size=t_enc)
 
 
 # SWOT : Forces/Faiblesses = interne (vert/rouge), Opportunités/Menaces =
