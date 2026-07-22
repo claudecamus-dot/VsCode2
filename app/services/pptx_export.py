@@ -583,6 +583,38 @@ _SWOT_QUADRANTS = [
 ]
 
 
+def _image_dans_zone(slide, left, top, width, height, scene: str, requete: str,
+                     seed: int = 0) -> bool:
+    """Pose une photo (Openverse CC0, repli procédural offline) cover-croppée à
+    l'aspect de la zone, dans un rectangle — pattern « claim + visuel » (P3b, repéré
+    sur les decks OCTO réels VSCode4). PPTX_NO_PHOTO_FETCH=1 force le procédural
+    (tests). Renvoie True si posée, False sinon (silencieux — jamais un export cassé)."""
+    if not _FRAMED_OK:
+        return False
+    try:
+        aspect = width / height
+        px_w = 900
+        px_h = max(1, int(round(px_w / aspect)))
+        _IMG_CACHE.mkdir(parents=True, exist_ok=True)
+        path = _IMG_CACHE / f"zone_{scene}_{seed}_{px_w}x{px_h}.png"
+        if not path.exists():
+            no_fetch = os.environ.get("PPTX_NO_PHOTO_FETCH") == "1"
+            ar = "tall" if aspect < 0.85 else "wide" if aspect > 1.15 else "square"
+            try:
+                if no_fetch:
+                    raise RuntimeError("fetch désactivé")
+                brut = _IMG_CACHE / f"_brutz_{scene}_{seed}.jpg"
+                _stock_images.fetch_to(str(brut), requete, seed=seed, aspect_ratio=ar)
+                _cover_crop_to_aspect(str(brut), str(path), aspect)
+            except Exception:
+                _nature_images.generate_to(str(path), scene, px_w, px_h, seed=seed)
+        slide.shapes.add_picture(str(path), Inches(left), Inches(top),
+                                 Inches(width), Inches(height))
+        return True
+    except Exception:
+        return False
+
+
 def _slide_executive_summary(prs: Presentation, es) -> None:
     """Slide d'ouverture « Executive Summary » (piste F restitution, 2026-07-21) :
     un panneau constat + points clés, et une bande cyan « key message » (le
@@ -590,9 +622,15 @@ def _slide_executive_summary(prs: Presentation, es) -> None:
     Summary + bande de message à retenir), cf.
     docs/reflexions/restitution-mission.md §F. Placée juste après le sommaire."""
     slide, w_in, h_in, top = _new_slide(prs, "Executive Summary")
-    accent = "#00D2DD"  # cyan OCTO
+    accent = (D.theme_colors(prs).get("accent3") or "#00D2DD")  # cyan OCTO
     area_l = MARGIN + 0.3
-    area_w = w_in - 2 * (MARGIN + 0.3)
+    # Pattern claim + visuel (P3b, repéré sur les decks OCTO réels VSCode4) : réserve
+    # une bande photo à droite si l'infra image est dispo ; sinon la carte-claim reprend
+    # toute la largeur (repli propre).
+    has_vis = _FRAMED_OK
+    vis_w = 2.7
+    vis_l = w_in - MARGIN - vis_w
+    area_w = (vis_l - 0.3 - area_l) if has_vis else (w_in - 2 * (MARGIN + 0.3))
     pad = 0.24
     band_h = 0.9
     band_gap = 0.3
@@ -635,6 +673,14 @@ def _slide_executive_summary(prs: Presentation, es) -> None:
         anchor=MSO_ANCHOR.TOP, size_max=body, size_min=D.TYPE["small"],
         paginate=True,
     )
+
+    # Visuel à droite (claim à gauche) — photo métier cover-croppée à la zone ;
+    # repli sur un bloc couleur accent net si la photo n'est pas disponible (fetch
+    # KO + scène non procédurale) plutôt qu'une photo hors-sujet ou du vide.
+    if has_vis:
+        if not _image_dans_zone(slide, vis_l, top, vis_w, avail, "office",
+                                "modern office team collaboration"):
+            D.add_rect(slide, vis_l, top, vis_w, avail, fill=accent, rounded=True, radius=0.06)
 
     key_message = (getattr(es, "key_message", "") or "").strip()
     if key_message:
