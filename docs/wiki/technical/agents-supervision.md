@@ -9,7 +9,7 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-22T11:32:23+02:00 · **32 sessions** (transcripts) · **70** invocations de skills · **45** lancements de sous-agents.
+Dernier scan : 2026-07-22T12:20:34+02:00 · **32 sessions** (transcripts) · **70** invocations de skills · **45** lancements de sous-agents.
 
 ## Skills — usage réel
 
@@ -66,6 +66,7 @@ _(aucun constat — rien à signaler sur les données actuelles)_
 
 _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) — l'usage réel reste mesuré ci-dessus._
 
+- **`export-ppt-verifie`** (2026-07-22) : Plan d'amélioration demandé (2026-07-22, « pour que mes demandes soient prises en compte ») appliqué : une exigence utilisateur explicite (surtout visuelle) est PERSISTANTE d'un tour au suivant — checklist des éléments demandés reportée d'itération en itération et vérifiée au rendu (revue-increment §1 + contrat verification-rendu du playbook). Une contrainte de gabarit se résout en dessinant l'élément, jamais en l'omettant. Déclencheur : numéro de chapitre écarté 3 fois puis corrigé (commit 482c301). Mémoire feedback-persistent-user-request-draw-dont-omit.
 - **`famille:BMAD`** (2026-07-18) : Tri exécuté : 7 skills retirés, 39 conservés (routage sur demande explicite via bmad-help) — docs/reflexions/tri-skills-bmad.md, commit f604c39.
 - **`pptx-framed-image`** (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle cadres-photo).
 - **`slide-text-polish`** (2026-07-18) : Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle polish-texte).

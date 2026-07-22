@@ -85,7 +85,7 @@ Les deux partagent l'obligation `pptx-verify` et la terminaison `revue-increment
       "modele": "(session)",
       "contrat": {
         "type": "reel",
-        "critere": "export réel rendu en images et inspecté visuellement (valeurs alignées, panneaux ni vides ni étirés, pas de collision avec le chrome du template) — jamais retirée à l'instanciation, quelle que soit la taille du changement"
+        "critere": "export réel rendu en images et inspecté visuellement (valeurs alignées, panneaux ni vides ni étirés, pas de collision avec le chrome du template) — jamais retirée à l'instanciation, quelle que soit la taille du changement. CHECKLIST EXIGENCES PERSISTANTES (plan d'amélioration 2026-07-22) : tenir la liste des éléments explicitement demandés par l'utilisateur aux tours précédents (ex. numéro de chapitre) et VÉRIFIER leur présence au rendu à chaque itération — une contrainte de gabarit se résout en dessinant l'élément, jamais en l'omettant (le numéro de chapitre a été écarté 3 fois ainsi)."
       },
       "checkpoint": false
     },

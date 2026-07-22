@@ -67,6 +67,16 @@ ci-dessus plutôt que d'en dupliquer la logique.
       ce que l'*utilisateur* a demandé. Toute exigence réinterprétée, partiellement
       traitée ou écartée est dite dans « Reste », jamais laissée silencieusement
       non traitée — « livré » ne se déclare pas sur une demande à moitié couverte.
+- [ ] **Exigence utilisateur = PERSISTANTE d'un tour au suivant** (plan
+      d'amélioration 2026-07-22, après le numéro de chapitre écarté 3 fois). Un
+      élément explicitement demandé (surtout visuel : numéro de chapitre, sommaire,
+      encart…) reste dû tant qu'il n'est pas rendu et validé — il ne se périme pas
+      parce que le tour a changé de sujet. **Une contrainte technique (placeholder
+      trop étroit, glyphe qui « tofu », gabarit) est une raison de le RÉSOUDRE
+      — le dessiner, contourner — JAMAIS de l'omettre en le justifiant.** Tenir une
+      **checklist des éléments explicitement demandés** (les reporter d'un tour à
+      l'autre) et vérifier leur PRÉSENCE au rendu réel à chaque itération. cf.
+      [[feedback-persistent-user-request-draw-dont-omit]].
 - [ ] Si un doc de suivi (roadmap, wiki, `CLAUDE.md`) affirme un état, il a
       été confronté au code — pas recopié de confiance.
 
