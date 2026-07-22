@@ -26,6 +26,22 @@ from pptx.util import Emu, Inches, Pt
 from ..models import Mission
 from . import pptx_deck as D
 
+# --- Cadres photo (têtes de chapitre, P3) : skill pptx-framed-image (greffé,
+# présent dans .claude/skills/). Import gardé — si le skill/Pillow manque, les
+# intercalaires retombent proprement sur leur version texte-seul (cf. _slide_chapitre).
+_FRAMED_OK = False
+try:  # pragma: no cover - dépend de la présence du skill + Pillow
+    import sys as _sys
+    _FRAMED_SCRIPTS = Path(__file__).resolve().parents[2] / ".claude" / "skills" / "pptx-framed-image" / "scripts"
+    if str(_FRAMED_SCRIPTS) not in _sys.path:
+        _sys.path.insert(0, str(_FRAMED_SCRIPTS))
+    from framed_image import place_image_in_frame as _place_image_in_frame  # type: ignore
+    import nature_images as _nature_images  # type: ignore
+    _IMG_CACHE = Path(__file__).resolve().parents[2] / "data" / "pptx_chapitre_images"
+    _FRAMED_OK = True
+except Exception:  # skill absent, Pillow non installé, etc. -> repli texte-seul
+    _FRAMED_OK = False
+
 MARGIN = 0.6
 
 # --------------------------------------------------------------------------- #
@@ -353,11 +369,12 @@ def _layout_by_name(prs: Presentation, *keywords: str):
 # qui a du contenu, et le sommaire quali regroupe les sections sous ces intitulés
 # narratifs (couleur = repère de navigation, reprise sur l'intercalaire).
 _CH_RETENIR, _CH_DIAGNOSTIC, _CH_PAROLE, _CH_TRAJECTOIRE = 0, 1, 2, 3
+# (intitulé, couleur, scène image de l'intercalaire — cf. _slide_chapitre P3).
 _CHAPITRES = [
-    ("Ce qu'il faut retenir", "#00D2DD"),    # cyan
-    ("Le diagnostic", "#0E2356"),            # navy
-    ("La parole des équipes", "#138086"),    # teal
-    ("La trajectoire proposée", "#6a3d9a"),  # violet
+    ("Ce qu'il faut retenir", "#00D2DD", "sunset"),     # cyan
+    ("Le diagnostic", "#0E2356", "mountains"),          # navy
+    ("La parole des équipes", "#138086", "forest"),     # teal
+    ("La trajectoire proposée", "#6a3d9a", "ocean"),    # violet
 ]
 
 
@@ -420,7 +437,7 @@ def _slide_sommaire(prs: Presentation, ch_sections: list[list[str]]) -> None:
         if not subs:
             continue
         numero += 1
-        label, color = _CHAPITRES[ci]
+        label, color = _CHAPITRES[ci][0], _CHAPITRES[ci][1]
         D.add_rect(slide, MARGIN + 0.3, y + 0.13, 0.18, 0.18, fill=color, rounded=True, radius=0.5)
         D.add_text(
             slide, MARGIN + 0.65, y, 3.8, 0.5,
@@ -434,10 +451,67 @@ def _slide_sommaire(prs: Presentation, ch_sections: list[list[str]]) -> None:
         y += 0.72
 
 
-def _slide_chapitre(prs: Presentation, numero: int, titre: str, color: str) -> None:
-    """Intercalaire de chapitre (P2) : grand numéro coloré + filet + titre, sur un
-    layout de contenu propre (le chrome de marque survit). La version avec image
-    encadrée (vrai layout « 50 - Chapitre ») viendra au palier visuels P3."""
+def _find_teardrop_frame(shapes):
+    """`(left, top, width, height, geom)` du cadre photo teardrop d'un layout
+    (le layout « 50 - Chapitre » place son cadre en top-level, pas dans un groupe),
+    ou None. Même principe que pptx-framed-image.frame_geometry, cas non groupé."""
+    for sh in shapes:
+        spPr = getattr(sh._element, "spPr", None)
+        if spPr is None:
+            continue
+        g = spPr.find(qn("a:prstGeom"))
+        if g is not None and g.get("prst") == "teardrop":
+            return sh.left, sh.top, sh.width, sh.height, g
+    return None
+
+
+def _remplir_cadre_chapitre(slide, cadre, scene: str, seed: int = 0) -> None:
+    """Remplit le cadre teardrop d'un intercalaire avec une image à l'aspect exact
+    du cadre (génération procédurale offline `nature_images` — reproductible, sans
+    réseau ; l'arbitrage prévoit un fetch Openverse en amont, ajoutable plus tard).
+    Silencieux sur échec : l'intercalaire reste lisible sans image."""
+    if not _FRAMED_OK or cadre is None:
+        return
+    try:
+        left, top, width, height, geom = cadre
+        aspect = Emu(width).inches / Emu(height).inches
+        px_w = 900
+        px_h = max(1, int(round(px_w / aspect)))
+        _IMG_CACHE.mkdir(parents=True, exist_ok=True)
+        path = _IMG_CACHE / f"{scene}_{seed}_{px_w}x{px_h}.png"
+        if not path.exists():
+            _nature_images.generate_to(str(path), scene, px_w, px_h, seed=seed)
+        _place_image_in_frame(slide, str(path), left, top, width, height, geom=geom)
+    except Exception:
+        pass  # repli : intercalaire sans image, jamais un export cassé
+
+
+def _slide_chapitre(prs: Presentation, numero: int, titre: str, color: str,
+                    scene: str | None = None) -> None:
+    """Intercalaire de chapitre. P3 : vrai layout de marque « 50 - Chapitre » —
+    titre (idx0) coloré + numéro (idx1, 17pt marges à zéro comme le REX source, un
+    28pt débordait le petit encart) + cadre photo teardrop rempli via
+    pptx-framed-image. Repli P2 (numéro + filet + titre dessinés sur un layout de
+    contenu) si le layout de marque ou le skill image manquent."""
+    layout = _layout_by_name(prs, "chapitre") if _FRAMED_OK else None
+    if layout is not None:
+        slide = prs.slides.add_slide(layout)
+        phs = {ph.placeholder_format.idx: ph for ph in slide.placeholders}
+        if 0 in phs:
+            phs[0].text_frame.text = titre
+            for p in phs[0].text_frame.paragraphs:
+                for r in p.runs:
+                    r.font.color.rgb = D.rgb(color)
+        # Encart numéro (idx1) : l'encart de ce template est trop étroit pour « 01 »
+        # (se replie « 0 » / « 1 » au rendu, vérifié), et le REX source ne le remplit
+        # que sur un layout à encart plus large. On le vide (pas de prompt « ajouter du
+        # texte ») ; le numéro vit sur le sommaire quali, la couleur + le titre suffisent
+        # à identifier le chapitre. Le grand numéro dessiné reste sur le repli texte-seul.
+        if 1 in phs:
+            phs[1].text_frame.text = ""
+        _remplir_cadre_chapitre(slide, _find_teardrop_frame(slide.slide_layout.shapes),
+                                scene or "mountains")
+        return
     slide = prs.slides.add_slide(_pick_layout(prs))
     w_in, h_in = _dims(prs)
     cy = h_in * 0.30
@@ -907,7 +981,8 @@ def build_presentation(
     def _chapitre(ci: int) -> None:
         nonlocal numero
         numero += 1
-        _slide_chapitre(prs, numero, _CHAPITRES[ci][0], _CHAPITRES[ci][1])
+        label, color, scene = _CHAPITRES[ci]
+        _slide_chapitre(prs, numero, label, color, scene)
 
     # Chapitre 1 — Ce qu'il faut retenir
     if ch_sections[_CH_RETENIR]:
