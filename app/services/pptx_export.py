@@ -235,6 +235,15 @@ def _new_slide(prs: Presentation, title: str):
                 run.font.bold = True
         lignes = D.estimer_lignes(title, title_w_in, size)
         needed_h = lignes * _per_line_height_in(size) + 0.15
+        # Barre d'accent cyan verticale avant le titre — signature OCTO repérée sur
+        # les decks de restitution réels (VSCode4). Alignée sur les lignes du titre.
+        try:
+            _bar_left = Emu(title_shape.left).inches - 0.16
+            _bar_h = max(0.30, lignes * _per_line_height_in(size) - 0.06)
+            D.add_rect(slide, max(0.12, _bar_left), title_top_in + 0.05, 0.07, _bar_h,
+                       fill=(D.theme_colors(prs).get("accent3") or "#00D2DD"))
+        except Exception:
+            pass
         content_top = title_top_in + max(title_box_h_in, needed_h) + 0.25
     else:
         D.add_text(
