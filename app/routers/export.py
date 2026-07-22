@@ -20,6 +20,7 @@ from ..db import PPTX_TEMPLATES_DIR, get_session
 from ..models import Mission
 from ..routers.synthese import (
     _all_theme_material,
+    _apply_difficulties_result,
     _apply_executive_summary_result,
     _apply_global_synthesis_result,
     _apply_recommendations_result,
@@ -32,6 +33,7 @@ from ..routers.synthese import (
 from ..services.ai_common import api_key_env_name, is_configured
 from ..services.synthese_ai import (
     SynthesisAIError,
+    generate_difficulties,
     generate_executive_summary,
     generate_swot,
 )
@@ -68,6 +70,7 @@ def _synthese_context(mission: Mission, error: str | None = None) -> dict:
         "global_synthesis": mission.global_synthesis,
         "swot": mission.swot,
         "executive_summary": mission.executive_summary,
+        "difficulties": mission.difficulties,
         "axes": mission.recommendation_axes,
         "error": error,
         "ai_ready": is_configured(),
@@ -220,6 +223,46 @@ def generate_executive_summary_view(
     )
 
 
+@router.post("/missions/{mission_id}/difficultes/generate")
+def generate_difficulties_view(
+    mission_id: int, request: Request, db: Session = Depends(get_session)
+):
+    """Génère la liste ordonnée des difficultés à partir de la synthèse globale
+    (surtout points_amelioration), puis ré-affiche l'aperçu — l'onglet Difficultés
+    montre le résultat, éditable, un verbatim liable par difficulté. Pré-condition :
+    la synthèse globale doit exister."""
+    mission = _get_mission(db, mission_id)
+    global_synthesis = mission.global_synthesis
+
+    error = None
+    if not is_configured():
+        error = (
+            "Service IA indisponible — utilisez l'export pour lancer une "
+            "analyse externe, puis importez le résultat."
+        )
+    elif global_synthesis is None or not global_synthesis.has_content:
+        error = "Générez d'abord la synthèse globale — les difficultés en découlent."
+    else:
+        try:
+            labels = generate_difficulties(global_synthesis)
+            if not labels:
+                # Ne JAMAIS écraser une liste affinée (+ liens citation) par du vide :
+                # modèle muet ou clé JSON inattendue -> on garde l'existant, on signale.
+                error = (
+                    "La génération n'a produit aucune difficulté — liste inchangée. "
+                    "Réessayez, ou vérifiez la synthèse globale."
+                )
+            else:
+                _apply_difficulties_result(db, mission, labels)
+                db.commit()
+        except SynthesisAIError as exc:
+            error = str(exc)
+
+    return templates.TemplateResponse(
+        request, "synthese/apercu.html", _synthese_context(mission, error)
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Étape 4 — Export PowerPoint (respecte la sélection de slides si soumise)
 # --------------------------------------------------------------------------- #
@@ -231,6 +274,7 @@ def export_pptx(
     sommaire: bool = False,
     executive_summary: bool = False,
     synthese: bool = False,
+    difficultes: bool = False,
     swot: bool = False,
     verbatims: bool = False,
     axes_overview: bool = False,
@@ -250,6 +294,7 @@ def export_pptx(
             include_sommaire=sommaire,
             include_executive_summary=executive_summary,
             include_synthese=synthese,
+            include_difficultes=difficultes,
             include_swot=swot,
             include_verbatims=verbatims,
             include_axes_overview=axes_overview,

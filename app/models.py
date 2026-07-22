@@ -116,6 +116,11 @@ class Mission(Base):
         cascade="all, delete-orphan",
         order_by="RecommendationAxis.position",
     )
+    difficulties: Mapped[list["MissionDifficulty"]] = relationship(
+        back_populates="mission",
+        cascade="all, delete-orphan",
+        order_by="MissionDifficulty.position",
+    )
 
     @property
     def all_verbatims(self) -> list["Verbatim"]:
@@ -527,6 +532,34 @@ class MissionExecutiveSummary(Base):
     @property
     def status_label(self) -> str:
         return SYNTHESIS_STATUS_LABELS.get(self.status, self.status)
+
+
+class MissionDifficulty(Base):
+    """Difficulté identifiée d'une restitution (piste F « planche Difficultés »).
+
+    Liste ordonnée (`position` = hiérarchie) de difficultés dérivées de
+    `GlobalSynthesis.points_amelioration`, chacune pouvant porter un `Verbatim`
+    en encadré citation sur la slide — l'« insert citation » prévu de longue date
+    (cf. docs/reflexions/restitution-mission.md §D.1). Le verbatim est référencé
+    par id (nullable) et résolu via une relation : un id périmé (verbatim supprimé)
+    se charge en `None`, jamais de KeyError — même esprit que
+    `Mission.selected_verbatims`.
+    """
+
+    __tablename__ = "mission_difficulties"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mission_id: Mapped[int] = mapped_column(
+        ForeignKey("missions.id", ondelete="CASCADE")
+    )
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    label: Mapped[str] = mapped_column(Text, default="")
+    verbatim_id: Mapped[int | None] = mapped_column(
+        ForeignKey("verbatims.id", ondelete="SET NULL"), default=None
+    )
+
+    mission: Mapped["Mission"] = relationship(back_populates="difficulties")
+    verbatim: Mapped["Verbatim | None"] = relationship()
 
 
 class RecommendationAxis(Base):

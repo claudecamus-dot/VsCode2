@@ -773,3 +773,73 @@ def generate_demo_executive_summary(global_synthesis) -> dict:
             else "Prioriser les actions à plus forte valeur."
         ),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Difficultes (piste F restitution, planche « Difficultes » + inserts citation) :
+# liste ORDONNEE (hierarchie) de difficultes derivees de la synthese globale
+# (surtout points_amelioration), chacune pouvant porter un verbatim en encadre
+# sur la slide. Cf. docs/reflexions/restitution-mission.md §D.1. Un seul appel.
+# --------------------------------------------------------------------------- #
+DIFFICULTES_SYSTEM = (
+    "Tu es consultant·e senior. À partir d'une synthèse transverse d'entretiens "
+    "(surtout les points d'amélioration), identifie les 3 à 6 DIFFICULTÉS majeures "
+    "de l'organisation, ordonnées de la plus structurante à la moins. Chacune est "
+    "formulée en UNE phrase courte et factuelle — un CONSTAT (ce qui coince), pas "
+    "une solution. Reste ancré dans la matière fournie, n'invente pas de faits."
+)
+
+DIFFICULTES_JSON_HINT = (
+    "\nRéponds UNIQUEMENT par un objet JSON à la clé \"difficultes\", une liste "
+    "de chaînes (une phrase par difficulté, ordre = hiérarchie)."
+)
+
+DIFFICULTES_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "difficultes": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["difficultes"],
+    "additionalProperties": False,
+}
+
+
+def _clean_difficulties(data) -> list:
+    """Coerce vers une liste de libellés non vides. Meme defense Ollama que la
+    SWOT : une difficulte renvoyee en liste/dict (ex. {"label": "..."}) est
+    APLATIE en une ligne via _coerce_line, jamais jetee (cf.
+    feedback-ollama-json-type-coercion-flatten-not-drop)."""
+    if not isinstance(data, dict):
+        data = {}
+    items = data.get("difficultes")
+    if items is None:
+        # Repli clé anglaise : un modèle local (7-8B) répond parfois "difficulties"
+        # malgré le prompt FR — sans ce repli, génération « réussie » mais vide.
+        items = data.get("difficulties")
+    if not isinstance(items, list):
+        items = [items] if items else []
+    out = []
+    for it in items:
+        line = _coerce_line(it)
+        if line:
+            out.append(line)
+    return out
+
+
+def generate_difficulties(global_synthesis) -> list:
+    """Retourne une liste ORDONNEE de libellés de difficultés (hierarchie),
+    derivee de la synthese globale (surtout points_amelioration), un seul appel.
+    Leve SynthesisAIError."""
+    prompt = _build_reco_prompt(global_synthesis)
+    data = _call_claude(
+        DIFFICULTES_SYSTEM, prompt, DIFFICULTES_SCHEMA, DIFFICULTES_JSON_HINT
+    )
+    return _clean_difficulties(data)
+
+
+def generate_demo_difficulties(global_synthesis) -> list:
+    """Repli hors-ligne (mode démo) — reprend les puces de points_amelioration."""
+    pts = (getattr(global_synthesis, "points_amelioration", "") or "").strip()
+    lignes = [ln.lstrip("-•* \t").strip() for ln in pts.split("\n") if ln.strip()]
+    lignes = [ln for ln in lignes if ln]
+    return lignes or ["Difficulté à préciser (mode démo)."]

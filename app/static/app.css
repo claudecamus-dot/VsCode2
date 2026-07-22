@@ -850,6 +850,19 @@ textarea.htmx-request, input.htmx-request, select.htmx-request {
 .es-preview .ppt-bullets { margin: 0; padding-left: 18px; }
 .es-band { margin-top: 14px; background: #00D2DD; color: #fff; font-weight: 700; text-align: center; padding: 12px 14px; border-radius: 8px; }
 .es-band:empty { display: none; }
+
+/* Onglet Difficultés (planche §D.1) : liste éditable (label + sélecteur de
+   verbatim) à gauche, aperçu cartes à droite (liseré ambre « attention »,
+   citation teal — parité avec _slide_difficultes). */
+.difficulty-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 14px; }
+.difficulty-item { border-left: 3px solid #b8860b; padding-left: 10px; }
+.difficulty-label { width: 100%; }
+.difficulty-verbatim { display: block; margin-top: 6px; font-size: .85rem; color: var(--muted); }
+.difficulty-verbatim select { max-width: 100%; margin-left: 6px; }
+.difficulty-board { display: flex; flex-direction: column; gap: 8px; }
+.difficulty-card { border: 1px solid var(--border); border-left: 3px solid #b8860b; border-radius: 8px; padding: 8px 10px; }
+.difficulty-card-label { margin: 0; font-weight: 700; color: #0E2356; }
+.difficulty-card-quote { margin: 4px 0 0; font-style: italic; color: #138086; font-size: .9rem; }
 .swot-forces { border-left-color: #1e6b34; } .swot-forces h4 { color: #1e6b34; }
 .swot-faiblesses { border-left-color: #b3261e; } .swot-faiblesses h4 { color: #b3261e; }
 .swot-opportunites { border-left-color: #2c5cc5; } .swot-opportunites h4 { color: #2c5cc5; }

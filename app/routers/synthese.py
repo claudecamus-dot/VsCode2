@@ -18,6 +18,7 @@ from ..db import get_session
 from ..models import (
     GlobalSynthesis,
     Mission,
+    MissionDifficulty,
     MissionExecutiveSummary,
     MissionSwot,
     Recommendation,
@@ -95,6 +96,28 @@ def _apply_executive_summary_result(
         setattr(es, field, result[field])
     es.status = "generated"
     es.generated_at = datetime.now(timezone.utc)
+
+
+def _get_difficulty(db: Session, difficulty_id: int) -> MissionDifficulty:
+    d = db.get(MissionDifficulty, difficulty_id)
+    if d is None:
+        raise HTTPException(status_code=404, detail="Difficulté introuvable.")
+    return d
+
+
+def _apply_difficulties_result(db: Session, mission: Mission, labels: list) -> None:
+    """Remplace les difficultés de la mission par la liste ordonnée fournie
+    (position = rang). AFFECTER la collection (plutôt qu'ajouter des lignes via
+    mission_id) déclenche le delete-orphan sur les anciennes ET met à jour la
+    relation EN SESSION — le ré-affichage voit la nouvelle liste sans dépendre
+    d'un refresh post-commit. Les liens verbatim d'une génération précédente
+    repartent à zéro : c'est une nouvelle liste de constats."""
+    items = []
+    for label in labels:
+        text = (label or "").strip()
+        if text:
+            items.append(MissionDifficulty(position=len(items), label=text))
+    mission.difficulties = items
 
 
 def _get_recommendation(db: Session, recommendation_id: int) -> Recommendation:
@@ -444,6 +467,43 @@ def save_swot_field(
     )
     hint = _hint_span(f"fit-hint-swot-{field}", "swot_quadrant", value)
     return HTMLResponse(f'<span class="saved">✓ enregistré</span>{badge}{hint}')
+
+
+@router.post("/difficultes/{difficulty_id}/field")
+def save_difficulty_field(
+    difficulty_id: int,
+    value: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    d = _get_difficulty(db, difficulty_id)
+    d.label = value
+    db.commit()
+    hint = _hint_span(f"fit-hint-diff-{difficulty_id}", "difficulty_label", value)
+    return HTMLResponse(f'<span class="saved">✓ enregistré</span>{hint}')
+
+
+@router.post("/difficultes/{difficulty_id}/verbatim")
+def set_difficulty_verbatim(
+    difficulty_id: int,
+    verbatim_id: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    """Lie (ou délie) un verbatim à une difficulté — l'encadré citation de la slide.
+    verbatim_id vide = aucun ; sinon validé contre les verbatims de la mission de la
+    difficulté (jamais un verbatim d'une autre mission)."""
+    d = _get_difficulty(db, difficulty_id)
+    vid = None
+    if verbatim_id.strip():
+        try:
+            candidate = int(verbatim_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Verbatim invalide.")
+        if candidate not in {v.id for v in d.mission.all_verbatims}:
+            raise HTTPException(status_code=400, detail="Verbatim inconnu pour cette mission.")
+        vid = candidate
+    d.verbatim_id = vid
+    db.commit()
+    return HTMLResponse('<span class="saved">✓ citation liée</span>')
 
 
 @router.post("/executive-summary/{mission_id}/field")

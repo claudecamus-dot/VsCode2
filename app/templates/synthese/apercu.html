@@ -20,6 +20,15 @@
 {% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
 
 {% set has_content = (global_synthesis and global_synthesis.has_content) or axes %}
+
+{# Difficultés RÉELLEMENT rendues au PPT : même filtre que build_presentation
+   (`[d for d in mission.difficulties if (d.label or "").strip()]`). Défini AVANT la
+   case d'inclusion qui l'utilise. Sert au comptage de la case, au sommaire et à
+   l'aperçu — parité aperçu/PPT ; la liste d'ÉDITION garde toutes les lignes (une
+   ligne vidée reste éditable). #}
+{% set diffs_shown = [] %}
+{% if difficulties %}{% for d in difficulties %}{% if (d.label or '').strip() %}{% set _ = diffs_shown.append(d) %}{% endif %}{% endfor %}{% endif %}
+
 {% if not has_content %}
 <div class="card empty">
   <p class="muted">
@@ -58,6 +67,9 @@
       {% endif %}
       {% if global_synthesis and global_synthesis.has_content %}
       <label class="pptx-check"><input type="checkbox" name="synthese" value="true" checked> Synthèse globale (5 slides)</label>
+      {% endif %}
+      {% if diffs_shown %}
+      <label class="pptx-check"><input type="checkbox" name="difficultes" value="true" checked> Difficultés ({{ diffs_shown|length }})</label>
       {% endif %}
       {% if swot and swot.has_content %}
       <label class="pptx-check"><input type="checkbox" name="swot" value="true" checked> Matrice SWOT</label>
@@ -138,6 +150,9 @@
     <button type="button" class="tab" data-tab="synth-{{ key }}">{{ label }}</button>
     {% endfor %}
     {% endif %}
+    {% if (global_synthesis and global_synthesis.has_content) or difficulties %}
+    <button type="button" class="tab" data-tab="difficultes">Difficultés</button>
+    {% endif %}
     {% if (global_synthesis and global_synthesis.has_content) or (swot and swot.has_content) %}
     <button type="button" class="tab" data-tab="swot">SWOT</button>
     {% endif %}
@@ -176,6 +191,8 @@
           {% set sommaire_sections = [] %}
           {% if executive_summary and executive_summary.has_content %}{% set _ = sommaire_sections.append('Executive Summary') %}{% endif %}
           {% if global_synthesis and global_synthesis.has_content %}{% set _ = sommaire_sections.append('Synthèse globale') %}{% endif %}
+          {# Même filtre que build_presentation (difficultés à libellé non vide) — parité sommaire aperçu/PPT. #}
+          {% if diffs_shown %}{% set _ = sommaire_sections.append('Difficultés') %}{% endif %}
           {# Même condition que build_presentation (include_swot and swot.has_content) — tenir la parité aperçu/PPT du sommaire. #}
           {% if swot and swot.has_content %}{% set _ = sommaire_sections.append('Matrice SWOT') %}{% endif %}
           {% if mission.selected_verbatims %}{% set _ = sommaire_sections.append("Paroles d'acteurs") %}{% endif %}
@@ -239,6 +256,66 @@
             <p class="es-headline" id="preview-es-headline">{{ executive_summary.headline if executive_summary else '' }}</p>
             <ul id="preview-es-points" class="ppt-bullets">{% for line in ((executive_summary.points if executive_summary else '') or '').splitlines() if line.strip() %}<li>{{ line.strip().lstrip('-•').strip() }}</li>{% endfor %}</ul>
             <div class="es-band" id="preview-es-key_message">{{ executive_summary.key_message if executive_summary else '' }}</div>
+          </div>
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if (global_synthesis and global_synthesis.has_content) or difficulties %}
+    <section class="tab-panel two-col" data-panel="difficultes">
+      <div class="deck-pane deck-pane-form">
+        <form method="post" action="/missions/{{ mission.id }}/difficultes/generate" class="swot-generate"
+          {% if difficulties %}onsubmit="return confirm('Remplacer la liste actuelle des difficultés par une nouvelle génération IA ? Les libellés et liens citation seront perdus.');"{% endif %}>
+          <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>
+            {% if difficulties %}🔄 Régénérer les difficultés (IA){% else %}✨ Générer les difficultés (IA){% endif %}
+          </button>
+          {% if not ai_ready %}<span class="muted">Service IA indisponible ({{ api_key_env }}).</span>{% endif %}
+        </form>
+        {% if difficulties %}
+        <p class="muted">Difficultés hiérarchisées (ordre = rang). Affine le libellé et lie une citation (verbatim) à faire figurer en encadré sur la slide.</p>
+        <ol class="difficulty-list">
+          {% for d in difficulties %}
+          <li class="difficulty-item">
+            <textarea class="difficulty-label" name="value" rows="2"
+              hx-post="/difficultes/{{ d.id }}/field"
+              hx-trigger="keyup changed delay:700ms, blur"
+              hx-target="#diff-saved-{{ d.id }}" hx-swap="innerHTML"
+              data-preview-target="preview-diff-label-{{ d.id }}" data-preview-mode="text"
+              oninput="i2dLivePreview(this)">{{ d.label }}</textarea>
+            {# Estimer le hint sur le préfixe « N.  » que _slide_difficultes ajoute avant
+               de tronquer (chiffre fictif 0 = même longueur qu'un rang à un chiffre). #}
+            {{ fit_hint('fit-hint-diff-' ~ d.id, 'difficulty_label', '0.  ' ~ d.label) }}
+            <label class="difficulty-verbatim">Citation :
+              <select name="verbatim_id" hx-post="/difficultes/{{ d.id }}/verbatim"
+                      hx-trigger="change" hx-target="#diff-saved-{{ d.id }}" hx-swap="innerHTML"
+                      onchange="i2dDiffCitation(this, {{ d.id }})">
+                <option value="">— aucune —</option>
+                {% for v in mission.all_verbatims %}
+                <option value="{{ v.id }}" data-quote="{{ v.quote }}" data-who="{{ v.interview.interviewee_name or 'Anonyme' }}" {% if d.verbatim_id == v.id %}selected{% endif %}>« {{ v.quote|truncate(50) }} » — {{ v.interview.interviewee_name or 'Anonyme' }}</option>
+                {% endfor %}
+              </select>
+            </label>
+            <span class="saved" id="diff-saved-{{ d.id }}"></span>
+          </li>
+          {% endfor %}
+        </ol>
+        {% else %}
+        <p class="muted">Lance la génération pour obtenir une première liste de difficultés (dérivée des points d'amélioration de la synthèse globale), puis affine-la et lie une citation par difficulté — elle s'intègre à l'export PPT.</p>
+        {% endif %}
+      </div>
+      <div class="deck-pane deck-pane-preview">
+        <div class="slide-preview-body">
+          <div class="difficulty-board">
+            {# diffs_shown = liste filtrée (parité build_presentation) -> loop.index
+               contigu comme le enumerate() de _slide_difficultes. Libellé et citation
+               portent un id pour le live-preview (i2dLivePreview / i2dDiffCitation). #}
+            {% for d in diffs_shown %}
+            <div class="difficulty-card">
+              <p class="difficulty-card-label">{{ loop.index }}.&nbsp; <span id="preview-diff-label-{{ d.id }}">{{ d.label }}</span></p>
+              <p class="difficulty-card-quote" id="preview-diff-quote-{{ d.id }}"{% if not d.verbatim %} hidden{% endif %}>{% if d.verbatim %}«&nbsp; {{ d.verbatim.quote }} &nbsp;» — {{ d.verbatim.interview.interviewee_name or 'Anonyme' }}{% endif %}</p>
+            </div>
+            {% endfor %}
           </div>
         </div>
       </div>
@@ -513,6 +590,24 @@ function i2dVerbatimToggle(el, id) {
   var anyShown = root.querySelectorAll('.verbatim-card:not([hidden])').length > 0;
   var empty = root.querySelector('.verbatim-board-empty');
   if (empty) empty.hidden = anyShown;
+}
+
+// Onglet Difficultés : reflète en direct la citation choisie sur la carte d'aperçu
+// (l'autosave serveur passe en parallèle via hx-post). La carte n'existe que pour les
+// difficultés à libellé non vide (diffs_shown) — sinon getElementById renvoie null,
+// no-op sûr, l'aperçu se recale au prochain rendu complet.
+function i2dDiffCitation(el, id) {
+  var q = document.getElementById('preview-diff-quote-' + id);
+  if (!q) return;
+  var opt = el.options[el.selectedIndex];
+  var quote = opt && opt.dataset ? (opt.dataset.quote || '') : '';
+  if (quote) {
+    q.textContent = '«  ' + quote + '  » — ' + (opt.dataset.who || 'Anonyme');
+    q.hidden = false;
+  } else {
+    q.textContent = '';
+    q.hidden = true;
+  }
 }
 </script>
 {% endif %}

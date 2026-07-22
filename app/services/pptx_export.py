@@ -68,6 +68,9 @@ FIELD_SHAPE = {
     "es_headline": dict(width_in=_W_IN - 2 * (MARGIN + 0.3) - 0.48, size_pt=D.TYPE["h3"], max_lignes=2),
     "es_points": dict(width_in=_W_IN - 2 * (MARGIN + 0.3) - 0.48, max_h_in=2.5, size_max=D.TYPE["body"]),
     "es_key_message": dict(width_in=_W_IN - 2 * (MARGIN + 0.3) - 0.48, size_pt=D.TYPE["h3"], max_lignes=2),
+    # Difficulté (planche §D.1) : libellé d'une carte, taille fixe body, tronqué à
+    # 3 lignes par _slide_difficultes -> hint size_pt/max_lignes (honnête).
+    "difficulty_label": dict(width_in=_W_IN - 2 * (MARGIN + 0.3) - 0.36, size_pt=D.TYPE["body"], max_lignes=3),
 }
 
 
@@ -474,6 +477,57 @@ def _slide_swot(prs: Presentation, swot) -> None:
         )
 
 
+def _slide_difficultes(prs: Presentation, difficulties) -> None:
+    """Planche « Difficultés identifiées » (piste F restitution) — une carte par
+    difficulté (rang + constat), chacune pouvant porter un verbatim en encadré
+    citation (l'« insert citation » prévu de longue date, cf.
+    docs/reflexions/restitution-mission.md §D.1). Cartes empilées et DIMENSIONNÉES
+    à leur contenu (comme _slide_verbatims), on s'arrête avant de déborder du
+    cadre (garantit verifier_geometrie)."""
+    slide, w_in, h_in, top = _new_slide(prs, "Difficultés identifiées")
+    pad, gap = 0.18, 0.16
+    area_l = MARGIN + 0.3
+    area_w = w_in - 2 * (MARGIN + 0.3)
+    area_bottom = h_in - 0.5
+    accent = "#b8860b"  # ambre : signal « point d'attention »
+    teal = "#138086"    # citation, cohérent avec la planche verbatims
+    size = D.TYPE["body"]
+    q_size = D.TYPE["small"]
+    line_h = _per_line_height_in(size)
+    q_line_h = _per_line_height_in(q_size)
+    for i, d in enumerate(difficulties, 1):
+        label = (getattr(d, "label", "") or "").strip()
+        if not label:
+            continue
+        head = f"{i}.  {label}"
+        lab_lines = min(3, max(1, D.estimer_lignes(head, area_w - 2 * pad, size)))
+        v = getattr(d, "verbatim", None)
+        quote = ""
+        if v is not None and (getattr(v, "quote", "") or "").strip():
+            who = (getattr(getattr(v, "interview", None), "interviewee_name", "") or "Anonyme").strip() or "Anonyme"
+            quote = f"«  {v.quote.strip()}  » — {who}"
+        q_lines = min(2, max(1, D.estimer_lignes(quote, area_w - 2 * pad, q_size))) if quote else 0
+        card_h = pad + lab_lines * line_h + (0.06 + q_lines * q_line_h if quote else 0.0) + pad
+        if top + card_h > area_bottom and i > 1:  # au moins la 1re carte, sinon stop
+            break
+        if top + card_h > area_bottom:
+            card_h = max(0.0, area_bottom - top)  # 1re carte trop haute : bornée au cadre
+        D.add_card(slide, area_l, top, area_w, card_h, accent)
+        D.add_text(
+            slide, area_l + pad, top + pad, area_w - 2 * pad, lab_lines * line_h,
+            [(D.tronquer_a_lignes(head, area_w - 2 * pad, size, lab_lines),
+              {"size": size, "bold": True, "color": D.INK})],
+        )
+        if quote:
+            D.add_text(
+                slide, area_l + pad, top + pad + lab_lines * line_h + 0.06,
+                area_w - 2 * pad, q_lines * q_line_h,
+                [(D.tronquer_a_lignes(quote, area_w - 2 * pad, q_size, q_lines),
+                  {"size": q_size, "italic": True, "color": teal})],
+            )
+        top += card_h + gap
+
+
 def _slide_verbatims(prs: Presentation, verbatims) -> None:
     """Planche « Paroles d'acteurs » (Palier 2) — une carte-citation par
     verbatim retenu (attribution en libellé discret, citation en corps italique),
@@ -668,6 +722,7 @@ def build_presentation(
     include_sommaire: bool = True,
     include_executive_summary: bool = True,
     include_synthese: bool = True,
+    include_difficultes: bool = True,
     include_swot: bool = True,
     include_verbatims: bool = True,
     include_axes_overview: bool = True,
@@ -699,6 +754,7 @@ def build_presentation(
     gs = mission.global_synthesis
     swot = mission.swot
     executive_summary = mission.executive_summary
+    difficulties = [d for d in mission.difficulties if (d.label or "").strip()]
     verbatims = mission.selected_verbatims
     axes = list(mission.recommendation_axes)
     selected_axes = [a for a in axes if include_axis_ids is None or a.id in include_axis_ids]
@@ -708,6 +764,8 @@ def build_presentation(
         sections.append("Executive Summary")
     if include_synthese and gs and gs.has_content:
         sections.append("Synthèse globale")
+    if include_difficultes and difficulties:
+        sections.append("Difficultés")
     if include_swot and swot and swot.has_content:
         sections.append("Matrice SWOT")
     if include_verbatims and verbatims:
@@ -733,6 +791,9 @@ def build_presentation(
         for label, content in categories:
             if (content or "").strip():
                 _slide_synthese_categorie(prs, label, content)
+
+    if include_difficultes and difficulties:
+        _slide_difficultes(prs, difficulties)
 
     if include_swot and swot and swot.has_content:
         _slide_swot(prs, swot)
