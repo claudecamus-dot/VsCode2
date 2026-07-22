@@ -261,6 +261,13 @@ def _new_slide(prs: Presentation, title: str, max_title_lines: int = 2):
                     run.font.name = D.POLICE
         lignes = D.estimer_lignes(title, title_w_in, size)
         needed_h = lignes * _per_line_height_in(size) + 0.15
+        # Garde template client (defer revue adversariale) : si l'ancre verticale
+        # du titre est MIDDLE/BOTTOM (posée sur la slide — l'héritage renvoie
+        # None, traité comme TOP), le texte peut flotter bas dans sa boîte —
+        # réserver alors toute la hauteur de boîte. Sans effet sur OCTO (TOP).
+        if tf.vertical_anchor in (MSO_ANCHOR.MIDDLE, MSO_ANCHOR.BOTTOM):
+            box_h = Emu(title_shape.height).inches if title_shape.height is not None else 0.7
+            needed_h = max(needed_h, box_h)
         # Pas de barre d'accent avant le titre : les decks OCTO réels (VSCode4) n'en
         # ont pas — titre navy + logo suffisent (retrait demandé 2026-07-22, charte VSCode4).
         # Hauteur RÉELLE du texte de titre (plancher 0.55), pas la boîte du
@@ -1223,8 +1230,17 @@ def _slide_matrice_effort_valeur(prs: Presentation, axes: list,
             cible = pl + (c - 0.5) / 5 * pw - d / 2
             xs.append(cible if not xs else max(cible, xs[-1] + d + gap))
         depassement = xs[-1] - (pl + pw - d - 0.02)
-        if depassement > 0:  # recale toute la ligne dans la zone (sans re-chevaucher)
-            xs = [max(pl + 0.02, x - depassement) for x in xs]
+        if depassement > 0:  # recale toute la ligne dans la zone
+            decales = [x - depassement for x in xs]
+            if decales[0] < pl + 0.02:
+                # La ligne ne tient pas même décalée : l'ancien clamp `max(pl+0.02, …)`
+                # RE-SUPERPOSAIT toutes les bulles écrêtées au bord gauche (defer revue
+                # adversariale, ≥9 recos de même valeur). Répartition uniforme bord à
+                # bord : écart réduit mais centres tous distincts — numéros lisibles.
+                pas = (pw - d - 0.04) / max(1, len(xs) - 1)
+                xs = [pl + 0.02 + k * pas for k in range(len(xs))]
+            else:
+                xs = decales
         for x, (c, num, ai) in zip(xs, membres):
             D.add_badge(slide, x, by, d, num, palette[ai % len(palette)],
                         size=D.TYPE["small"], bold=True, radius=0.5)
@@ -1331,6 +1347,18 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
     a_resultats = bool(_bullet_lines(reco.resultats_attendus or ""))
     strip_h = 0.72 if a_resultats else 0.0
     band_h = h_in - top - 0.60 - strip_h - (0.12 if a_resultats else 0.0)
+    plan_source = reco.plan_actions
+    if a_resultats and band_h < 1.0:
+        # Garde template client (defer revue adversariale) : un content_top très
+        # bas rendrait les cartes inutilisables sous le bandeau — repli : pas de
+        # bandeau, les résultats sont reversés en fin de plan (jamais perdus, la
+        # pagination gère). Inatteignable sur le template OCTO (band_h ≈ 3.1).
+        a_resultats = False
+        strip_h = 0.0
+        band_h = h_in - top - 0.60
+        plan_source = (reco.plan_actions or "") + (
+            "\nRésultats attendus : " + " — ".join(_bullet_lines(reco.resultats_attendus or ""))
+        )
     bottom = top + band_h
 
     # ---- Colonne gauche : carte arrondie, liseré couleur d'axe ----
@@ -1385,7 +1413,7 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
     # shrink-first, suite en dernier recours seulement.
     plan_overflow = _add_bulleted_text(
         slide, rcx, r_top + 0.26, rcw, r_bottom - (r_top + 0.26),
-        reco.plan_actions, paginate=True,
+        plan_source, paginate=True,
     )
 
     # ---- Bandeau bas pleine largeur : RÉSULTATS ATTENDUS (encart gris) ----

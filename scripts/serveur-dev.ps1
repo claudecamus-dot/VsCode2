@@ -121,7 +121,7 @@ if ($ids.Count -gt 0) {
 
 # Le port doit avoir VRAIMENT cessé de répondre (pas seulement netstat propre).
 if (Test-PortRepond -NumPort $Port) {
-    Write-Error "Le port $Port répond ENCORE après purge : fantôme hors de portée. Relancer avec -Port $($Port + 10)."
+    Write-Error "Le port $Port répond ENCORE après purge : fantôme hors de portée. Relancer avec -Port $($Port + 10) — et reporter ce port dans .vscode/tasks.json (2 occurrences), sinon l'auto-start rejouera l'échec à chaque ouverture du dossier."
     exit 1
 }
 if ($StopOnly) { Write-Host "Serveur arrêté, port $Port libre."; exit 0 }

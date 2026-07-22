@@ -334,6 +334,42 @@ def test_fiche_reco_pas_de_bandeau_pour_resultats_reduits_a_des_puces_vides() ->
     )
 
 
+def test_design_bulles_matrice_jamais_superposees_meme_a_9_par_ligne() -> None:
+    """Régression (defer revue adversariale corrigé) : sur une ligne de valeur
+    saturée (9 recos de même valeur), le recalage `max(pl+0.02, x-depassement)`
+    RE-SUPERPOSAIT toutes les bulles écrêtées au bord gauche — numéros masqués.
+    La répartition uniforme garde tous les centres distincts."""
+    from pptx.util import Emu as _Emu
+    db = SessionLocal()
+    try:
+        m = Mission(name="Audit qualité — Ligne de bulles saturée")
+        db.add(m); db.flush()
+        ax = RecommendationAxis(mission_id=m.id, title="Axe 1", position=0)
+        db.add(ax); db.flush()
+        for j in range(9):
+            db.add(Recommendation(
+                axis_id=ax.id, position=j, title=f"Reco {j + 1}",
+                valeur=5, complexite=5))
+        db.commit()
+        prs = build_presentation(db.get(Mission, m.id))
+    finally:
+        db.close()
+    matrice = next((s for s in prs.slides if "Matrice de priorisation" in _slide_titre(s)), None)
+    assert matrice is not None
+    # Les bulles sont les formes au texte « 1.N » (badges ronds de la matrice).
+    import re
+    lefts = sorted(
+        _Emu(sh.left).inches
+        for sh in matrice.shapes
+        if sh.has_text_frame and re.fullmatch(r"1\.\d", sh.text_frame.text.strip())
+    )
+    assert len(lefts) == 9, f"9 bulles attendues, {len(lefts)} trouvées"
+    ecarts = [b - a for a, b in zip(lefts, lefts[1:])]
+    assert min(ecarts) > 0.25, (
+        f"bulles superposées sur ligne saturée (écart min {min(ecarts):.2f}in)"
+    )
+
+
 def test_emit_bullet_overflow_termine_sur_puce_insecable_geante() -> None:
     """Régression (revue adversariale 2026-07-22, boucle infinie PROUVÉE : 1726
     slides en 15 s) : une puce SANS retour à la ligne plus haute qu'une slide de
