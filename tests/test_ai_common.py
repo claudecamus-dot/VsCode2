@@ -142,10 +142,12 @@ def test_ollama_host_defaults_to_localhost(monkeypatch: pytest.MonkeyPatch) -> N
     assert ai_common.ollama_host() == "http://localhost:12345"
 
 
-def test_ollama_active_model_defaults_to_llama(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_ollama_active_model_defaults_to_qwen(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Défaut ollama = qwen2.5:3b-instruct depuis le 2026-07-22 : llama3.1:8b était
+    inutilisable sur CPU (0 tour / timeout, cf. tests/test_ollama_integration.py)."""
     monkeypatch.setenv("AI_PROVIDER", "ollama")
     monkeypatch.delenv("SYNTHESE_MODEL", raising=False)
-    assert ai_common.active_model() == "llama3.1"
+    assert ai_common.active_model() == "qwen2.5:3b-instruct"
 
 
 def test_call_ai_json_dispatches_to_ollama_without_key_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -153,7 +155,7 @@ def test_call_ai_json_dispatches_to_ollama_without_key_env(monkeypatch: pytest.M
     monkeypatch.delenv("OLLAMA_HOST", raising=False)
 
     def fake_ollama_call(system, prompt, schema, json_hint, model, max_tokens):
-        assert model == "llama3.1"
+        assert model == "qwen2.5:3b-instruct"
         return '{"answer": "ok"}'
 
     monkeypatch.setitem(ai_common._CALLERS, "ollama", fake_ollama_call)
@@ -204,12 +206,23 @@ def test_call_ollama_payload_includes_num_ctx(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr(ai_common.urllib.request, "urlopen", fake_urlopen)
     monkeypatch.delenv("OLLAMA_NUM_CTX", raising=False)
     monkeypatch.delenv("OLLAMA_TIMEOUT", raising=False)
+    monkeypatch.delenv("OLLAMA_TEMPERATURE", raising=False)
 
-    ai_common._call_ollama("sys", "prompt", {}, "\nJSON.", "llama3.1", 4000)
+    ai_common._call_ollama("sys", "prompt", {}, "\nJSON.", "qwen2.5:3b-instruct", 4000)
 
     assert captured["payload"]["options"]["num_ctx"] == 8192
     assert captured["payload"]["options"]["num_predict"] == 4000
+    # Température basse envoyée à Ollama (défaut 0.2, pas le 0.8 d'Ollama) — extraction
+    # fidèle/reproductible, correctif du 0-tour intermittent (2026-07-22).
+    assert captured["payload"]["options"]["temperature"] == 0.2
     assert captured["timeout"] == 300
+
+
+def test_ollama_temperature_defaults_to_02(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("OLLAMA_TEMPERATURE", raising=False)
+    assert ai_common.ollama_temperature() == 0.2
+    monkeypatch.setenv("OLLAMA_TEMPERATURE", "0")
+    assert ai_common.ollama_temperature() == 0.0
 
 
 def test_ollama_keep_alive_defaults_to_30m(monkeypatch: pytest.MonkeyPatch) -> None:

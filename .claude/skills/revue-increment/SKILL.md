@@ -89,9 +89,22 @@ ci-dessus plutôt que d'en dupliquer la logique.
       unitaire :
   - écran / template / CSS / HTMX → `run-dev-server` (screenshot regardé).
   - export `.pptx` → `pptx-verify` (rendu regardé) — python-pptx est un parseur tolérant.
-  - correctif **timeout/perf IA** → mesurer à la taille **maximale réellement
-    configurée** (ex. `OLLAMA_CHUNK_MAX_WORDS` au max), pas un prompt jouet.
-    cf. [[feedback-ai-timeout-fix-verify-at-configured-scale]].
+  - correctif **timeout/perf/modèle/prompt IA** → **trois** exigences, pas une
+    mesure isolée (leçon du 2026-07-22, où une mesure en script — pas le flux réel —
+    a fait déclarer « OK » un bug toujours vivant en usage) :
+    1. exercer le **vrai flux UI** (POST la route réelle, ex. `record-libre`, pas
+       seulement la fonction service en isolation) contre le **vrai** Ollama ;
+    2. **asserter une sortie NON VIDE et correcte** sur un échantillon réaliste — un
+       modèle local rend par intermittence 0 tour / du vide même quand il « répond »
+       (bug 2026-07-22 : défaut llama3.1:8b = 0 tour ; la simple mesure de *temps* ne
+       l'aurait pas vu) ; le **modèle défaut** doit être vérifié *utilisable* sur le
+       matériel cible (pas seulement « configurable ») ;
+    3. lancer **`pytest tests/test_ollama_integration.py`** (opt-in, vrai Ollama —
+       le garde-fou exécutable qui assert tours>0 ; auto-skippé sans Ollama), 2-3 fois
+       pour la fiabilité (non-déterminisme).
+    Mesurer aussi à la taille **maximale réellement configurée** (`OLLAMA_CHUNK_MAX_WORDS`),
+    pas un prompt jouet. cf. [[feedback-ai-timeout-fix-verify-at-configured-scale]],
+    [[feedback-ai-real-e2e-and-nonempty-not-just-timing]].
 - [ ] **Un rendu réel prouve « ça marche », pas « ça ne régressera pas ».** Fix
       frontend ou invariant de structure (quelle classe CSS, quel panneau rendu) →
       ajouter, **en plus** du screenshot, une assertion au niveau template dans

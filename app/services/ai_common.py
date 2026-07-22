@@ -44,10 +44,25 @@ _API_KEY_ENV = {
 
 # Modèles par défaut, surchargeables par la variable d'environnement
 # SYNTHESE_MODEL quel que soit le fournisseur actif.
+#
+# ollama : qwen2.5:3b-instruct (et non plus llama3.1:8b). Mesuré en réel le
+# 2026-07-22 sur le poste CPU cible, MÊME vrai échange Q/R (224 mots) via
+# extract_turns_from_text : llama3.1:8b = 158s pour un simple monologue et
+# 0 tour extrait / >5min (abandonné) sur l'échange Q/R — INUTILISABLE : les
+# jobs d'extraction de fond (cadence 5 min de record_libre.html) ne finissaient
+# jamais (« rien n'apparaît en automatique ») et le tail synchrone dépassait
+# OLLAMA_TIMEOUT (l'erreur « Ollama n'a pas répondu à temps » vue en usage).
+# qwen2.5:3b-instruct = 36s, 5 tours cohérents + identité correcte : assez
+# rapide pour que la cadence tienne. C'est la CAUSE RACINE des timeouts répétés
+# (le chunking/l'async étaient sains, calibrés sur un modèle trop lent), pas un
+# énième réglage de OLLAMA_CHUNK_MAX_WORDS/OLLAMA_TIMEOUT. Un poste avec GPU
+# peut repasser à llama3.1 via SYNTHESE_MODEL pour une qualité d'extraction
+# supérieure. Non-régression garantie par tests/test_ollama_integration.py
+# (opt-in, vrai Ollama — assert tours > 0, aurait attrapé le 0-tour).
 _DEFAULT_MODELS = {
     "openai": "gpt-4o",
     "mistral": "mistral-large-latest",
-    "ollama": "llama3.1",
+    "ollama": "qwen2.5:3b-instruct",
 }
 
 
@@ -109,6 +124,20 @@ def ollama_timeout() -> int:
         return int(os.environ.get("OLLAMA_TIMEOUT", "300"))
     except ValueError:
         return 300
+
+
+def ollama_temperature() -> float:
+    """Température des appels Ollama — 0.2 par défaut (et non le défaut Ollama de
+    0.8). Ce sont des tâches d'EXTRACTION / de synthèse fidèle (« n'invente pas de
+    faits »), pas de génération créative : une température basse limite la
+    variabilité, cause d'extractions intermittentes vides ou hallucinées (bug
+    2026-07-22 — qwen2.5:1.5b hallucinait « refroidissement » à 0.8). Pas 0 : une
+    marge non nulle laisse au retry-on-empty (`interview_libre_extract_ai`) une
+    chance d'échantillonner autrement sur un tronçon malchanceux. `OLLAMA_TEMPERATURE`."""
+    try:
+        return float(os.environ.get("OLLAMA_TEMPERATURE", "0.2"))
+    except ValueError:
+        return 0.2
 
 
 def ollama_chunk_max_words() -> int:
@@ -329,7 +358,11 @@ def _call_ollama(system: str, prompt: str, schema: dict, json_hint: str, model: 
         "format": "json",
         "stream": False,
         "keep_alive": ollama_keep_alive(),
-        "options": {"num_predict": max_tokens, "num_ctx": ollama_num_ctx()},
+        "options": {
+            "num_predict": max_tokens,
+            "num_ctx": ollama_num_ctx(),
+            "temperature": ollama_temperature(),
+        },
     }).encode("utf-8")
     timeout_msg = (
         "Ollama n'a pas répondu à temps, même après une nouvelle tentative — "

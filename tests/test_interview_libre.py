@@ -70,23 +70,26 @@ def test_extract_turns_empty_transcript_raises() -> None:
         interview_libre_extract_ai.extract_turns_from_text("   ")
 
 
-def test_extract_turns_drops_incomplete_turns(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Un tour sans interlocuteur, ou ni question ni remarque, n'est pas un
-    vrai tour de parole exploitable — écarté plutôt que gardé à moitié vide."""
+def test_extract_turns_drops_contentless_but_keeps_orphan_content(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Filtrage (révisé 2026-07-22) : un tour SANS contenu (ni question ni remarque)
+    est écarté ; mais un tour AVEC contenu dont le modèle a omis l'interlocuteur est
+    GARDÉ sous étiquette « Intervenant » (avant : droppé, perte de matière)."""
     monkeypatch.setattr(
         interview_libre_extract_ai, "call_ai_json",
         lambda *a, **k: {
             "turns": [
                 {"interlocuteur": "", "question": "Question orpheline", "remarque": ""},
-                {"interlocuteur": "Alice", "question": "", "remarque": ""},
+                {"interlocuteur": "Alice", "question": "", "remarque": ""},  # sans contenu -> droppé
                 {"interlocuteur": "Bruno", "question": "Une vraie question", "remarque": ""},
             ],
             "identite": {"interviewee_name": "", "interviewee_role": "", "interviewee_entity": ""},
         },
     )
     result = interview_libre_extract_ai.extract_turns_from_text("texte")
-    assert len(result["turns"]) == 1
-    assert result["turns"][0]["interlocuteur"] == "Bruno"
+    assert [t["interlocuteur"] for t in result["turns"]] == ["Intervenant", "Bruno"]
+    assert result["turns"][0]["question"] == "Question orpheline"
 
 
 def test_extract_turns_no_turns_raises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -228,6 +231,51 @@ def test_extract_turns_chunks_long_transcript_and_merges_results(
     assert [t["interlocuteur"] for t in result["turns"]] == ["Personne1", "Personne2"]
     # L'identité du 2e tronçon doit remonter puisque le 1er tronçon n'en a pas trouvé.
     assert result["identity"]["interviewee_name"] == "Trouvé au 2e tronçon"
+
+
+def _turn(interlocuteur="Marc", question="", remarque="Un propos.", section_title=""):
+    return {"interlocuteur": interlocuteur, "question": question,
+            "remarque": remarque, "section_title": section_title}
+
+
+def _empty_identity():
+    return {"interviewee_name": "", "interviewee_role": "", "interviewee_entity": ""}
+
+
+def test_extract_turns_retries_once_when_chunk_returns_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Robustesse 2026-07-22 : un modèle local rend PAR INTERMITTENCE 0 tour sur un
+    tronçon qui en contient (non-déterminisme). extract_turns relance le tronçon une
+    fois plutôt que de faire échouer tout l'entretien (« aucun tour détecté »)."""
+    calls = []
+
+    def fake(system, prompt, schema, json_hint, **kwargs):
+        calls.append(prompt)
+        rows = [] if len(calls) == 1 else [_turn()]  # 1er appel vide, 2e non vide
+        return {"turns": rows, "identite": _empty_identity()}
+
+    monkeypatch.setattr(interview_libre_extract_ai, "call_ai_json", fake)
+    result = interview_libre_extract_ai.extract_turns_from_text("Un court échange.")
+    assert len(calls) == 2, "un tronçon vide doit être relancé une fois"
+    assert [t["interlocuteur"] for t in result["turns"]] == ["Marc"]
+
+
+def test_extract_turns_keeps_content_when_interlocuteur_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Robustesse 2026-07-22 : un tour avec du contenu mais SANS interlocuteur
+    identifié n'est pas perdu — étiquette générique « Intervenant », l'humain corrige
+    à la revue (avant : droppé, pouvait vider tout un tronçon)."""
+    def fake(system, prompt, schema, json_hint, **kwargs):
+        return {"turns": [_turn(interlocuteur="", remarque="Un constat important.")],
+                "identite": _empty_identity()}
+
+    monkeypatch.setattr(interview_libre_extract_ai, "call_ai_json", fake)
+    result = interview_libre_extract_ai.extract_turns_from_text("Texte.")
+    assert len(result["turns"]) == 1
+    assert result["turns"][0]["interlocuteur"] == "Intervenant"
+    assert result["turns"][0]["remarque"] == "Un constat important."
 
 
 def test_generate_repartition_chunks_many_turns_and_reduces(

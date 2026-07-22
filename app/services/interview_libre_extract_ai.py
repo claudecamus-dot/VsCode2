@@ -171,8 +171,15 @@ def _extract_turns_chunk(chunk: str) -> dict:
         question = _safe_str(row.get("question")) or None
         remarque = _safe_str(row.get("remarque")) or None
         section_title = _safe_str(row.get("section_title")) or None
-        if not interlocuteur or (question is None and remarque is None):
+        # Un tour sans AUCUN contenu (ni question ni remarque) n'a rien à restituer.
+        if question is None and remarque is None:
             continue
+        # Contenu présent mais interlocuteur non identifié par le modèle (arrive en
+        # réel, surtout sur un tronçon sans reprise de nom) : NE PAS perdre le tour —
+        # étiquette générique, l'humain corrige à l'écran de revue. Avant ce correctif
+        # (2026-07-22), ces tours étaient droppés et pouvaient vider tout un tronçon.
+        if not interlocuteur:
+            interlocuteur = "Intervenant"
         turns.append({
             "interlocuteur": interlocuteur,
             "question": question,
@@ -207,6 +214,13 @@ def extract_turns_from_text(text: str) -> dict:
 
     for chunk in chunks:
         result = _extract_turns_chunk(chunk)
+        # Retry ciblé : un modèle local rend PAR INTERMITTENCE 0 tour sur un
+        # tronçon qui en contient (non-déterminisme observé le 2026-07-22, attrapé
+        # par tests/test_ollama_integration.py). Une seule relance suffit presque
+        # toujours (échantillonnage différent). Sans elle, un mono-tronçon malchanceux
+        # faisait remonter « aucun tour détecté » sur tout l'entretien.
+        if not result["turns"] and chunk.strip():
+            result = _extract_turns_chunk(chunk)
         all_turns.extend(result["turns"])
         if not any(identity.values()) and any(result["identity"].values()):
             identity = result["identity"]
