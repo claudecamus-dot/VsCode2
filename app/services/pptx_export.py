@@ -12,6 +12,7 @@ skill — cf. son propre en-tête).
 """
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -36,7 +37,9 @@ try:  # pragma: no cover - dépend de la présence du skill + Pillow
     if str(_FRAMED_SCRIPTS) not in _sys.path:
         _sys.path.insert(0, str(_FRAMED_SCRIPTS))
     from framed_image import place_image_in_frame as _place_image_in_frame  # type: ignore
+    from framed_image import cover_crop_to_aspect as _cover_crop_to_aspect  # type: ignore
     import nature_images as _nature_images  # type: ignore
+    import stock_images as _stock_images  # type: ignore  # fetch Openverse (vraies photos CC0)
     _IMG_CACHE = Path(__file__).resolve().parents[2] / "data" / "pptx_chapitre_images"
     _FRAMED_OK = True
 except Exception:  # skill absent, Pillow non installé, etc. -> repli texte-seul
@@ -376,6 +379,14 @@ _CHAPITRES = [
     ("La parole des équipes", "#138086", "forest"),     # teal
     ("La trajectoire proposée", "#6a3d9a", "ocean"),    # violet
 ]
+# Scène -> requête photo Openverse (vraies photos CC0, comme les decks OCTO réels /
+# VSCode3-4). Repli sur la génération procédurale `nature_images` (nom = la scène).
+_SCENE_REQUETE = {
+    "sunset": "sunset sky",
+    "mountains": "mountains landscape",
+    "forest": "green forest sunlight",
+    "ocean": "turquoise water",
+}
 
 
 def _slide_cover(prs: Presentation, mission: Mission) -> None:
@@ -480,7 +491,21 @@ def _remplir_cadre_chapitre(slide, cadre, scene: str, seed: int = 0) -> None:
         _IMG_CACHE.mkdir(parents=True, exist_ok=True)
         path = _IMG_CACHE / f"{scene}_{seed}_{px_w}x{px_h}.png"
         if not path.exists():
-            _nature_images.generate_to(str(path), scene, px_w, px_h, seed=seed)
+            # Vraie photo libre de droits (Openverse CC0) — lit mieux qu'un aplat
+            # procédural, aligne la charte sur les decks OCTO réels (VSCode4) ; repli
+            # procédural offline si le réseau/l'API échoue (arbitrage fetch + repli).
+            # PPTX_NO_PHOTO_FETCH=1 force le procédural (tests offline/déterministes, CI).
+            no_fetch = os.environ.get("PPTX_NO_PHOTO_FETCH") == "1"
+            aspect_ratio = "wide" if aspect > 1.15 else "tall" if aspect < 0.85 else "square"
+            try:
+                if no_fetch:
+                    raise RuntimeError("fetch désactivé")
+                brut = _IMG_CACHE / f"_brut_{scene}_{seed}.jpg"
+                _stock_images.fetch_to(str(brut), _SCENE_REQUETE.get(scene, scene),
+                                       seed=seed, aspect_ratio=aspect_ratio)
+                _cover_crop_to_aspect(str(brut), str(path), aspect)
+            except Exception:
+                _nature_images.generate_to(str(path), scene, px_w, px_h, seed=seed)
         _place_image_in_frame(slide, str(path), left, top, width, height, geom=geom)
     except Exception:
         pass  # repli : intercalaire sans image, jamais un export cassé

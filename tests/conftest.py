@@ -13,6 +13,10 @@ import tempfile
 _TEST_DB = os.path.join(tempfile.gettempdir(), "interview_to_deck_test.db")
 os.environ.setdefault("APP_DB_PATH", _TEST_DB)
 
+# Images des têtes de chapitre : jamais de fetch réseau en test (offline,
+# déterministe, rapide) — génération procédurale locale. cf. pptx_export.
+os.environ.setdefault("PPTX_NO_PHOTO_FETCH", "1")
+
 
 # --------------------------------------------------------------------------- #
 # Windows : neutraliser le crash de nettoyage tmp de fin de session de pytest.
