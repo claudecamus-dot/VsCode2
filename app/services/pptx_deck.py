@@ -464,6 +464,64 @@ def tronquer_a_lignes(texte, largeur_in, taille_pt, max_lignes, cpi_ref=11.0,
     return tronque.rstrip(" ,;:.") + "…"
 
 
+def verifier_debordements_texte(prs, cpi_pessimiste=10.7, tolerance_in=0.15):
+    """Filet « le texte tient dans sa boîte » — complémentaire de
+    verifier_geometrie (qui ne voit que les BORDS des formes, pas le rendu du
+    texte dedans). Pour chaque zone de texte dessinée (wrap actif, ancrage TOP,
+    auto-size NONE), estime la hauteur du contenu avec une calibration
+    PESSIMISTE (`cpi_pessimiste` < la calibration nominale de estimer_lignes) et
+    signale les boîtes dont le contenu estimé dépasse la hauteur + tolérance.
+    Le layout budgète à l'estimation nominale ; ce contrôle attrape les blocs
+    limites qui, au vrai repli PowerPoint (français accentué, mots longs),
+    sortent de leur cadre — défaut récurrent relevé à l'œil sur les fiches
+    (2026-07-22) qu'aucun test ne couvrait. Renvoie une liste de constats
+    (vide = OK) ; l'appelant décide (test dur, ou log)."""
+    problemes = []
+    for num, slide in enumerate(prs.slides, start=1):
+        for sh in slide.shapes:
+            if not getattr(sh, "has_text_frame", False):
+                continue
+            if getattr(sh, "is_placeholder", False):
+                continue  # placeholders (titres, couverture…) : PowerPoint les
+                # laisse grandir sans cadre visuel — pas le défaut chassé ici
+            tf = sh.text_frame
+            try:
+                if not tf.word_wrap or tf.auto_size != MSO_AUTO_SIZE.NONE:
+                    continue
+                if tf.vertical_anchor not in (None, MSO_ANCHOR.TOP):
+                    continue  # MIDDLE/BOTTOM : contenu déjà borné par l'appelant
+                if getattr(sh, "rotation", 0):
+                    continue  # labels rotés : géométrie non comparable
+                w_in = Emu(sh.width).inches
+                h_in = Emu(sh.height).inches
+            except Exception:
+                continue
+            if w_in <= 0 or h_in <= 0:
+                continue
+            est = 0.0
+            texte_court = ""
+            for p in tf.paragraphs:
+                t = "".join(r.text for r in p.runs)
+                if not t.strip():
+                    continue
+                # max des runs stylés, pas le premier (revue adversariale : un
+                # préfixe petit devant un corps plus grand sous-estimait toute
+                # la hauteur — faux négatif, contraire au contrat pessimiste)
+                tailles = [r.font.size.pt for r in p.runs if r.font.size]
+                taille = max(tailles) if tailles else 12.0
+                lignes = estimer_lignes(t, w_in, taille, cpi_ref=cpi_pessimiste)
+                # même modèle de hauteur de ligne que le layout (le +4/72 couvre
+                # déjà le space_after usuel — pas de double comptage)
+                est += lignes * (taille * 0.017 + 4 / 72)
+                texte_court = texte_court or t[:40]
+            if est > h_in + tolerance_in:
+                problemes.append(
+                    f"slide {num}: texte ~{est:.2f}in > boîte {h_in:.2f}in "
+                    f"(« {texte_court}… »)"
+                )
+    return problemes
+
+
 def paginer_items(items, hauteur_fn, capacite_in):
     """Repartit gloutonnement `items` (ordre preserve) en pages telles que,
     pour chaque page, la somme de `hauteur_fn(item)` (pouces) ne depasse pas

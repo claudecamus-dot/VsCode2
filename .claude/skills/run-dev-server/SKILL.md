@@ -12,6 +12,23 @@ is the verified path for getting it running and actually looking at a page
 
 ## 1. Launch
 
+**Chemin canonique (2026-07-22)** — le script `scripts/serveur-dev.ps1` encapsule TOUTE
+la discipline anti-fantômes décrite plus bas (purge parents uvicorn + workers
+`multiprocessing.spawn` orphelins, vérification que le port a RÉELLEMENT cessé de
+répondre, purge `__pycache__`, lancement `--reload`, health-check, preuve de fraîcheur
+octets servis == octets sur disque) :
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/serveur-dev.ps1 -Port 8020
+# arrêt : ... -Port 8020 -StopOnly
+```
+
+Il est aussi lancé automatiquement à l'ouverture du dossier par `.vscode/tasks.json`
+(tâche « Serveur dev (fiable) », port 8020) — un serveur est donc souvent DÉJÀ en
+marche et frais ; relancer le script est idempotent (il purge et repart). S'il sort en
+« fantôme hors de portée », suivre son conseil : port +10. Le lancement manuel
+ci-dessous reste valable pour un port ad hoc :
+
 ```bash
 cd <repo root>
 .venv/Scripts/python.exe -m uvicorn app.main:app --port 8010 --reload > /tmp/server.log 2>&1 &

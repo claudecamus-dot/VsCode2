@@ -714,20 +714,22 @@ input[type=text].turn-section-input:placeholder-shown {
 }
 .ppt-field-value { margin: 0; }
 
-/* Jauges circulaires Valeur/Complexité — équivalent CSS (conic-gradient)
-   du doughnut chart PowerPoint natif posé par D.add_gauge. */
-.ppt-gauges { display: flex; gap: 18px; margin-top: 4px; }
-.ppt-gauge-wrap { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.ppt-gauge {
-  position: relative; width: 56px; height: 56px; border-radius: 50%;
-  background: conic-gradient(var(--gauge-color, var(--accent)) calc(var(--gauge-frac, 0) * 360deg), var(--border-subtle) 0);
+/* Chips Valeur/Complexité — équivalent CSS des chips D.add_chip de la fiche
+   (les jauges donut ont été remplacées, parité aperçu/PPT 2026-07-22). */
+.ppt-chips { display: flex; gap: 10px; margin-top: 6px; }
+.ppt-chip {
+  display: inline-flex; align-items: center; border-radius: 999px;
+  background: var(--chip-bg, var(--accent)); color: #fff; font-weight: 700;
+  font-size: .78rem; padding: 5px 14px; white-space: nowrap;
 }
-.ppt-gauge::before { content: ''; position: absolute; inset: 7px; border-radius: 50%; background: #fff; }
-.ppt-gauge-value {
-  position: relative; z-index: 1; display: flex; align-items: center; justify-content: center;
-  width: 100%; height: 100%; font-weight: 700; color: var(--text); font-size: .95rem;
+
+/* Bandeau bas pleine largeur « Résultats attendus » — équivalent de l'encart
+   gris à liseré couleur d'axe posé en bas de la fiche PPT. */
+.ppt-strip {
+  margin-top: 16px; background: #eceef2; border-left: 3px solid var(--slide-accent, var(--accent));
+  border-radius: 6px; padding: 10px 14px;
 }
-.ppt-gauge-label { font-size: .68rem; color: var(--muted); }
+.ppt-strip .ppt-field-value { margin: 0; }
 
 .ppt-value-prop {
   background: #f5f3fb; border-left: 3px solid var(--axis-accent, var(--accent));

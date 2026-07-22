@@ -32,6 +32,7 @@
 {% endif %}
 
 <form method="post" action="/missions/{{ mission.id }}/recommandations/generate" class="reco-generate"
+  data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
   {% if axes %}onsubmit="return confirm('Remplacer les {{ axes|length }} axe(s) de recommandation actuel(s) par une nouvelle génération IA ? Le contenu actuel (y compris vos modifications manuelles) sera perdu.');"{% endif %}>
   {% set can_generate = ai_ready and global_synthesis and global_synthesis.has_content %}
   <button class="btn btn-primary" type="submit"

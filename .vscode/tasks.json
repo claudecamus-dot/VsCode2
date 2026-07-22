@@ -1,0 +1,46 @@
+{
+  // Auto-start du serveur dev à l'ouverture du dossier (VS Code demande une
+  // autorisation la 1re fois : « Allow Automatic Tasks »). Lancement manuel :
+  // Terminal → Run Task → « Serveur dev (fiable) ».
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Serveur dev (fiable)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/serveur-dev.ps1",
+        "-Port",
+        "8020",
+        "-KeepIfFresh"
+      ],
+      "runOptions": { "runOn": "folderOpen" },
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated",
+        "close": false
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Serveur dev : arrêter",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/scripts/serveur-dev.ps1",
+        "-Port",
+        "8020",
+        "-StopOnly"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

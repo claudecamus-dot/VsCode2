@@ -60,7 +60,9 @@ _W_IN, _H_IN = 10.0, 5.625  # dims du template OCTO de marque (16:9) — FIELD_S
 # Fiche reco en encarts arrondis (2026-07-22) : le contenu vit DANS des cartes
 # (carte gauche + encart proposition + carte plan), les largeurs utiles sont donc
 # les largeurs de carte moins les marges internes (pad 0.2 ×2 + liseré 0.05).
-_CARD_L_W = _W_IN * 0.34 + 0.2
+# 3.15 (resserrée) : la carte droite porte plan+résultats, souvent de longues
+# puces — elle a besoin de la largeur (cf. _slide_recommendation).
+_CARD_L_W = 3.15
 _LEFT_W = _CARD_L_W - 0.45
 _RIGHT_W = (_W_IN - MARGIN - (MARGIN + _CARD_L_W + 0.3)) - 0.45
 # Slide de synthèse enrichie (claim + visuel + encart) : largeur de la carte de puces
@@ -79,12 +81,17 @@ OCTO_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "assets" / "templa
 FIELD_SHAPE = {
     "objectif": dict(width_in=_LEFT_W, max_h_in=1.1),
     "acteurs": dict(width_in=_LEFT_W, max_h_in=0.5),
-    # resultats_attendus vit dans la carte droite (sous le plan) depuis les
-    # encarts arrondis 2026-07-22 — ~35 % de la zone de la carte plan.
-    "resultats_attendus": dict(width_in=_RIGHT_W, max_h_in=0.8),
-    "proposition_valeur": dict(width_in=_RIGHT_W, max_h_in=1.05),
+    # resultats_attendus vit dans le bandeau bas PLEINE LARGEUR de la fiche
+    # (encart gris, 2026-07-22) : taille FIXE small, tronqué à 2 lignes — hint en
+    # mode size_pt/max_lignes (annonce la troncature, ne promet pas un shrink que
+    # la slide ne fait pas ; même dérive corrigée que es_headline/difficulty_label).
+    "resultats_attendus": dict(width_in=_W_IN - 2 * MARGIN - 0.45, size_pt=D.TYPE["small"], max_lignes=2),
+    # 0.80 = prop_h(1.00) - 0.20 de _slide_recommendation — recalé revue adversariale.
+    "proposition_valeur": dict(width_in=_RIGHT_W, max_h_in=0.80),
     "plan_actions": dict(width_in=_RIGHT_W, max_h_in=2.0),
-    "reco_title": dict(width_in=_W_IN - 2 * MARGIN, size_pt=D.TYPE["title"], max_lignes=2),
+    # 1 ligne : le titre de fiche est tronqué à l'ellipse (le complet vit sur la
+    # vue d'ensemble des axes) — recalé revue adversariale.
+    "reco_title": dict(width_in=_W_IN - 2 * MARGIN, size_pt=D.TYPE["title"], max_lignes=1),
     "axis_title": dict(width_in=_W_IN - 2 * MARGIN - 2.0, max_h_in=1.1, size_max=D.TYPE["h3"]),
     # Slide enrichie (carte de puces à gauche, visuel à droite, 1re puce en encart) :
     # largeur = carte réduite du visuel ; hauteur = zone au-dessus de l'encart « à retenir ».
@@ -141,7 +148,9 @@ def field_fit_hint(field_key: str, text: str) -> str:
     size_min = D.TYPE["tiny"]
 
     def budget_ok(taille, lignes_max):
-        return lignes_max * _per_line_height_in(taille) <= max_h_in
+        # Même réserve d'une demi-ligne que le budget réel de _add_bulleted_text
+        # (sinon le hint annonce à la frontière une taille que l'export réduit).
+        return lignes_max * _per_line_height_in(taille) <= max_h_in - 0.5 * _per_line_height_in(taille)
 
     size, lignes = D.ajuster_police([text], width_in, size_max, size_min, budget_ok=budget_ok)
     if lignes * _per_line_height_in(size) > max_h_in:
@@ -202,7 +211,7 @@ def _pick_layout(prs: Presentation, preferred: int = 6):
     return layouts[preferred] if preferred < len(layouts) else layouts[-1]
 
 
-def _new_slide(prs: Presentation, title: str):
+def _new_slide(prs: Presentation, title: str, max_title_lines: int = 2):
     """Crée une slide de contenu et pose son titre. Renvoie
     `(slide, w_in, h_in, content_top)` — `content_top` est calculé à partir
     de la position/hauteur réelle du placeholder de titre (natif du
@@ -236,9 +245,8 @@ def _new_slide(prs: Presentation, title: str):
             title_shape.height = Inches(1.1)
         title_w_in = Emu(title_shape.width).inches if title_shape.width is not None else (w_in - 2 * MARGIN)
         title_top_in = Emu(title_shape.top).inches if title_shape.top is not None else 0.3
-        title_box_h_in = Emu(title_shape.height).inches if title_shape.height is not None else 0.7
         size = D.TYPE["title"]
-        max_lignes = 2
+        max_lignes = max_title_lines
         if D.estimer_lignes(title, title_w_in, size) > max_lignes:
             title = D.tronquer_a_lignes(title, title_w_in, size, max_lignes)
         title_shape.text = title
@@ -255,7 +263,12 @@ def _new_slide(prs: Presentation, title: str):
         needed_h = lignes * _per_line_height_in(size) + 0.15
         # Pas de barre d'accent avant le titre : les decks OCTO réels (VSCode4) n'en
         # ont pas — titre navy + logo suffisent (retrait demandé 2026-07-22, charte VSCode4).
-        content_top = title_top_in + max(title_box_h_in, needed_h) + 0.25
+        # Hauteur RÉELLE du texte de titre (plancher 0.55), pas la boîte du
+        # placeholder — indépendant de la hauteur de boîte du template. Réserve
+        # connue (revue adversariale) : un template CLIENT à boîte de titre haute
+        # ancrée middle/bottom pourrait voir le contenu remonter dans sa zone de
+        # titre — à re-vérifier au premier template client réel.
+        content_top = title_top_in + max(needed_h, 0.55) + 0.25
     else:
         D.add_text(
             slide, MARGIN, 0.35, w_in - 2 * MARGIN, 0.7,
@@ -299,26 +312,46 @@ def _add_bulleted_text(
     lines = _bullet_lines(text) or ["—"]
 
     def budget_ok(taille, _lignes_max):
+        # Le budget inclut la MÊME réserve d'une demi-ligne que la pagination —
+        # sinon l'ajusteur valide une taille que la pagination recoupe ensuite
+        # (explosion de slides de suite constatée le 2026-07-22) : on préfère
+        # rétrécir la police d'un cran que couper une puce.
         total = sum(D.estimer_lignes(line, w, taille) for line in lines)
-        return total * _per_line_height_in(taille) <= h
+        return total * _per_line_height_in(taille) <= h - 0.5 * _per_line_height_in(taille)
 
     if size is None:
         size, _ = D.ajuster_police(lines, w, size_max, size_min, budget_ok=budget_ok)
 
     overflow: list[str] = []
-    if paginate and not budget_ok(size, None):
-        rendered_pages = D.paginer_items(
-            lines, lambda line: D.estimer_lignes(line, w, size) * _per_line_height_in(size),
-            capacite_in=h,
-        )
-        lines = rendered_pages[0]
-        overflow = [line for page in rendered_pages[1:] for line in page]
+    if paginate:
+        # Capacité MINORÉE d'une demi-ligne : l'estimation de repli est optimiste
+        # pour du français — sans réserve, le dernier bloc d'une carte sortait du
+        # cadre au vrai rendu (défaut récurrent 2026-07-22). Et un item SEUL plus
+        # haut que la zone est insécable pour paginer_items — il débordait en
+        # silence (attrapé par verifier_debordements_texte) : désormais tronqué à
+        # l'ellipse ici, son texte COMPLET partant sur la slide de suite.
+        line_h = _per_line_height_in(size)
+        capacite = max(line_h, h - 0.5 * line_h)
+        if sum(D.estimer_lignes(li, w, size) for li in lines) * line_h > capacite:
+            pages = D.paginer_items(
+                lines, lambda li: D.estimer_lignes(li, w, size) * line_h,
+                capacite_in=capacite,
+            )
+            lines = pages[0]
+            overflow = [li for page in pages[1:] for li in page]
+            if len(lines) == 1 and D.estimer_lignes(lines[0], w, size) * line_h > capacite:
+                complet = lines[0]
+                lines = [D.tronquer_a_lignes(complet, w, size, max(1, int(capacite / line_h)))]
+                overflow = [complet] + overflow
 
     paragraphs = [(f"•  {line}", {"size": size, "color": D.INK, "space_after": 4}) for line in lines]
 
     if anchor == MSO_ANCHOR.MIDDLE:
         total_lines = sum(D.estimer_lignes(line, w, size) for line in lines)
-        content_h = min(h, total_lines * _per_line_height_in(size))
+        # +0.5 ligne de marge dans la boîte centrée — même logique que partout :
+        # l'estimation nominale est optimiste, la boîte exacte faisait peindre la
+        # dernière ligne hors boîte (constat verifier_debordements_texte).
+        content_h = min(h, (total_lines + 0.5) * _per_line_height_in(size))
         box_t = t + max(0.0, (h - content_h) / 2)
         D.add_text(slide, l, box_t, w, content_h, paragraphs)
     else:
@@ -340,7 +373,15 @@ def _emit_bullet_overflow(prs: Presentation, base_title: str, field_label: str, 
         w = w_in - 2 * (MARGIN + 0.3)
         h = h_in - top - 0.5
         overflow = _add_bulleted_text(slide, MARGIN + 0.3, top, w, h, remaining, paginate=True)
-        remaining = "\n".join(overflow)
+        nouveau = "\n".join(overflow)
+        if nouveau == remaining:
+            # Garde de PROGRESSION (revue adversariale) : une puce insécable plus
+            # haute qu'une slide de suite entière revient intégralement en
+            # overflow (le chemin de troncature repousse le texte COMPLET) —
+            # sans cette garde, boucle infinie + slides sans fin. La slide qui
+            # vient d'être posée montre déjà tout ce qui tient, à l'ellipse.
+            break
+        remaining = nouveau
         page_no += 1
 
 
@@ -371,7 +412,10 @@ def _add_measured_field(
         max_lignes = max(1, int(body_max_h / _per_line_height_in(size)))
         body = D.tronquer_a_lignes(body, w, size, max_lignes)
         lignes_max = max_lignes
-    body_h = lignes_max * _per_line_height_in(size)
+    # +0.6 ligne de marge : la boîte était dimensionnée à l'estimation EXACTE —
+    # au vrai repli PowerPoint (un peu plus gourmand), la dernière ligne sortait
+    # du cadre (constat verifier_debordements_texte sur les fiches, 2026-07-22).
+    body_h = (lignes_max + 0.6) * _per_line_height_in(size)
     D.add_text(slide, l, t + label_h, w, body_h, [(body, {"size": size, "bold": bold, "italic": italic, "color": D.INK})])
     return label_h + body_h
 
@@ -1129,8 +1173,8 @@ def _slide_matrice_effort_valeur(prs: Presentation, axes: list,
     pt = top + 0.10
     pb = h_in - 0.72
     ph = pb - pt
-    pw = 4.4
-    lx = pl + pw + 0.35   # légende à droite
+    pw = 3.95  # plot un peu plus étroit : la légende porte les intitulés COMPLETS
+    lx = pl + pw + 0.3   # légende à droite
     lw = w_in - MARGIN - lx
     qw, qh = pw / 2, ph / 2
 
@@ -1185,30 +1229,72 @@ def _slide_matrice_effort_valeur(prs: Presentation, axes: list,
             D.add_badge(slide, x, by, d, num, palette[ai % len(palette)],
                         size=D.TYPE["small"], bold=True, radius=0.5)
 
-    # Légende par axe : pastille couleur + intitulé, puis ses recos numérotées —
-    # tout en `small` (les lignes reco en `tiny` étaient illisibles, 2026-07-22).
-    y = pt
-    line_h = 0.28
-    reco_line_h = 0.26
-    for i, axis in enumerate(axes):
-        if y + line_h > pb:
+    # Légende ENCADRÉE (carte) portant les intitulés COMPLETS — demande 2026-07-22 :
+    # « réduire la taille du texte afin qu'il apparaisse complètement et à
+    # encadrer ». Taille `tiny` partout, repli sur 2 lignes max par item (mesuré,
+    # jamais tronqué à 1 ligne comme avant), hauteur de chaque item MESURÉE.
+    # Une ligne par RECO uniquement — pas d'intitulés d'axes (ils vivent en
+    # toutes lettres sur la vue d'ensemble ; ici la pastille couleur suffit à
+    # porter l'axe, comme les bulles) : c'est ce qui permet aux 8 titres de reco
+    # COMPLETS de tenir (4 titres d'axes en plus faisaient sauter l'axe 4).
+    # -0.60 (pas -0.50) : le chrome n° de page du master OCTO démarre à y≈5.09 /
+    # x≈9.25 — à -0.50 le coin bas-droit de la carte (blanc + bordure) peignait
+    # par-dessus (revue adversariale, mesuré sur le master ; même garde que la
+    # fiche reco).
+    leg_bottom = h_in - 0.60
+    D.add_card(slide, lx, pt, lw, leg_bottom - pt)
+    lpad = 0.12
+    tx = lx + lpad
+    tw = lw - 2 * lpad
+    # Shrink-to-fit — JAMAIS droper une reco (à taille fixe, l'estimation
+    # pessimiste s'accumulait sur 8 items et « 4.2 » sautait alors qu'il
+    # restait de la place réelle) : on cherche la plus grande taille <= tiny
+    # qui fait tenir TOUTES les recos à l'estimation PESSIMISTE (celle du
+    # vérificateur — à l'estimation nominale, un item limite wrappait hors
+    # boîte). Cascade complète (revue adversariale : l'ancien `while t_leg > 7.5`
+    # sortait SANS avoir évalué 7.5, et le garde-fou du rendu dropait alors des
+    # recos sur titres extrêmes) : tailles 9→7.5 à 2 lignes/item, puis dernier
+    # cran 7.5 pt à 1 ligne/item (titre tronqué à l'ellipse — un titre coupé
+    # vaut toujours mieux qu'une reco absente).
+    dispo = (leg_bottom - lpad) - (pt + lpad)
+    t_leg = D.TYPE["tiny"]
+    lignes_leg = 2
+    while True:
+        lh_leg = _per_line_height_in(t_leg)
+        besoin = 0.0
+        for i, axis in enumerate(axes):
+            for j, r in enumerate(axis.recommendations):
+                item = D.tronquer_a_lignes(f"{i + 1}.{j + 1}  {r.title}", tw - 0.24, t_leg, lignes_leg)
+                besoin += D.estimer_lignes(item, tw - 0.24, t_leg, cpi_ref=10.7) * lh_leg + 0.03
+            besoin += 0.02
+        if besoin <= dispo:
             break
+        if t_leg > 7.5:
+            t_leg -= 0.5
+        elif lignes_leg == 2:
+            lignes_leg = 1
+        elif t_leg > 6.5:
+            t_leg -= 0.5  # dernier étage : 1 ligne, 7.5→6.5 (loge ~16 recos)
+        else:
+            break  # plafond structurel ~18 recos — au-delà le garde-fou du rendu coupe
+    y = pt + lpad
+    plein = False  # garde-fou ultime : coupe TOUT le reste (pas d'items suivants
+    # rendus après un trou — des numéros manquants au milieu seraient trompeurs)
+    for i, axis in enumerate(axes):
         color = palette[i % len(palette)]
-        D.add_rect(slide, lx, y + 0.07, 0.14, 0.14, fill=color, rounded=True, radius=0.5)
-        D.add_text(slide, lx + 0.24, y, lw - 0.24, line_h,
-                   [(D.tronquer_a_lignes(f"Axe {i + 1} — {axis.title}", lw - 0.24,
-                                         D.TYPE["small"], 1),
-                     {"size": D.TYPE["small"], "bold": True, "color": D.INK})])
-        y += line_h
         for j, r in enumerate(axis.recommendations):
-            if y + reco_line_h > pb:
+            item = D.tronquer_a_lignes(f"{i + 1}.{j + 1}  {r.title}", tw - 0.24, t_leg, lignes_leg)
+            h_item = D.estimer_lignes(item, tw - 0.24, t_leg, cpi_ref=10.7) * lh_leg
+            if y + h_item > leg_bottom - lpad:
+                plein = True
                 break
-            D.add_text(slide, lx + 0.24, y, lw - 0.24, reco_line_h,
-                       [(D.tronquer_a_lignes(f"{i + 1}.{j + 1}  {r.title}", lw - 0.24,
-                                             D.TYPE["small"], 1),
-                         {"size": D.TYPE["small"], "color": D.MUTED})])
-            y += reco_line_h
-        y += 0.05
+            D.add_rect(slide, tx, y + 0.03, 0.12, 0.12, fill=color, rounded=True, radius=0.5)
+            D.add_text(slide, tx + 0.24, y, tw - 0.24, h_item,
+                       [(item, {"size": t_leg, "color": D.INK})])
+            y += h_item + 0.03
+        if plein:
+            break
+        y += 0.02
 
 
 def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: object,
@@ -1223,64 +1309,70 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
     (_add_measured_field) pour s'empiler sans déborder ; l'encart proposition est
     à hauteur FIXE (rythme identique de fiche en fiche, l'espace gris restant est
     intentionnel — même principe que les cellules teintées de la SWOT)."""
-    slide, w_in, h_in, top = _new_slide(prs, f"{index} — {reco.title}")
+    # Titre sur UNE ligne (tronqué à l'ellipse) : le titre complet vit sur la vue
+    # d'ensemble des axes — la ligne gagnée ici est ce qui permet à la carte
+    # droite de loger plan + résultats sans slide de suite systématique.
+    slide, w_in, h_in, top = _new_slide(prs, f"{index} — {reco.title}", max_title_lines=1)
     accent = accent or (D.theme_colors(prs).get("accent1") or D.PALETTE[0])
     pad = 0.2
     lis = 0.05  # dégagement du liseré de carte
-    card_l_w = w_in * 0.34 + 0.2
+    # Carte gauche resserrée (3.15) au profit de la droite : les jauges 0.65×2 y
+    # tiennent, et le plan (souvent UNE longue puce) a besoin de largeur.
+    card_l_w = 3.15
     right_x = MARGIN + card_l_w + 0.3
     right_w = w_in - right_x - MARGIN
-    # -0.65 (pas -0.35) : le badge n° de page du chrome OCTO occupe le coin
-    # bas-droit (~0.45 de haut, à partir de ~5.15in) — les cartes venaient
-    # marcher dessus (constat utilisateur 2026-07-22, slides 18-25) ; -0.55
-    # laissait encore le texte au ras du badge au rendu.
-    band_h = h_in - top - 0.65
+    # Bandeau RÉSULTATS pleine largeur en bas (encart gris, motif « à retenir »
+    # des synthèses) : une longue phrase tient en 2 lignes sur ~8.7in là où elle
+    # en demandait 5 dans une colonne — c'est ce qui rend la fiche tenable sans
+    # slide de suite systématique (mesuré : colonne droite 1.9in dispo pour 2.4in
+    # de besoin, aucune allocation ne pouvait gagner). -0.60 : badge n° de page.
+    # Prédicat aligné sur le CONTENU rendu (_bullet_lines filtre les marqueurs
+    # de puce vides) : « - » seul réservait 0.72in pour un bandeau « — » vide.
+    a_resultats = bool(_bullet_lines(reco.resultats_attendus or ""))
+    strip_h = 0.72 if a_resultats else 0.0
+    band_h = h_in - top - 0.60 - strip_h - (0.12 if a_resultats else 0.0)
     bottom = top + band_h
 
     # ---- Colonne gauche : carte arrondie, liseré couleur d'axe ----
     D.add_card(slide, MARGIN, top, card_l_w, band_h, accent)
     lx = MARGIN + pad + lis
     lw = card_l_w - 2 * pad - lis
-    inner_bottom = bottom - pad
     y = top + pad
     y += _add_measured_field(slide, lx, y, lw, "OBJECTIF", reco.objectif, max_h=1.1)
     y += 0.10
     y += _add_measured_field(slide, lx, y, lw, "ACTEURS", reco.acteurs, max_h=0.5)
     y += 0.10
     D.add_text(slide, lx, y, lw, 0.26, [("CRITÈRES DE PRIORISATION", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
-    # Jauge plafonnée pour que ses labels restent DANS la carte. RÉSULTATS vit
-    # dans la carte de droite (pas ici) : avec objectif+acteurs+jauges+résultats,
-    # la colonne étroite envoyait systématiquement les résultats en slide de
-    # suite (33 slides au lieu de 25 — constat pptx-verify à l'introduction des
-    # encarts arrondis). label_h = 0.25.
-    gauge_size = max(0.55, min(0.85, inner_bottom - (y + 0.30) - 0.25))
-    D.add_gauge(slide, lx, y + 0.30, gauge_size, reco.valeur / 5, D.OK)
-    D.add_text(
-        slide, lx, y + 0.30, gauge_size, gauge_size,
-        [(str(reco.valeur), {"size": D.TYPE["h3"], "bold": True, "color": D.INK, "align": PP_ALIGN.CENTER})],
-        anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER,
-    )
-    D.add_text(slide, lx, y + 0.30 + gauge_size, gauge_size, 0.25, [("Valeur", {"size": D.TYPE["tiny"], "color": D.MUTED, "align": PP_ALIGN.CENTER})], align=PP_ALIGN.CENTER)
-    gx2 = lx + gauge_size + 0.3
-    D.add_gauge(slide, gx2, y + 0.30, gauge_size, reco.complexite / 5, D.WARN)
-    D.add_text(
-        slide, gx2, y + 0.30, gauge_size, gauge_size,
-        [(str(reco.complexite), {"size": D.TYPE["h3"], "bold": True, "color": D.INK, "align": PP_ALIGN.CENTER})],
-        anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER,
-    )
-    D.add_text(slide, gx2, y + 0.30 + gauge_size, gauge_size, 0.25, [("Complexité", {"size": D.TYPE["tiny"], "color": D.MUTED, "align": PP_ALIGN.CENTER})], align=PP_ALIGN.CENTER)
+    # Chips « Valeur N/5 » / « Complexité N/5 » (couleurs sémantiques OK/WARN) au
+    # lieu des jauges donut : la carte gauche a perdu ~0.8in au profit du bandeau
+    # résultats — les donuts s'y écrasaient (labels hors carte, constat rendu
+    # 2026-07-22). Une ligne de chips porte la même information en 0.3in.
+    chip_h = 0.32
+    chip_w = min(1.30, (lw - 0.15) / 2)
+    # Clamp DANS la carte (revue adversariale) : objectif+acteurs au max de leurs
+    # hauteurs poussaient les chips sous le bord bas — le clamp les garde dans la
+    # carte (au pire chevauche le label CRITÈRES, jamais le bandeau résultats).
+    chips_y = min(y + 0.32, top + band_h - pad - chip_h)
+    D.add_chip(slide, lx, chips_y, chip_w, chip_h,
+               f"Valeur {reco.valeur}/5", D.OK, size=D.TYPE["tiny"])
+    D.add_chip(slide, lx + chip_w + 0.15, chips_y, chip_w, chip_h,
+               f"Complexité {reco.complexite}/5", D.WARN, size=D.TYPE["tiny"])
 
     # ---- Colonne droite : encart « proposition » + carte « plan + résultats » ----
-    prop_h = 1.35
+    # prop_h 1.10 (était 1.35) : la carte droite porte TROIS blocs — au-delà, la
+    # zone résultats devenait fictive (~0.1in) et son texte peignait PAR-DESSUS le
+    # cadre (le « texte sort du cadre » relevé par l'utilisateur, objectivé par
+    # verifier_debordements_texte).
+    prop_h = 1.00
     D.add_rect(slide, right_x, top, right_w, prop_h, fill=D.ENCART_BG,
                rounded=True, radius=0.12)
     D.add_rect(slide, right_x, top, 0.06, prop_h, fill=accent, rounded=True, radius=0.5)
     _add_measured_field(
-        slide, right_x + pad + lis, top + 0.14, right_w - 2 * pad - lis,
-        "PROPOSITION DE VALEUR", reco.proposition_valeur, max_h=prop_h - 0.28,
+        slide, right_x + pad + lis, top + 0.10, right_w - 2 * pad - lis,
+        "PROPOSITION DE VALEUR", reco.proposition_valeur, max_h=prop_h - 0.20,
         bold=True, italic=True,
     )
-    plan_top = top + prop_h + 0.2
+    plan_top = top + prop_h + 0.15
     plan_h = bottom - plan_top
     D.add_card(slide, right_x, plan_top, right_w, plan_h, accent)
     rcx = right_x + pad + lis
@@ -1289,37 +1381,39 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
     r_bottom = plan_top + plan_h - pad
     D.add_text(slide, rcx, r_top, rcw, 0.26,
                [("PLAN D'ACTIONS", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
-    # Le plan prend sa hauteur ESTIMÉE (bornée à 65 % de l'espace quand des
-    # résultats suivent), les résultats attendus le reste — deux blocs paginés,
-    # la slide de suite ne sert plus que de vraie soupape sur données longues.
-    avail = r_bottom - (r_top + 0.26)
-    a_resultats = bool((reco.resultats_attendus or "").strip())
-    plan_lines = _bullet_lines(reco.plan_actions) or ["—"]
-    # +0.15 de marge : estimer_lignes sous-compte parfois d'une ligne le vrai
-    # repli PowerPoint — sans marge, la ligne surnuméraire sort de la carte
-    # (constat pptx-verify sur la 1re version de cette carte).
-    besoin = sum(
-        max(1, D.estimer_lignes(l, rcw, D.TYPE["body"])) for l in plan_lines
-    ) * _per_line_height_in(D.TYPE["body"])
-    plan_zone = min(besoin + 0.15, avail * 0.65) if a_resultats else avail
+    # Le plan a TOUTE la carte (les résultats vivent dans le bandeau bas) —
+    # shrink-first, suite en dernier recours seulement.
     plan_overflow = _add_bulleted_text(
-        slide, rcx, r_top + 0.26, rcw, plan_zone, reco.plan_actions, paginate=True,
+        slide, rcx, r_top + 0.26, rcw, r_bottom - (r_top + 0.26),
+        reco.plan_actions, paginate=True,
     )
-    resultats_overflow: list[str] = []
+
+    # ---- Bandeau bas pleine largeur : RÉSULTATS ATTENDUS (encart gris) ----
+    # Une seule zone MIDDLE (libellé + texte dans la même boîte) : sur ~8.7in de
+    # large, 2 lignes en `small` logent ~200 caractères — pas de pagination,
+    # troncature à l'ellipse en tout dernier recours (FIELD_SHAPE l'annonce).
     if a_resultats:
-        ry = r_top + 0.26 + plan_zone + 0.14
-        D.add_text(slide, rcx, ry, rcw, 0.26,
-                   [("RÉSULTATS ATTENDUS", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
-        # size_max (adaptatif) + marge basse 0.10 : jamais de texte qui déborde
-        # sous le bord arrondi de la carte.
-        resultats_overflow = _add_bulleted_text(
-            slide, rcx, ry + 0.26, rcw, max(0.0, r_bottom - (ry + 0.26) - 0.10),
-            reco.resultats_attendus, size_max=D.TYPE["small"], paginate=True,
+        sy = top + band_h + 0.12
+        sw = w_in - 2 * MARGIN
+        D.add_rect(slide, MARGIN, sy, sw, strip_h, fill=D.ENCART_BG,
+                   rounded=True, radius=0.12)
+        D.add_rect(slide, MARGIN, sy, 0.06, strip_h, fill=accent, rounded=True, radius=0.5)
+        scx = MARGIN + pad + lis
+        scw = sw - 2 * pad - lis
+        res_txt = " — ".join(_bullet_lines(reco.resultats_attendus)) or "—"
+        D.add_text(
+            slide, scx, sy, scw, strip_h,
+            [("RÉSULTATS ATTENDUS", {"size": D.TYPE["tiny"], "bold": True,
+                                     "color": D.MUTED, "space_after": 2}),
+             # cpi PESSIMISTE (10.7) : à l'estimation nominale un texte limite
+             # (~180 car.) repassait à 3 lignes au vrai rendu et sortait du
+             # bandeau — hors du champ des vérificateurs (ancre MIDDLE).
+             (D.tronquer_a_lignes(res_txt, scw, D.TYPE["small"], 2, cpi_ref=10.7),
+              {"size": D.TYPE["small"], "color": D.INK})],
+            anchor=MSO_ANCHOR.MIDDLE,
         )
 
     base_title = f"{index} — {reco.title}"
-    if resultats_overflow:
-        _emit_bullet_overflow(prs, base_title, "Résultats attendus", resultats_overflow)
     if plan_overflow:
         _emit_bullet_overflow(prs, base_title, "Plan d'actions", plan_overflow)
 

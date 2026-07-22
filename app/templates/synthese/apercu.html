@@ -232,6 +232,7 @@
     <section class="tab-panel two-col" data-panel="executive-summary">
       <div class="deck-pane deck-pane-form">
         <form method="post" action="/missions/{{ mission.id }}/executive-summary/generate" class="swot-generate"
+          data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
           {% if executive_summary and executive_summary.has_content %}onsubmit="return confirm('Remplacer cet executive summary par une nouvelle génération IA ? Vos modifications manuelles seront perdues.');"{% endif %}>
           <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>
             {% if executive_summary and executive_summary.has_content %}🔄 Régénérer l'executive summary (IA){% else %}✨ Générer l'executive summary (IA){% endif %}
@@ -266,6 +267,7 @@
     <section class="tab-panel two-col" data-panel="difficultes">
       <div class="deck-pane deck-pane-form">
         <form method="post" action="/missions/{{ mission.id }}/difficultes/generate" class="swot-generate"
+          data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
           {% if difficulties %}onsubmit="return confirm('Remplacer la liste actuelle des difficultés par une nouvelle génération IA ? Les libellés et liens citation seront perdus.');"{% endif %}>
           <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>
             {% if difficulties %}🔄 Régénérer les difficultés (IA){% else %}✨ Générer les difficultés (IA){% endif %}
@@ -326,6 +328,7 @@
     <section class="tab-panel two-col" data-panel="swot">
       <div class="deck-pane deck-pane-form">
         <form method="post" action="/missions/{{ mission.id }}/swot/generate" class="swot-generate"
+          data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
           {% if swot and swot.has_content %}onsubmit="return confirm('Remplacer le contenu actuel des 4 quadrants SWOT par une nouvelle génération IA ? Vos modifications manuelles seront perdues.');"{% endif %}>
           <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>
             {% if swot and swot.has_content %}🔄 Régénérer la SWOT (IA){% else %}✨ Générer la SWOT (IA){% endif %}
@@ -514,24 +517,12 @@
                 </div>
                 <div>
                   <span class="ppt-field-label">Critères de priorisation</span>
-                  <div class="ppt-gauges">
-                    <div class="ppt-gauge-wrap">
-                      <div class="ppt-gauge" style="--gauge-frac: {{ (reco.valeur / 5)|round(3) }}; --gauge-color: var(--success-text);">
-                        <span class="ppt-gauge-value" id="preview-reco-valeur-{{ reco.id }}">{{ reco.valeur }}</span>
-                      </div>
-                      <span class="ppt-gauge-label">Valeur</span>
-                    </div>
-                    <div class="ppt-gauge-wrap">
-                      <div class="ppt-gauge" style="--gauge-frac: {{ (reco.complexite / 5)|round(3) }}; --gauge-color: var(--danger);">
-                        <span class="ppt-gauge-value" id="preview-reco-complexite-{{ reco.id }}">{{ reco.complexite }}</span>
-                      </div>
-                      <span class="ppt-gauge-label">Complexité</span>
-                    </div>
+                  {# Chips Valeur/Complexité — parité avec la fiche PPT (les jauges
+                     donut ont été remplacées par des chips, 2026-07-22). #}
+                  <div class="ppt-chips">
+                    <span class="ppt-chip" style="--chip-bg: var(--success-text);">Valeur <span id="preview-reco-valeur-{{ reco.id }}">{{ reco.valeur }}</span>/5</span>
+                    <span class="ppt-chip" style="--chip-bg: var(--danger);">Complexité <span id="preview-reco-complexite-{{ reco.id }}">{{ reco.complexite }}</span>/5</span>
                   </div>
-                </div>
-                <div>
-                  <span class="ppt-field-label">Résultats attendus</span>
-                  <ul class="ppt-bullets" id="preview-reco-resultats_attendus-{{ reco.id }}">{% for line in (reco.resultats_attendus or '').splitlines() if line.strip() %}<li>{{ line.strip().lstrip('-•').strip() }}</li>{% endfor %}</ul>
                 </div>
               </div>
               <div class="ppt-col-right">
@@ -544,6 +535,12 @@
                   <ul class="ppt-bullets" id="preview-reco-plan_actions-{{ reco.id }}">{% for line in (reco.plan_actions or '').splitlines() if line.strip() %}<li>{{ line.strip().lstrip('-•').strip() }}</li>{% endfor %}</ul>
                 </div>
               </div>
+            </div>
+            {# Bandeau bas pleine largeur — parité avec la fiche PPT (résultats
+               sortis de la colonne gauche vers un encart gris bas de slide). #}
+            <div class="ppt-strip">
+              <span class="ppt-field-label">Résultats attendus</span>
+              <p class="ppt-field-value" id="preview-reco-resultats_attendus-{{ reco.id }}">{{ ((reco.resultats_attendus or '').splitlines() | map('trim') | reject('equalto', '') | map('replace', '- ', '', 1) | join(' — ')) or '—' }}</p>
             </div>
           </div>
         </div>
@@ -574,10 +571,7 @@ function i2dLivePreview(el) {
 function i2dLiveScore(el) {
   var target = document.getElementById(el.dataset.previewTarget);
   if (!target) return;
-  var n = parseInt(el.value, 10) || 0;
-  target.textContent = n;
-  var gauge = target.closest('.ppt-gauge');
-  if (gauge) gauge.style.setProperty('--gauge-frac', n / 5);
+  target.textContent = parseInt(el.value, 10) || 0;
 }
 
 // Palier 2 — planche « Paroles d'acteurs » : affiche/masque la carte-citation

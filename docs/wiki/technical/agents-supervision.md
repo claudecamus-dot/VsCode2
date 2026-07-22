@@ -9,15 +9,15 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-22T16:35:43+02:00 · **32 sessions** (transcripts) · **75** invocations de skills · **45** lancements de sous-agents.
+Dernier scan : 2026-07-22T21:36:13+02:00 · **36 sessions** (transcripts) · **77** invocations de skills · **48** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
 | `run-dev-server` | projet | 20 | 2026-07-03 | 2026-07-22 |
+| `agent-orchestrator` | projet | 9 | 2026-07-17 | 2026-07-22 |
 | `agent-supervisor` | projet | 8 | 2026-07-18 | 2026-07-21 |
-| `agent-orchestrator` | projet | 7 | 2026-07-17 | 2026-07-21 |
 | `pptx-verify` | global | 6 | 2026-07-03 | 2026-07-22 |
 | `revue-increment` | projet | 6 | 2026-07-18 | 2026-07-22 |
 | `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
@@ -35,17 +35,17 @@ Dernier scan : 2026-07-22T16:35:43+02:00 · **32 sessions** (transcripts) · **7
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `Explore` | 19 | 2026-06-30 | 2026-07-21 |
-| `general-purpose` | 18 | 2026-07-15 | 2026-07-22 |
+| `Explore` | 20 | 2026-06-30 | 2026-07-22 |
+| `general-purpose` | 20 | 2026-07-15 | 2026-07-22 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
 | `claude-code-guide` | 1 | 2026-07-03 | 2026-07-03 |
 
 ## Jamais utilisés
 
-**projet** — 2/7 jamais invoqués :
+**projet** — 5/10 jamais invoqués :
 
-`pptx-framed-image`, `swot-matrix`
+`deck-design-library`, `deck-design-review`, `pptx-framed-image`, `priority-matrix`, `swot-matrix`
 
 **BMAD** — 38/39 jamais invoqués :
 
@@ -57,7 +57,7 @@ Dernier scan : 2026-07-22T16:35:43+02:00 · **32 sessions** (transcripts) · **7
 
 ## TODO agents (constats automatiques)
 
-1. **Skills projet sans usage** : `swot-matrix` — vérifier pertinence et déclencheurs.
+1. **Skills projet sans usage** : `deck-design-library`, `deck-design-review`, `priority-matrix`, `swot-matrix` — vérifier pertinence et déclencheurs.
 
 ## Arbitrages enregistrés
 

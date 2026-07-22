@@ -5,9 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}Interview-to-Deck{% endblock %}</title>
   <link rel="stylesheet" href="/static/app.css">
-  <script src="https://unpkg.com/htmx.org@2.0.3" defer></script>
+  {# htmx servi en LOCAL (2026-07-22) : chargé depuis unpkg, une coupure CDN/proxy
+     rendait silencieusement inertes TOUS les hx-* — autosave ET le bouton
+     « Régénérer (IA) » de la synthèse globale (hx-post, type=button : sans htmx,
+     un clic ne fait strictement rien). L'app est offline-first (Ollama/Whisper
+     locaux), son UI ne doit dépendre d'aucun réseau externe. #}
+  <script src="/static/htmx.min.js" defer></script>
   <script src="/static/tabs.js" defer></script>
   <script src="/static/autosave.js" defer></script>
+  <script src="/static/busy.js" defer></script>
 </head>
 <body>
   {% if request.cookies.get('mode') == 'demo' %}

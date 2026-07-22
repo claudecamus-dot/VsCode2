@@ -82,6 +82,14 @@ ci-dessus plutôt que d'en dupliquer la logique.
 
 ## 2. Vérification réelle (pytest vert ≠ livré)
 
+- [ ] **Rules R1-R4 du `CLAUDE.md` (§ « Rules — revue de code & couverture de tests »)
+      respectées sur CE diff** : chaque bug corrigé porte son test de régression dans le
+      même commit (R1) ; chaque comportement nouveau est exercé par un test (R2) ; une
+      revue de code a eu lieu avant commit — adversariale au-dessus du seuil, `/code-review`
+      ou relecture ligne à ligne dite explicitement en dessous (R3) ; chaque défaut visuel
+      deck corrigé est verrouillé par un invariant dans `test_deck_qualite.py` (R4).
+      Inscrites comme rules le 2026-07-22 (« il y a trop d'erreur ») — elles s'appliquent
+      au moment d'écrire le code, cette checklist ne fait que les re-vérifier.
 - [ ] `pytest -q` passe, et le compte de tests a **augmenté** si du comportement
       a été ajouté (sinon : pourquoi ?).
 - [ ] **Verdict lu sur la ligne de synthèse *réelle* de `pytest`** (`N passed`,

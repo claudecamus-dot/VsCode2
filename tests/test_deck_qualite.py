@@ -63,9 +63,23 @@ def _mission_complete() -> int:
             mission_id=m.id, status="generated", forces="- F", faiblesses="- Fa",
             opportunites="- O", menaces="- Me"))
         ax = RecommendationAxis(mission_id=m.id, title="Axe 1", position=0); db.add(ax); db.flush()
-        db.add(Recommendation(axis_id=ax.id, position=0, title="Reco 1", objectif="O",
-                              acteurs="A", valeur=5, complexite=2, proposition_valeur="P",
-                              plan_actions="- a", resultats_attendus="- r"))
+        # Volumes réalistes (pas « - a ») : le filet verifier_debordements_texte
+        # exécuté sur cette fixture doit stresser de VRAIES hauteurs de texte
+        # (revue adversariale — une fixture quasi vide ne vérifiait rien).
+        db.add(Recommendation(
+            axis_id=ax.id, position=0,
+            title="Mettre en place une instance de gouvernance data décisionnelle",
+            objectif="Créer un mécanisme régulier et légitime pour arbitrer les "
+                     "priorités et valider les règles communes de gestion.",
+            acteurs="CDO, DSI, représentants métiers",
+            valeur=5, complexite=2,
+            proposition_valeur="Réduire les délais de décision et concentrer les "
+                               "capacités sur les cas d'usage les plus porteurs.",
+            plan_actions="- Définir le mandat et les droits de décision\n"
+                         "- Nommer les membres permanents\n"
+                         "- Organiser un comité mensuel et publier les décisions",
+            resultats_attendus="- Priorités partagées, diminution des escalades et "
+                               "meilleure allocation des ressources data."))
         db.commit()
         return m.id
     finally:
@@ -186,6 +200,207 @@ def test_design_matrice_dessinee_pas_de_scatter_excel() -> None:
     assert "1.1" in textes, "bulle de reco absente de la matrice"
 
 
+def test_design_legende_matrice_porte_toutes_les_recos() -> None:
+    """La légende encadrée de la matrice liste TOUTES les recos (shrink-to-fit :
+    réduire la taille plutôt que droper). À taille fixe, l'estimation pessimiste
+    des hauteurs s'accumulait sur 8 items à intitulés longs et la dernière reco
+    (« 4.2 ») sautait silencieusement de la légende (vu au rendu réel 2026-07-22
+    — sa bulle restait pourtant sur la matrice)."""
+    titres_longs = [
+        "Mettre en place une instance de gouvernance data décisionnelle",
+        "Formaliser l'ownership des domaines et actifs de données",
+        "Structurer un portefeuille data unique et priorisé",
+        "Généraliser les squads mixtes sur les cas d'usage prioritaires",
+        "Relancer le catalogue comme produit opérationnel",
+        "Déployer un socle de self-service gouverné",
+        "Lancer un programme ciblé de data literacy et de culture produit",
+        "Intégrer la donnée aux rituels de pilotage métier",
+    ]
+    db = SessionLocal()
+    try:
+        m = Mission(name="Audit qualité — Légende matrice")
+        db.add(m); db.flush()
+        for i in range(4):
+            ax = RecommendationAxis(mission_id=m.id, title=f"Axe {i + 1}", position=i)
+            db.add(ax); db.flush()
+            for j in range(2):
+                db.add(Recommendation(
+                    axis_id=ax.id, position=j, title=titres_longs[i * 2 + j],
+                    valeur=5 - i, complexite=1 + i))
+        db.commit()
+        prs = build_presentation(db.get(Mission, m.id))
+    finally:
+        db.close()
+    matrice = next((s for s in prs.slides if "Matrice de priorisation" in _slide_titre(s)), None)
+    assert matrice is not None
+    textes = " ".join(sh.text_frame.text for sh in matrice.shapes if sh.has_text_frame)
+    for i in range(1, 5):
+        for j in range(1, 3):
+            idx = f"{i}.{j}"
+            # L'index seul est la bulle ; « i.j  Intitulé » est l'item de légende.
+            assert f"{idx}  {titres_longs[(i - 1) * 2 + (j - 1)][:20]}" in textes, (
+                f"reco {idx} absente de la légende de la matrice (dropée)"
+            )
+
+
+def test_design_legende_matrice_jamais_droper_meme_sur_titres_extremes() -> None:
+    """Régression (revue adversariale 2026-07-22) : l'ancienne boucle shrink
+    `while t_leg > 7.5` sortait SANS avoir évalué le plancher 7.5 pt — sur des
+    titres extrêmes le garde-fou du rendu dropait alors les dernières recos en
+    silence, exactement le contrat que la légende prétend tenir. La cascade
+    corrigée finit à 1 ligne/item tronquée : titre coupé, reco JAMAIS absente.
+    12 recos à titres très longs : à 2 lignes/item RIEN ne tient même à 7.5 pt
+    (l'ancien code dropait ~4 items) — seul le cran 1 ligne/item les loge toutes."""
+    queue = " des données puis de l'organisation cible sur l'ensemble du périmètre" * 3
+    db = SessionLocal()
+    try:
+        m = Mission(name="Audit qualité — Légende extrême")
+        db.add(m); db.flush()
+        for i in range(4):
+            ax = RecommendationAxis(mission_id=m.id, title=f"Axe {i + 1}", position=i)
+            db.add(ax); db.flush()
+            for j in range(3):
+                db.add(Recommendation(
+                    axis_id=ax.id, position=j,
+                    title=f"Chantier{i + 1}{j + 1}{queue}",
+                    valeur=5 - i, complexite=1 + i))
+        db.commit()
+        prs = build_presentation(db.get(Mission, m.id))
+    finally:
+        db.close()
+    matrice = next((s for s in prs.slides if "Matrice de priorisation" in _slide_titre(s)), None)
+    assert matrice is not None
+    textes = " ".join(sh.text_frame.text for sh in matrice.shapes if sh.has_text_frame)
+    for i in range(1, 5):
+        for j in range(1, 4):
+            assert f"{i}.{j}  Chantier{i}{j}" in textes, (
+                f"reco {i}.{j} dropée de la légende sur titres extrêmes"
+            )
+
+
+def test_verifier_debordements_estime_au_plus_grand_run() -> None:
+    """Régression (revue adversariale 2026-07-22) : le vérificateur prenait la
+    taille du PREMIER run stylé — un préfixe 8 pt devant un corps 16 pt faisait
+    estimer tout le paragraphe à 8 pt (faux négatif, contraire au contrat
+    pessimiste). Le paragraphe mixte ci-dessous tient à 8 pt mais pas à 16 :
+    il DOIT être signalé."""
+    from pptx import Presentation
+    from pptx.enum.text import MSO_AUTO_SIZE
+    from pptx.util import Inches, Pt
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(0.3))
+    tf = box.text_frame
+    tf.word_wrap = True
+    tf.auto_size = MSO_AUTO_SIZE.NONE
+    p = tf.paragraphs[0]
+    r1 = p.add_run(); r1.text = "1.1  "; r1.font.size = Pt(8)
+    r2 = p.add_run()
+    r2.text = "Un corps de texte volontairement long pour la calibration mixte."
+    r2.font.size = Pt(16)
+    problemes = D.verifier_debordements_texte(prs)
+    assert problemes, (
+        "paragraphe mixte estimé au 1er run (8 pt) — le débordement réel à 16 pt "
+        "n'est pas détecté"
+    )
+
+
+def test_fiche_reco_pas_de_bandeau_pour_resultats_reduits_a_des_puces_vides() -> None:
+    """Régression (revue adversariale 2026-07-22) : `resultats_attendus` réduit à
+    des marqueurs de puce vides (« - ») réservait ET dessinait un bandeau
+    « RÉSULTATS ATTENDUS — » vide de 0.72in, amputant d'autant les cartes. Le
+    prédicat suit désormais le contenu réellement rendu (_bullet_lines)."""
+    db = SessionLocal()
+    try:
+        m = Mission(name="Audit qualité — Bandeau vide")
+        db.add(m); db.flush()
+        ax = RecommendationAxis(mission_id=m.id, title="Axe 1", position=0)
+        db.add(ax); db.flush()
+        db.add(Recommendation(
+            axis_id=ax.id, position=0, title="Reco sans résultats réels",
+            objectif="O", acteurs="A", valeur=3, complexite=3,
+            proposition_valeur="P", plan_actions="- a",
+            resultats_attendus="- \n- "))
+        db.commit()
+        prs = build_presentation(db.get(Mission, m.id))
+    finally:
+        db.close()
+    fiche = next((s for s in prs.slides if _slide_titre(s).startswith("1.1")), None)
+    assert fiche is not None
+    textes = " ".join(sh.text_frame.text for sh in fiche.shapes if sh.has_text_frame)
+    assert "RÉSULTATS ATTENDUS" not in textes, (
+        "bandeau résultats dessiné alors que le contenu se réduit à des puces vides"
+    )
+
+
+def test_emit_bullet_overflow_termine_sur_puce_insecable_geante() -> None:
+    """Régression (revue adversariale 2026-07-22, boucle infinie PROUVÉE : 1726
+    slides en 15 s) : une puce SANS retour à la ligne plus haute qu'une slide de
+    suite entière revenait intégralement en overflow à chaque itération — export
+    pendu, mémoire non bornée. La garde de progression coupe : une seule slide de
+    suite, contenu tronqué à l'ellipse. Sur l'ancien code ce test ne terminait
+    pas (vérifié par le script de preuve de la revue, pas rejoué ici)."""
+    db = SessionLocal()
+    try:
+        m = Mission(name="Audit qualité — Puce géante")
+        db.add(m); db.flush()
+        ax = RecommendationAxis(mission_id=m.id, title="Axe 1", position=0)
+        db.add(ax); db.flush()
+        db.add(Recommendation(
+            axis_id=ax.id, position=0, title="Reco au plan insécable",
+            objectif="O", acteurs="A", valeur=3, complexite=3,
+            proposition_valeur="P",
+            plan_actions="Une action unique interminable " * 120,  # ~3 700 car., aucun \n
+            resultats_attendus="- r"))
+        db.commit()
+        prs = build_presentation(db.get(Mission, m.id))
+    finally:
+        db.close()
+    suites = [s for s in prs.slides if "(suite" in _slide_titre(s)]
+    assert len(suites) <= 2, (
+        f"{len(suites)} slides de suite pour UNE puce insécable — la garde de "
+        "progression de _emit_bullet_overflow ne coupe plus"
+    )
+
+
+def test_fiche_reco_realiste_sans_slide_de_suite() -> None:
+    """R4 sur le correctif principal de la refonte fiche (revue adversariale) :
+    la motivation « plus de slide de suite systématique » (25 slides au lieu de
+    33) doit être un invariant testé — une fiche à volumes RÉALISTES (objectif
+    3 lignes, 4 puces de plan, résultats ~150 car.) tient sur UNE slide."""
+    db = SessionLocal()
+    try:
+        m = Mission(name="Audit qualité — Fiche réaliste")
+        db.add(m); db.flush()
+        ax = RecommendationAxis(mission_id=m.id, title="Axe 1", position=0)
+        db.add(ax); db.flush()
+        db.add(Recommendation(
+            axis_id=ax.id, position=0,
+            title="Mettre en place une instance de gouvernance data décisionnelle",
+            objectif="Créer un mécanisme régulier et légitime pour arbitrer les "
+                     "priorités, valider les règles communes et rendre les décisions "
+                     "data visibles de tous.",
+            acteurs="CDO, DSI, représentants métiers et data office",
+            valeur=5, complexite=3,
+            proposition_valeur="Réduire les délais de décision, rendre les arbitrages "
+                               "transparents et concentrer les capacités sur les cas "
+                               "d'usage les plus porteurs.",
+            plan_actions="- Définir le mandat et les droits de décision\n"
+                         "- Nommer les membres permanents\n"
+                         "- Établir des critères communs de valeur, risque et effort\n"
+                         "- Organiser un comité mensuel et publier les décisions",
+            resultats_attendus="- Priorités partagées, diminution des escalades au "
+                               "COMEX, meilleure allocation des ressources et "
+                               "visibilité accrue sur le portefeuille data."))
+        db.commit()
+        prs = build_presentation(db.get(Mission, m.id))
+    finally:
+        db.close()
+    suites = [s for s in prs.slides if "(suite" in _slide_titre(s)]
+    assert suites == [], "une fiche à volumes réalistes repart en slide de suite"
+
+
 def test_design_swot_matrice_axes_explicites() -> None:
     """La SWOT reste une MATRICE (skill swot-matrix) : axes Interne/Externe ×
     Favorable/Défavorable présents — pas quatre cartes flottantes."""
@@ -226,6 +441,17 @@ def test_design_titres_a_l_echelle() -> None:
                     assert r.font.size == Pt(D.TYPE["title"]), (
                         f"titre hors échelle sur « {_slide_titre(s)} » : {r.font.size}"
                     )
+
+
+def test_design_le_texte_tient_dans_sa_boite() -> None:
+    """Filet « texte hors cadre » (demande utilisateur 2026-07-22, revue de la
+    couverture : le défaut visuel récurrent — texte qui peint par-dessus le bord
+    d'une carte — n'était couvert par AUCUN test ; verifier_geometrie ne voit que
+    les bords des formes). verifier_debordements_texte estime le contenu de
+    chaque zone dessinée avec une calibration PESSIMISTE et doit rester à zéro."""
+    prs = _prs_complete()
+    problemes = D.verifier_debordements_texte(prs)
+    assert problemes == [], "texte dépassant sa boîte détecté :\n" + "\n".join(problemes)
 
 
 def test_design_cache_image_proc_ne_bloque_pas_la_photo(tmp_path, monkeypatch) -> None:

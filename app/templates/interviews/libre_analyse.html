@@ -21,7 +21,8 @@
     <a class="btn" href="/interviews/{{ interview.id }}/export/markdown">⬇️ Télécharger (.md)</a>
     <a class="btn" href="/interviews/{{ interview.id }}/export/pdf">⬇️ Télécharger (PDF)</a>
     <button class="btn" type="button" onclick="window.print()">🖨️ Imprimer</button>
-    <form method="post" action="/interviews/{{ interview.id }}/analyse/regenerer" style="display:inline">
+    <form method="post" action="/interviews/{{ interview.id }}/analyse/regenerer" style="display:inline"
+      data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)">
       <button class="btn" type="submit" title="Relance l'IA sur les tours de parole actuels — passe par un écran de revue avant de remplacer">🔄 Régénérer l'analyse (IA)</button>
     </form>
   </div>

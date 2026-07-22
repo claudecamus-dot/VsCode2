@@ -42,7 +42,9 @@
         {% if axes %}<span class="badge badge-synth-generated">✓ {{ axes|length }} axe(s)</span>{% endif %}
       </div>
       {% set can_generate = ai_ready and global_synthesis and global_synthesis.has_content %}
-      <form method="post" action="/missions/{{ mission.id }}/recommandations/generate" class="reco-generate">
+      <form method="post" action="/missions/{{ mission.id }}/recommandations/generate" class="reco-generate"
+        data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
+        {% if axes %}onsubmit="return confirm('Remplacer les {{ axes|length }} axe(s) de recommandation actuel(s) par une nouvelle génération IA ? Le contenu actuel (y compris vos modifications manuelles) sera perdu.');"{% endif %}>
         <button class="btn btn-primary" type="submit"
           {% if not can_generate %}disabled title="{% if not ai_ready %}Service IA indisponible — définissez {{ api_key_env }}{% else %}Nécessite la synthèse globale ci-dessus (déjà générée ou éditée){% endif %}"{% endif %}>
           {{ '✨ Générer (IA)' if not axes else '↻ Régénérer (IA)' }}
