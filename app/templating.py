@@ -24,3 +24,21 @@ templates.env.globals["SYNTHESIS_STATUS_LABELS"] = SYNTHESIS_STATUS_LABELS
 # n'était calculé que côté route POST /field), invisible tant qu'on relit
 # sans modifier (revue UX du 2026-07-16).
 templates.env.globals["field_fit_hint"] = field_fit_hint
+
+
+def _pluriel(count, suffixe: str = "s") -> str:
+    """Filtre d'accord : « 2 thème{{ n|pluriel }} » → « 2 thèmes », « 1 thème ».
+
+    Remplace les « (s) » littéraux des compteurs (« 1 recommandation(s) »),
+    peu soignés pour un outil montré en clientèle (revue UX 2026-07-23 P2-13).
+    """
+    try:
+        # float d'abord : accepte "3" comme "3.0" (revue adversariale 2026-07-23 —
+        # int("3.0") lève ValueError et rendait silencieusement le singulier).
+        n = int(float(count))
+    except (TypeError, ValueError):
+        return ""
+    return suffixe if n > 1 else ""
+
+
+templates.env.filters["pluriel"] = _pluriel

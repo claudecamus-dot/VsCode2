@@ -26,7 +26,8 @@
 </form>
 {% endif %}
 
-<form method="post" action="/missions/{{ mission.id }}/interviews/record-libre/synthese" class="card form">
+<form method="post" action="/missions/{{ mission.id }}/interviews/record-libre/synthese" class="card form"
+      data-busy-label="Génération de la synthèse en cours…">
   <input type="hidden" name="audio_backup_path" value="{{ identity.audio_backup_path or '' }}">
   <input type="hidden" name="audio_segments" value="{{ identity.audio_segments or '[]' }}">
   <input type="hidden" name="transcript" value="{{ transcript or '' }}">

@@ -41,16 +41,22 @@
     <h2>Trame d'entretien</h2>
     <a class="btn btn-primary" href="/missions/{{ mission.id }}/trame">Éditer la trame</a>
   </div>
-  <p class="muted">{{ theme_count }} thème(s) · {{ question_count }} question(s)</p>
+  <p class="muted">{{ theme_count }} thème{{ theme_count|pluriel }} · {{ question_count }} question{{ question_count|pluriel }}</p>
 </div>
 {% endif %}
 
 <div class="card">
   <div class="card-head">
     <h2>Entretiens</h2>
-    {% if mission.trame and theme_count > 0 %}
-    <a class="btn btn-primary" href="/missions/{{ mission.id }}/interviews/new">+ Nouvel entretien</a>
-    {% endif %}
+    <div class="card-head-actions">
+      {# L'entretien libre n'a pas besoin de trame — toujours proposé (revue UX
+         2026-07-23 P1-1 : c'était le seul mode inatteignable depuis une mission
+         existante, « finaliser » excluant les missions ayant déjà une trame). #}
+      <a class="btn" href="/missions/{{ mission.id }}/interviews/record-libre">+ Entretien libre</a>
+      {% if mission.trame and theme_count > 0 %}
+      <a class="btn btn-primary" href="/missions/{{ mission.id }}/interviews/new">+ Entretien structuré</a>
+      {% endif %}
+    </div>
   </div>
   {% if mission.interviews %}
     <table class="table">
@@ -67,9 +73,14 @@
             {% if iv.mode == 'libre' %}<span class="pill">Libre</span>{% endif %}
           </td>
           <td>{{ iv.interview_date.strftime('%d/%m/%Y') if iv.interview_date else '—' }}</td>
-          <td>{% if iv.mode == 'libre' %}{{ iv.turns | length }} tour(s){% else %}{{ done }}/{{ question_count }}{% endif %}</td>
+          <td>{% if iv.mode == 'libre' %}{{ iv.turns | length }} tour{{ iv.turns|length|pluriel }}{% else %}{{ done }}/{{ question_count }}{% endif %}</td>
           <td><span class="pill pill-{{ iv.status }}">{{ 'Terminé' if iv.status == 'done' else 'Brouillon' }}</span></td>
           <td class="row-actions">
+            {# Pattern « Reprendre » déjà en place sur les missions brouillon de la
+               liste — décliné ici au niveau entretien (revue UX 2026-07-23 P2-11). #}
+            {% if iv.status != 'done' %}
+            <a class="btn-link" href="/interviews/{{ iv.id }}">Continuer la saisie</a>
+            {% endif %}
             <form method="post" action="/interviews/{{ iv.id }}/delete"
                   onsubmit="return confirm('Supprimer cet entretien ?');">
               <button class="btn btn-danger btn-sm" type="submit">Supprimer</button>
@@ -80,9 +91,9 @@
       </tbody>
     </table>
   {% elif mission.trame and theme_count == 0 %}
-    <p class="muted">Définis d'abord la trame pour pouvoir saisir des entretiens.</p>
+    <p class="muted">Définis la trame pour les entretiens structurés — ou démarre directement un entretien libre.</p>
   {% else %}
-    <p class="muted">Aucun entretien pour le moment — commence par en enregistrer un.</p>
+    <p class="muted">Aucun entretien pour le moment — commence par en créer un.</p>
   {% endif %}
 </div>
 

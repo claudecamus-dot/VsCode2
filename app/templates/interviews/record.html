@@ -35,7 +35,8 @@
 </form>
 {% endif %}
 
-<form method="post" action="/missions/{{ mission.id }}/interviews/record" class="card form" id="record-form">
+<form method="post" action="/missions/{{ mission.id }}/interviews/record" class="card form" id="record-form"
+      data-busy-label="Extraction des réponses en cours…">
   <input type="hidden" name="transcript" id="rec-transcript-hidden" value="{{ identity.transcript if identity else '' }}">
   <input type="hidden" name="audio_backup_path" id="rec-backup-path" value="{{ identity.audio_backup_path if identity else '' }}">
 

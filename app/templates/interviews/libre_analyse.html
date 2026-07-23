@@ -62,15 +62,9 @@
   </section>
   {% endfor %}
 
-  <div class="notice notice-info">
-    <p>
-      La répartition ci-dessous montre l'apport <strong>de ce seul entretien</strong> aux 5 catégories
-      transverses — ce n'est pas une synthèse à elle seule. Elle sera combinée à celle
-      des autres entretiens dans la
-      <a href="/missions/{{ mission.id }}/synthese/globale">synthèse globale de la mission</a>.
-    </p>
-  </div>
-
+  {# Le callout bleu qui précédait l'encadré ambre est fusionné dans le sous-titre
+     de section (revue UX 2026-07-23 P3-21 : deux blocs colorés empilés, à-coup
+     chromatique unique dans l'app — même info, dite une seule fois plus bas). #}
   {% if interview.resume %}
   <section class="preview-resume">
     <p class="preview-resume-kicker">Message central — cet entretien</p>
@@ -80,7 +74,9 @@
 
   <h2 class="preview-group-title">Répartition par catégorie</h2>
   <p class="muted preview-group-sub">
-    Ce que <strong>cet entretien seul</strong> apporte à chacune des 5 catégories transverses.
+    Ce que <strong>cet entretien seul</strong> apporte à chacune des 5 catégories transverses —
+    cette répartition sera combinée à celle des autres entretiens dans la
+    <a href="/missions/{{ mission.id }}/synthese/globale">synthèse globale de la mission</a>.
   </p>
 
   <section class="preview-theme">

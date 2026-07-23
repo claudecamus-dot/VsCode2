@@ -58,7 +58,10 @@
 <section class="card">
   <div class="card-head"><h2>Définition des slides</h2></div>
   <p class="muted">Choisis ce qui doit figurer dans l'export — tout est coché par défaut.</p>
-  <form method="get" action="/missions/{{ mission.id }}/export/pptx" class="pptx-config">
+  {# data-busy-release : l'export télécharge un fichier sans quitter la page —
+     le bouton se libère seul une fois le deck vraisemblablement servi. #}
+  <form method="get" action="/missions/{{ mission.id }}/export/pptx" class="pptx-config" id="pptx-config-form"
+        data-busy-label="⏳ Génération du deck en cours…" data-busy-release="8000">
     <input type="hidden" name="config_submitted" value="1">
     <div class="pptx-config-grid">
       <label class="pptx-check"><input type="checkbox" name="sommaire" value="true" checked> Sommaire</label>
@@ -368,8 +371,8 @@
     {% set selected_ids = mission.selected_verbatims | map(attribute='id') | list %}
     <section class="tab-panel two-col" data-panel="verbatims">
       <div class="deck-pane deck-pane-form">
-        <p class="muted">Coche les citations à faire figurer sur la planche « Paroles d'acteurs » du deck (2 à 4 recommandées).</p>
-        <p><span class="saved" id="verbatims-count">✓ {{ selected_ids|length }} citation(s) retenue(s) pour la planche</span></p>
+        <p class="muted">Coche les verbatims à faire figurer sur la slide « Paroles d'acteurs » du deck (2 à 4 recommandés).</p>
+        <p><span class="saved" id="verbatims-count">✓ {{ selected_ids|length }} verbatim{{ selected_ids|length|pluriel }} retenu{{ selected_ids|length|pluriel }} pour la slide</span></p>
         <ul class="verbatim-picker">
           {% for v in mission.all_verbatims %}
           <li class="verbatim-item">
@@ -396,7 +399,7 @@
               <p>« {{ v.quote }} »</p>
             </blockquote>
             {% endfor %}
-            <p class="muted verbatim-board-empty"{% if selected_ids %} hidden{% endif %}>Aucune citation retenue — coche des verbatims à gauche.</p>
+            <p class="muted verbatim-board-empty"{% if selected_ids %} hidden{% endif %}>Aucun verbatim retenu — coche des verbatims à gauche.</p>
           </div>
         </div>
       </div>
@@ -428,7 +431,7 @@
             <span class="ppt-axis-num">#{{ loop.index }}</span>
             <div>
               <strong id="preview-axis-title-{{ axis.id }}">{{ axis.title }}</strong>
-              <p class="muted">{{ axis.recommendations|length }} recommandation(s)</p>
+              <p class="muted">{{ axis.recommendations|length }} recommandation{{ axis.recommendations|length|pluriel }}</p>
             </div>
           </div>
           {% endfor %}
@@ -550,6 +553,14 @@
     {% endif %}
 
   </div>
+</div>
+
+{# Second déclencheur d'export en bas de la zone d'édition : après avoir ajusté
+   les slides, plus besoin de remonter en haut de page (revue UX 2026-07-23
+   P3-17). L'attribut form= soumet le MÊME formulaire de configuration. #}
+<div class="card synth-actions">
+  <button class="btn btn-primary" type="submit" form="pptx-config-form">📊 Exporter en PPT</button>
+  <span class="muted">Exporte avec les slides cochées dans « Définition des slides » en haut de page.</span>
 </div>
 
 <script>

@@ -9,10 +9,16 @@
 <div class="page-head">
   <h1>{{ interview.interviewee_name }} <span class="muted">— entretien libre</span></h1>
   <div class="head-actions">
-    <a class="btn btn-primary" href="/interviews/{{ interview.id }}/analyse">👁️ Aperçu</a>
-    <a class="btn" href="/interviews/{{ interview.id }}/export/transcription/pdf">⬇️ Transcription (PDF)</a>
-    <a class="btn" href="/interviews/{{ interview.id }}/export/markdown">⬇️ Markdown (.md)</a>
-    <a class="btn" href="/interviews/{{ interview.id }}/export/pdf">⬇️ Export complet (PDF)</a>
+    {# Libellés « Télécharger (…) » alignés sur preview.html (revue UX 2026-07-23
+       P2-12) ; retour mission en tête, comme « Terminer » côté structuré (P2-9). #}
+    <a class="btn" href="/missions/{{ mission.id }}">← Mission</a>
+    {# Submit épinglé en tête (P2-9 : l'asymétrie visée était le « Terminer »
+       épinglé du mode structuré — un simple lien retour ne suffisait pas). #}
+    <button class="btn btn-primary" type="submit" form="libre-detail-form">Enregistrer les modifications</button>
+    <a class="btn" href="/interviews/{{ interview.id }}/analyse">👁️ Aperçu</a>
+    <a class="btn" href="/interviews/{{ interview.id }}/export/transcription/pdf">⬇️ Télécharger la transcription (PDF)</a>
+    <a class="btn" href="/interviews/{{ interview.id }}/export/markdown">⬇️ Télécharger (.md)</a>
+    <a class="btn" href="/interviews/{{ interview.id }}/export/pdf">⬇️ Télécharger (PDF)</a>
     <form method="post" action="/interviews/{{ interview.id }}/delete"
           onsubmit="return confirm('Supprimer cet entretien ?');">
       <button class="btn btn-danger btn-sm" type="submit">Supprimer</button>
@@ -59,7 +65,7 @@
 </div>
 {% endif %}
 
-<form method="post" action="/interviews/{{ interview.id }}/libre" class="card form">
+<form method="post" action="/interviews/{{ interview.id }}/libre" class="card form" id="libre-detail-form">
   <section class="card">
     <h2>Tours de parole</h2>
     {% if not turns %}

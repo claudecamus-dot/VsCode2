@@ -44,6 +44,7 @@
   var barEl = document.getElementById('seg-bar');
   var form = document.getElementById('finalize-form');
   var submitted = false;
+  var failedPolls = 0;
 
   function finalize() {
     if (submitted) return;
@@ -54,13 +55,24 @@
 
   function poll() {
     fetch('/interviews/segment-jobs/status?session_token=' + encodeURIComponent(token))
-      .then(function (res) { return res.json(); })
+      .then(function (res) {
+        // Un 5xx n'est pas une « connexion perdue » — le distinguer via le catch
+        // commun avec un message qui couvre les deux (revue adversariale 2026-07-23).
+        if (!res.ok) throw new Error('http ' + res.status);
+        return res.json();
+      })
       .then(function (s) {
+        failedPolls = 0;
+        progressEl.classList.remove('error');
         if (s.total > 0) {
           barEl.max = s.total;
           barEl.value = s.done;
           progressEl.textContent =
             'Traitement des tranches… ' + s.done + '/' + s.total + ' terminées.';
+        } else {
+          // total == 0 (jobs consommés ailleurs) : ne pas laisser un ancien
+          // message d'erreur affiché alors que le poll répond de nouveau.
+          progressEl.textContent = 'Traitement des tranches…';
         }
         // Toutes terminées, ou un job en échec (on retombe alors sur le
         // traitement synchrone complet, géré côté serveur) : on finalise.
@@ -71,7 +83,16 @@
         }
       })
       .catch(function () {
-        // Erreur réseau ponctuelle : on réessaie sans casser l'attente.
+        // Erreur réseau OU réponse serveur en erreur : on réessaie sans casser
+        // l'attente, mais on le DIT — avant, la progression restait figée sans
+        // indiquer si le suivi était encore actif (revue UX 2026-07-23 P3-24).
+        failedPolls += 1;
+        if (failedPolls >= 2) {
+          progressEl.classList.add('error');
+          progressEl.textContent =
+            'Le suivi ne répond plus — nouvelle tentative dans 5 s… ' +
+            '(l\'attente reprendra toute seule, ne recharge pas la page)';
+        }
         setTimeout(poll, 5000);
       });
   }

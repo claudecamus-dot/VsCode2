@@ -503,7 +503,7 @@ def set_difficulty_verbatim(
         vid = candidate
     d.verbatim_id = vid
     db.commit()
-    return HTMLResponse('<span class="saved">✓ citation liée</span>')
+    return HTMLResponse('<span class="saved">✓ verbatim lié</span>')
 
 
 @router.post("/executive-summary/{mission_id}/field")
@@ -552,7 +552,11 @@ def toggle_verbatim_selection(
     # Réassignation (pas de mutation in-place) pour que SQLAlchemy voie le JSON changé.
     mission.restitution_verbatim_ids = current
     db.commit()
+    # Même wording que le rendu initial d'apercu.html (revue adversariale
+    # 2026-07-23 : le fragment serveur réintroduisait « citation(s) … planche »
+    # au premier clic, annulant le fix template P2-12/P2-13).
+    s = "s" if len(current) > 1 else ""
     return HTMLResponse(
         f'<span class="saved" id="verbatims-count" hx-swap-oob="true">'
-        f'✓ {len(current)} citation(s) retenue(s) pour la planche</span>'
+        f'✓ {len(current)} verbatim{s} retenu{s} pour la slide</span>'
     )

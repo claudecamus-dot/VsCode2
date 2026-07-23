@@ -33,7 +33,7 @@
 
 <form method="post" action="/missions/{{ mission.id }}/recommandations/generate" class="reco-generate"
   data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
-  {% if axes %}onsubmit="return confirm('Remplacer les {{ axes|length }} axe(s) de recommandation actuel(s) par une nouvelle génération IA ? Le contenu actuel (y compris vos modifications manuelles) sera perdu.');"{% endif %}>
+  {% if axes %}onsubmit="return confirm('Remplacer {{ 'les ' ~ axes|length ~ ' axes de recommandation actuels' if axes|length > 1 else 'l’axe de recommandation actuel' }} par une nouvelle génération IA ? Le contenu actuel (y compris vos modifications manuelles) sera perdu.');"{% endif %}>
   {% set can_generate = ai_ready and global_synthesis and global_synthesis.has_content %}
   <button class="btn btn-primary" type="submit"
     {% if not can_generate %}disabled title="{% if not ai_ready %}Service IA indisponible — définissez {{ api_key_env }}{% else %}Nécessite une synthèse globale déjà générée{% endif %}"{% endif %}>
@@ -49,13 +49,13 @@
 {% else %}
 <section class="card reco-summary">
   <div class="card-head"><h2>Synthèse</h2></div>
-  <p class="muted">Les {{ axes|length }} axe(s) transverses (piliers) qui structurent les recommandations :</p>
+  <p class="muted">{{ 'Les ' ~ axes|length ~ ' axes transverses (piliers)' if axes|length > 1 else "L'axe transverse (pilier)" }} qui structure{{ 'nt' if axes|length > 1 else '' }} les recommandations :</p>
   {% for axis in axes %}
   <div class="reco-axis-row">
     <span class="axis-num">#{{ loop.index }}</span>
     <div>
       <strong>{{ axis.title }}</strong>
-      <p class="muted">{{ axis.recommendations|length }} recommandation(s)</p>
+      <p class="muted">{{ axis.recommendations|length }} recommandation{{ axis.recommendations|length|pluriel }}</p>
     </div>
   </div>
   {% endfor %}

@@ -17,7 +17,8 @@
 {% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
 
 <form method="post" enctype="multipart/form-data"
-      action="/missions/{{ mission.id }}/interviews/import" class="card form">
+      action="/missions/{{ mission.id }}/interviews/import" class="card form"
+      data-busy-label="Analyse du document en cours…">
   <label>
     Fichier .docx
     <input type="file" name="file" accept=".docx" required style="margin-top:6px;">

@@ -28,7 +28,24 @@
 
   function showError(evt, message) {
     var target = evt.detail.target;
-    if (!target || !target.classList || !target.classList.contains("saved")) return;
+    if (!target || !target.classList) return;
+    // Cible .status-ind (autosave des réponses de capture — revue UX 2026-07-23
+    // P1-2 : l'échec y était totalement invisible) : le span porte le badge de
+    // statut ET l'horodatage « enr. HH:MM » (lui aussi en .saved) — l'erreur
+    // s'affiche dans un enfant DÉDIÉ .autosave-err pour n'écraser ni l'un ni
+    // l'autre (revue adversariale 2026-07-23 : réutiliser .saved détruisait
+    // l'horodatage). Le slot est balayé au prochain swap réussi du badge.
+    if (target.classList.contains("status-ind")) {
+      var slot = target.querySelector(".autosave-err");
+      if (!slot) {
+        slot = document.createElement("span");
+        slot.className = "saved autosave-err";
+        target.appendChild(slot);
+      }
+      target = slot;
+    } else if (!target.classList.contains("saved")) {
+      return;
+    }
     var existing = timers.get(target);
     if (existing) clearTimeout(existing);
     target.textContent = message;

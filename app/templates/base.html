@@ -21,7 +21,14 @@
   {% endif %}
   <header class="topbar">
     <a class="brand" href="/">Interview&#8209;to&#8209;Deck</a>
-    <nav><a href="/demarrer">Démarrer</a> <a href="/missions">Missions</a></nav>
+    {# Section courante surlignée (revue UX 2026-07-23 P2-8) : Démarrer sur ses
+       deux écrans d'entrée, Missions sur tout le reste de l'app (missions,
+       entretiens, synthèse — tout vit sous une mission). #}
+    {% set _p = request.url.path %}
+    <nav>
+      <a href="/demarrer" {% if _p == '/' or _p == '/demarrer' %}class="active"{% endif %}>Démarrer</a>
+      <a href="/missions" {% if _p != '/' and _p != '/demarrer' %}class="active"{% endif %}>Missions</a>
+    </nav>
   </header>
   <main class="container">
     {% block content %}{% endblock %}

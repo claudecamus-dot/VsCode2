@@ -126,6 +126,80 @@ def test_forms_generation_portent_busy_label(client: TestClient) -> None:
     assert "data-busy-label=" in analyse, "form régénérer de libre_analyse.html sans busy-label"
 
 
+def test_forms_extraction_ia_portent_busy_label(client: TestClient) -> None:
+    """Revue UX 2026-07-23 (P1-3) : les extractions IA hors synthèse — les POST les
+    PLUS longs de l'app, ceux-là même qui ont motivé busy.js — n'avaient aucun état
+    busy. Liste EXPLICITE des couples (template, action) vérifiée contre les
+    appelants réels d'extract_*/generate_* dans app/routers (l'inventaire
+    automatique par route n'est pas faisable en test de template : l'action est
+    une URL, pas un nom de fonction). À tenir à jour : tout NOUVEAU form qui
+    poste vers une route appelant l'IA s'ajoute ici — le garde-fou global reste
+    la revue (le trou notes/dispatch a été trouvé par revue, pas par ce test)."""
+    import re
+
+    # (template, fragment de l'attribut action= du form d'extraction — le
+    # guillemet fermant discrimine record de record-libre)
+    attendus = [
+        ("interviews/import.html", "/interviews/import\""),
+        ("interviews/record.html", "/interviews/record\""),
+        ("interviews/record_libre.html", "/interviews/record-libre\""),
+        ("interviews/libre_turns_review.html", "/record-libre/synthese\""),
+        ("interviews/capture.html", "/notes/dispatch\""),
+        ("trames/import.html", "/trame/import\""),
+    ]
+    for rel, action_frag in attendus:
+        src = (TEMPLATES / rel).read_text(encoding="utf-8")
+        forms = [
+            m.group(0)
+            for m in re.finditer(r"<form\b[^>]*>", src)
+            if action_frag in m.group(0)
+        ]
+        assert forms, f"{rel} : form d'action {action_frag} introuvable (template remanié ?)"
+        for form_tag in forms:
+            assert "data-busy-label=" in form_tag, (
+                f"{rel} : form d'extraction IA sans data-busy-label — {form_tag[:90]}…"
+            )
+    # Contrat busy.js (revue adversariale 2026-07-23) : gel PAR FORMULAIRE (les
+    # jumeaux et boutons form= externes aussi), jamais les boutons formaction
+    # (export PDF de secours — gel à vie sinon), et dégel ciblé au retour bfcache
+    # (un location.reload() perdrait la transcription en vol des écrans record).
+    busy = client.get("/static/busy.js")
+    assert ":not([formaction])" in busy.text, "fallback busy.js : boutons formaction non exclus"
+    assert 'button[form=' in busy.text, "boutons externes form= non gelés (double export possible)"
+    assert "busyFrozen" in busy.text and "location.reload" not in busy.text, (
+        "pageshow doit dégeler les boutons marqués, pas recharger la page"
+    )
+
+
+def test_filtre_pluriel_bordures() -> None:
+    """Filtre Jinja `pluriel` (revue UX 2026-07-23 P2-13, ajouté sans test —
+    revue adversariale) : accord correct aux bordures, jamais d'exception —
+    une entrée inattendue rend '' (singulier), pas un crash de template."""
+    from app.templating import _pluriel
+
+    assert _pluriel(0) == "" and _pluriel(1) == ""
+    assert _pluriel(2) == "s" and _pluriel(2, "x") == "x"
+    assert _pluriel("3") == "s" and _pluriel("3.0") == "s"  # str et str-float
+    assert _pluriel(1.9) == ""  # tronqué, pas arrondi — 1.9 « thème » reste singulier
+    assert _pluriel(None) == "" and _pluriel("abc") == "" and _pluriel([1, 2]) == ""
+
+
+def test_autosave_erreur_couvre_status_ind(client: TestClient) -> None:
+    """Revue UX 2026-07-23 (P1-2) : l'échec d'autosave d'une RÉPONSE de capture
+    (cible #status-{id}, classe .status-ind — le formulaire le plus utilisé de
+    l'app) était invisible : autosave.js ne remontait l'erreur que sur .saved.
+    Le script doit désormais traiter aussi .status-ind, sans écraser le badge."""
+    served = client.get("/static/autosave.js")
+    assert served.status_code == 200
+    assert "status-ind" in served.text, "autosave.js ignore les cibles .status-ind"
+    # L'erreur vit dans un slot DÉDIÉ .autosave-err — réutiliser .saved écrasait
+    # l'horodatage « enr. HH:MM » du badge (revue adversariale 2026-07-23).
+    assert "autosave-err" in served.text, "l'erreur doit avoir son slot dédié, pas écraser .saved"
+    # Et la cible réelle du template porte bien cette classe (couplage vérifié).
+    capture = (TEMPLATES / "interviews" / "capture.html").read_text(encoding="utf-8")
+    assert 'class="status-ind" id="status-' in capture
+
+
 def test_fraicheur_empreinte_python_servie_et_sensible_au_mtime(client: TestClient) -> None:
     """GET /__fraicheur (diagnostic superviseur 2026-07-23 — le --reload a servi
     plusieurs fois du code périmé) : l'empreinte SERVIE est celle capturée à

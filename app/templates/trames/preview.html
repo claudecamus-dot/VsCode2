@@ -10,12 +10,12 @@
 <div class="page-head">
   <div>
     <h1>Aperçu de l'entretien</h1>
-    <p class="muted">{{ trame.themes | length }} thème(s) · {{ question_count }} question(s)</p>
+    <p class="muted">{{ trame.themes | length }} thème{{ trame.themes|length|pluriel }} · {{ question_count }} question{{ question_count|pluriel }}</p>
   </div>
   <div class="head-actions">
     <a class="btn" href="/missions/{{ mission.id }}/trame">Modifier la trame</a>
     {% if question_count > 0 %}
-    <a class="btn btn-primary" href="/missions/{{ mission.id }}/interviews/new">Démarrer un entretien</a>
+    <a class="btn btn-primary" href="/missions/{{ mission.id }}/interviews/new">Nouvel entretien</a>
     {% endif %}
   </div>
 </div>
@@ -42,7 +42,9 @@
     {% for q in theme.questions %}
     <li>
       <span class="q-label">{{ q.label }}</span>
-      <span class="badge badge-{{ q.qtype }}">{{ q.type_label }}</span>
+      {# Même traitement discret que capture.html (P2-15) — sinon la pilule
+         persistait sur cet écran-ci. #}
+      <span class="q-type muted">{{ q.type_label }}</span>
       {% if q.qtype == 'scale' %}
         <span class="q-config">{{ q.config.min }}–{{ q.config.max }}</span>
       {% elif q.qtype == 'choice' %}

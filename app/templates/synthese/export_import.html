@@ -27,6 +27,10 @@
 
 {% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
 
+{# Défini AVANT toute utilisation (piège de portée Jinja — un set placé plus bas
+   est falsy pour le form d'import qui le précède physiquement). #}
+{% set has_content = (global_synthesis and global_synthesis.has_content) or axes %}
+
 <div data-tabs>
   <div class="tab-strip">
     <button type="button" class="tab" data-tab="ia">🤖 IA intégrée</button>
@@ -39,12 +43,12 @@
     <section class="card">
       <div class="card-head">
         <h2>Recommandations</h2>
-        {% if axes %}<span class="badge badge-synth-generated">✓ {{ axes|length }} axe(s)</span>{% endif %}
+        {% if axes %}<span class="badge badge-synth-generated">✓ {{ axes|length }} axe{{ axes|length|pluriel }}</span>{% endif %}
       </div>
       {% set can_generate = ai_ready and global_synthesis and global_synthesis.has_content %}
       <form method="post" action="/missions/{{ mission.id }}/recommandations/generate" class="reco-generate"
         data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
-        {% if axes %}onsubmit="return confirm('Remplacer les {{ axes|length }} axe(s) de recommandation actuel(s) par une nouvelle génération IA ? Le contenu actuel (y compris vos modifications manuelles) sera perdu.');"{% endif %}>
+        {% if axes %}onsubmit="return confirm('Remplacer {{ 'les ' ~ axes|length ~ ' axes de recommandation actuels' if axes|length > 1 else 'l’axe de recommandation actuel' }} par une nouvelle génération IA ? Le contenu actuel (y compris vos modifications manuelles) sera perdu.');"{% endif %}>
         <button class="btn btn-primary" type="submit"
           {% if not can_generate %}disabled title="{% if not ai_ready %}Service IA indisponible — définissez {{ api_key_env }}{% else %}Nécessite la synthèse globale ci-dessus (déjà générée ou éditée){% endif %}"{% endif %}>
           {{ '✨ Générer (IA)' if not axes else '↻ Régénérer (IA)' }}
@@ -58,7 +62,7 @@
       {% if axes %}
       <ul class="missed">
         {% for axis in axes %}
-        <li><span class="muted">{{ axis.recommendations|length }} reco.</span> — {{ axis.title }}</li>
+        <li><span class="muted">{{ axis.recommendations|length }} recommandation{{ 's' if axis.recommendations|length > 1 else '' }}</span> — {{ axis.title }}</li>
         {% endfor %}
       </ul>
       <a class="btn" href="/missions/{{ mission.id }}/recommandations">Voir le détail →</a>
@@ -81,7 +85,10 @@
           <strong>2. Importer</strong>
           <p class="muted">Le fichier une fois complété par l'analyse externe (mêmes titres Markdown).</p>
         </div>
-        <form method="post" action="/missions/{{ mission.id }}/import/analyse" enctype="multipart/form-data" class="apercu-upload">
+        {# Même garde-fou que les « Régénérer (IA) » : l'import écrase la synthèse
+           globale et remplace les axes existants (revue UX 2026-07-23 P2-7). #}
+        <form method="post" action="/missions/{{ mission.id }}/import/analyse" enctype="multipart/form-data" class="apercu-upload"
+          {% if has_content %}onsubmit="return confirm('Importer cette analyse remplacera la synthèse globale et les axes de recommandation existants (y compris vos modifications manuelles). Continuer ?');"{% endif %}>
           <input type="file" name="file" accept=".md,text/markdown" aria-label="Fichier Markdown d'analyse" required>
           <button class="btn btn-primary" type="submit">📤 Importer l'analyse</button>
         </form>
@@ -90,7 +97,6 @@
   </section>
 </div>
 
-{% set has_content = (global_synthesis and global_synthesis.has_content) or axes %}
 {% if has_content %}
 <div class="card">
   <p class="muted">

@@ -6,8 +6,8 @@
   <div class="row-actions">
     {% if nb_brouillons_vides %}
     <form method="post" action="/missions/brouillons/nettoyer"
-          onsubmit="return confirm('Supprimer les {{ nb_brouillons_vides }} brouillon(s) vide(s) — sans entretien ni trame remplie ?');">
-      <button class="btn btn-sm" type="submit">🧹 Nettoyer {{ nb_brouillons_vides }} brouillon(s) vide(s)</button>
+          onsubmit="return confirm('Supprimer {{ 'les ' ~ nb_brouillons_vides ~ ' brouillons vides' if nb_brouillons_vides > 1 else 'le brouillon vide' }} — sans entretien ni trame remplie ?');">
+      <button class="btn btn-sm" type="submit">🧹 Nettoyer {{ nb_brouillons_vides }} brouillon{{ nb_brouillons_vides|pluriel }} vide{{ nb_brouillons_vides|pluriel }}</button>
     </form>
     {% endif %}
     <a class="btn btn-primary" href="/missions/new">+ Nouvelle mission</a>

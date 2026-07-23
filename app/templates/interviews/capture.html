@@ -59,8 +59,10 @@
       <span class="chip-count">{{ c[0] }}/{{ c[1] }}</span>
     </a>
   {% endfor %}
+  {# Même gabarit que les chips de thème (pastille ronde) — trois traitements
+     visuels différents dans un même groupe de nav (revue UX 2026-07-23 P3-20). #}
   <a class="chip chip-notes {% if notes_view %}active{% endif %}"
-     href="/interviews/{{ interview.id }}?theme=notes">📝 Notes libres</a>
+     href="/interviews/{{ interview.id }}?theme=notes"><span class="chip-num">✎</span>Notes libres</a>
 </nav>
 
 {% if notes_view %}
@@ -177,7 +179,10 @@
   <div class="autosave-line"><span id="notes-status" class="saved"></span></div>
 
   <div class="record-controls">
-    <form method="post" action="/interviews/{{ interview.id }}/notes/dispatch" id="notes-dispatch-form">
+    {# Répartition IA des notes : appel d'extraction long — busy-label comme les
+       autres extractions (trou trouvé par l'Acceptance Auditor, P1-3). #}
+    <form method="post" action="/interviews/{{ interview.id }}/notes/dispatch" id="notes-dispatch-form"
+          data-busy-label="Répartition des notes en cours…">
       <input type="hidden" name="free_notes" id="dispatch-free-notes">
       <button class="btn btn-primary" type="submit">Répartir vers les questions</button>
     </form>
@@ -205,7 +210,10 @@
     <div class="qcard" id="qcard-{{ q.id }}">
       <div class="qrow">
         <span class="q-label">{{ q.label }}</span>
-        <span class="badge badge-{{ q.qtype }}">{{ q.type_label }}</span>
+        {# Type en libellé discret, plus en pilule : la même forme que le badge de
+           STATUT (Répondue) brouillait deux informations de nature différente
+           (revue UX 2026-07-23 P2-15). #}
+        <span class="q-type muted">{{ q.type_label }}</span>
       </div>
       {% if q.help_text %}<p class="q-help">{{ q.help_text }}</p>{% endif %}
 
@@ -242,10 +250,12 @@
 
       <div class="qactions">
         <button class="btn-link" type="button"
+          title="Marquer la question comme non posée pendant cet entretien"
           hx-post="/interviews/{{ interview.id }}/answers/{{ q.id }}/status"
           hx-vals='{"status": "skipped"}'
           hx-target="#status-{{ q.id }}" hx-swap="innerHTML">Non posée</button>
         <button class="btn-link" type="button"
+          title="Marquer la question pour y revenir plus tard dans l'entretien"
           hx-post="/interviews/{{ interview.id }}/answers/{{ q.id }}/status"
           hx-vals='{"status": "revisit"}'
           hx-target="#status-{{ q.id }}" hx-swap="innerHTML">À revoir</button>

@@ -10,10 +10,10 @@
 <div class="page-head">
   <h1>Trame d'entretien</h1>
   <div class="head-actions">
-    <a class="btn" href="/missions/{{ mission.id }}/trame/import">Importer (.docx)</a>
+    <a class="btn" href="/missions/{{ mission.id }}/trame/import">Importer une trame (.docx)</a>
     {% if question_count > 0 %}
     <a class="btn" href="/missions/{{ mission.id }}/trame/preview">Aperçu de l'entretien</a>
-    <a class="btn btn-primary" href="/missions/{{ mission.id }}/interviews/new">Démarrer un entretien</a>
+    <a class="btn btn-primary" href="/missions/{{ mission.id }}/interviews/new">Nouvel entretien</a>
     {% endif %}
   </div>
 </div>
@@ -65,7 +65,10 @@
         <input type="text" name="help_text" class="help-input"
                value="{{ q.help_text or '' }}" aria-label="Texte d'aide"
                placeholder="Texte d'aide / contexte (optionnel)">
-        <button class="btn btn-sm" type="submit" title="Enregistrer les modifications">Enregistrer</button>
+        {# btn-link : un bouton gris par ligne pesait autant que les actions de
+           page (revue UX 2026-07-23 P2-6 — l'autosave complet exigerait de
+           refondre les routes d'édition, différé). #}
+        <button class="btn-link" type="submit" title="Enregistrer les modifications de cette question">Enregistrer</button>
       </form>
       <form method="post"
             action="/missions/{{ mission.id }}/trame/questions/{{ q.id }}/delete"

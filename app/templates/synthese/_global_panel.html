@@ -45,6 +45,6 @@
     </button>
     <span id="global-synth-saved" class="saved"></span>
     {% if global_synthesis.generated_at %}<span class="muted">généré le {{ global_synthesis.generated_at.strftime('%d/%m %H:%M') }}</span>{% endif %}
-    <span class="muted">{{ answer_count }} réponse(s) source</span>
+    <span class="muted">{{ answer_count }} réponse{{ answer_count|pluriel }} source</span>
   </div>
 </section>

@@ -10,7 +10,7 @@
   <div>
     <h1>Synthèse transverse <span class="pill pill-done">Vue consolidée — mission</span></h1>
     <div class="meta">
-      <span>{{ interview_count }} entretien(s){% if libre_count %} (dont {{ libre_count }} libre{{ 's' if libre_count > 1 else '' }}){% endif %}</span>
+      <span>{{ interview_count }} entretien{{ interview_count|pluriel }}{% if libre_count %} (dont {{ libre_count }} libre{{ libre_count|pluriel }}){% endif %}</span>
     </div>
   </div>
 </div>

@@ -34,11 +34,15 @@
         <span class="badge badge-soft">{{ agent.mode }}</span>
       </div>
       <p class="agent-description">{{ agent.description }}</p>
+      {# hx-disabled-elt : anti double-clic + état « en cours » pendant l'exécution
+         du sous-processus (revue UX 2026-07-23 P3-23). #}
       <form method="post"
             action="/missions/{{ mission.id }}/agents/{{ agent.id }}/invoke"
             hx-post="/missions/{{ mission.id }}/agents/{{ agent.id }}/invoke"
             hx-target="#agent-result"
-            hx-swap="innerHTML">
+            hx-swap="innerHTML"
+            hx-disabled-elt="find button"
+            hx-indicator="find button">
         <button class="btn btn-primary">Exécuter</button>
       </form>
     </div>
@@ -68,7 +72,9 @@
             action="/missions/{{ mission.id }}/skills/{{ skill.id }}/invoke"
             hx-post="/missions/{{ mission.id }}/skills/{{ skill.id }}/invoke"
             hx-target="#agent-result"
-            hx-swap="innerHTML">
+            hx-swap="innerHTML"
+            hx-disabled-elt="find button"
+            hx-indicator="find button">
         <button class="btn btn-secondary">Utiliser le skill</button>
       </form>
     </div>
