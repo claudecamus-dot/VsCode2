@@ -1,0 +1,14 @@
+# Override d'équipe pour bmad-code-review (fusionné par resolve_customization.py,
+# arrays en append sur la surface de .claude/skills/bmad-code-review/customize.toml).
+#
+# Diagnostic superviseur 2026-07-23 (constat « interaction », prio 3), arbitré par
+# l'utilisateur : les chasseurs adversariaux livrent une 2e vague de findings après
+# leur 1er résultat — le triage du 2026-07-22 a failli se clore avant le finding le
+# plus grave (boucle infinie _emit_bullet_overflow, 1726 slides/15 s, trouvé dans la
+# 2e vague). Mémoire : feedback-adversarial-agents-second-wave-before-triage-close.
+
+[workflow]
+
+persistent_facts = [
+  "Step 2 (review) -> step 3 (triage) : attendre la FIN DE FLUX de CHAQUE chasseur (Blind Hunter, Edge Case Hunter, Acceptance Auditor) avant d'ouvrir le triage — un sous-agent adversarial peut livrer une 2e vague de findings apres son premier resultat (re-notification du meme task). Traiter toute premiere notification comme PROVISOIRE tant que le flux du chasseur n'est pas termine ; si le triage a commence en pipeline, RE-TRIER a chaque nouvelle vague. Vecu 2026-07-22 : la 2e vague contenait le finding le plus grave (boucle infinie _emit_bullet_overflow prouvee, 1726 slides en 15 s) — ne jamais clore triage ni committer avant la fin des deux flux.",
+]

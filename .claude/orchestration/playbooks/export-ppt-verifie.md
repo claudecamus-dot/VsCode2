@@ -22,6 +22,16 @@ services, templates web), c'est `dev-verifie` qui s'applique — ce playbook-ci 
 version spécialisée quand le **livrable est le deck lui-même** (layout, contenu, visuel).
 Les deux partagent l'obligation `pptx-verify` et la terminaison `revue-increment`.
 
+**Itération de design ≠ reprise** (diagnostic superviseur 2026-07-23 : 7 runs / 7 succès /
+7 « reprises » — 100 % des runs comptaient la boucle de rendu attendue comme anomalie, la
+stat ne portait plus aucun signal) : la boucle **rendu de contrôle → liste de défauts →
+correction → re-rendu** est l'étape NOMINALE de ce playbook, bornée à **2 itérations**
+au-delà du rendu initial ; à la 3ᵉ, escalade utilisateur avec l'état réel (règle de
+non-convergence, mémoire `feedback-non-convergence-user-is-oracle`). Dans le journal
+(`log_run.py`), le champ `reprises` ne compte QUE ce qui sort de ce budget ou relève d'un
+imprévu (étape en échec de contrat, environnement, exigence découverte) — jamais les
+itérations de la boucle nominale.
+
 ```json
 {
   "nom": "export-ppt-verifie",
@@ -86,7 +96,7 @@ Les deux partagent l'obligation `pptx-verify` et la terminaison `revue-increment
       "modele": "(session)",
       "contrat": {
         "type": "reel",
-        "critere": "export réel rendu en images et inspecté visuellement (valeurs alignées, panneaux ni vides ni étirés, pas de collision avec le chrome du template) — jamais retirée à l'instanciation, quelle que soit la taille du changement. CHECKLIST EXIGENCES PERSISTANTES (plan d'amélioration 2026-07-22) : tenir la liste des éléments explicitement demandés par l'utilisateur aux tours précédents (ex. numéro de chapitre) et VÉRIFIER leur présence au rendu à chaque itération — une contrainte de gabarit se résout en dessinant l'élément, jamais en l'omettant (le numéro de chapitre a été écarté 3 fois ainsi)."
+        "critere": "export réel rendu en images et inspecté visuellement (valeurs alignées, panneaux ni vides ni étirés, pas de collision avec le chrome du template) — jamais retirée à l'instanciation, quelle que soit la taille du changement. BOUCLE NOMINALE (diagnostic superviseur 2026-07-23) : rendu → liste de défauts → correction → re-rendu est le déroulé ATTENDU de cette étape, ≤ 2 itérations au-delà du rendu initial puis escalade utilisateur — ces itérations ne se journalisent PAS en reprises. CHECKLIST EXIGENCES PERSISTANTES (plan d'amélioration 2026-07-22) : tenir la liste des éléments explicitement demandés par l'utilisateur aux tours précédents (ex. numéro de chapitre) et VÉRIFIER leur présence au rendu à chaque itération — une contrainte de gabarit se résout en dessinant l'élément, jamais en l'omettant (le numéro de chapitre a été écarté 3 fois ainsi)."
       },
       "checkpoint": false
     },
@@ -113,6 +123,6 @@ Les deux partagent l'obligation `pptx-verify` et la terminaison `revue-increment
       "checkpoint": "avant tout commit — action difficilement réversible, proposer, ne pas exécuter unilatéralement"
     }
   ],
-  "regle_reprise": "une relance ciblée par étape en échec de contrat, puis escalade utilisateur avec l'état réel"
+  "regle_reprise": "une relance ciblée par étape en échec de contrat, puis escalade utilisateur avec l'état réel. Les itérations de la boucle nominale rendre→corriger→re-rendre (≤ 2 au-delà du rendu initial, cf. verification-rendu) sont le déroulé attendu, PAS des reprises — le champ reprises du journal ne compte que ce qui sort de ce budget ou d'un imprévu (diagnostic superviseur 2026-07-23 : 7/7 runs à reprises=100 %, stat sans signal)"
 }
 ```

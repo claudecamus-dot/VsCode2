@@ -2,6 +2,30 @@
   "_doc": "Décisions humaines qui closent un constat automatique du superviseur (fichier VERSIONNÉ, édité à la main — le scan le lit, ne l'écrit jamais). cible : nom de skill, ou famille:<Nom> pour une famille entière. Un constat arbitré disparaît des TODO auto mais reste visible dans la section « Arbitrages enregistrés » du tableau de bord ; l'usage réel reste mesuré (un arbitrage n'est pas une preuve d'utilité — le superviseur étage 2 peut le re-challenger avec des données nouvelles).",
   "arbitrages": [
     {
+      "cible": "agent-orchestrator",
+      "decision": "Constat superviseur du 2026-07-23 (prio 5, « en-attente-validation » jamais utilisé en 47 runs) appliqué, commit e638ccc : le garde-fou est devenu exécutable dans log_run.py — un run « succes » dont la demande/notes portent un livrable utilisateur (deck/slide/écran/export) sans mention « validé par l'utilisateur » imprime un AVERTISSEMENT non bloquant rappelant le statut attendu ; UTF-8 forcé sur stdin/stdout (mojibake cp1252). Test : test_log_run_avertit_succes_sur_livrable_utilisateur_sans_validation.",
+      "date": "2026-07-23",
+      "source": "utilisateur"
+    },
+    {
+      "cible": "run-dev-server",
+      "decision": "Constat superviseur du 2026-07-23 (prio 5, fraîcheur python invérifiable — le --reload a re-servi du code périmé le 2026-07-22) appliqué, commit e638ccc : GET /__fraicheur (app/main.py) expose l'empreinte des .py capturée à l'IMPORT ; serveur-dev.ps1 (Test-PythonFrais) la compare à l'empreinte recalculée du disque au lancement ET sous -KeepIfFresh — un serveur au python périmé est purgé et relancé, la fraîcheur python est prouvable comme le statique. Test : test_fraicheur_empreinte_python_servie_et_sensible_au_mtime.",
+      "date": "2026-07-23",
+      "source": "utilisateur"
+    },
+    {
+      "cible": "export-ppt-verifie",
+      "decision": "Constat superviseur du 2026-07-23 (prio 4, 7 runs / 7 « reprises » — la boucle de rendu nominale comptée comme anomalie, stat sans signal) appliqué : le playbook déclare la boucle rendu de contrôle → liste de défauts → correction → re-rendu comme étape NOMINALE, bornée à 2 itérations au-delà du rendu initial puis escalade utilisateur (prose + contrat verification-rendu + regle_reprise) ; le champ reprises du journal ne compte plus que ce qui sort de ce budget ou relève d'un imprévu.",
+      "date": "2026-07-23",
+      "source": "utilisateur"
+    },
+    {
+      "cible": "bmad-code-review",
+      "decision": "Constat superviseur du 2026-07-23 (prio 3, 2e vague des chasseurs adversariaux — le triage du 2026-07-22 a failli se clore avant la boucle infinie trouvée en 2e vague) appliqué via le mécanisme bmad-customize : override d'équipe versionné _bmad/custom/bmad-code-review.toml (persistent_facts, append) — attendre la FIN DE FLUX de CHAQUE chasseur avant le triage (step 3), toute 1re notification est provisoire, re-trier à chaque vague si le pipelining a commencé. Fusion vérifiée par resolve_customization.py. Mémoire feedback-adversarial-agents-second-wave-before-triage-close.",
+      "date": "2026-07-23",
+      "source": "utilisateur"
+    },
+    {
       "cible": "famille:orchestrateur+superviseur",
       "decision": "Demande utilisateur 2026-07-22 (« c'est toujours KO, ma demande n'est pas traitée — fais évoluer supervisor + orchestrator ») : évolutions APPLIQUÉES après ~15 tours de boucle deck non convergente. Orchestrateur §4 : vérif obligatoire « livrable utilisateur = artefact EXACT de l'app (export réel, pas build maison), rendu ENTIER, validé PAR l'utilisateur » + règle de non-convergence (≥3 rejets → demander le défaut précis, ne pas re-deviner). Orchestrateur §5 : nouvel état de run 'en-attente-validation' (jamais 'succes' auto-décerné sur un livrable utilisateur). Superviseur §3 : catégorie 'non-convergence' (constat critique) + write_diagnostic.py l'accepte. Réflexion : docs/reflexions/evolution-agents-acceptance-utilisateur.md. Mémoires feedback-non-convergence-user-is-oracle + feedback-verify-the-real-app-export-all-slides.",
       "date": "2026-07-22",

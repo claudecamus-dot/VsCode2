@@ -9,7 +9,7 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-23T06:38:49+02:00 · **38 sessions** (transcripts) · **81** invocations de skills · **50** lancements de sous-agents.
+Dernier scan : 2026-07-23T07:00:35+02:00 · **39 sessions** (transcripts) · **81** invocations de skills · **50** lancements de sous-agents.
 
 ## Skills — usage réel
 
@@ -64,6 +64,10 @@ Dernier scan : 2026-07-23T06:38:49+02:00 · **38 sessions** (transcripts) · **8
 
 _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) — l'usage réel reste mesuré ci-dessus._
 
+- **`agent-orchestrator`** (2026-07-23) : Constat superviseur du 2026-07-23 (prio 5, « en-attente-validation » jamais utilisé en 47 runs) appliqué, commit e638ccc : le garde-fou est devenu exécutable dans log_run.py — un run « succes » dont la demande/notes portent un livrable utilisateur (deck/slide/écran/export) sans mention « validé par l'utilisateur » imprime un AVERTISSEMENT non bloquant rappelant le statut attendu ; UTF-8 forcé sur stdin/stdout (mojibake cp1252). Test : test_log_run_avertit_succes_sur_livrable_utilisateur_sans_validation.
+- **`run-dev-server`** (2026-07-23) : Constat superviseur du 2026-07-23 (prio 5, fraîcheur python invérifiable — le --reload a re-servi du code périmé le 2026-07-22) appliqué, commit e638ccc : GET /__fraicheur (app/main.py) expose l'empreinte des .py capturée à l'IMPORT ; serveur-dev.ps1 (Test-PythonFrais) la compare à l'empreinte recalculée du disque au lancement ET sous -KeepIfFresh — un serveur au python périmé est purgé et relancé, la fraîcheur python est prouvable comme le statique. Test : test_fraicheur_empreinte_python_servie_et_sensible_au_mtime.
+- **`export-ppt-verifie`** (2026-07-23) : Constat superviseur du 2026-07-23 (prio 4, 7 runs / 7 « reprises » — la boucle de rendu nominale comptée comme anomalie, stat sans signal) appliqué : le playbook déclare la boucle rendu de contrôle → liste de défauts → correction → re-rendu comme étape NOMINALE, bornée à 2 itérations au-delà du rendu initial puis escalade utilisateur (prose + contrat verification-rendu + regle_reprise) ; le champ reprises du journal ne compte plus que ce qui sort de ce budget ou relève d'un imprévu.
+- **`bmad-code-review`** (2026-07-23) : Constat superviseur du 2026-07-23 (prio 3, 2e vague des chasseurs adversariaux — le triage du 2026-07-22 a failli se clore avant la boucle infinie trouvée en 2e vague) appliqué via le mécanisme bmad-customize : override d'équipe versionné _bmad/custom/bmad-code-review.toml (persistent_facts, append) — attendre la FIN DE FLUX de CHAQUE chasseur avant le triage (step 3), toute 1re notification est provisoire, re-trier à chaque vague si le pipelining a commencé. Fusion vérifiée par resolve_customization.py. Mémoire feedback-adversarial-agents-second-wave-before-triage-close.
 - **`famille:orchestrateur+superviseur`** (2026-07-22) : Demande utilisateur 2026-07-22 (« c'est toujours KO, ma demande n'est pas traitée — fais évoluer supervisor + orchestrator ») : évolutions APPLIQUÉES après ~15 tours de boucle deck non convergente. Orchestrateur §4 : vérif obligatoire « livrable utilisateur = artefact EXACT de l'app (export réel, pas build maison), rendu ENTIER, validé PAR l'utilisateur » + règle de non-convergence (≥3 rejets → demander le défaut précis, ne pas re-deviner). Orchestrateur §5 : nouvel état de run 'en-attente-validation' (jamais 'succes' auto-décerné sur un livrable utilisateur). Superviseur §3 : catégorie 'non-convergence' (constat critique) + write_diagnostic.py l'accepte. Réflexion : docs/reflexions/evolution-agents-acceptance-utilisateur.md. Mémoires feedback-non-convergence-user-is-oracle + feedback-verify-the-real-app-export-all-slides.
 - **`export-ppt-verifie`** (2026-07-22) : Rétrospective 2026-07-22 (« charte VSCode4 affirmée de mémoire → add-then-revert ») arbitrée : l'étape CADRAGE du playbook exige désormais, quand la demande cite un deck/charte de référence (VSCode3/4, template client), de RENDRE 2-3 slides de la référence (pptx-verify) et d'en extraire les motifs AVANT d'implémenter — interdit d'affirmer une conformité charte de mémoire. Preuve : 816ab02 (ajoute barre d'accent « charte VSCode4 ») → 09c7ba3 (la retire « VSCode4 n'en a pas »), + sommaire/numéro/encarts corrigés seulement après render VSCode4. Mémoire feedback-ground-charte-claims-in-a-render.
 - **`run-dev-server`** (2026-07-22) : Rétrospective 2026-07-22 arbitrée : run-dev-server/SKILL.md documente le repli quand le screenshot Edge échoue (error 577 malgré les flags, ou hang) — se limiter à la vérif de structure servie (curl) et le DIRE explicitement, ne jamais prétendre avoir vu le rendu. Un échec unique de test réel opt-in (LibreOffice/Ollama) sous charge machine se réexécute isolé avant d'être qualifié régression.
@@ -90,9 +94,7 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic à jour._
-
-1. **Le statut « en-attente-validation » n'a JAMAIS été utilisé depuis son introduction — les runs à livrable deck se loggent « succes » sur auto-vérification** — Requalifier mentalement les runs deck récents et appliquer le statut dès le prochain run à livrable utilisateur. · **Proposition** : Patch léger de log_run.py : si resultat=succes ET la demande/notes matchent deck|slide|écran|export sans mention « validé par l'utilisateur », imprimer un avertissement non bloquant rappelant « en-attente-validation » — le garde-fou devient exécutable au lieu de prose.
+_Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés._
 
 ---
 
