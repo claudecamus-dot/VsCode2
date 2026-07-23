@@ -30,9 +30,11 @@ def _playbook_files():
     return sorted(p for p in PLAYBOOKS_DIR.glob("*.md") if p.name != "FORMAT.md")
 
 
-def _log_run(tmp_path, payload, via_stdin=False):
+def _log_run(tmp_path, payload, via_stdin=False, bom=False):
     env = dict(os.environ, AGENT_ORCHESTRATION_RUNS=str(tmp_path / "runs.jsonl"))
     raw = json.dumps(payload, ensure_ascii=False)
+    if bom:  # un pipe PowerShell 5.1 préfixe un BOM UTF-8 au stdin
+        raw = "﻿" + raw
     args = [sys.executable, str(LOG_RUN)] + ([] if via_stdin else [raw])
     return subprocess.run(
         args, input=raw if via_stdin else None,
@@ -104,6 +106,21 @@ def test_log_run_avertit_succes_sur_livrable_utilisateur_sans_validation(tmp_pat
              "resultat": "succes"}
     r4 = _log_run(tmp_path, outil)
     assert r4.returncode == 0 and "AVERTISSEMENT" not in r4.stdout
+
+
+def test_log_run_stdin_tolere_le_bom_powershell(tmp_path):
+    """Régression 2026-07-23 : un pipe PowerShell 5.1 ('…' | py log_run.py) préfixe
+    un BOM UTF-8 au stdin — le reconfigure(encoding=utf-8) strict le rejetait
+    (« JSON invalide : Unexpected UTF-8 BOM »). stdin est désormais utf-8-sig ;
+    sans BOM le comportement est identique (utf-8-sig == utf-8)."""
+    payload = {"demande": "run journalisé via pipe PowerShell — accents intacts",
+               "qualification": "orchestre", "resultat": "succes"}
+    r = _log_run(tmp_path, payload, via_stdin=True, bom=True)
+    assert r.returncode == 0, r.stderr
+    ligne = json.loads(
+        (tmp_path / "runs.jsonl").read_text(encoding="utf-8").strip()
+    )
+    assert ligne["demande"] == payload["demande"]  # accents non mojibakés, BOM absorbé
 
 
 def test_gate_injects_grid_except_for_slash_commands():

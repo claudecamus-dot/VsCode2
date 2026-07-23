@@ -14,9 +14,12 @@ import sys
 
 # Windows : la console par défaut est cp1252 — un message avec tiret cadratin ou
 # un JSON accenté sur stdin passerait en mojibake (ou casserait un lecteur UTF-8).
-for _flux in (sys.stdin, sys.stdout):
-    if hasattr(_flux, "reconfigure"):
-        _flux.reconfigure(encoding="utf-8")
+# stdin en utf-8-sig : un pipe PowerShell 5.1 ('...' | py log_run.py) préfixe un
+# BOM qui casserait json.loads (vécu 2026-07-23) ; sans BOM, utf-8-sig == utf-8.
+if hasattr(sys.stdin, "reconfigure"):
+    sys.stdin.reconfigure(encoding="utf-8-sig")
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
 
 RUNS_PATH = os.environ.get("AGENT_ORCHESTRATION_RUNS") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "runs.jsonl"
