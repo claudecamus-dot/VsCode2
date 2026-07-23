@@ -9,6 +9,12 @@
             "command": "py .claude/hooks/guard_destructive_git.py",
             "timeout": 10,
             "statusMessage": "Checking for destructive git operations..."
+          },
+          {
+            "type": "command",
+            "command": "py .claude/hooks/warn_verif_before_commit.py",
+            "timeout": 10,
+            "statusMessage": "Verif reelle avant commit de code app/ ?"
           }
         ]
       }
