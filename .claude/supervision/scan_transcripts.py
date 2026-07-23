@@ -89,7 +89,9 @@ def transcript_dir() -> str:
     path = os.path.abspath(REPO)
     if len(path) >= 2 and path[1] == ":":
         path = path[0].lower() + path[1:]
-    slug = re.sub(r"[\\/:.]", "-", path)
+    # Claude Code remplace TOUT caractère non alphanumérique par un tiret
+    # (espaces compris — fix propagé depuis VScode5, 2026-07-23)
+    slug = re.sub(r"[^A-Za-z0-9]", "-", path)
     base = os.path.join(os.path.expanduser("~"), ".claude", "projects")
     candidate = os.path.join(base, slug)
     if os.path.isdir(candidate):
@@ -149,6 +151,7 @@ def scan(state: dict) -> int:
     files_state = state.setdefault("files", {})
     skills = state.setdefault("skills", {})
     subagents = state.setdefault("subagents", {})
+    fam_installees = installed_skills()  # filtre des /commandes : skills réelles seulement
     new_events = 0
     if not os.path.isdir(tdir):
         state["transcript_dir_missing"] = tdir
@@ -160,7 +163,8 @@ def scan(state: dict) -> int:
         lines, new_offset = read_new_lines(path, offset)
         for raw in lines:
             # Préfiltre octets : ne parser en JSON que les lignes candidates.
-            if b'"Skill"' not in raw and b'"subagent_type"' not in raw:
+            if (b'"Skill"' not in raw and b'"subagent_type"' not in raw
+                    and b"command-name" not in raw):
                 continue
             try:
                 obj = json.loads(raw.decode("utf-8", "replace"))
@@ -168,6 +172,23 @@ def scan(state: dict) -> int:
                 continue
             ts = obj.get("timestamp") or ""
             content = (obj.get("message") or {}).get("content")
+            # Slash-commands : une skill invoquée en /commande n'émet PAS de
+            # tool_use Skill — elle apparaît en <command-name> dans le message
+            # utilisateur (constat superviseur VScode5 2026-07-23, propagé).
+            if b"command-name" in raw:
+                if isinstance(content, str):
+                    textes = [content]
+                elif isinstance(content, list):
+                    textes = [b.get("text", "") for b in content
+                              if isinstance(b, dict) and b.get("type") == "text"]
+                else:
+                    textes = []
+                for txt in textes:
+                    for m in re.finditer(
+                            r"<command-name>/?([A-Za-z0-9:_-]+)</command-name>", txt):
+                        if m.group(1) in fam_installees:
+                            record(skills, m.group(1), ts)
+                            new_events += 1
             if not isinstance(content, list):
                 continue
             for blk in content:
@@ -369,7 +390,7 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
         if (lambda d: d is not None and d > DORMANT_DAYS)(days_since(e.get("last", "")))
     )
     verifs_oubliees = []
-    if "revue-increment" not in skills:
+    if "revue-increment" in fam and "revue-increment" not in skills:
         verifs_oubliees.append(
             "revue-increment jamais invoquee malgre le rappel SessionStart -> l'inserer d'office en etape terminale des plans de dev"
         )
