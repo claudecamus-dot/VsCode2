@@ -12,6 +12,12 @@ import json
 import os
 import sys
 
+# Windows : la console par défaut est cp1252 — un message avec tiret cadratin ou
+# un JSON accenté sur stdin passerait en mojibake (ou casserait un lecteur UTF-8).
+for _flux in (sys.stdin, sys.stdout):
+    if hasattr(_flux, "reconfigure"):
+        _flux.reconfigure(encoding="utf-8")
+
 RUNS_PATH = os.environ.get("AGENT_ORCHESTRATION_RUNS") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "runs.jsonl"
 )
@@ -39,7 +45,32 @@ def main(argv) -> int:
     with open(RUNS_PATH, "a", encoding="utf-8") as fh:
         fh.write(json.dumps(run, ensure_ascii=False) + "\n")
     print(f"log_run : run journalise ({run['qualification']}, {len(run.get('plan', []))} etape(s))")
+    avertir_validation_utilisateur(run)
     return 0
+
+
+# Marqueurs d'un livrable CONSOMMÉ par l'utilisateur (deck exporté, écran) et
+# d'une validation utilisateur explicite dans les notes. Diagnostic superviseur
+# 2026-07-23 (arbitré) : 0/47 runs « en-attente-validation » alors que la règle
+# l'exigeait — le garde-fou devient exécutable, en avertissement NON bloquant.
+LIVRABLE_UTILISATEUR = ("deck", "slide", "pptx", "ecran", "écran", "export")
+VALIDATION_UTILISATEUR = ("valide par l'utilisateur", "validé par l'utilisateur",
+                          "valide par utilisateur", "ok utilisateur")
+
+
+def avertir_validation_utilisateur(run: dict) -> None:
+    if run.get("resultat") != "succes":
+        return
+    texte = " ".join(str(run.get(k, "")) for k in ("demande", "notes")).lower()
+    if any(m in texte for m in LIVRABLE_UTILISATEUR) and not any(
+        v in texte for v in VALIDATION_UTILISATEUR
+    ):
+        print(
+            "log_run AVERTISSEMENT : livrable utilisateur detecte sans mention de "
+            "validation — « en-attente-validation » est le statut attendu tant que "
+            "l'utilisateur n'a pas valide l'artefact exact (sinon, noter « valide "
+            "par l'utilisateur » dans notes)."
+        )
 
 
 if __name__ == "__main__":

@@ -126,6 +126,31 @@ def test_forms_generation_portent_busy_label(client: TestClient) -> None:
     assert "data-busy-label=" in analyse, "form régénérer de libre_analyse.html sans busy-label"
 
 
+def test_fraicheur_empreinte_python_servie_et_sensible_au_mtime(client: TestClient) -> None:
+    """GET /__fraicheur (diagnostic superviseur 2026-07-23 — le --reload a servi
+    plusieurs fois du code périmé) : l'empreinte SERVIE est celle capturée à
+    l'import et vaut celle du disque tant que rien n'a changé ; toucher le mtime
+    d'un .py d'app/ change l'empreinte DISQUE (c'est l'écart servi≠disque qui
+    prouve un serveur périmé). Le mtime est restauré à l'octet près."""
+    import os
+    from app import main as app_main
+
+    rep = client.get("/__fraicheur")
+    assert rep.status_code == 200
+    servie = rep.json()["empreinte"]
+    assert servie == app_main.EMPREINTE_AU_CHARGEMENT
+    assert servie == app_main.empreinte_code(), "disque et import divergent sans modification"
+    cible = app_main.BASE_DIR / "models.py"
+    st = cible.stat()
+    try:
+        os.utime(cible, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000))
+        assert app_main.empreinte_code() != servie, (
+            "l'empreinte disque ignore un mtime modifié — le stale serait indétectable"
+        )
+    finally:
+        os.utime(cible, ns=(st.st_atime_ns, st.st_mtime_ns))
+
+
 def test_apercu_fiche_parite_chips_et_bandeau_resultats(client: TestClient) -> None:
     """Parité aperçu/PPT de la fiche reco (revue adversariale) : l'aperçu web
     doit refléter la fiche RÉELLE — chips Valeur/Complexité (plus de jauges

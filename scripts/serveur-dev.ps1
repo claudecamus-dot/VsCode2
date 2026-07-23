@@ -87,13 +87,26 @@ function Test-ContenuFrais {
     return ($nbCompares -gt 0)
 }
 
+function Test-PythonFrais {
+    # /__fraicheur : empreinte capturée à l'IMPORT par le worker == empreinte du
+    # disque (recalculée par le même code). C'est LA détection du --reload qui a
+    # raté une modif — diagnostic superviseur 2026-07-23.
+    param([int]$NumPort)
+    try {
+        $servie = ((New-Object System.Net.WebClient).DownloadString("http://127.0.0.1:$NumPort/__fraicheur") |
+            ConvertFrom-Json).empreinte
+        $disque = (& $python -c "from app.main import empreinte_code; print(empreinte_code())" 2>$null | Select-Object -Last 1).Trim()
+        return ($servie -and $disque -and $servie -eq $disque)
+    } catch { return $false }
+}
+
 # ---- 0. -KeepIfFresh (auto-start VS Code) : ne pas avorter un serveur sain ----
 # Un POST de génération IA synchrone peut durer plusieurs minutes — une purge à
-# chaque folderOpen le tuerait en vol. NB : la fraîcheur prouvée porte sur le
-# STATIQUE ; après une modif de code python, relancer SANS -KeepIfFresh.
+# chaque folderOpen le tuerait en vol. Conservé UNIQUEMENT si statique ET python
+# servis == disque : un serveur au python périmé est purgé et relancé.
 if ($KeepIfFresh -and -not $StopOnly -and (Test-PortRepond -NumPort $Port)) {
-    if (Test-ContenuFrais -NumPort $Port) {
-        Write-Host "OK : serveur déjà frais sur http://127.0.0.1:$Port — conservé (-KeepIfFresh)."
+    if ((Test-ContenuFrais -NumPort $Port) -and (Test-PythonFrais -NumPort $Port)) {
+        Write-Host "OK : serveur déjà frais (statique + python) sur http://127.0.0.1:$Port — conservé (-KeepIfFresh)."
         exit 0
     }
     Write-Host "Serveur présent mais contenu périmé — purge et relance."
@@ -152,13 +165,18 @@ if (-not $pret) {
     exit 1
 }
 
-# ---- 5. Preuve de fraîcheur + unicité du listener ----
+# ---- 5. Preuve de fraîcheur (statique + PYTHON) + unicité du listener ----
+# Python : /__fraicheur renvoie l'empreinte capturée à l'IMPORT par le worker ;
+# on la compare à l'empreinte recalculée du DISQUE (même algorithme, app.main).
+# C'est LA preuve que le --reload n'a pas servi du code périmé (diagnostic
+# superviseur 2026-07-23 — la preuve octets ne couvrait que le statique).
 $frais = Test-ContenuFrais -NumPort $Port
+$fraisPy = Test-PythonFrais -NumPort $Port
 $nbEcoute = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
     Select-Object -ExpandProperty OwningProcess -Unique).Count
-if ($frais -and $nbEcoute -eq 1) {
-    Write-Host "OK : serveur FRAIS sur http://127.0.0.1:$Port (1 seul listener, contenu servi = disque)."
+if ($frais -and $fraisPy -and $nbEcoute -eq 1) {
+    Write-Host "OK : serveur FRAIS sur http://127.0.0.1:$Port (1 seul listener, statique ET python servis = disque)."
 } else {
-    Write-Error "Serveur lancé mais suspect (listeners uniques: $nbEcoute, frais: $frais) — ne pas s'en servir tel quel."
+    Write-Error "Serveur lancé mais suspect (listeners uniques: $nbEcoute, statique frais: $frais, python frais: $fraisPy) — ne pas s'en servir tel quel."
     exit 1
 }

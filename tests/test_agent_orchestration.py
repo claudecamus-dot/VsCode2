@@ -77,6 +77,35 @@ def test_log_run_rejects_missing_fields_and_bad_qualification(tmp_path):
     assert not (tmp_path / "runs.jsonl").exists()
 
 
+def test_log_run_avertit_succes_sur_livrable_utilisateur_sans_validation(tmp_path):
+    """Garde-fou « en-attente-validation » (diagnostic superviseur 2026-07-23,
+    arbitré : 0/47 runs l'utilisaient) : un `succes` dont la demande/notes parlent
+    d'un livrable utilisateur (deck/slide/écran/export) sans mention « validé par
+    l'utilisateur » imprime un AVERTISSEMENT — non bloquant, le run est journalisé."""
+    base = {"demande": "refonte du deck de restitution", "qualification": "orchestre",
+            "resultat": "succes", "reprises": 0}
+    r = _log_run(tmp_path, base)
+    assert r.returncode == 0, r.stderr  # non bloquant
+    assert "AVERTISSEMENT" in r.stdout and "en-attente-validation" in r.stdout
+    assert len((tmp_path / "runs.jsonl").read_text(encoding="utf-8").strip().splitlines()) == 1
+
+    # Avec validation notée -> silencieux.
+    ok = dict(base, notes="rendu final validé par l'utilisateur sur l'artefact exact")
+    r2 = _log_run(tmp_path, ok)
+    assert r2.returncode == 0 and "AVERTISSEMENT" not in r2.stdout
+
+    # en-attente-validation -> pas d'avertissement (c'est le statut attendu).
+    att = dict(base, resultat="en-attente-validation")
+    r3 = _log_run(tmp_path, att)
+    assert r3.returncode == 0 and "AVERTISSEMENT" not in r3.stdout
+
+    # succes sans livrable utilisateur (outillage) -> silencieux.
+    outil = {"demande": "refactor du journal d'orchestration", "qualification": "orchestre",
+             "resultat": "succes"}
+    r4 = _log_run(tmp_path, outil)
+    assert r4.returncode == 0 and "AVERTISSEMENT" not in r4.stdout
+
+
 def test_gate_injects_grid_except_for_slash_commands():
     result = _gate("corrige le bug d'export PPT et vérifie le rendu")
     assert result.returncode == 0
