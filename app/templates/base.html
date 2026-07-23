@@ -16,7 +16,7 @@
   <script src="/static/busy.js" defer></script>
 </head>
 <body>
-  {% if request.cookies.get('mode') == 'demo' %}
+  {% if est_mode_demo(request) %}
   <div class="demo-banner">MODE DÉMO — données fictives · <a href="/">changer de mode</a></div>
   {% endif %}
   <header class="topbar">

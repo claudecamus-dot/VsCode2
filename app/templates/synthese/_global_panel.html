@@ -41,7 +41,7 @@
       hx-disabled-elt="this"
       {% if global_synthesis.status != 'empty' %}hx-confirm="Remplacer la synthèse globale actuelle par une nouvelle génération IA ? Le contenu actuel des 5 catégories sera perdu."{% endif %}
       {% if not can_generate %}disabled title="{% if not ai_ready %}Service IA indisponible — définissez {{ api_key_env }}{% else %}Aucune réponse saisie sur la mission{% endif %}"{% endif %}>
-      <span class="htmx-indicator">⏳ </span>{{ '✨ Générer (IA)' if global_synthesis.status == 'empty' else '↻ Régénérer (IA)' }}
+      <span class="htmx-indicator">⏳ </span>{{ 'Générer (IA)' if global_synthesis.status == 'empty' else '↻ Régénérer (IA)' }}
     </button>
     <span id="global-synth-saved" class="saved"></span>
     {% if global_synthesis.generated_at %}<span class="muted">généré le {{ global_synthesis.generated_at.strftime('%d/%m %H:%M') }}</span>{% endif %}

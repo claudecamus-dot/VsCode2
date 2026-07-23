@@ -29,13 +29,13 @@
   </form>
   <div class="coverage-box">
     <span class="coverage" id="coverage">{{ answered }}/{{ total }} répondues</span>
-    <a class="btn" href="/interviews/{{ interview.id }}/preview">👁️ Aperçu</a>
+    <a class="btn" href="/interviews/{{ interview.id }}/preview">Aperçu</a>
     <a class="btn btn-primary" href="/interviews/{{ interview.id }}/finish">Terminer</a>
   </div>
 </div>
 
 <details class="ref-box" {% if interview.reference_text %}open{% endif %}>
-  <summary>📋 Protocole / infos de référence</summary>
+  <summary>Protocole / infos de référence</summary>
   <textarea class="ref-text" rows="5" name="reference_text"
     hx-post="/interviews/{{ interview.id }}/reference"
     hx-trigger="keyup changed delay:800ms, blur"
@@ -67,7 +67,7 @@
 
 {% if notes_view %}
 <section class="card">
-  <h2>📝 Notes libres</h2>
+  <h2>✎ Notes libres</h2>
   <p class="muted">Tout ce qui est dit hors-trame — rattachable plus tard.</p>
 
   {% if recording_available %}
@@ -189,7 +189,7 @@
     <form method="post" action="/interviews/transcript/export-pdf" id="notes-export-form">
       <input type="hidden" name="transcript" id="export-free-notes">
       <input type="hidden" name="interviewee_name" value="{{ interview.interviewee_name }}">
-      <button class="btn" type="submit">⬇️ Télécharger la transcription (PDF)</button>
+      <button class="btn" type="submit">Télécharger la transcription (PDF)</button>
     </form>
   </div>
   <script>

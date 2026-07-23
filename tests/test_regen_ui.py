@@ -171,6 +171,125 @@ def test_forms_extraction_ia_portent_busy_label(client: TestClient) -> None:
     )
 
 
+def test_autosave_question_trame_hx_et_post_classique(client: TestClient) -> None:
+    """Défer P2-6 soldé (revue UX 2026-07-23) : la ligne de question de la trame
+    s'enregistre en autosave HTMX (fragment ✓/⚠, pas de redirection) tandis
+    qu'un POST classique garde la redirection 303 historique."""
+    from app.models import Question, Theme, Trame
+
+    db = SessionLocal()
+    try:
+        m = Mission(name="Mission Autosave Trame", trame=Trame(name="T"))
+        db.add(m)
+        db.flush()
+        theme = Theme(trame_id=m.trame.id, title="Thème", position=0)
+        db.add(theme)
+        db.flush()
+        q = Question(theme_id=theme.id, label="Avant", qtype="open", position=0)
+        db.add(q)
+        db.commit()
+        mid, qid = m.id, q.id
+    finally:
+        db.close()
+
+    url = f"/missions/{mid}/trame/questions/{qid}/edit"
+    # Autosave HTMX : fragment ET persistance réelle.
+    rep = client.post(url, data={"label": "Après", "qtype": "open"},
+                      headers={"HX-Request": "true"})
+    assert rep.status_code == 200 and "✓ enregistré" in rep.text
+    db = SessionLocal()
+    try:
+        assert db.get(Question, qid).label == "Après"
+    finally:
+        db.close()
+    # Label espaces-seulement en HTMX : erreur visible, valeur PAS écrasée.
+    rep_vide = client.post(url, data={"label": "  ", "qtype": "open"},
+                           headers={"HX-Request": "true"})
+    assert rep_vide.status_code == 200 and "⚠" in rep_vide.text
+    # Bornes d'échelle vidées pendant la frappe : fragment 200, jamais un 422
+    # (invisible pour htmx — l'édit serait perdu en silence).
+    rep_scale = client.post(
+        url, data={"label": "Après", "qtype": "scale", "scale_min": "", "scale_max": ""},
+        headers={"HX-Request": "true"})
+    assert rep_scale.status_code == 200 and "✓" in rep_scale.text
+    # Question supprimée dans un autre onglet : fragment d'erreur, pas un 404 JSON muet.
+    rep_404 = client.post(f"/missions/{mid}/trame/questions/999999/edit",
+                          data={"label": "X", "qtype": "open"},
+                          headers={"HX-Request": "true"})
+    assert rep_404.status_code == 200 and "introuvable" in rep_404.text
+    db = SessionLocal()
+    try:
+        assert db.get(Question, qid).label == "Après", "un chemin d'erreur a écrasé la valeur"
+    finally:
+        db.close()
+    # POST classique (sans htmx) : redirection historique conservée.
+    rep_classique = client.post(url, data={"label": "Après 2", "qtype": "open"},
+                                follow_redirects=False)
+    assert rep_classique.status_code == 303
+    db = SessionLocal()
+    try:
+        assert db.get(Question, qid).label == "Après 2"
+    finally:
+        db.close()
+    # Template : autosave en place, bouton par ligne remplacé par le repli masqué
+    # (un form multi-champs SANS bouton ne se soumet pas à Entrée sans JS) + le
+    # halt de validation htmx est rendu visible par autosave.js.
+    src = (TEMPLATES / "trames" / "edit.html").read_text(encoding="utf-8")
+    assert 'class="edit-question"' in src and "hx-post" in src and "hx-sync" in src
+    assert 'class="visually-hidden">Enregistrer</button>' in src
+    autosave = (STATIC / "autosave.js").read_text(encoding="utf-8")
+    assert "htmx:validation:halted" in autosave
+
+
+def test_demarrer_propose_la_derniere_mission_consultee(client: TestClient) -> None:
+    """Défer item 18 soldé : la fiche mission pose un cookie `derniere_mission`
+    (hors brouillon) et /demarrer propose de la reprendre ; id périmé ignoré."""
+    mid = _mission_id()
+    # Sans cookie : pas d'encart de reprise.
+    vierge = client.get("/demarrer")
+    assert "Mission en cours" not in vierge.text
+    # La visite de la fiche pose le cookie…
+    fiche = client.get(f"/missions/{mid}")
+    assert fiche.status_code == 200
+    assert client.cookies.get("derniere_mission") == str(mid)
+    # …et /demarrer propose la reprise.
+    rep = client.get("/demarrer")
+    assert "Mission en cours" in rep.text and f"/missions/{mid}" in rep.text
+    # Id périmé (mission supprimée) : encart absent, pas d'erreur.
+    client.cookies.set("derniere_mission", "999999")
+    perime = client.get("/demarrer")
+    assert perime.status_code == 200 and "Mission en cours" not in perime.text
+    # Cookie forgé : valeur géante ou non numérique — jamais un 500 sur l'écran
+    # d'entrée (revue adversariale 2026-07-23). Le chiffre Unicode « ² »
+    # (isdigit-vrai mais int-faux) n'est pas envoyable via httpx (cookies ASCII),
+    # un vrai navigateur le peut : le garde isascii() l'exclut, vérifié à sec.
+    assert "²".isdigit() and not "²".isascii()  # ce que le garde doit couvrir
+    for forge in ("9" * 20, "abc", "-3", "1e5"):
+        client.cookies.set("derniere_mission", forge)
+        rep_forge = client.get("/demarrer")
+        assert rep_forge.status_code == 200, f"cookie {forge!r} → {rep_forge.status_code}"
+        assert "Mission en cours" not in rep_forge.text
+    # Invariant démo/réel : une mission RÉELLE n'est jamais proposée en mode
+    # démo (fuite d'un nom de mission client en pleine présentation sinon).
+    client.cookies.set("derniere_mission", str(mid))
+    assert "Mission en cours" in client.get("/demarrer").text  # mode réel : proposée
+    client.cookies.set("mode", "demo")
+    en_demo = client.get("/demarrer")
+    assert en_demo.status_code == 200 and "Mission en cours" not in en_demo.text
+    client.cookies.delete("mode")
+
+
+def test_accueil_et_demarrer_sont_distincts(client: TestClient) -> None:
+    """Défer item 10 soldé : « / » (choix du mode) ne se présente plus comme un
+    second écran « Démarrer » — titres distincts + lien croisé de changement de
+    mode sur /demarrer."""
+    accueil = client.get("/")
+    assert "Dans quel mode travailler" in accueil.text
+    demarrer = client.get("/demarrer")
+    assert "<h1>Démarrer</h1>" in demarrer.text
+    assert "Mode actuel" in demarrer.text and "en changer" in demarrer.text
+
+
 def test_filtre_pluriel_bordures() -> None:
     """Filtre Jinja `pluriel` (revue UX 2026-07-23 P2-13, ajouté sans test —
     revue adversariale) : accord correct aux bordures, jamais d'exception —

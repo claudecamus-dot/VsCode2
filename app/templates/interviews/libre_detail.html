@@ -15,10 +15,10 @@
     {# Submit épinglé en tête (P2-9 : l'asymétrie visée était le « Terminer »
        épinglé du mode structuré — un simple lien retour ne suffisait pas). #}
     <button class="btn btn-primary" type="submit" form="libre-detail-form">Enregistrer les modifications</button>
-    <a class="btn" href="/interviews/{{ interview.id }}/analyse">👁️ Aperçu</a>
-    <a class="btn" href="/interviews/{{ interview.id }}/export/transcription/pdf">⬇️ Télécharger la transcription (PDF)</a>
-    <a class="btn" href="/interviews/{{ interview.id }}/export/markdown">⬇️ Télécharger (.md)</a>
-    <a class="btn" href="/interviews/{{ interview.id }}/export/pdf">⬇️ Télécharger (PDF)</a>
+    <a class="btn" href="/interviews/{{ interview.id }}/analyse">Aperçu</a>
+    <a class="btn" href="/interviews/{{ interview.id }}/export/transcription/pdf">Télécharger la transcription (PDF)</a>
+    <a class="btn" href="/interviews/{{ interview.id }}/export/markdown">Télécharger (.md)</a>
+    <a class="btn" href="/interviews/{{ interview.id }}/export/pdf">Télécharger (PDF)</a>
     <form method="post" action="/interviews/{{ interview.id }}/delete"
           onsubmit="return confirm('Supprimer cet entretien ?');">
       <button class="btn btn-danger btn-sm" type="submit">Supprimer</button>

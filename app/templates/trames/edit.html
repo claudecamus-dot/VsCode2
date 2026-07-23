@@ -45,8 +45,19 @@
   <ul class="questions">
     {% for q in theme.questions %}
     <li class="q-edit">
+      {# Autosave (défer P2-6 soldé) : change/keyup/Entrée remontent des champs
+         enfants jusqu'au form — même pattern que l'intro ci-dessus. `submit`
+         dans le trigger : Entrée passe en AJAX au lieu d'un rechargement
+         complet ; hx-sync : jamais deux POST en vol (le plus ancien gagnerait
+         la base en cas de réordonnancement). Le bouton submit masqué garde le
+         repli sans JS (un form multi-champs sans bouton ne se soumet pas à
+         Entrée) — revue adversariale 2026-07-23. #}
       <form method="post" action="/missions/{{ mission.id }}/trame/questions/{{ q.id }}/edit"
-            class="edit-question">
+            class="edit-question"
+            hx-post="/missions/{{ mission.id }}/trame/questions/{{ q.id }}/edit"
+            hx-trigger="change delay:300ms, keyup changed delay:800ms, submit"
+            hx-sync="this:replace"
+            hx-target="find .saved" hx-swap="innerHTML">
         <input type="text" name="label" value="{{ q.label }}" required aria-label="Intitulé">
         <select name="qtype" aria-label="Type de question">
           <option value="open"   {% if q.qtype == 'open' %}selected{% endif %}>Ouverte</option>
@@ -65,10 +76,8 @@
         <input type="text" name="help_text" class="help-input"
                value="{{ q.help_text or '' }}" aria-label="Texte d'aide"
                placeholder="Texte d'aide / contexte (optionnel)">
-        {# btn-link : un bouton gris par ligne pesait autant que les actions de
-           page (revue UX 2026-07-23 P2-6 — l'autosave complet exigerait de
-           refondre les routes d'édition, différé). #}
-        <button class="btn-link" type="submit" title="Enregistrer les modifications de cette question">Enregistrer</button>
+        <button type="submit" class="visually-hidden">Enregistrer</button>
+        <span class="saved"></span>
       </form>
       <form method="post"
             action="/missions/{{ mission.id }}/trame/questions/{{ q.id }}/delete"

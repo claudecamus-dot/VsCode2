@@ -318,20 +318,41 @@ def add_question(
     return RedirectResponse(f"/missions/{mission_id}/trame", status_code=303)
 
 
+def _int_ou(valeur: str, defaut: int) -> int:
+    """Coercition douce des bornes d'échelle : en autosave, un champ nombre vidé
+    le temps de retaper poste "" — un 422 FastAPI serait invisible pour htmx
+    (pas de swap sur 4xx), l'utilisateur garderait un ✓ périmé à l'écran."""
+    try:
+        return int(valeur)
+    except (TypeError, ValueError):
+        return defaut
+
+
 @router.post("/questions/{question_id}/edit")
 def edit_question(
     mission_id: int,
     question_id: int,
+    request: Request,
     label: str = Form(...),
     qtype: str = Form("open"),
-    scale_min: int = Form(1),
-    scale_max: int = Form(5),
+    scale_min: str = Form("1"),
+    scale_max: str = Form("5"),
     choices: str = Form(""),
     help_text: str = Form(""),
     db: Session = Depends(get_session),
 ):
+    # Autosave HTMX (défer revue UX 2026-07-23, P2-6) : la ligne s'enregistre au
+    # change/keyup/Entrée comme l'intro au-dessus — fragment dans le slot .saved.
+    # Un POST classique (sans htmx/JS) garde la redirection d'origine. Tout état
+    # d'erreur DOIT rendre un fragment 200 côté HX : htmx ne swape pas un 4xx
+    # (revue adversariale 2026-07-23 — 404/422 étaient des pertes silencieuses).
+    est_hx = bool(request.headers.get("HX-Request"))
     question = db.get(Question, question_id)
     if question is None or question.theme.trame.mission_id != mission_id:
+        if est_hx:
+            return HTMLResponse(
+                '<span class="saved error">⚠ question introuvable — recharge la page</span>'
+            )
         raise HTTPException(status_code=404, detail="Question introuvable.")
     if qtype not in QUESTION_TYPES:
         qtype = "open"
@@ -340,8 +361,17 @@ def edit_question(
         question.label = label
         question.help_text = help_text.strip() or None
         question.qtype = qtype
-        question.config = _build_config(qtype, scale_min, scale_max, choices)
+        question.config = _build_config(
+            qtype, _int_ou(scale_min, 1), _int_ou(scale_max, 5), choices
+        )
         db.commit()
+    if est_hx:
+        if not label:
+            # Un label vide bloque TOUS les champs de la ligne, pas que l'intitulé.
+            return HTMLResponse(
+                '<span class="saved error">⚠ intitulé requis — aucun champ de la ligne enregistré</span>'
+            )
+        return HTMLResponse('<span class="saved">✓ enregistré</span>')
     return RedirectResponse(f"/missions/{mission_id}/trame", status_code=303)
 
 

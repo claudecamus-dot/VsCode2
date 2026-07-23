@@ -31,7 +31,7 @@
   <input type="hidden" name="transcript" value="{{ identity.transcript if identity else '' }}">
   <input type="hidden" name="interviewee_name" value="{{ identity.interviewee_name if identity else '' }}">
   <p class="muted">L'extraction a échoué, mais le texte transcrit n'est pas perdu — tu peux l'exporter en PDF avant de réessayer.</p>
-  <button class="btn" type="submit">⬇️ Télécharger la transcription (PDF)</button>
+  <button class="btn" type="submit">Télécharger la transcription (PDF)</button>
 </form>
 {% endif %}
 
@@ -84,7 +84,7 @@
     <a class="btn" href="/missions/{{ mission.id }}">Annuler</a>
     <button class="btn" type="submit" id="rec-pdf" formnovalidate
             formaction="/interviews/transcript/export-pdf" disabled
-            title="Exporte le texte transcrit tel qu'affiché ci-dessus, sans passer par l'extraction IA">⬇️ Télécharger la transcription (PDF)</button>
+            title="Exporte le texte transcrit tel qu'affiché ci-dessus, sans passer par l'extraction IA">Télécharger la transcription (PDF)</button>
     <button class="btn btn-primary" type="submit" id="rec-submit" disabled>Envoyer pour extraction des réponses</button>
   </div>
 </form>
@@ -220,7 +220,7 @@
   function uploadBackup(blob) {
     pendingBackups++;
     updateSubmitState();
-    backupStatusEl.textContent = '💾 sauvegarde audio en cours…';
+    backupStatusEl.textContent = 'Sauvegarde audio en cours…';
     var formData = new FormData();
     formData.append('file', new File([blob], 'entretien.webm', { type: blob.type }));
     fetch('/missions/{{ mission.id }}/interviews/record/backup', { method: 'POST', body: formData })

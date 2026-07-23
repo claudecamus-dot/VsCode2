@@ -1,8 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Bienvenue — Interview-to-Deck{% endblock %}
+{% block title %}Choix du mode — Interview-to-Deck{% endblock %}
 {% block content %}
-<div class="page-head"><h1>Comment souhaitez-vous démarrer ?</h1></div>
-<p class="muted">Choisissez un mode. Vous pourrez en changer à tout moment depuis le bandeau en haut de l'écran.</p>
+{# Titre distinct de l'écran « Démarrer » (/demarrer) : les deux écrans se
+   lisaient comme le même « démarrage » (défer revue UX 2026-07-23, item 10). #}
+<div class="page-head"><h1>Dans quel mode travailler ?</h1></div>
+<p class="muted">Choisissez un mode — vous pourrez en changer à tout moment en revenant ici. Le choix de ce que vous démarrez (entretien, mission) vient à l'écran suivant.</p>
 
 <div class="entree-choices">
   <form method="post" action="/mode/demo" class="card entree-choice mode-demo">

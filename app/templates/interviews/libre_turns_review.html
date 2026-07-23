@@ -22,7 +22,7 @@
   <input type="hidden" name="transcript" value="{{ transcript or '' }}">
   <input type="hidden" name="interviewee_name" value="{{ identity.interviewee_name if identity else '' }}">
   <p class="muted">La répartition a échoué, mais la transcription n'est pas perdue — tu peux l'exporter en PDF avant de réessayer.</p>
-  <button class="btn" type="submit">⬇️ Télécharger la transcription (PDF)</button>
+  <button class="btn" type="submit">Télécharger la transcription (PDF)</button>
 </form>
 {% endif %}
 
@@ -90,7 +90,7 @@
             title="Revient à l'écran de transcription sans perdre le texte ni l'identité">← Revenir à la transcription</button>
     <button class="btn" type="submit" formnovalidate
             formaction="/interviews/turns/export-pdf"
-            title="Exporte les tours de parole tels qu'affichés ci-dessus, avant tout enregistrement">⬇️ Télécharger les tours de parole (PDF)</button>
+            title="Exporte les tours de parole tels qu'affichés ci-dessus, avant tout enregistrement">Télécharger les tours de parole (PDF)</button>
     <button class="btn btn-primary" type="submit">Continuer vers la synthèse</button>
   </div>
 </form>

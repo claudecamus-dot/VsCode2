@@ -50,7 +50,7 @@
     </div>
     <form method="post" action="/missions/{{ mission.id }}/pptx-template" enctype="multipart/form-data" class="apercu-upload">
       <input type="file" name="file" accept=".pptx" aria-label="Fichier de template PowerPoint" required>
-      <button class="btn" type="submit">🖼️ Utiliser ce template</button>
+      <button class="btn" type="submit">Utiliser ce template</button>
     </form>
   </div>
 </section>
@@ -94,7 +94,7 @@
     </div>
     {% endif %}
     <div class="synth-actions">
-      <button class="btn btn-primary" type="submit">📊 Exporter en PPT</button>
+      <button class="btn btn-primary" type="submit">Exporter en PPT</button>
     </div>
   </form>
 </section>
@@ -238,7 +238,7 @@
           data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
           {% if executive_summary and executive_summary.has_content %}onsubmit="return confirm('Remplacer cet executive summary par une nouvelle génération IA ? Vos modifications manuelles seront perdues.');"{% endif %}>
           <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>
-            {% if executive_summary and executive_summary.has_content %}🔄 Régénérer l'executive summary (IA){% else %}✨ Générer l'executive summary (IA){% endif %}
+            {% if executive_summary and executive_summary.has_content %}↻ Régénérer l'executive summary (IA){% else %}Générer l'executive summary (IA){% endif %}
           </button>
           {% if executive_summary %}<span class="badge badge-synth-{{ executive_summary.status }}" id="es-status">{{ executive_summary.status_label }}</span>{% endif %}
           {% if not ai_ready %}<span class="muted">Service IA indisponible ({{ api_key_env }}).</span>{% endif %}
@@ -273,7 +273,7 @@
           data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
           {% if difficulties %}onsubmit="return confirm('Remplacer la liste actuelle des difficultés par une nouvelle génération IA ? Les libellés et liens citation seront perdus.');"{% endif %}>
           <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>
-            {% if difficulties %}🔄 Régénérer les difficultés (IA){% else %}✨ Générer les difficultés (IA){% endif %}
+            {% if difficulties %}↻ Régénérer les difficultés (IA){% else %}Générer les difficultés (IA){% endif %}
           </button>
           {% if not ai_ready %}<span class="muted">Service IA indisponible ({{ api_key_env }}).</span>{% endif %}
         </form>
@@ -334,7 +334,7 @@
           data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
           {% if swot and swot.has_content %}onsubmit="return confirm('Remplacer le contenu actuel des 4 quadrants SWOT par une nouvelle génération IA ? Vos modifications manuelles seront perdues.');"{% endif %}>
           <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>
-            {% if swot and swot.has_content %}🔄 Régénérer la SWOT (IA){% else %}✨ Générer la SWOT (IA){% endif %}
+            {% if swot and swot.has_content %}↻ Régénérer la SWOT (IA){% else %}Générer la SWOT (IA){% endif %}
           </button>
           {% if swot %}<span class="badge badge-synth-{{ swot.status }}" id="swot-status">{{ swot.status_label }}</span>{% endif %}
           {% if not ai_ready %}<span class="muted">Service IA indisponible ({{ api_key_env }}).</span>{% endif %}
@@ -559,7 +559,7 @@
    les slides, plus besoin de remonter en haut de page (revue UX 2026-07-23
    P3-17). L'attribut form= soumet le MÊME formulaire de configuration. #}
 <div class="card synth-actions">
-  <button class="btn btn-primary" type="submit" form="pptx-config-form">📊 Exporter en PPT</button>
+  <button class="btn btn-primary" type="submit" form="pptx-config-form">Exporter en PPT</button>
   <span class="muted">Exporte avec les slides cochées dans « Définition des slides » en haut de page.</span>
 </div>
 

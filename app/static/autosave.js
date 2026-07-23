@@ -21,9 +21,29 @@
   document.body.addEventListener("htmx:afterSwap", function (evt) {
     var target = evt.detail.target;
     if (!target.classList || !target.classList.contains("saved")) return;
-    if (target.textContent.trim().indexOf("✓") === 0) {
+    var first = target.textContent.trim().charAt(0);
+    // ✓ ET ⚠ s'effacent au même délai — un ⚠ serveur qui restait affiché à vie
+    // divergeait des erreurs réseau du même slot (revue adversariale 2026-07-23).
+    if (first === "✓" || first === "⚠") {
+      target.classList.toggle("error", first === "⚠");
       scheduleClear(target);
     }
+  });
+
+  // Validation HTML5 en échec sur un form htmx : htmx N'ÉMET PAS la requête et
+  // se tait (htmx:validation:halted) — sans ce handler, vider un champ requis
+  // d'une ligne en autosave ne donnait NI requête NI message : l'utilisateur
+  // croyait sa saisie enregistrée (revue adversariale 2026-07-23).
+  document.body.addEventListener("htmx:validation:halted", function (evt) {
+    var form = evt.target;
+    if (!form || !form.querySelector) return;
+    var slot = form.querySelector(".saved");
+    if (!slot) return;
+    var existing = timers.get(slot);
+    if (existing) clearTimeout(existing);
+    slot.textContent = "⚠ champ requis manquant — rien n'est enregistré";
+    slot.classList.add("error");
+    scheduleClear(slot);
   });
 
   function showError(evt, message) {

@@ -4,6 +4,15 @@
 <div class="page-head"><h1>Démarrer</h1></div>
 <p class="muted">Choisis comment démarrer — pour les deux premiers, la mission se précise à la fin.</p>
 
+{% if derniere_mission %}
+<div class="notice">
+  <p>
+    Mission en cours : <strong>{{ derniere_mission.name }}</strong> —
+    <a href="/missions/{{ derniere_mission.id }}">la reprendre</a> plutôt que d'en démarrer une nouvelle ?
+  </p>
+</div>
+{% endif %}
+
 <div class="entree-choices">
   <form method="post" action="/entretiens/libre/nouveau" class="card entree-choice">
     <h2>Entretien libre</h2>
@@ -30,5 +39,9 @@
   </div>
 </div>
 
-<p class="muted"><a href="/missions">Voir les missions existantes</a></p>
+<p class="muted">
+  <a href="/missions">Voir les missions existantes</a>
+  · Mode actuel : {{ 'démonstration' if est_mode_demo(request) else 'usage réel' }}
+  — <a href="/">en changer</a>
+</p>
 {% endblock %}

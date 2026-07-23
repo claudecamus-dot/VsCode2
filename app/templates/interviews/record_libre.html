@@ -33,7 +33,7 @@
   <input type="hidden" name="transcript" value="{{ identity.transcript if identity else '' }}">
   <input type="hidden" name="interviewee_name" value="{{ identity.interviewee_name if identity else '' }}">
   <p class="muted">L'extraction a échoué, mais le texte transcrit n'est pas perdu — tu peux l'exporter en PDF avant de réessayer.</p>
-  <button class="btn" type="submit">⬇️ Télécharger la transcription (PDF)</button>
+  <button class="btn" type="submit">Télécharger la transcription (PDF)</button>
 </form>
 {% endif %}
 
@@ -59,7 +59,7 @@
        transcription terminée. Permet de transcrire un fichier audio existant
        (au lieu du micro) via le même endpoint /audio/transcribe-segment. -->
   <div class="record-controls" style="border: 1px dashed #999; padding: 8px; margin-top: 8px;">
-    <span class="muted">🧪 Test (temporaire) :</span>
+    <span class="muted">Test (temporaire) :</span>
     <label for="rec-test-upload" class="visually-hidden">Fichier audio à transcrire</label>
     <input type="file" id="rec-test-upload" accept="audio/*">
     <button class="btn" type="button" id="rec-test-upload-btn">Transcrire ce fichier</button>
@@ -81,7 +81,7 @@
       <button class="btn-link" type="button" id="rec-reset" {% if not (identity and identity.transcript) %}hidden{% endif %}>Recommencer</button>
       <button class="btn btn-sm" type="submit" id="rec-pdf" formnovalidate
               formaction="/interviews/transcript/export-pdf" disabled
-              title="Exporte le texte transcrit tel qu'affiché ci-dessus, sans passer par l'extraction IA">⬇️ Télécharger la transcription (PDF)</button>
+              title="Exporte le texte transcrit tel qu'affiché ci-dessus, sans passer par l'extraction IA">Télécharger la transcription (PDF)</button>
     </div>
   </div>
   <div id="tab-repartition" class="rec-tab-panel" hidden>
@@ -89,7 +89,7 @@
     <div id="rec-repartition" class="preview-doc"></div>
     <div class="tab-panel-actions">
       <button class="btn btn-sm" type="button" id="rep-pdf" disabled
-              title="Exporte les tours de parole affichés en PDF (même document que la transcription éditée)">⬇️ Télécharger la répartition (PDF)</button>
+              title="Exporte les tours de parole affichés en PDF (même document que la transcription éditée)">Télécharger la répartition (PDF)</button>
     </div>
   </div>
 
@@ -362,7 +362,7 @@
     var gen = backupGeneration;  // session à laquelle appartient cette tranche
     pendingBackups++;
     updateSubmitState();
-    backupStatusEl.textContent = '💾 sauvegarde audio en cours (tranche ' + (position + 1) + ')…';
+    backupStatusEl.textContent = 'Sauvegarde audio en cours (tranche ' + (position + 1) + ')…';
     var formData = new FormData();
     formData.append('file', new File([blob], 'entretien.webm', { type: blob.type }));
     fetch('/missions/{{ mission.id }}/interviews/record/backup', { method: 'POST', body: formData })

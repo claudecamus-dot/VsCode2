@@ -37,7 +37,7 @@
   {% set can_generate = ai_ready and global_synthesis and global_synthesis.has_content %}
   <button class="btn btn-primary" type="submit"
     {% if not can_generate %}disabled title="{% if not ai_ready %}Service IA indisponible — définissez {{ api_key_env }}{% else %}Nécessite une synthèse globale déjà générée{% endif %}"{% endif %}>
-    {{ '✨ Générer (IA)' if not axes else '↻ Régénérer (IA)' }}
+    {{ 'Générer (IA)' if not axes else '↻ Régénérer (IA)' }}
   </button>
   {% if not global_synthesis or not global_synthesis.has_content %}
   <span class="muted">Nécessite une <a href="/missions/{{ mission.id }}/synthese/globale">synthèse globale</a> déjà générée.</span>

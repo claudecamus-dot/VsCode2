@@ -19,9 +19,9 @@
   </div>
   <div class="coverage-box">
     <a class="btn" href="/interviews/{{ interview.id }}">← Retour à la saisie</a>
-    <a class="btn" href="/interviews/{{ interview.id }}/export/markdown">⬇️ Télécharger (.md)</a>
-    <a class="btn" href="/interviews/{{ interview.id }}/export/pdf">⬇️ Télécharger (PDF)</a>
-    <button class="btn" type="button" onclick="window.print()">🖨️ Imprimer</button>
+    <a class="btn" href="/interviews/{{ interview.id }}/export/markdown">Télécharger (.md)</a>
+    <a class="btn" href="/interviews/{{ interview.id }}/export/pdf">Télécharger (PDF)</a>
+    <button class="btn" type="button" onclick="window.print()">Imprimer</button>
   </div>
 </div>
 
@@ -37,7 +37,7 @@
 
   {% if interview.free_notes and interview.free_notes.strip() %}
   <section class="preview-theme">
-    <h2>📝 Notes libres</h2>
+    <h2>✎ Notes libres</h2>
     <p class="preview-answer">{{ interview.free_notes }}</p>
   </section>
   {% endif %}

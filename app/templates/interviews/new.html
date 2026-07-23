@@ -8,11 +8,14 @@
 
 <div class="page-head">
   <h1>Nouvel entretien</h1>
+  {# Ordre = fréquence d'usage (défer revue UX 2026-07-23, item 26) :
+     enregistrer d'abord (le flux nominal depuis incr.9), importer ensuite —
+     le CTA primaire de l'écran reste « Démarrer la saisie » (saisie manuelle). #}
   <div class="head-actions">
-    <a class="btn" href="/missions/{{ mission.id }}/interviews/import">Importer un entretien (.docx)</a>
     {% if recording_available %}
     <a class="btn" href="/missions/{{ mission.id }}/interviews/record">Enregistrer un entretien</a>
     {% endif %}
+    <a class="btn" href="/missions/{{ mission.id }}/interviews/import">Importer un entretien (.docx)</a>
   </div>
 </div>
 {% if not recording_available %}

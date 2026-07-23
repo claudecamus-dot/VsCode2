@@ -10,6 +10,7 @@ from .models import (
     QUESTION_TYPE_LABELS,
     SYNTHESIS_STATUS_LABELS,
 )
+from .services.mode import est_mode_demo
 from .services.pptx_export import field_fit_hint
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
@@ -42,3 +43,7 @@ def _pluriel(count, suffixe: str = "s") -> str:
 
 
 templates.env.filters["pluriel"] = _pluriel
+# Contrat du mode démo centralisé (services/mode.py) exposé aux templates —
+# base.html et entree.html recopiaient le nom du cookie et sa sémantique en dur
+# (3 copies divergables, revue adversariale 2026-07-23).
+templates.env.globals["est_mode_demo"] = est_mode_demo

@@ -126,6 +126,12 @@ button.htmx-request { opacity: .55; cursor: wait; }
 }
 .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; gap: 12px; }
 .card-head-actions { display: flex; align-items: center; gap: 10px; }
+/* Présent pour les lecteurs d'écran et le repli sans JS (submit implicite à
+   Entrée), invisible à l'écran. */
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
 
 .entree-choices {
   display: grid;

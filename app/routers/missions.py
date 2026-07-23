@@ -200,9 +200,25 @@ def mission_detail(
     db: Session = Depends(get_session),
 ):
     mission = _get_mission(db, mission_id)
-    return templates.TemplateResponse(
+    resp = templates.TemplateResponse(
         request, "missions/detail.html", {"mission": mission}
     )
+    # Mémorise la dernière mission consultée (défer revue UX 2026-07-23, item 18) :
+    # l'écran « Démarrer » propose de la reprendre — un clic réflexe sur la nav n'y
+    # fait plus perdre son fil. Cookie de session simple, brouillons exclus (leur
+    # reprise passe déjà par /finaliser sur la liste des missions).
+    # Limites assumées (revue adversariale 2026-07-23) : le cookie n'est posé que
+    # par la fiche (les écrans profonds — synthèse, capture — ne le rafraîchissent
+    # pas : la fiche est le hub par lequel on entre dans une mission), et un id
+    # SQLite réutilisé après suppression peut désigner une autre mission — le
+    # garde de /demarrer (existence + mode + non-brouillon) borne le risque à une
+    # suggestion inexacte, jamais une erreur.
+    if not mission.is_draft:
+        resp.set_cookie(
+            "derniere_mission", str(mission.id), max_age=60 * 60 * 24 * 30,
+            samesite="lax", path="/", httponly=True,
+        )
+    return resp
 
 
 @router.post("/{mission_id}/name")

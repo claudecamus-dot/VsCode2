@@ -50,10 +50,30 @@ def choisir_mode(choix: str):
 
 
 @router.get("/demarrer")
-def entree(request: Request):
+def entree(request: Request, db: Session = Depends(get_session)):
     """Entrée à 3 choix (entretien libre / structuré / nouvelle mission) —
-    déplacée de `/` sous la 1ère page démo/réel (P5a-1)."""
-    return templates.TemplateResponse(request, "entretiens/entree.html", {})
+    déplacée de `/` sous la 1ère page démo/réel (P5a-1). Propose en plus de
+    reprendre la dernière mission consultée (cookie posé par la fiche mission,
+    défer revue UX 2026-07-23 item 18) — id périmé ou brouillon ignorés."""
+    derniere = None
+    raw = request.cookies.get("derniere_mission")
+    # isascii+isdigit : "²"/"٣" passent isdigit() mais crashent int() ; longueur
+    # bornée : une valeur forgée de 20 chiffres ferait déborder SQLite — dans les
+    # deux cas c'était un 500 sur l'écran d'entrée (revue adversariale 2026-07-23).
+    if raw and raw.isascii() and raw.isdigit() and len(raw) <= 10:
+        candidate = db.get(Mission, int(raw))
+        # Même invariant démo/réel que list_missions : ne JAMAIS proposer une
+        # mission de l'autre mode (fuite d'un nom de mission réelle en pleine
+        # démo client sinon — trouvé par les deux chasseurs).
+        if (
+            candidate is not None
+            and not candidate.is_draft
+            and candidate.is_demo == est_mode_demo(request)
+        ):
+            derniere = candidate
+    return templates.TemplateResponse(
+        request, "entretiens/entree.html", {"derniere_mission": derniere}
+    )
 
 
 @router.post("/entretiens/libre/nouveau")
