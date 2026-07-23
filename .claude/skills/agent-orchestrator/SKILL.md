@@ -88,6 +88,9 @@ plans (leçons payées du projet — mémoires `feedback_*`) :
 | --- | --- |
 | Template Jinja / CSS / JS | Screenshot via `run-dev-server` (pas seulement pytest) |
 | `pptx_export.py` / `pptx_deck.py` | `pptx-verify` (rendu réel — python-pptx est un parseur tolérant) |
+| `_slide_swot` | Skill `swot-matrix` chargée AVANT de dessiner (matrice 2×2 réelle, pas quatre cartes) |
+| `_slide_matrice_effort_valeur` / slide de priorisation | Skill `priority-matrix` chargée AVANT de dessiner (matrice dessinée, jamais un scatter Excel natif) |
+| Cadres photo / images encadrées (têtes de chapitre) | Skill `pptx-framed-image` (prstGeom cloné sur l'image, pas un arrondi PIL) |
 | **Livrable consommé par l'utilisateur** (deck exporté, écran) | Produire l'**artefact EXACT qu'il ouvre** (export réel de la route de l'app — `GET …/export/pptx` — **pas** un `build_presentation` maison), le rendre **ENTIER** (toutes les slides, pas 2-3), et le faire **VALIDER par l'utilisateur** avant tout « fait » (évol 2026-07-22, boucle deck non convergente — `feedback-verify-the-real-app-export-all-slides`) |
 | Fin d'incrément / avant commit | `revue-increment` en étape terminale |
 | Exploration volumineuse | Sous-agent `Explore`, jamais la session principale |

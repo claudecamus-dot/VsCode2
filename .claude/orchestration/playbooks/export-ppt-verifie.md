@@ -35,7 +35,7 @@ itérations de la boucle nominale.
 ```json
 {
   "nom": "export-ppt-verifie",
-  "description": "Production ou évolution du deck PPT de restitution : génération, enrichissements conditionnels (cadres photo, polish rédactionnel, passe design), vérification au rendu réel obligatoire, revue-increment avant commit.",
+  "description": "Production ou évolution du deck PPT de restitution : génération, enrichissements conditionnels (cadres photo, slides spécialisées SWOT/matrice de priorisation, polish rédactionnel, passe design), vérification au rendu réel obligatoire, revue-increment avant commit.",
   "statut": "eprouve",
   "source": "manuel",
   "declencheurs": [
@@ -74,7 +74,18 @@ itérations de la boucle nominale.
       "modele": "(session)",
       "contrat": {
         "type": "deterministe",
-        "critere": "SI le template client porte des cadres photo (prstGeom round2DiagRect, « ici mettre une Photo ») : image insérée épousant la forme exacte du cadre (skill jamais utilisée à ce jour — prudence, contrôler à l'étape verification-rendu)"
+        "critere": "SI le template client porte des cadres photo (prstGeom round2DiagRect, « ici mettre une Photo ») OU si des images encadrées sont insérées/retouchées (têtes de chapitre) : image insérée épousant la forme exacte du cadre (jouée le 2026-07-22 — têtes de chapitre teardrop ; contrôler à l'étape verification-rendu)"
+      },
+      "checkpoint": false
+    },
+    {
+      "id": "slides-specialisees",
+      "agent": "swot-matrix / priority-matrix",
+      "mode": "cascade",
+      "modele": "(session)",
+      "contrat": {
+        "type": "deterministe",
+        "critere": "SI le diff touche `_slide_swot` (pptx_export.py) ou que le SWOT « n'est pas au RDV » : charger la skill `swot-matrix` AVANT de dessiner (matrice 2×2 réelle, axes Interne/Externe × Favorable/Défavorable explicites). SI le diff touche `_slide_matrice_effort_valeur` ou qu'une slide de priorisation rend des points gris illisibles : charger la skill `priority-matrix` AVANT de dessiner (quadrants teintés porteurs de sens + bulles colorées par axe, JAMAIS un scatter Excel natif). Rattachement 2026-07-23 (supervision multi-projets) : ces deux skills existaient depuis le 2026-07-22 sans être câblées dans aucune chaîne — d'où leur statut « jamais utilisées »."
       },
       "checkpoint": false
     },
@@ -85,7 +96,7 @@ itérations de la boucle nominale.
       "modele": "(session)",
       "contrat": {
         "type": "deterministe",
-        "critere": "SI le contenu textuel des slides a été produit ou retouché : slide_lint passé sur {title, bullets}, findings bloquants corrigés (skill jamais utilisée à ce jour — prudence)"
+        "critere": "SI le contenu textuel des slides a été produit ou retouché : slide_lint passé sur {title, bullets}, findings bloquants corrigés (jouée le 2026-07-22 — lint copy du deck)"
       },
       "checkpoint": false
     },

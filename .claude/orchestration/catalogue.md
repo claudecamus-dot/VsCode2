@@ -19,8 +19,10 @@
 | --- | --- | --- | --- | --- |
 | `run-dev-server` | Lancer/screenshoter l'app, vérifier un changement UI réel | Synchrone | (session) | Éprouvé (×9) |
 | `revue-increment` | Definition-of-done : fin d'incrément, avant commit | Synchrone, étape terminale obligatoire des plans de dev | (session) | Jamais invoquée — à réhabiliter via l'orchestrateur |
-| `pptx-framed-image` | Remplir les cadres photo d'un template PPT — étape conditionnelle du playbook `export-ppt-verifie` | Synchrone | (session) | Jamais utilisée — conservée (arbitrage 2026-07-18) |
-| `slide-text-polish` | Lint de la qualité rédactionnelle des slides — étape conditionnelle du playbook `export-ppt-verifie` | Synchrone | (session) | Jamais utilisée — conservée (arbitrage 2026-07-18) |
+| `pptx-framed-image` | Remplir les cadres photo d'un template PPT / images encadrées des têtes de chapitre — étape `cadres-photo` du playbook `export-ppt-verifie` | Synchrone | (session) | Jouée le 2026-07-22 (têtes de chapitre teardrop) |
+| `slide-text-polish` | Lint de la qualité rédactionnelle des slides — étape `polish-texte` du playbook `export-ppt-verifie` | Synchrone | (session) | Jouée le 2026-07-22 (lint copy du deck) |
+| `priority-matrix` | Slide « Matrice de priorisation valeur/effort » (`_slide_matrice_effort_valeur`) — matrice DESSINÉE, jamais un scatter Excel natif — étape `slides-specialisees` du playbook `export-ppt-verifie` | Synchrone | (session) | Rattachée le 2026-07-23 (créée 2026-07-22, jusque-là câblée nulle part) |
+| `swot-matrix` | Slide SWOT (`_slide_swot`) — matrice 2×2 réelle avec axes explicites, pas quatre cartes flottantes — étape `slides-specialisees` du playbook `export-ppt-verifie` | Synchrone | (session) | Rattachée le 2026-07-23 (créée 2026-07-22, jusque-là câblée nulle part) |
 | `agent-orchestrator` | Point d'entrée des demandes multi-étapes/multi-agents (routé par le hook UserPromptSubmit) | Synchrone | (session) | Éprouvé |
 | `agent-supervisor` | Diagnostic qualitatif des agents (étage 2) — depuis `revue-increment` ou sur signal SessionStart | Synchrone, ≤ 1×/14 j | (session) | Éprouvé (1er diagnostic 2026-07-18) |
 
@@ -66,6 +68,6 @@ composer à vide. Format : `.claude/orchestration/playbooks/FORMAT.md`.
 | Playbook | Quand | Source | Statut |
 | --- | --- | --- | --- |
 | `dev-verifie` | Dev/correction : tests + vérif réelle (conditionnelle aux fichiers touchés) + `revue-increment` avant commit | Manuel | Éprouvé |
-| `export-ppt-verifie` | Livrable = le deck : génération (`pptx-deck`) + enrichissements conditionnels (`pptx-framed-image`, `slide-text-polish`, `restitution-deck-design`) + `pptx-verify` obligatoire + `revue-increment` | Manuel | Éprouvé (colonne vertébrale) — étapes conditionnelles jamais jouées |
+| `export-ppt-verifie` | Livrable = le deck : génération (`pptx-deck`) + enrichissements conditionnels (`pptx-framed-image`, `swot-matrix`/`priority-matrix` sur les slides spécialisées, `slide-text-polish`, `restitution-deck-design`) + `pptx-verify` obligatoire + `revue-increment` | Manuel | Éprouvé (colonne vertébrale) — enrichissements joués le 2026-07-22, slides spécialisées rattachées le 2026-07-23 |
 | `revue-design-parallele` | Revue multi-angles en fan-out d'`Explore` (≤4) puis consolidation — pattern US9.12 | Manuel | Éprouvé |
 | `cycle-produit-bmad` | Cycle produit BMAD (brief→PRD→archi→epics→dev→review), clos par `revue-increment` | `generate_bmad_playbook.py` (regénérer, ne pas éditer) | Jamais joué — sur demande explicite |
