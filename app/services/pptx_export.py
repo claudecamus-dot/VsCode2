@@ -78,6 +78,13 @@ _SYNTH_AREA_W = (
 # le chrome (logo/pied de page/n° de slide) survit via _pick_layout (« titre seul »).
 OCTO_TEMPLATE_PATH = Path(__file__).resolve().parent.parent / "assets" / "template-octo.pptx"
 
+# Plancher de réduction d'un titre de slide : un titre trop long pour son budget
+# de lignes voit sa police descendre jusqu'ici (h3) au lieu d'être tronqué à
+# l'ellipse (demande 2026-07-23) ; si même le plancher ne suffit pas, le titre
+# replie sur des lignes supplémentaires et le contenu descend (content_top est
+# calculé sur les lignes réelles dans _new_slide).
+_TITLE_SIZE_MIN = D.TYPE["h3"]
+
 FIELD_SHAPE = {
     "objectif": dict(width_in=_LEFT_W, max_h_in=1.1),
     "acteurs": dict(width_in=_LEFT_W, max_h_in=0.5),
@@ -89,9 +96,11 @@ FIELD_SHAPE = {
     # 0.80 = prop_h(1.00) - 0.20 de _slide_recommendation — recalé revue adversariale.
     "proposition_valeur": dict(width_in=_RIGHT_W, max_h_in=0.80),
     "plan_actions": dict(width_in=_RIGHT_W, max_h_in=2.0),
-    # 1 ligne : le titre de fiche est tronqué à l'ellipse (le complet vit sur la
-    # vue d'ensemble des axes) — recalé revue adversariale.
-    "reco_title": dict(width_in=_W_IN - 2 * MARGIN, size_pt=D.TYPE["title"], max_lignes=1),
+    # 1 ligne préférée : un titre long est rendu en police réduite (jusqu'à
+    # _TITLE_SIZE_MIN) par _new_slide plutôt que tronqué — size_min aligne le
+    # hint sur ce shrink (jamais de troncature annoncée).
+    "reco_title": dict(width_in=_W_IN - 2 * MARGIN, size_pt=D.TYPE["title"], max_lignes=1,
+                       size_min=_TITLE_SIZE_MIN),
     "axis_title": dict(width_in=_W_IN - 2 * MARGIN - 2.0, max_h_in=1.1, size_max=D.TYPE["h3"]),
     # Slide enrichie (carte de puces à gauche, visuel à droite, 1re puce en encart) :
     # largeur = carte réduite du visuel ; hauteur = zone au-dessus de l'encart « à retenir ».
@@ -138,6 +147,17 @@ def field_fit_hint(field_key: str, text: str) -> str:
 
     if "max_lignes" in spec:
         size = spec["size_pt"]
+        size_min = spec.get("size_min")
+        if size_min is not None:
+            # Champ jamais tronqué (titre de slide) : même réduction de police
+            # que _new_slide, puis repli sur des lignes supplémentaires.
+            while size > size_min and D.estimer_lignes(text, width_in, size) > spec["max_lignes"]:
+                size = max(size_min, size - 1.0)
+            lignes = D.estimer_lignes(text, width_in, size)
+            if size != spec["size_pt"] or lignes > spec["max_lignes"]:
+                return (f"⚠ long — rendu en {size:.0f}pt sur {lignes} ligne(s) "
+                        "à l'export (police réduite, jamais tronqué)")
+            return f"{lignes} ligne(s) à {size:.0f}pt à l'export"
         lignes = D.estimer_lignes(text, width_in, size)
         if lignes > spec["max_lignes"]:
             return f"⚠ trop long — sera tronqué à {spec['max_lignes']} lignes à l'export"
@@ -245,10 +265,15 @@ def _new_slide(prs: Presentation, title: str, max_title_lines: int = 2):
             title_shape.height = Inches(1.1)
         title_w_in = Emu(title_shape.width).inches if title_shape.width is not None else (w_in - 2 * MARGIN)
         title_top_in = Emu(title_shape.top).inches if title_shape.top is not None else 0.3
+        # Jamais de troncature d'un titre de slide (demande 2026-07-23) : un
+        # titre trop long pour `max_title_lines` voit d'abord sa police réduite
+        # (par pas de 1 pt jusqu'au plancher _TITLE_SIZE_MIN) ; si même le
+        # plancher ne suffit pas, il replie sur des lignes supplémentaires —
+        # content_top suit les lignes réelles, le contenu descend d'autant.
         size = D.TYPE["title"]
-        max_lignes = max_title_lines
-        if D.estimer_lignes(title, title_w_in, size) > max_lignes:
-            title = D.tronquer_a_lignes(title, title_w_in, size, max_lignes)
+        while (size > _TITLE_SIZE_MIN
+               and D.estimer_lignes(title, title_w_in, size) > max_title_lines):
+            size = max(_TITLE_SIZE_MIN, size - 1.0)
         title_shape.text = title
         tf = title_shape.text_frame
         tf.word_wrap = True
@@ -1334,9 +1359,10 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
     (_add_measured_field) pour s'empiler sans déborder ; l'encart proposition est
     à hauteur FIXE (rythme identique de fiche en fiche, l'espace gris restant est
     intentionnel — même principe que les cellules teintées de la SWOT)."""
-    # Titre sur UNE ligne (tronqué à l'ellipse) : le titre complet vit sur la vue
-    # d'ensemble des axes — la ligne gagnée ici est ce qui permet à la carte
-    # droite de loger plan + résultats sans slide de suite systématique.
+    # Titre préféré sur UNE ligne : la ligne gagnée ici est ce qui permet à la
+    # carte droite de loger plan + résultats sans slide de suite systématique.
+    # Un titre long est rendu en police réduite par _new_slide (jamais tronqué) ;
+    # au pire il replie et le contenu descend — la pagination absorbe.
     slide, w_in, h_in, top = _new_slide(prs, f"{index} — {reco.title}", max_title_lines=1)
     accent = accent or (D.theme_colors(prs).get("accent1") or D.PALETTE[0])
     pad = 0.2
@@ -1379,17 +1405,24 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
     y += 0.10
     y += _add_measured_field(slide, lx, y, lw, "ACTEURS", reco.acteurs, max_h=0.5)
     y += 0.10
-    D.add_text(slide, lx, y, lw, 0.26, [("CRITÈRES DE PRIORISATION", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
     # Chips « Valeur N/5 » / « Complexité N/5 » (couleurs sémantiques OK/WARN) au
     # lieu des jauges donut : la carte gauche a perdu ~0.8in au profit du bandeau
     # résultats — les donuts s'y écrasaient (labels hors carte, constat rendu
     # 2026-07-22). Une ligne de chips porte la même information en 0.3in.
     chip_h = 0.32
     chip_w = min(1.30, (lw - 0.15) / 2)
-    # Clamp DANS la carte (revue adversariale) : objectif+acteurs au max de leurs
-    # hauteurs poussaient les chips sous le bord bas — le clamp les garde dans la
-    # carte (au pire chevauche le label CRITÈRES, jamais le bandeau résultats).
-    chips_y = min(y + 0.32, top + band_h - pad - chip_h)
+    label_h = 0.26
+    # Label + chips posés comme UNE unité : quand la carte raccourcit (titre de
+    # slide sur 2-3 lignes depuis le non-tronquage 2026-07-23, ou objectif/acteurs
+    # au max), l'ancien clamp peignait les chips PAR-DESSUS le label CRITÈRES
+    # (constat rendu réel). Si le bloc entier ne tient plus, le label saute (les
+    # chips se suffisent) et les chips se calent au bas de la carte — jamais de
+    # chevauchement, jamais de sortie de carte.
+    if y + label_h + 0.06 + chip_h <= top + band_h - pad:
+        D.add_text(slide, lx, y, lw, label_h, [("CRITÈRES DE PRIORISATION", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
+        chips_y = y + label_h + 0.06
+    else:
+        chips_y = min(y, top + band_h - pad - chip_h)
     D.add_chip(slide, lx, chips_y, chip_w, chip_h,
                f"Valeur {reco.valeur}/5", D.OK, size=D.TYPE["tiny"])
     D.add_chip(slide, lx + chip_w + 0.15, chips_y, chip_w, chip_h,

@@ -489,7 +489,9 @@ def test_design_fiche_reco_encarts_arrondis() -> None:
 
 def test_design_titres_a_l_echelle() -> None:
     """Tous les titres de slides de contenu sont à D.TYPE['title'] (20pt, aligné
-    référence) — pas de taille de titre ad hoc réintroduite."""
+    référence) — pas de taille de titre ad hoc réintroduite. Un titre long peut
+    être RÉDUIT (jamais tronqué, 2026-07-23) mais reste borné entre le plancher
+    h3 et l'échelle : jamais au-dessus, jamais illisible."""
     from pptx.util import Pt
     prs = _prs_complete()
     for s in prs.slides:
@@ -502,9 +504,67 @@ def test_design_titres_a_l_echelle() -> None:
         for p in t.text_frame.paragraphs:
             for r in p.runs:
                 if r.font.size is not None:
-                    assert r.font.size == Pt(D.TYPE["title"]), (
+                    assert Pt(D.TYPE["h3"]) <= r.font.size <= Pt(D.TYPE["title"]), (
                         f"titre hors échelle sur « {_slide_titre(s)} » : {r.font.size}"
                     )
+
+
+def test_design_titres_jamais_tronques() -> None:
+    """Aucun titre de slide n'est tronqué à l'ellipse (demande 2026-07-23) : un
+    titre long est rendu en police réduite (et replie au besoin), jamais coupé.
+    Aurait échoué avant : la fiche reco tronquait « N — titre » à 1 ligne 20pt,
+    et _new_slide coupait tout titre au-delà de 2 lignes."""
+    titre_long = (
+        "Mettre en place une gouvernance des données décisionnelle, outillée et "
+        "partagée entre les directions métiers, la DSI et les équipes terrain"
+    )
+    db = SessionLocal()
+    try:
+        m = db.get(Mission, _mission_complete())
+        m.recommendation_axes[0].recommendations[0].title = titre_long
+        db.commit()
+        prs = build_presentation(m)
+    finally:
+        db.close()
+    # Le titre complet apparaît tel quel sur la fiche (aucune ellipse).
+    fiche = next((s for s in prs.slides if _slide_titre(s).startswith("1.1")), None)
+    assert fiche is not None, "fiche 1.1 absente"
+    assert titre_long in _slide_titre(fiche), "titre de fiche coupé au lieu d'être réduit"
+    for s in prs.slides:
+        titre = _slide_titre(s)
+        assert not titre.endswith("…"), f"titre de slide tronqué : « {titre} »"
+
+
+def test_design_chips_fiche_ne_chevauchent_jamais_le_label_criteres() -> None:
+    """Sur une fiche raccourcie (titre de slide sur 2-3 lignes depuis le
+    non-tronquage 2026-07-23), les chips Valeur/Complexité ne peignent JAMAIS
+    par-dessus le label « CRITÈRES DE PRIORISATION » (constat rendu réel) : soit
+    le bloc label+chips tient, soit le label saute — pas de chevauchement."""
+    titre_long = (
+        "Mettre en place une gouvernance des données décisionnelle, outillée et "
+        "partagée entre les directions métiers, la DSI et les équipes terrain"
+    )
+    db = SessionLocal()
+    try:
+        m = db.get(Mission, _mission_complete())
+        m.recommendation_axes[0].recommendations[0].title = titre_long
+        db.commit()
+        prs = build_presentation(m)
+    finally:
+        db.close()
+    fiche = next((s for s in prs.slides if _slide_titre(s).startswith("1.1")), None)
+    assert fiche is not None, "fiche 1.1 absente"
+    label = next((sh for sh in fiche.shapes if sh.has_text_frame
+                  and sh.text_frame.text.strip() == "CRITÈRES DE PRIORISATION"), None)
+    chips = [sh for sh in fiche.shapes if sh.has_text_frame
+             and sh.text_frame.text.strip().startswith(("Valeur ", "Complexité "))]
+    assert chips, "chips Valeur/Complexité absents de la fiche"
+    if label is not None:
+        label_bas = label.top + label.height
+        for chip in chips:
+            assert chip.top >= label_bas, (
+                "chip peint par-dessus le label CRITÈRES DE PRIORISATION"
+            )
 
 
 def test_design_le_texte_tient_dans_sa_boite() -> None:
