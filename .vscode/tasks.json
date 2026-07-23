@@ -15,7 +15,7 @@
         "-File",
         "${workspaceFolder}/scripts/serveur-dev.ps1",
         "-Port",
-        "8030",
+        "8040",
         "-KeepIfFresh"
       ],
       "runOptions": { "runOn": "folderOpen" },
@@ -37,7 +37,7 @@
         "-File",
         "${workspaceFolder}/scripts/serveur-dev.ps1",
         "-Port",
-        "8030",
+        "8040",
         "-StopOnly"
       ],
       "problemMatcher": []
