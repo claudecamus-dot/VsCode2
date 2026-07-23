@@ -13,6 +13,15 @@ agents: [onboarder, claude]
 - Pas de pre-commit hooks
   — `CONFIRMÉ` · onboarder · 2026-06-30
 
+## Tests & couverture
+
+- Suite pytest dans `tests/` (23 fichiers `test_*.py`). Lancer : `.venv/Scripts/python.exe -m pytest -q`
+  — `APPLIQUÉ` · agent-supervisor/orchestrator · 2026-07-23
+- Couverture (pytest-cov, dans `requirements-dev.txt`) : `.venv/Scripts/python.exe -m pytest --cov=app --cov-report=term-missing`
+  — première mesure 2026-07-23 : ~38 % sur un sous-ensemble (`pptx_deck.py` 56 %,
+  `pptx_export.py` 48 %). **Pas de seuil imposé** : on mesure d'abord, on gate ensuite si
+  utile. — `APPLIQUÉ` · agent-supervisor/orchestrator · 2026-07-23
+
 ## Nommage
 
 - Fichiers Python : `snake_case.py`
