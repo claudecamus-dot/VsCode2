@@ -8,8 +8,12 @@ agents: [onboarder, claude]
 
 ## Linting & formatage
 
-- Aucun outil de linting/formatage configuré (pas de ruff, black, ESLint, prettier)
-  — `CONFIRMÉ` · onboarder · 2026-06-30
+- **ruff** configuré (`pyproject.toml`, baseline `select = F, I, UP, B`, `B008` ignoré
+  car idiome FastAPI `Depends()`). Lancer : `.venv/Scripts/python.exe -m ruff check .`
+  Baseline 2026-07-23 : **102 points** (imports à trier, modernisations, quelques
+  bugbear réels : `B905` zip sans strict, `B904` raise sans from). **Pas de `--fix`
+  aveugle** : un `ruff --fix` a retiré un ré-export (`is_configured`) et cassé un import
+  — corriger au fil de l'eau, en vérifiant les tests. — `APPLIQUÉ` · agent-orchestrator · 2026-07-23
 - Pas de pre-commit hooks
   — `CONFIRMÉ` · onboarder · 2026-06-30
 

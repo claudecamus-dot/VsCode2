@@ -1,0 +1,17 @@
+# Configuration ruff — introduite le 2026-07-23 (finding pratique-dev du superviseur
+# de flotte : aucun linter Python sur les 6 projets). Baseline volontairement
+# resserrée sur les erreurs RÉELLES, pas le style : on introduit le linter sans
+# noyer l'équipe sous des centaines de nits. On élargira `select` ensuite si utile.
+[tool.ruff]
+line-length = 100
+# Le code utilise des f-strings 3.12+ (guillemets réutilisés) ; le runtime est 3.14.
+target-version = "py312"
+extend-exclude = [".venv", "_bmad", "external", "data"]
+
+[tool.ruff.lint]
+# F = pyflakes (imports/variables inutilisés, noms non définis = vrais bugs)
+# I = tri des imports  ·  UP = modernisations sûres  ·  B = bugbear (pièges réels)
+select = ["F", "I", "UP", "B"]
+# B008 : appel en argument par défaut — IDIOME FastAPI (`= Depends(...)`,
+# `= Query(...)`), pas un défaut ici. À garder ignoré tant qu'on est sur FastAPI.
+ignore = ["B008"]
