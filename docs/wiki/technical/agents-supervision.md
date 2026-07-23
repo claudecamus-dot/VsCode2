@@ -9,17 +9,17 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-23T07:00:35+02:00 · **39 sessions** (transcripts) · **81** invocations de skills · **50** lancements de sous-agents.
+Dernier scan : 2026-07-23T15:39:25+02:00 · **39 sessions** (transcripts) · **83** invocations de skills · **59** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `run-dev-server` | projet | 20 | 2026-07-03 | 2026-07-22 |
+| `run-dev-server` | projet | 21 | 2026-07-03 | 2026-07-23 |
 | `agent-orchestrator` | projet | 9 | 2026-07-17 | 2026-07-22 |
 | `agent-supervisor` | projet | 9 | 2026-07-18 | 2026-07-23 |
+| `bmad-code-review` | BMAD | 7 | 2026-07-20 | 2026-07-23 |
 | `revue-increment` | projet | 7 | 2026-07-18 | 2026-07-22 |
-| `bmad-code-review` | BMAD | 6 | 2026-07-20 | 2026-07-22 |
 | `pptx-verify` | global | 6 | 2026-07-03 | 2026-07-22 |
 | `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
 | `roadmap-keeper` | global | 5 | 2026-06-25 | 2026-07-15 |
@@ -36,8 +36,8 @@ Dernier scan : 2026-07-23T07:00:35+02:00 · **39 sessions** (transcripts) · **8
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 22 | 2026-07-15 | 2026-07-22 |
-| `Explore` | 20 | 2026-06-30 | 2026-07-22 |
+| `general-purpose` | 27 | 2026-07-15 | 2026-07-23 |
+| `Explore` | 24 | 2026-06-30 | 2026-07-23 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
 | `claude-code-guide` | 1 | 2026-07-03 | 2026-07-03 |
@@ -94,7 +94,7 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés._
+_Diagnostic ⚠️ à relancer (> 14 j) — rien à signaler, tous les constats précédents ont été arbitrés._
 
 ---
 
