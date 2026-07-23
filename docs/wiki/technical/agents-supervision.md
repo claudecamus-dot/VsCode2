@@ -1,5 +1,5 @@
 ---
-updated: 2026-07-22
+updated: 2026-07-23
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -9,7 +9,7 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-22T21:36:13+02:00 · **36 sessions** (transcripts) · **77** invocations de skills · **48** lancements de sous-agents.
+Dernier scan : 2026-07-23T05:10:41+02:00 · **37 sessions** (transcripts) · **81** invocations de skills · **50** lancements de sous-agents.
 
 ## Skills — usage réel
 
@@ -17,17 +17,18 @@ Dernier scan : 2026-07-22T21:36:13+02:00 · **36 sessions** (transcripts) · **7
 | --- | --- | --- | --- | --- |
 | `run-dev-server` | projet | 20 | 2026-07-03 | 2026-07-22 |
 | `agent-orchestrator` | projet | 9 | 2026-07-17 | 2026-07-22 |
-| `agent-supervisor` | projet | 8 | 2026-07-18 | 2026-07-21 |
+| `agent-supervisor` | projet | 9 | 2026-07-18 | 2026-07-23 |
+| `revue-increment` | projet | 7 | 2026-07-18 | 2026-07-22 |
+| `bmad-code-review` | BMAD | 6 | 2026-07-20 | 2026-07-22 |
 | `pptx-verify` | global | 6 | 2026-07-03 | 2026-07-22 |
-| `revue-increment` | projet | 6 | 2026-07-18 | 2026-07-22 |
 | `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
-| `bmad-code-review` | BMAD | 5 | 2026-07-20 | 2026-07-22 |
 | `roadmap-keeper` | global | 5 | 2026-06-25 | 2026-07-15 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
 | `pptx-deck` | global | 2 | 2026-07-02 | 2026-07-03 |
 | `skill-creator` | global | 2 | 2026-07-03 | 2026-07-03 |
 | `slide-text-polish` | projet | 2 | 2026-07-22 | 2026-07-22 |
 | `claude-api` | (builtin/session) | 1 | 2026-06-29 | 2026-06-29 |
+| `deck-design-review` | projet | 1 | 2026-07-22 | 2026-07-22 |
 | `init` | (builtin/session) | 1 | 2026-07-03 | 2026-07-03 |
 | `restitution-deck-design` | global | 1 | 2026-07-22 | 2026-07-22 |
 
@@ -35,17 +36,17 @@ Dernier scan : 2026-07-22T21:36:13+02:00 · **36 sessions** (transcripts) · **7
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
+| `general-purpose` | 22 | 2026-07-15 | 2026-07-22 |
 | `Explore` | 20 | 2026-06-30 | 2026-07-22 |
-| `general-purpose` | 20 | 2026-07-15 | 2026-07-22 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
 | `claude-code-guide` | 1 | 2026-07-03 | 2026-07-03 |
 
 ## Jamais utilisés
 
-**projet** — 5/10 jamais invoqués :
+**projet** — 4/10 jamais invoqués :
 
-`deck-design-library`, `deck-design-review`, `pptx-framed-image`, `priority-matrix`, `swot-matrix`
+`deck-design-library`, `pptx-framed-image`, `priority-matrix`, `swot-matrix`
 
 **BMAD** — 38/39 jamais invoqués :
 
@@ -57,7 +58,7 @@ Dernier scan : 2026-07-22T21:36:13+02:00 · **36 sessions** (transcripts) · **7
 
 ## TODO agents (constats automatiques)
 
-1. **Skills projet sans usage** : `deck-design-library`, `deck-design-review`, `priority-matrix`, `swot-matrix` — vérifier pertinence et déclencheurs.
+1. **Skills projet sans usage** : `deck-design-library`, `priority-matrix`, `swot-matrix` — vérifier pertinence et déclencheurs.
 
 ## Arbitrages enregistrés
 
@@ -89,7 +90,9 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés._
+_Diagnostic à jour._
+
+1. **Le statut « en-attente-validation » n'a JAMAIS été utilisé depuis son introduction — les runs à livrable deck se loggent « succes » sur auto-vérification** — Requalifier mentalement les runs deck récents et appliquer le statut dès le prochain run à livrable utilisateur. · **Proposition** : Patch léger de log_run.py : si resultat=succes ET la demande/notes matchent deck|slide|écran|export sans mention « validé par l'utilisateur », imprimer un avertissement non bloquant rappelant « en-attente-validation » — le garde-fou devient exécutable au lieu de prose.
 
 ---
 
