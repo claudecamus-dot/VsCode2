@@ -1,12 +1,17 @@
-fastapi>=0.115
-uvicorn[standard]>=0.30
-jinja2>=3.1
-python-multipart>=0.0.9
-sqlalchemy>=2.0
-python-docx>=1.1
-openai>=1.0  # fournisseur IA alternatif (AI_PROVIDER=openai) — facultatif au runtime, importé en lazy
-mistralai>=1.0  # fournisseur IA alternatif (AI_PROVIDER=mistral) — facultatif au runtime, importé en lazy
-python-dotenv>=1.0  # charge .env au démarrage (clé API du fournisseur IA actif)
-faster-whisper>=1.0  # transcription locale (US3.2) — facultatif au runtime, importé en lazy
-python-pptx>=1.0  # export PowerPoint de la synthèse/recommandations (évol)
-reportlab>=4.0  # export PDF par entretien (incr.9) — pure Python, pas de dépendance système
+fastapi==0.138.1
+uvicorn[standard]==0.49.0
+jinja2==3.1.6
+python-multipart==0.0.32
+sqlalchemy==2.0.51
+python-docx==1.2.0
+openai==2.44.0  # fournisseur IA alternatif (AI_PROVIDER=openai) — facultatif au runtime, importé en lazy
+mistralai==2.5.1  # fournisseur IA alternatif (AI_PROVIDER=mistral) — facultatif au runtime, importé en lazy
+python-dotenv==1.2.2  # charge .env au démarrage (clé API du fournisseur IA actif)
+faster-whisper==1.2.1  # transcription locale (US3.2) — facultatif au runtime, importé en lazy
+python-pptx==1.0.2  # export PowerPoint de la synthèse/recommandations (évol)
+reportlab==5.0.0  # export PDF par entretien (incr.9) — pure Python, pas de dépendance système
+
+# Versions épinglées (== aux versions réellement installées/testées) — finding
+# risque_technique de l'audit 2026-07-23 : dépendances non épinglées => build non
+# reproductible. Mettre à jour = bumper explicitement une ligne, réinstaller,
+# relancer la suite, committer. Ne pas revenir à des `>=`.
