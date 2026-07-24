@@ -1,3 +1,10 @@
+# +-- GÉNÉRÉ — NE PAS ÉDITER LOCALEMENT ---------------------------------------
+# | Source de vérité : hub de supervision VScode5, .claude/dispositif/canon/log_run.py
+# | Propagé par .claude/dispositif/sync_dispositif.py. Toute correction se fait
+# | DANS le canon du hub, puis « py .claude/dispositif/sync_dispositif.py »
+# | re-synchronise la flotte — sinon la modification locale sera écrasée.
+# +---------------------------------------------------------------------------
+
 """Journal des orchestrations (étage O-A) — append d'un run dans runs.jsonl.
 
 Usage : py .claude/orchestration/log_run.py '<json>'   (ou JSON sur stdin)

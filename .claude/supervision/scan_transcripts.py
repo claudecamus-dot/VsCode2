@@ -1,3 +1,10 @@
+# +-- GÉNÉRÉ — NE PAS ÉDITER LOCALEMENT ---------------------------------------
+# | Source de vérité : hub de supervision VScode5, .claude/dispositif/canon/scan_transcripts.py
+# | Propagé par .claude/dispositif/sync_dispositif.py. Toute correction se fait
+# | DANS le canon du hub, puis « py .claude/dispositif/sync_dispositif.py »
+# | re-synchronise la flotte — sinon la modification locale sera écrasée.
+# +---------------------------------------------------------------------------
+
 """Superviseur d'agents — étage 1 (incrément A) : collecte déterministe, 0 token LLM.
 
 Scanne incrémentalement les transcripts JSONL du projet (~/.claude/projects/<slug>/*.jsonl),
@@ -219,6 +226,52 @@ def installed_skills() -> dict:
     return fam
 
 
+_AGENTS_TEXT = None
+
+
+def _agents_text() -> str:
+    """Concaténation (mémoïsée) des .claude/agents/*.md, pour repérer les skills
+    qu'un sous-agent déclare consommer comme ressource."""
+    global _AGENTS_TEXT
+    if _AGENTS_TEXT is None:
+        parts = []
+        for a in sorted(glob.glob(os.path.join(REPO, ".claude", "agents", "*.md"))):
+            try:
+                with open(a, encoding="utf-8") as fh:
+                    parts.append(fh.read())
+            except OSError:
+                pass
+        _AGENTS_TEXT = "\n".join(parts)
+    return _AGENTS_TEXT
+
+
+def non_invocation_skills(fam: dict) -> set:
+    """Skills dont la valeur se consomme en LISANT/EXÉCUTANT leurs ressources, jamais
+    via l'outil Skill — le compteur d'invocations ne peut donc structurellement pas les
+    voir, et `n=0` n'y prouve aucune inutilité (constat superviseur #2). Déterministe,
+    sans liste codée en dur — un skill (hors BMAD, dont le tri est traité à part) en est si :
+      - il livre un dossier `scripts/` (bibliothèque de code importée/exécutée), ou
+      - il est cité par son CHEMIN `skills/<nom>` dans un `.claude/agents/*.md` :
+        un sous-agent le déclare comme ressource à lire/exécuter (cf. ppt-designer
+        « Skills you rely on » — lui n'a PAS l'outil Skill). On exige le chemin, pas
+        une simple mention du nom : sinon un skill juste *nommé* en prose (ex. un
+        agent qui écrit « within agent-orchestrator ») serait happé à tort.
+    Un skill sans `scripts/` ET cité par chemin nulle part reste, lui, un vrai
+    « jamais utilisé » — on ne suppose pas l'usage sans preuve."""
+    text = _agents_text()
+    out = set()
+    for name, family in fam.items():
+        if family == "BMAD":
+            continue
+        proj = os.path.join(REPO, ".claude", "skills", name, "scripts")
+        glb = os.path.join(os.path.expanduser("~"), ".claude", "skills", name, "scripts")
+        if os.path.isdir(proj) or os.path.isdir(glb):
+            out.add(name)
+        elif re.search(r"skills/" + re.escape(name) + r"(?![\w-])", text):
+            out.add(name)
+    return out
+
+
 def days_since(ts: str):
     try:
         t = dt.datetime.fromisoformat(ts.replace("Z", "+00:00"))
@@ -247,13 +300,35 @@ def load_jsonl(path: str) -> list:
 
 def load_arbitrages() -> list:
     """Décisions humaines closant des constats automatiques (fichier versionné, jamais écrit ici).
-    Chaque entrée : {cible, decision, date, source} — cible = nom de skill ou famille:<Nom>."""
+    Chaque entrée : {cible, decision, date, source, categories?} — cible = nom de skill ou
+    famille:<Nom> ; `categories` (optionnel) restreint les catégories de constats fermées
+    par cet arbitrage (défaut : toutes, cf. finding_arbitre)."""
     try:
         with open(ARBITRAGES_PATH, encoding="utf-8") as fh:
             entries = json.load(fh).get("arbitrages", [])
     except (OSError, ValueError, AttributeError):
         return []
     return [e for e in entries if isinstance(e, dict) and e.get("cible") and e.get("decision")]
+
+
+def finding_arbitre(finding: dict, arbitrages: list = None) -> bool:
+    """Vrai si un arbitrage ferme ce constat : même `cible` ET catégorie couverte.
+
+    Un arbitrage sans champ `categories` couvre toutes les catégories (rétro-compatible :
+    comportement historique). Un arbitrage `categories: [...]` ne ferme QUE ces catégories
+    — ainsi un arbitrage de *routage* (ex. « agent activé ») cesse de masquer un constat de
+    *vérification/qualité* sur la même cible (friction cible-suppression, 2026-07-21)."""
+    cible = finding.get("cible")
+    if not cible:
+        return False
+    cat = finding.get("categorie")
+    for a in arbitrages or []:
+        if a.get("cible") != cible:
+            continue
+        cats = a.get("categories")
+        if not cats or cat in cats:
+            return True
+    return False
 
 
 def load_diagnostic() -> dict:
@@ -281,13 +356,12 @@ def diagnostic_a_jour(diagnostic, runs: list = None) -> bool:
 def diagnostic_todos(diagnostic, arbitrages: list = None) -> list:
     """Top constats qualitatifs (étage 2), triés par priorité, pour fusion dans le TODO wiki.
 
-    Un constat dont la `cible` a été arbitrée (`arbitrages.json`) est exclu — même
-    contrat que `build_todos()` pour les constats déterministes : une décision humaine
-    ferme le TODO affiché, sans effacer la mesure réelle ni le diagnostic lui-même."""
+    Un constat fermé par un arbitrage (`finding_arbitre` : même cible ET catégorie couverte)
+    est exclu — même contrat que `build_todos()` pour les constats déterministes : une
+    décision humaine ferme le TODO affiché, sans effacer la mesure réelle ni le diagnostic."""
     if not diagnostic:
         return []
-    arbitres = {a["cible"] for a in arbitrages or []}
-    findings = [f for f in (diagnostic.get("findings", []) or []) if f.get("cible") not in arbitres]
+    findings = [f for f in (diagnostic.get("findings", []) or []) if not finding_arbitre(f, arbitrages)]
     findings.sort(key=lambda f: -(f.get("priorite") or 0))
     out = []
     for f in findings[:5]:
@@ -384,7 +458,9 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
     subagents = state.get("subagents", {})
     combined = {**skills, **subagents}
     eprouves = sorted(k for k, e in combined.items() if e["n"] >= PROVEN_MIN)
-    jamais = sorted(k for k, v in fam.items() if k not in skills)
+    libref = non_invocation_skills(fam)
+    jamais = sorted(k for k, v in fam.items() if k not in skills and k not in libref)
+    bibliotheque = sorted(k for k in libref if k not in skills)
     en_sommeil = sorted(
         k for k, e in combined.items()
         if (lambda d: d is not None and d > DORMANT_DAYS)(days_since(e.get("last", "")))
@@ -395,13 +471,12 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
             "revue-increment jamais invoquee malgre le rappel SessionStart -> l'inserer d'office en etape terminale des plans de dev"
         )
     prudence = []
-    arbitres = {a["cible"] for a in arbitrages or []}
     if diagnostic:
         for f in diagnostic.get("findings", []) or []:
             if (
                 f.get("categorie") in ("ko-repete", "inefficacite")
                 and f.get("cible")
-                and f["cible"] not in arbitres  # un constat arbitré ne pèse plus sur le routage
+                and not finding_arbitre(f, arbitrages)  # arbitrage couvrant la catégorie -> ne pèse plus sur le routage
             ):
                 prudence.append({"cible": f["cible"], "raison": (f.get("titre") or "").strip()})
     # Incrément C — prudence déterministe : échecs répétés dans le journal d'orchestration,
@@ -418,6 +493,10 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
         "generated": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         "eprouves": eprouves,
         "jamais_utilises": jamais,
+        # Skills-bibliothèque/référence : usage réel non capté par le compteur
+        # d'invocations (constat #2) — sortis de jamais_utilises pour que
+        # l'orchestrateur ne les traite pas comme morts.
+        "bibliotheque_reference": bibliotheque,
         "en_sommeil": en_sommeil,
         "verifications_oubliees": verifs_oubliees,
         "playbooks": par_playbook,
@@ -459,8 +538,12 @@ def build_todos(skills: dict, fam: dict, gaps: dict = None, arbitrages: list = N
                 f"**Élaguer les skills BMAD** : {len(bmad_unused)}/{len(bmad)} jamais invoqués — "
                 "confirmer l'utilité des non-utilisés."
             )
+    # Les skills-bibliothèque/référence (constat #2) ne sont pas des « sans usage » :
+    # leur valeur passe par scripts/sous-agent, invisible au compteur d'invocations.
+    libref = non_invocation_skills(fam)
     proj_unused = sorted(
-        k for k, v in fam.items() if v == "projet" and k not in skills and k not in arbitres
+        k for k, v in fam.items()
+        if v == "projet" and k not in skills and k not in arbitres and k not in libref
     )
     if "revue-increment" in proj_unused:
         proj_unused.remove("revue-increment")
@@ -543,13 +626,23 @@ def build_page(state: dict, fam: dict, todos: list, diag_todos: list = None, dia
     L += _usage_table(skills, fam)
     L += ["", "## Sous-agents", ""]
     L += _usage_table(subagents)
+    libref = non_invocation_skills(fam)
     L += ["", "## Jamais utilisés", ""]
     unused_by_family = {}
+    libref_unused = []
     for name, family in fam.items():
-        if name not in skills:
+        if name in skills:
+            continue
+        if name in libref:
+            libref_unused.append(name)
+        else:
             unused_by_family.setdefault(family, []).append(name)
     if not unused_by_family:
-        L.append("_(tous les skills installés ont déjà été invoqués)_")
+        L.append(
+            "_(aucun — hors skills bibliothèque/référence ci-dessous)_"
+            if libref_unused
+            else "_(tous les skills installés ont déjà été invoqués)_"
+        )
     for family in ("projet", "BMAD", "global"):
         names = sorted(unused_by_family.get(family, []))
         if not names:
@@ -566,6 +659,15 @@ def build_page(state: dict, fam: dict, todos: list, diag_todos: list = None, dia
         else:
             L.append(", ".join(f"`{n}`" for n in names))
         L.append("")
+    if libref_unused:
+        L += [
+            "## Skills bibliothèque / référence", "",
+            "_Consommés en lisant/exécutant leurs `scripts/`, ou via un sous-agent qui les "
+            "suit (ex. `ppt-designer`, qui n'a pas l'outil Skill) — le compteur d'invocations "
+            "ne peut structurellement pas les voir. `n=0` n'y vaut donc PAS « mort » : ne pas "
+            "désinstaller sur ce seul signal (constat superviseur #2)._", "",
+            ", ".join(f"`{n}`" for n in sorted(libref_unused)), "",
+        ]
     if openhub and openhub["n"]:
         L += ["## Agents OpenHub (app)", ""]
         L.append(
@@ -656,9 +758,15 @@ def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = N
     total_skill = sum(e["n"] for e in skills.values())
     total_sub = sum(e["n"] for e in subagents.values())
     today = dt.date.today().isoformat()
+    libref = non_invocation_skills(fam)
     unused_by_family = {}
+    libref_unused = []
     for name, family in fam.items():
-        if name not in skills:
+        if name in skills:
+            continue
+        if name in libref:
+            libref_unused.append(name)
+        else:
             unused_by_family.setdefault(family, []).append(name)
     unused_html = []
     for family in ("projet", "BMAD", "global"):
@@ -671,6 +779,12 @@ def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = N
             listing = f"<details><summary>Voir la liste ({len(names)})</summary><p>{listing}</p></details>"
         unused_html.append(
             f"      <p><strong>{family}</strong> — {len(names)}/{total_family} jamais invoqués : {listing}</p>"
+        )
+    if libref_unused:
+        listing = ", ".join(f"<code>{_esc(n)}</code>" for n in sorted(libref_unused))
+        unused_html.append(
+            "      <p><strong>bibliothèque / référence</strong> — usage via scripts/sous-agent, "
+            f"non capté par le compteur (n=0 ≠ mort, constat #2) : {listing}</p>"
         )
     todo_html = []
     for t in todos:
