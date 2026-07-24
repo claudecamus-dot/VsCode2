@@ -1,0 +1,37 @@
+name: CI
+
+# Exécute lint + suite de tests à chaque push sur main et sur chaque pull request.
+# Introduit le 2026-07-24 (finding pratique-dev du superviseur de flotte : DORA
+# « intégration continue » — VSCode2 avait tests + couverture mais aucune CI, seul
+# projet Python prêt à en avoir une). Modèle : la CI JS de VSCode1.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      # Lint NON bloquant : ruff a été introduit le 2026-07-23 comme baseline
+      # (F/I/UP/B, B008 ignoré — idiome FastAPI) SANS corriger les ~100 points
+      # existants (« mesure d'abord, pas de gate » ; un --fix aveugle avait cassé
+      # un ré-export). On mesure la dérive sans faire échouer la CoI dessus.
+      - name: Lint (ruff, informatif)
+        run: python -m ruff check . || true
+
+      # Tests = le gate. Couverture affichée (pytest-cov), sans seuil imposé —
+      # même politique que VSCode1 (on mesure d'abord, gate éventuel plus tard).
+      - name: Tests (pytest + couverture)
+        run: python -m pytest --cov=app --cov-report=term-missing -q
