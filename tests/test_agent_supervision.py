@@ -440,7 +440,11 @@ def test_arbitrages_closent_les_todos_et_restent_affiches(tmp_path):
     # (page + bloc HTML) et part dans routing-hints.json pour l'orchestrateur.
     (tmp_path / "arbitrages.json").write_text(json.dumps({"arbitrages": [
         {"cible": "famille:BMAD", "decision": "tri exécuté le 2026-07-18", "date": "2026-07-18"},
-        {"cible": "pptx-framed-image", "decision": "conservée — playbook export-ppt-verifie", "date": "2026-07-18"},
+        # Exemple = un skill projet SANS dossier scripts/ et non cité par un agent :
+        # non_invocation_skills (enh. A du canon) reclasse tout skill « bibliothèque »
+        # (avec scripts/ ou cité par chemin) hors des « jamais utilisés ». Il faut donc
+        # un vrai « jamais utilisé » pour tester la fermeture de TODO par arbitrage.
+        {"cible": "priority-matrix", "decision": "conservée — outil de cadrage utile", "date": "2026-07-18"},
         {"cible": "sans-decision"},  # entrée invalide : ignorée, jamais bloquante
     ]}, ensure_ascii=False), encoding="utf-8")
     html = tmp_path / "wiki.html"
@@ -455,10 +459,10 @@ def test_arbitrages_closent_les_todos_et_restent_affiches(tmp_path):
     assert "tri exécuté le 2026-07-18" in page
     # La skill arbitrée sort de la ligne TODO « Skills projet sans usage »…
     todo_projet = [l for l in page.splitlines() if "Skills projet sans usage" in l]
-    assert all("pptx-framed-image" not in l for l in todo_projet)
+    assert all("priority-matrix" not in l for l in todo_projet)
     # …mais l'usage réel reste mesuré : toujours listée en « Jamais utilisés ».
-    assert page.count("pptx-framed-image") >= 2  # section jamais-utilisés + section arbitrages
+    assert page.count("priority-matrix") >= 2  # section jamais-utilisés + section arbitrages
     assert "Arbitrages enregistrés" in html.read_text(encoding="utf-8")
     hints = json.loads((tmp_path / "routing-hints.json").read_text(encoding="utf-8"))
-    assert [a["cible"] for a in hints["arbitrages"]] == ["famille:BMAD", "pptx-framed-image"]
-    assert "pptx-framed-image" in hints["jamais_utilises"]
+    assert [a["cible"] for a in hints["arbitrages"]] == ["famille:BMAD", "priority-matrix"]
+    assert "priority-matrix" in hints["jamais_utilises"]
