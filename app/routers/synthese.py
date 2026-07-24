@@ -411,8 +411,8 @@ def save_recommendation_field(
     elif field in RECO_SCORE_FIELDS:
         try:
             score = int(value)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Score invalide.")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Score invalide.") from exc
         setattr(reco, field, max(1, min(5, score)))
     else:
         raise HTTPException(status_code=400, detail="Champ inconnu.")
@@ -496,8 +496,8 @@ def set_difficulty_verbatim(
     if verbatim_id.strip():
         try:
             candidate = int(verbatim_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Verbatim invalide.")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Verbatim invalide.") from exc
         if candidate not in {v.id for v in d.mission.all_verbatims}:
             raise HTTPException(status_code=400, detail="Verbatim inconnu pour cette mission.")
         vid = candidate

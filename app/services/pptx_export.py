@@ -167,10 +167,7 @@ def field_fit_hint(field_key: str, text: str) -> str:
     size_max = spec.get("size_max", D.TYPE["body"])
     size_min = D.TYPE["tiny"]
 
-    def budget_ok(taille, lignes_max):
-        # Même réserve d'une demi-ligne que le budget réel de _add_bulleted_text
-        # (sinon le hint annonce à la frontière une taille que l'export réduit).
-        return lignes_max * _per_line_height_in(taille) <= max_h_in - 0.5 * _per_line_height_in(taille)
+    budget_ok = _budget_lignes(max_h_in)  # réserve ½ ligne, cohérente avec l'export
 
     size, lignes = D.ajuster_police([text], width_in, size_max, size_min, budget_ok=budget_ok)
     if lignes * _per_line_height_in(size) > max_h_in:
@@ -325,6 +322,20 @@ def _per_line_height_in(size_pt: float) -> float:
     return size_pt * 0.017 + 4 / 72
 
 
+def _budget_lignes(max_h_in: float, reserve_lignes: float = 0.5):
+    """Fabrique le `budget_ok` standard de D.ajuster_police : `lignes_max` lignes à
+    `taille` pt tiennent dans `max_h_in`, moins une réserve exprimée en fraction de
+    ligne (½ ligne par défaut — la même que la pagination de _add_bulleted_text,
+    sinon le hint annonce à la frontière une taille que l'export réduit).
+
+    Factorisation du finding audit 2026-07-24 (« budget_ok redéfini 3 fois ») : les
+    deux définitions de MÊME forme passent par ici ; celle de _add_bulleted_text
+    (somme d'estimations par ligne) garde sa logique propre, documentée sur place."""
+    def budget_ok(taille, lignes_max):
+        return lignes_max * _per_line_height_in(taille) <= max_h_in - reserve_lignes * _per_line_height_in(taille)
+    return budget_ok
+
+
 def _add_bulleted_text(
     slide, l, t, w, h, text: str, size: float | None = None,
     anchor=MSO_ANCHOR.TOP, size_max: float = D.TYPE["body"], size_min: float = D.TYPE["tiny"],
@@ -436,8 +447,7 @@ def _add_measured_field(
     body = ((text or "").strip()) or "—"
     body_max_h = max(0.2, max_h - label_h)
 
-    def budget_ok(taille, lignes_max):
-        return lignes_max * _per_line_height_in(taille) <= body_max_h
+    budget_ok = _budget_lignes(body_max_h, reserve_lignes=0.0)  # comportement historique : sans réserve
 
     size, lignes_max = D.ajuster_police([body], w, size_max, size_min, budget_ok=budget_ok)
     if lignes_max * _per_line_height_in(size) > body_max_h:

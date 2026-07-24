@@ -6,8 +6,10 @@ libres hors-trame, brouillon permanent.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
+import shutil
 import time
 import uuid
 from datetime import date
@@ -263,7 +265,9 @@ async def import_interview(
 
     try:
         text = extract_text_bytes(await file.read())
-        extracted = extract_answers_from_text(questions, text)
+        # L'extraction IA dure des minutes (appels LLM par question) : hors de la
+        # boucle d'événements, sinon toute l'app est gelée pendant l'import.
+        extracted = await asyncio.to_thread(extract_answers_from_text, questions, text)
     except InterviewExtractAIError as exc:
         return templates.TemplateResponse(
             request,
@@ -938,7 +942,11 @@ async def transcribe_segment(file: UploadFile = File(...)):
     mission/entretien. Même contrat d'erreur `{"error": ...}` que
     `transcribe_notes` : jamais de `{"detail": ...}` ni de 500 brute."""
     try:
-        text = audio_transcribe.transcribe_audio(await file.read())
+        # Whisper est CPU-bound : hors de la boucle d'événements (finding perf audit
+        # 2026-07-24 — un endpoint async qui transcrit en direct bloquait TOUTES les
+        # autres requêtes pendant plusieurs minutes).
+        contenu = await file.read()
+        text = await asyncio.to_thread(audio_transcribe.transcribe_audio, contenu)
     except audio_transcribe.TranscriptionError as exc:
         return JSONResponse({"error": str(exc)}, status_code=422)
     except Exception as exc:
@@ -953,7 +961,6 @@ async def save_record_backup(mission_id: int, file: UploadFile = File(...)):
     sécurité, cf. commentaire sur `Interview.audio_backup_path`) — écrit sur
     disque, hors base de données, en tâche de fond côté client."""
     try:
-        content = await file.read()
         # Suffixe aléatoire en plus de l'horodatage : deux tranches uploadées
         # dans la MÊME seconde (fin d'enregistrement + rotation, ou deux fetch
         # en vol) auraient sinon le même nom et l'une écraserait l'autre — d'où
@@ -961,7 +968,14 @@ async def save_record_backup(mission_id: int, file: UploadFile = File(...)):
         # (« une seule tranche »). Le hex ne contient ni « / » ni « .. » : passe
         # le garde-fou de `get_record_backup`.
         filename = f"{mission_id}_{int(time.time())}_{uuid.uuid4().hex[:8]}.webm"
-        (RECORDINGS_DIR / filename).write_bytes(content)
+        # Streaming par blocs vers le disque (finding perf audit 2026-07-24) : un
+        # enregistrement complet de 1h30-3h passait entièrement en RAM via
+        # file.read(). copyfileobj lit/écrit en chunks ; dans un thread pour ne
+        # pas bloquer la boucle sur l'I/O disque.
+        def _ecrire():
+            with open(RECORDINGS_DIR / filename, "wb") as out:
+                shutil.copyfileobj(file.file, out, length=1024 * 1024)
+        await asyncio.to_thread(_ecrire)
     except Exception as exc:
         logger.exception("Échec de la sauvegarde audio de secours")
         return JSONResponse({"error": str(exc)}, status_code=500)
@@ -1390,7 +1404,10 @@ async def transcribe_notes(
     # un message générique qui masque la vraie cause.
     try:
         interview = _get_interview(db, interview_id)
-        transcript = audio_transcribe.transcribe_audio(await file.read())
+        contenu = await file.read()
+        # CPU-bound hors de la boucle d'événements (même finding perf que
+        # transcribe_segment) ; l'accès db reste dans le thread de la requête.
+        transcript = await asyncio.to_thread(audio_transcribe.transcribe_audio, contenu)
         interview.free_notes = (
             f"{interview.free_notes.strip()}\n\n{transcript}"
             if (interview.free_notes or "").strip()
