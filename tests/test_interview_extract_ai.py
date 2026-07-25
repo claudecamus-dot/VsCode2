@@ -144,6 +144,133 @@ def test_extract_answers_raises_when_trame_has_no_questions(monkeypatch: pytest.
 
 
 # --------------------------------------------------------------------------- #
+# Robustesse aux sorties réelles d'un modèle local (2026-07-25) — constats
+# d'un passage RÉEL qwen2.5:3b pendant la vérification de la répartition au
+# fil de l'eau : les mocks ne renvoient que des types propres, ces deux
+# défauts vidaient TOUTE l'extraction en silence.
+# --------------------------------------------------------------------------- #
+def test_extract_answers_coerces_string_question_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Bug réel : qwen2.5:3b renvoie question_id en CHAÎNE ("8") — l'ancien
+    filtre `qid not in valid_ids` (set d'ints) droppait alors toutes les
+    réponses, d'où un onglet Répartition vide malgré un job `done`."""
+    questions = [_question(8, "Comment est organisée l'équipe ?")]
+    monkeypatch.setattr(
+        interview_extract_ai, "call_ai_json",
+        lambda *a, **k: {"answers": [{"question_id": "8", "text": "Deux squads de quatre"}]},
+    )
+    result = interview_extract_ai.extract_answers_from_text(questions, "document")
+    assert result[8]["text"] == "Deux squads de quatre"
+
+
+def test_extract_answers_label_echo_falls_back_to_verbatims(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Bug réel : le modèle recopie le libellé de la question dans `text` et
+    met la vraie matière dans `verbatims` — plutôt que de livrer la question
+    en guise de réponse, on replie le texte sur les verbatims."""
+    questions = [_question(9, "Quels outils utilisez-vous ?")]
+    monkeypatch.setattr(
+        interview_extract_ai, "call_ai_json",
+        lambda *a, **k: {"answers": [{
+            "question_id": 9,
+            "text": "Quels outils utilisez-vous ?",
+            "verbatims": ["on utilise Jira", "GitLab pour la CI"],
+        }]},
+    )
+    result = interview_extract_ai.extract_answers_from_text(questions, "document")
+    assert result[9]["text"] == "on utilise Jira GitLab pour la CI"
+    # Les verbatims sont devenus LA réponse : vidés, sinon le même contenu
+    # apparaît deux fois (réponse + citation) jusque dans les exports.
+    assert result[9]["verbatims"] == []
+
+
+def test_extract_answers_label_echo_without_verbatims_is_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Écho du libellé SANS verbatims : rien d'exploitable — la question est
+    écartée (pas de réponse inventée), comme une question non abordée."""
+    questions = [_question(9, "Quels outils utilisez-vous ?")]
+    monkeypatch.setattr(
+        interview_extract_ai, "call_ai_json",
+        lambda *a, **k: {"answers": [{"question_id": 9, "text": "Quels outils utilisez-vous ?"}]},
+    )
+    result = interview_extract_ai.extract_answers_from_text(questions, "document")
+    assert result == {}
+
+
+def test_extract_answers_flattens_list_text_and_non_string_verbatims(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Aplatir, jamais dropper : un `text` liste devient une chaîne jointe ;
+    un verbatim non-chaîne est converti sans faire planter l'extraction."""
+    questions = [_question(1, "Q ?")]
+    monkeypatch.setattr(
+        interview_extract_ai, "call_ai_json",
+        lambda *a, **k: {"answers": [{
+            "question_id": 1,
+            "text": ["Fragment un.", "Fragment deux."],
+            "verbatims": [42, "  vraie citation  "],
+        }]},
+    )
+    result = interview_extract_ai.extract_answers_from_text(questions, "document")
+    assert result[1]["text"] == "Fragment un. Fragment deux."
+    assert result[1]["verbatims"] == ["42", "vraie citation"]
+
+
+def test_extract_answers_question_id_coercion_edge_cases(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Revue adversariale 2026-07-25 : "8.0"/8.0 sont des ids valides (8) ;
+    un booléen (int(True) == 1 !) et un float non entier (8.9, arrondi vers
+    la MAUVAISE question) sont rejetés plutôt que mal attribués."""
+    questions = [_question(1, "Q1 ?"), _question(8, "Q8 ?")]
+    monkeypatch.setattr(
+        interview_extract_ai, "call_ai_json",
+        lambda *a, **k: {"answers": [
+            {"question_id": "8.0", "text": "Attribuée à la question 8"},
+            {"question_id": True, "text": "Jamais attribuée à la question 1"},
+            {"question_id": 8.9, "text": "Jamais arrondie vers la question 8"},
+        ]},
+    )
+    result = interview_extract_ai.extract_answers_from_text(questions, "document")
+    assert result == {8: {"text": "Attribuée à la question 8", "verbatims": []}}
+
+
+def test_extract_answers_echo_everywhere_is_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Modèle qui recopie le libellé PARTOUT (texte ET verbatims) : le repli
+    est re-testé — rien d'exploitable, la question est écartée plutôt que de
+    livrer le libellé en guise de réponse."""
+    questions = [_question(9, "Quels outils utilisez-vous ?")]
+    monkeypatch.setattr(
+        interview_extract_ai, "call_ai_json",
+        lambda *a, **k: {"answers": [{
+            "question_id": 9,
+            "text": "Quels outils utilisez-vous ?",
+            "verbatims": ["Quels outils utilisez-vous ?"],
+        }]},
+    )
+    result = interview_extract_ai.extract_answers_from_text(questions, "document")
+    assert result == {}
+
+
+def test_extract_answers_flattens_dict_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Un `text` dict (déjà vécu côté SWOT : {"poids": …}) est aplati en ses
+    valeurs feuilles plutôt que d'afficher un repr Python."""
+    questions = [_question(1, "Q ?")]
+    monkeypatch.setattr(
+        interview_extract_ai, "call_ai_json",
+        lambda *a, **k: {"answers": [{
+            "question_id": 1,
+            "text": {"reponse": "Le contenu utile", "note": "complément"},
+        }]},
+    )
+    result = interview_extract_ai.extract_answers_from_text(questions, "document")
+    assert result[1]["text"] == "Le contenu utile complément"
+
+
+# --------------------------------------------------------------------------- #
 # Map-reduce (2026-07-19) : un entretien enregistré peut durer 1h-1h30, même
 # risque de dépassement de contexte/timeout que l'extraction libre — jusqu'ici
 # seul chemin du projet sans aucun découpage.

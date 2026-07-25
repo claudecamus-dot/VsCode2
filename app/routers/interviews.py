@@ -32,6 +32,7 @@ from sqlalchemy.orm import Session
 from ..db import RECORDINGS_DIR, get_session
 from ..importers.docx_trame import extract_text_bytes
 from ..models import (
+    SEGMENT_JOB_KINDS,
     Answer,
     Interview,
     InterviewSegmentJob,
@@ -59,7 +60,9 @@ from ..services.interview_libre_extract_ai import (
 )
 from ..services.interview_segment_jobs import (
     delete_segment_jobs,
+    merge_segment_answers,
     merge_segment_turns,
+    purge_stale_segment_jobs,
     recover_stalled_or_failed_jobs,
     run_segment_job,
     segment_jobs_status,
@@ -310,6 +313,117 @@ def record_interview_form(
     )
 
 
+def _record_error(request, mission, identity, message):
+    """Rend l'écran d'enregistrement structuré avec un message d'erreur, en
+    conservant le travail déjà saisi (transcription, identité, session de
+    jobs) — chemin d'échec d'extraction. Pendant du `_libre_turns_error`."""
+    return templates.TemplateResponse(
+        request,
+        "interviews/record.html",
+        {
+            "mission": mission,
+            "recording_available": audio_transcribe.is_available(),
+            "error": message,
+            "identity": identity,
+        },
+    )
+
+
+def _finalize_record_answers(
+    db, request, mission, identity, transcript, session_token, segment_tail
+):
+    """Produit la répartition question/réponse puis rend l'écran de revue —
+    pendant structuré de `_finalize_libre_turns` (mêmes garanties) :
+
+    - aucun job (entretien court, jamais de tick 5 min) : chemin synchrone
+      historique inchangé — seul cas où `extract_answers_from_text` voit la
+      transcription entière ;
+    - sinon : les jobs pas encore `done` sont re-traités INDIVIDUELLEMENT sur
+      leur seule tranche (`recover_stalled_or_failed_jobs`), le reliquat
+      (`segment_tail`, ≤ 5 min de parole) est traité en synchrone, puis fusion
+      « première réponse non vide par question » (`merge_segment_answers`) —
+      jamais de retraitement de la transcription complète. Un job qui reste en
+      échec APRÈS récupération bloque la finalisation avec son message (revue
+      adversariale 2026-07-25 : sinon sa tranche — jusqu'à 5 min de propos —
+      disparaissait en silence dès qu'un frère avait produit des réponses) ;
+      les jobs ne sont alors PAS supprimés, un nouvel « Envoyer » ne recoûte
+      que les tranches encore KO.
+
+    Limite assumée : après une finalisation réussie (jobs consommés), un
+    re-POST du même formulaire (bouton Précédent depuis la revue, F5-repost)
+    voit `total == 0` et retombe sur le chemin synchrone historique — lent
+    sur un long entretien, mais sans perte ni doublon, identique au
+    comportement d'avant ce dispositif."""
+    # La trame peut avoir disparu PENDANT l'enregistrement (supprimée /
+    # réattachée) : sans ce garde, `_mission_questions` (mission.trame.themes)
+    # lève AttributeError (500) avant que le message propre des jobs ne
+    # s'affiche. Une trame SANS questions (cas normal avant tout remplissage)
+    # n'est PAS gardée ici — `extract_answers_from_text` le signale déjà
+    # proprement (comportement historique, inchangé).
+    if mission.trame is None:
+        return _record_error(
+            request, mission, identity,
+            "La mission n'a plus de trame — impossible de répartir la "
+            "transcription.",
+        )
+
+    status = segment_jobs_status(db, session_token)
+
+    if status["total"] == 0:
+        try:
+            extracted = extract_answers_from_text(
+                _mission_questions(mission), transcript
+            )
+        except InterviewExtractAIError as exc:
+            return _record_error(request, mission, identity, str(exc))
+    else:
+        recover_stalled_or_failed_jobs(db, status["jobs"])
+        still_ko = [
+            j for j in status["jobs"] if j.status != "done" and j.text.strip()
+        ]
+        if still_ko:
+            job_error = next((j.error for j in still_ko if j.error), None)
+            return _record_error(
+                request, mission, identity,
+                (job_error or "Une tranche n'a pas pu être répartie.")
+                + " Les tranches déjà réparties sont conservées — réessaie "
+                "l'envoi (seules les tranches en échec seront retraitées).",
+            )
+        try:
+            tail_result = None
+            if segment_tail.strip():
+                tail_result = extract_answers_from_text(
+                    _mission_questions(mission), segment_tail
+                )
+        except InterviewExtractAIError as exc:
+            return _record_error(request, mission, identity, str(exc))
+        extracted = merge_segment_answers(status["jobs"], tail_result)
+        if not extracted:
+            # Parité avec le mode libre (B1) : resurfacer le message
+            # ACTIONABLE d'un job en échec (levier OLLAMA_TIMEOUT/…), pas le
+            # générique trompeur « aucune réponse détectée ».
+            job_error = next((j.error for j in status["jobs"] if j.error), None)
+            return _record_error(
+                request, mission, identity,
+                job_error or "Aucune réponse détectée dans la transcription.",
+            )
+
+    if not extracted:
+        return _record_error(
+            request, mission, identity,
+            "Aucune réponse détectée dans la transcription.",
+        )
+
+    # Jobs consommés (leur seul rôle était d'alimenter cet écran) : on nettoie.
+    delete_segment_jobs(db, session_token)
+
+    return templates.TemplateResponse(
+        request,
+        "interviews/import_review.html",
+        _build_review_context(mission, extracted, identity),
+    )
+
+
 @router.post("/missions/{mission_id}/interviews/record")
 def record_interview(
     mission_id: int,
@@ -320,13 +434,18 @@ def record_interview(
     interviewee_entity: str = Form(""),
     interview_date: str = Form(""),
     audio_backup_path: str = Form(""),
+    session_token: str = Form(""),
+    segment_tail: str = Form(""),
     db: Session = Depends(get_session),
 ):
     # La transcription se fait désormais au fil de l'eau côté client, par
     # segments envoyés à /audio/transcribe-segment pendant l'enregistrement
     # (un entretien peut durer 1h-1h30 : une transcription bloquante unique
     # en fin d'enregistrement n'est pas utilisable). Cette route ne reçoit
-    # donc plus que le texte déjà assemblé, plus l'extraction IA des réponses.
+    # donc plus que le texte déjà assemblé, plus l'extraction IA des réponses
+    # — elle-même faite au fil de l'eau par jobs de 5 min (`kind="answers"`)
+    # depuis 2026-07-25 : à l'arrivée ici il ne reste en général que le
+    # reliquat (`segment_tail`) à traiter en synchrone.
     mission = _get_mission(db, mission_id)
     identity = {
         "interviewee_name": interviewee_name,
@@ -338,50 +457,68 @@ def record_interview(
         # un transcript peut représenter 1h-1h30 d'entretien, il serait
         # inacceptable de le perdre parce que l'appel IA a échoué.
         "transcript": transcript,
+        "session_token": session_token,
+        "segment_tail": segment_tail,
     }
 
     if not transcript.strip():
+        return _record_error(request, mission, identity, "Aucun texte transcrit.")
+
+    # Des tranches sont peut-être encore en traitement de fond : écran
+    # d'attente (polling) plutôt qu'un retraitement synchrone — même logique
+    # que le wizard libre.
+    status = segment_jobs_status(db, session_token)
+    if status["total"] > 0 and not status["all_done"] and not status["any_failed"]:
         return templates.TemplateResponse(
             request,
-            "interviews/record.html",
+            "interviews/record_segment_wait.html",
             {
                 "mission": mission,
-                "recording_available": audio_transcribe.is_available(),
-                "error": "Aucun texte transcrit.",
                 "identity": identity,
+                "transcript": transcript,
+                "session_token": session_token,
+                "segment_tail": segment_tail,
+                "status": status,
             },
         )
 
-    try:
-        extracted = extract_answers_from_text(_mission_questions(mission), transcript)
-    except InterviewExtractAIError as exc:
-        return templates.TemplateResponse(
-            request,
-            "interviews/record.html",
-            {
-                "mission": mission,
-                "recording_available": audio_transcribe.is_available(),
-                "error": str(exc),
-                "identity": identity,
-            },
-        )
+    return _finalize_record_answers(
+        db, request, mission, identity, transcript, session_token, segment_tail
+    )
 
-    if not extracted:
-        return templates.TemplateResponse(
-            request,
-            "interviews/record.html",
-            {
-                "mission": mission,
-                "recording_available": audio_transcribe.is_available(),
-                "error": "Aucune réponse détectée dans la transcription.",
-                "identity": identity,
-            },
-        )
 
-    return templates.TemplateResponse(
-        request,
-        "interviews/import_review.html",
-        _build_review_context(mission, extracted, identity),
+@router.post("/missions/{mission_id}/interviews/record/from-jobs")
+def record_from_jobs(
+    mission_id: int,
+    request: Request,
+    transcript: str = Form(""),
+    interviewee_name: str = Form(""),
+    interviewee_role: str = Form(""),
+    interviewee_entity: str = Form(""),
+    interview_date: str = Form(""),
+    audio_backup_path: str = Form(""),
+    session_token: str = Form(""),
+    segment_tail: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    """Finalisation après l'écran d'attente du mode structuré : tous les jobs
+    sont terminés (ou un a échoué) — fusion/récupération bornée puis écran de
+    revue. Même helper que `record_interview` sur le chemin sans attente."""
+    mission = _get_mission(db, mission_id)
+    identity = {
+        "interviewee_name": interviewee_name,
+        "interviewee_role": interviewee_role,
+        "interviewee_entity": interviewee_entity,
+        "interview_date": interview_date,
+        "audio_backup_path": audio_backup_path,
+        "transcript": transcript,
+        "session_token": session_token,
+        "segment_tail": segment_tail,
+    }
+    if not transcript.strip():
+        return _record_error(request, mission, identity, "Aucun texte transcrit.")
+    return _finalize_record_answers(
+        db, request, mission, identity, transcript, session_token, segment_tail
     )
 
 
@@ -556,18 +693,38 @@ def create_segment_job(
     session_token: str = Form(...),
     position: int = Form(0),
     text: str = Form(""),
+    kind: str = Form("libre_turns"),
+    mission_id: int = Form(0),
     db: Session = Depends(get_session),
 ):
-    """Palier 2 : enregistre une tranche de texte et lance son extraction de
-    tours en tâche de fond. Appelé par la rotation JS de `record_libre.html`
-    toutes les ~30min, pendant que l'enregistrement continue. Fire-and-forget
-    côté client (la progression est suivie via `segment_jobs_status_json`).
-    Le texte est persisté sur le job (colonne `text`) — pas seulement passé en
-    paramètre de la tâche de fond — pour survivre à un redémarrage serveur et
-    permettre une récupération ciblée (`recover_stalled_or_failed_jobs`)."""
+    """Palier 2 : enregistre une tranche de texte et lance son extraction en
+    tâche de fond, pendant que l'enregistrement continue. Appelé par la
+    rotation JS 5 min de `record_libre.html` (kind="libre_turns", tours de
+    parole) et, depuis 2026-07-25, de `record.html` (kind="answers",
+    répartition sur la trame de `mission_id`). Fire-and-forget côté client
+    (la progression est suivie via `segment_jobs_status_json`). Le texte est
+    persisté sur le job (colonne `text`) — pas seulement passé en paramètre de
+    la tâche de fond — pour survivre à un redémarrage serveur et permettre une
+    récupération ciblée (`recover_stalled_or_failed_jobs`)."""
+    if kind not in SEGMENT_JOB_KINDS:
+        raise HTTPException(status_code=400, detail="Nature de job inconnue.")
+    if kind == "answers":
+        # La répartition a besoin de la trame — valider tout de suite plutôt
+        # que de laisser chaque job échouer silencieusement en tâche de fond
+        # (revue adversariale 2026-07-25 : l'existence de la mission seule ne
+        # suffisait pas, une mission sans trame faisait échouer chaque job).
+        mission = _get_mission(db, mission_id)
+        if mission.trame is None or not _mission_questions(mission):
+            raise HTTPException(
+                status_code=400,
+                detail="La mission n'a pas de trame avec des questions.",
+            )
+    # Auto-entretien : les jobs d'une session jamais finalisée (Recommencer,
+    # wizard abandonné) portent du contenu d'entretien — balayés passé 7 jours.
+    purge_stale_segment_jobs(db)
     job = InterviewSegmentJob(
         session_token=session_token[:64], position=position, status="pending",
-        text=text,
+        text=text, kind=kind, mission_id=mission_id or None,
     )
     db.add(job)
     db.commit()
@@ -611,6 +768,28 @@ def segment_jobs_turns_json(
     return JSONResponse(
         {
             "turns": merged["turns"],
+            "done": status["done"],
+            "total": status["total"],
+        }
+    )
+
+
+@router.get("/interviews/segment-jobs/answers")
+def segment_jobs_answers_json(
+    session_token: str, db: Session = Depends(get_session)
+):
+    """Répartition Q/R DÉJÀ extraite (jobs `kind="answers"` terminés) d'une
+    session — alimente l'aperçu live en lecture seule de l'onglet
+    « Répartition (Q/R) » de `record.html`. Lecture seule stricte, AUCUN appel
+    IA : ne fait que fusionner (première réponse non vide par question, ordre
+    des tranches) les résultats déjà calculés en tâche de fond. Le reliquat
+    final (< 5 min) n'apparaît qu'à la soumission, par le flux existant."""
+    status = segment_jobs_status(db, session_token)
+    merged = merge_segment_answers(status["jobs"], None)
+    return JSONResponse(
+        {
+            # Clés str (JSON) — le JS les consomme telles quelles.
+            "answers": {str(qid): ans for qid, ans in merged.items()},
             "done": status["done"],
             "total": status["total"],
         }

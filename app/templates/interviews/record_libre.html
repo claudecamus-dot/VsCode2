@@ -164,7 +164,12 @@
   // comme un job d'extraction en tâche de fond (le serveur enchaîne pendant que
   // l'enregistrement continue). `coveredLen` marque la fin de ce qui a déjà été
   // soumis ; le reliquat (segment_tail) est traité en synchrone à l'arrêt.
-  var sessionToken = '';
+  // Restauré depuis l'identité après une erreur d'extraction : les jobs déjà
+  // calculés restent visibles dans l'onglet Répartition (parité avec
+  // record.html, revue adversariale 2026-07-25). `default('', true)` :
+  // les routes de retour d'étape passent une `identity` sans clé
+  // `session_token` — Jinja rend Undefined, que `tojson` refuse.
+  var sessionToken = {{ (identity.session_token if identity else '') | default('', true) | tojson }};
   var segmentJobPosition = 0;
   var coveredLen = 0;
   // Compteur des POST /interviews/segment-jobs en vol — gate le bouton
@@ -436,8 +441,10 @@
 
   if (transcriptSoFar.trim()) {
     transcriptEl.value = transcriptSoFar;
-    statusEl.textContent = 'Transcription précédente conservée suite à une erreur — prêt à réessayer.';
+    // updateSubmitState AVANT le message : il pose sinon son libellé générique
+    // (« prêt à envoyer ») PAR-DESSUS l'explication du contexte d'erreur.
     updateSubmitState();
+    statusEl.textContent = 'Transcription précédente conservée suite à une erreur — prêt à réessayer.';
   }
 
   startBtn.addEventListener('click', function () {
@@ -447,6 +454,12 @@
     // (constat 2026-07-20 : 2 fichiers ~30min pour une même session). Un bouton
     // désactivé ne redéclenche pas l'évènement click.
     if (recordingActive) return;
+    // Une transcription restaurée après erreur (parfois 1h d'entretien) ne
+    // doit pas être écrasée sur un simple clic — confirmation explicite.
+    if (transcriptSoFar.trim() &&
+        !confirm('Un texte transcrit est déjà présent — le remplacer par un nouvel enregistrement ?')) {
+      return;
+    }
     startBtn.disabled = true;
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
       stream = s;

@@ -17,12 +17,15 @@
 <p class="muted">
   Enregistre l'entretien en continu depuis ce poste : la voix ne quitte
   jamais la machine. La transcription se fait au fil de l'eau par segments
-  d'environ une minute, affichés ci-dessous au fur et à mesure — pas besoin
-  d'attendre la fin d'un entretien d'1h ou plus. Une sauvegarde audio
-  complète est conservée en cas de souci technique. Une fois arrêté, relis
-  le texte puis envoie-le pour extraction des réponses — rien n'est
-  enregistré avant validation sur l'écran de revue suivant, et chaque
-  réponse importée reste marquée « à valider » jusqu'à relecture.
+  d'environ une minute, affichés ci-dessous au fur et à mesure — et la
+  répartition sur les questions de la trame se fait elle aussi au fil de
+  l'eau, par tranches de 5&nbsp;min traitées en tâche de fond (onglet
+  « Répartition (Q/R) »), sans jamais interrompre la transcription. Une
+  sauvegarde audio complète est conservée en cas de souci technique. Une fois
+  arrêté, relis le texte puis envoie-le : il ne reste en général que la
+  dernière tranche à répartir — rien n'est enregistré avant validation sur
+  l'écran de revue suivant, et chaque réponse importée reste marquée « à
+  valider » jusqu'à relecture.
 </p>
 
 {% if error %}
@@ -39,6 +42,12 @@
       data-busy-label="Extraction des réponses en cours…">
   <input type="hidden" name="transcript" id="rec-transcript-hidden" value="{{ identity.transcript if identity else '' }}">
   <input type="hidden" name="audio_backup_path" id="rec-backup-path" value="{{ identity.audio_backup_path if identity else '' }}">
+  <!-- Répartition au fil de l'eau : jeton de session (jobs de tranche 5 min,
+       kind="answers") + reliquat de texte non encore soumis en tâche de fond.
+       Vides pour un entretien plus court qu'un tick (aucun job créé →
+       traitement synchrone habituel côté serveur). -->
+  <input type="hidden" name="session_token" id="rec-session-token" value="{{ identity.session_token if identity else '' }}">
+  <input type="hidden" name="segment_tail" id="rec-segment-tail" value="{{ identity.segment_tail if identity else '' }}">
 
   <div class="record-controls">
     <button class="btn btn-primary" type="button" id="rec-start">● Démarrer l'enregistrement</button>
@@ -52,9 +61,38 @@
     <a class="btn-link" id="rec-audio-download" download>Télécharger l'enregistrement</a>
   </div>
 
-  <textarea class="record-transcript" id="rec-transcript" rows="10" readonly
-    placeholder="Le texte transcrit apparaîtra ici au fil de l'enregistrement…"></textarea>
-  <button class="btn-link" type="button" id="rec-reset" hidden>Recommencer</button>
+  <div class="rec-tabs" role="tablist">
+    <button type="button" role="tab" aria-selected="true" class="rec-tab active" data-tab="transcription">Transcription</button>
+    <button type="button" role="tab" aria-selected="false" class="rec-tab" data-tab="repartition">Répartition (Q/R)</button>
+  </div>
+  <div id="tab-transcription" class="rec-tab-panel">
+    <textarea class="record-transcript" id="rec-transcript" rows="10" readonly
+      placeholder="Le texte transcrit apparaîtra ici au fil de l'enregistrement…">{{ identity.transcript if identity else '' }}</textarea>
+    <div class="tab-panel-actions">
+      <button class="btn-link" type="button" id="rec-reset" {% if not (identity and identity.transcript) %}hidden{% endif %}>Recommencer</button>
+    </div>
+  </div>
+  <div id="tab-repartition" class="rec-tab-panel" hidden>
+    <p class="muted" id="rec-repartition-status">La répartition des propos sur
+      les questions de la trame apparaîtra ici <strong>en lecture seule</strong>,
+      au fil de l'enregistrement (extraite en tâche de fond par tranches de
+      5&nbsp;min). La relecture et la correction se font à l'étape suivante,
+      après l'envoi.</p>
+    <p class="muted" id="rec-rep-progress" hidden></p>
+    <div id="rec-repartition" class="preview-doc">
+      {% if mission.trame %}
+      {% for theme in mission.trame.themes %}
+      <h3 class="rec-rep-section">{{ theme.title }}</h3>
+      {% for q in theme.questions %}
+      <div class="rec-rep-qa" data-question-id="{{ q.id }}">
+        <p class="rec-rep-turn"><strong class="rec-rep-q">{{ q.label }}</strong></p>
+        <p class="rec-rep-turn rec-rep-answer muted">—</p>
+      </div>
+      {% endfor %}
+      {% endfor %}
+      {% endif %}
+    </div>
+  </div>
 
   <label>
     Nom &amp; prénom de l'interviewé·e
@@ -92,6 +130,11 @@
 <script>
 (function () {
   var SEGMENT_MS = 60000;
+  // Répartition « au fil de l'eau » : cadence de soumission des jobs
+  // d'extraction (kind="answers"), même valeur que le wizard libre — un job
+  // toutes les 5 min tient à peu près le rythme de l'inférence CPU tout en
+  // gardant la répartition proche du direct.
+  var JOB_SEGMENT_MS = 5 * 60000;
 
   var startBtn = document.getElementById('rec-start');
   var stopBtn = document.getElementById('rec-stop');
@@ -107,6 +150,8 @@
   var transcriptEl = document.getElementById('rec-transcript');
   var transcriptHidden = document.getElementById('rec-transcript-hidden');
   var backupPathHidden = document.getElementById('rec-backup-path');
+  var sessionTokenHidden = document.getElementById('rec-session-token');
+  var segmentTailHidden = document.getElementById('rec-segment-tail');
 
   if (!navigator.mediaDevices || !window.MediaRecorder) {
     statusEl.textContent = "Enregistrement non supporté par ce navigateur.";
@@ -114,7 +159,7 @@
     return;
   }
 
-  var stream, startTime, timerId, rotationTimer;
+  var stream, startTime, timerId, rotationTimer, jobSubmitTimer;
   var segmentRecorder, segmentChunks;
   var backupRecorder, backupChunks;
   var recordingActive = false;
@@ -127,12 +172,111 @@
   var pendingBackups = 0;
   var finalizing = false;
   var finalizingRecorders = 0;
-  var transcriptSoFar = '';
+  // Erreur d'extraction : le serveur ré-affiche l'écran avec la transcription
+  // déjà faite — la reprendre ici, sinon le bouton « Envoyer » resterait
+  // désactivé (hasTranscript sur une variable vide) alors que le texte est là.
+  var transcriptSoFar = {{ (identity.transcript if identity else '') | default('', true) | tojson }};
+  // Répartition au fil de l'eau (port du dispositif record_libre.html) :
+  // `coveredLen` marque la fin de ce qui a déjà été soumis en job de fond ;
+  // le reliquat (segment_tail) est traité en synchrone à l'envoi. Restauré
+  // depuis l'identité après une erreur d'extraction : les jobs déjà calculés
+  // restent visibles dans l'onglet Répartition (revue adversariale 2026-07-25
+  // — un token vide rendait le poll aveugle à la session restaurée).
+  // `default('', true)` : certaines routes (retour d'étape) passent une
+  // `identity` sans clé `session_token` — Jinja rend alors Undefined, que
+  // `tojson`/json.dumps refuse (contrairement à l'interpolation simple des
+  // champs cachés, où Undefined se contente de s'afficher vide).
+  var sessionToken = {{ (identity.session_token if identity else '') | default('', true) | tojson }};
+  var segmentJobPosition = 0;
+  var coveredLen = 0;
+  // Compteur des POST /interviews/segment-jobs en vol — gate le bouton
+  // « Envoyer » le temps de la requête. Sans ce gate, un submit pendant
+  // qu'une création de job est en vol soumettrait un `segment_tail` qui
+  // recouvre encore le texte que ce job va traiter -> réponses issues d'un
+  // même passage traitées deux fois à la fusion.
+  var pendingSegmentJobSubmits = 0;
+  // Génération d'enregistrement : une requête encore en vol (segment de
+  // transcription, création de job) au moment d'un « Recommencer »/redémarrage
+  // ne doit pas contaminer la nouvelle session (texte ressuscité, coveredLen
+  // empoisonné) — même garde que record_libre.html.
+  var recGeneration = 0;
 
   function recorderFinalized() {
     if (finalizingRecorders > 0) finalizingRecorders--;
     if (finalizingRecorders <= 0) finalizing = false;
     updateSubmitState();
+  }
+
+  function newSessionToken() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'sess-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+  }
+
+  function refreshSegmentTail() {
+    segmentTailHidden.value = transcriptSoFar.slice(coveredLen);
+  }
+
+  function submitSegmentJob() {
+    // Ré-entrance : un POST de création de job encore en vol n'a pas encore
+    // avancé coveredLen — re-soumettre maintenant renverrait la MÊME tranche.
+    // On saute ce tick ; le prochain reprendra le texte accumulé depuis.
+    if (pendingSegmentJobSubmits > 0) return;
+    var slice = transcriptSoFar.slice(coveredLen);
+    if (!slice.trim()) return;  // rien de neuf à traiter sur cette tranche
+    var pos = segmentJobPosition;
+    var sliceEnd = coveredLen + slice.length;
+    var gen = recGeneration;  // session courante : garde anti-poison inter-session
+    var formData = new FormData();
+    formData.append('session_token', sessionToken);
+    formData.append('position', pos);
+    formData.append('text', slice);
+    formData.append('kind', 'answers');
+    formData.append('mission_id', '{{ mission.id }}');
+    pendingSegmentJobSubmits++;
+    updateSubmitState();  // bloque « Envoyer » tant que ce POST est en vol
+    fetch('/interviews/segment-jobs', { method: 'POST', body: formData })
+      .then(function (res) {
+        if (!res.ok) throw new Error('job non créé');
+        // Garde de génération : un POST de job encore en vol au moment d'un
+        // reset/redémarrage ne doit PAS avancer le coveredLen de la NOUVELLE
+        // session — sinon les 1ers caractères du nouvel enregistrement ne
+        // seraient ni dans un job ni dans segment_tail : perte silencieuse.
+        if (gen !== recGeneration) return;
+        // Job bien créé : on avance le curseur, ce texte est pris en charge
+        // en tâche de fond.
+        if (sliceEnd > coveredLen) {
+          coveredLen = sliceEnd;
+          segmentJobPosition = pos + 1;
+          refreshSegmentTail();
+        }
+      })
+      .catch(function () {
+        // Création KO (réseau/serveur) : on NE fait PAS avancer coveredLen —
+        // ce texte reste dans le reliquat (segment_tail), traité en synchrone
+        // à l'envoi. Aucune tranche perdue.
+      })
+      .finally(function () {
+        // Plancher : un job en vol traversant un reset résout dans une nouvelle
+        // session (compteur remis à zéro) — sans plancher, le décrément le
+        // passerait négatif et le gate « Envoyer » ne bloquerait plus jamais.
+        pendingSegmentJobSubmits = Math.max(0, pendingSegmentJobSubmits - 1);
+        updateSubmitState();
+      });
+  }
+
+  function maybeSubmitFinalJob() {
+    // Dès que la transcription est STABILISÉE (plus d'enregistrement en cours,
+    // plus de segment de transcription en vol), on soumet le reliquat non
+    // couvert comme un dernier job — l'onglet Répartition se remplit aussi
+    // pour un entretien plus court qu'un tick de 5 min, et il ne reste rien
+    // (ou presque) à traiter en synchrone à l'envoi. submitSegmentJob avance
+    // coveredLen puis vide segment_tail -> pas de double traitement ; ses
+    // gardes (pendingSegmentJobSubmits, slice.trim) le rendent idempotent.
+    if (recordingActive) return;      // encore en cours : le timer 5 min s'en charge
+    if (pendingSegments > 0) return;  // une transcription de segment est encore en vol
+    if (!transcriptSoFar.slice(coveredLen).trim()) return;  // rien de neuf à extraire
+    if (!sessionToken) return;        // aucune session d'enregistrement (texte d'erreur restauré)
+    submitSegmentJob();
   }
 
   function formatElapsed(ms) {
@@ -144,7 +288,7 @@
 
   function updateSubmitState() {
     var hasTranscript = !!transcriptSoFar.trim();
-    var busy = pendingSegments > 0 || pendingBackups > 0 || finalizing;
+    var busy = pendingSegments > 0 || pendingSegmentJobSubmits > 0 || pendingBackups > 0 || finalizing;
     submitBtn.disabled = recordingActive || busy || !hasTranscript;
     // Export PDF de la transcription disponible dès l'arrêt de l'enregistrement
     // (n'utilise que le texte, pas l'extraction IA) — sans attendre la
@@ -160,6 +304,7 @@
     transcriptEl.value = transcriptSoFar;
     transcriptEl.scrollTop = transcriptEl.scrollHeight;
     transcriptHidden.value = transcriptSoFar;
+    refreshSegmentTail();
   }
 
   function startSegment() {
@@ -178,6 +323,10 @@
   }
 
   function uploadSegment(blob) {
+    // Garde de génération : un segment de transcription encore en vol au moment
+    // d'un « Recommencer » ne doit pas ressusciter le texte d'une session
+    // abandonnée dans la nouvelle (même correctif que record_libre.html).
+    var gen = recGeneration;
     pendingSegments++;
     updateSubmitState();
     var formData = new FormData();
@@ -187,6 +336,7 @@
         return res.json().then(function (data) { return { ok: res.ok, data: data }; });
       })
       .then(function (result) {
+        if (gen !== recGeneration) return;  // session abandonnée : ne pas ressusciter
         if (result.ok && result.data.text) {
           appendTranscript(result.data.text);
         } else if (!result.ok) {
@@ -200,6 +350,7 @@
       .finally(function () {
         pendingSegments--;
         updateSubmitState();
+        maybeSubmitFinalJob();  // transcription stabilisée -> job final si un reliquat reste
       });
   }
 
@@ -249,16 +400,42 @@
       });
   }
 
+  if (transcriptSoFar.trim()) {
+    // updateSubmitState AVANT le message : il pose sinon son libellé générique
+    // (« prêt à envoyer ») PAR-DESSUS l'explication du contexte d'erreur.
+    updateSubmitState();
+    statusEl.textContent = 'Transcription précédente conservée suite à une erreur — prêt à réessayer.';
+  }
+
   startBtn.addEventListener('click', function () {
+    // Verrou synchrone : sans lui, deux clics rapides avant que getUserMedia ne
+    // réponde démarrent DEUX jeux de MediaRecorder en parallèle sur le même
+    // flux (constat 2026-07-20 côté libre). Un bouton désactivé ne redéclenche
+    // pas l'évènement click.
+    if (recordingActive) return;
+    // Une transcription restaurée après erreur (parfois 1h d'entretien) ne
+    // doit pas être écrasée sur un simple clic — confirmation explicite.
+    if (transcriptSoFar.trim() &&
+        !confirm('Un texte transcrit est déjà présent — le remplacer par un nouvel enregistrement ?')) {
+      return;
+    }
+    startBtn.disabled = true;
     navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
       stream = s;
       recordingActive = true;
       finalizing = false;
       finalizingRecorders = 0;
+      recGeneration++;  // nouvelle session : les requêtes en vol de l'ancienne seront ignorées
       transcriptSoFar = '';
       transcriptEl.value = '';
       transcriptHidden.value = '';
       backupPathHidden.value = '';
+      // Nouvelle session de jobs de répartition à chaque enregistrement.
+      sessionToken = newSessionToken();
+      sessionTokenHidden.value = sessionToken;
+      segmentJobPosition = 0;
+      coveredLen = 0;
+      segmentTailHidden.value = '';
       backupStatusEl.textContent = '';
       audioPlaybackEl.hidden = true;
 
@@ -272,6 +449,10 @@
       rotationTimer = setInterval(function () {
         if (segmentRecorder && segmentRecorder.state === 'recording') segmentRecorder.stop();
       }, SEGMENT_MS);
+      // Répartition au fil de l'eau : un job toutes les 5 min — l'extraction
+      // suit la transcription au lieu de tout traiter en synchrone à l'envoi ;
+      // à la soumission il ne reste qu'un petit reliquat (segment_tail).
+      jobSubmitTimer = setInterval(submitSegmentJob, JOB_SEGMENT_MS);
 
       startBtn.hidden = true;
       stopBtn.hidden = false;
@@ -279,6 +460,9 @@
       statusEl.textContent = 'Enregistrement en cours…';
       updateSubmitState();
     }).catch(function (err) {
+      // Micro refusé/inaccessible : on rouvre le bouton pour permettre un
+      // nouvel essai (le verrou synchrone ci-dessus l'avait désactivé).
+      startBtn.disabled = false;
       statusEl.textContent = 'Micro inaccessible : ' + err.message;
     });
   });
@@ -286,6 +470,7 @@
   stopBtn.addEventListener('click', function () {
     recordingActive = false;
     clearInterval(rotationTimer);
+    clearInterval(jobSubmitTimer);
     clearInterval(timerId);
     // Gate la soumission tant que les enregistreurs arrêtés n'ont pas livré leur
     // dernière tranche via leur évènement `stop` asynchrone (voir finalizing).
@@ -298,16 +483,27 @@
     stream.getTracks().forEach(function (t) { t.stop(); });
     stopBtn.hidden = true;
     startBtn.hidden = false;
+    startBtn.disabled = false;
     resetBtn.hidden = false;
     statusEl.textContent = 'Enregistrement terminé — transcription du dernier segment en cours…';
     updateSubmitState();
   });
 
   resetBtn.addEventListener('click', function () {
+    finalizing = false;
+    finalizingRecorders = 0;
+    recGeneration++;  // une requête encore en vol ne repeuplera pas l'écran remis à zéro
     transcriptSoFar = '';
     transcriptEl.value = '';
     transcriptHidden.value = '';
     backupPathHidden.value = '';
+    // Repartir sur une session vierge (les jobs éventuels de la session
+    // précédente deviennent des orphelins inoffensifs côté serveur).
+    sessionToken = '';
+    sessionTokenHidden.value = '';
+    segmentJobPosition = 0;
+    coveredLen = 0;
+    segmentTailHidden.value = '';
     backupStatusEl.textContent = '';
     audioPlaybackEl.hidden = true;
     resetBtn.hidden = true;
@@ -315,7 +511,66 @@
     timerEl.textContent = '00:00';
     submitBtn.disabled = true;
     pdfBtn.disabled = true;
+    renderRepartition({}, 0, 0);
   });
+
+  // ---- Onglets + aperçu live de la répartition Q/R (lecture seule) ----
+  function renderRepartition(answers, done, total) {
+    var statusRep = document.getElementById('rec-repartition-status');
+    var progressEl = document.getElementById('rec-rep-progress');
+    var blocks = document.querySelectorAll('#rec-repartition .rec-rep-qa');
+    var filled = 0;
+    Array.prototype.forEach.call(blocks, function (block) {
+      var qid = block.getAttribute('data-question-id');
+      var answerEl = block.querySelector('.rec-rep-answer');
+      var ans = answers ? answers[qid] : null;
+      if (ans && ans.text) {
+        filled++;
+        var parts = [ans.text];
+        (ans.verbatims || []).forEach(function (v) {
+          if (v) parts.push('« ' + v + ' »');
+        });
+        answerEl.textContent = parts.join('\n');
+        answerEl.classList.remove('muted');
+      } else {
+        answerEl.textContent = '—';
+        answerEl.classList.add('muted');
+      }
+    });
+    statusRep.hidden = filled > 0;
+    progressEl.hidden = total === 0;
+    if (total > 0) {
+      progressEl.textContent = done + '/' + total + ' tranche' + (total > 1 ? 's' : '')
+        + ' réparties en tâche de fond — ' + filled + ' question'
+        + (filled > 1 ? 's' : '') + ' renseignée' + (filled > 1 ? 's' : '') + '.';
+    }
+  }
+
+  function pollRepartition() {
+    if (!sessionToken) return;  // pas encore d'enregistrement -> rien à afficher
+    fetch('/interviews/segment-jobs/answers?session_token=' + encodeURIComponent(sessionToken))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (data) { if (data) renderRepartition(data.answers, data.done, data.total); })
+      .catch(function () { /* aperçu best-effort : un échec réseau ne casse rien */ });
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.rec-tab'), function (btn) {
+    btn.addEventListener('click', function () {
+      var target = btn.getAttribute('data-tab');
+      Array.prototype.forEach.call(document.querySelectorAll('.rec-tab'), function (b) {
+        var on = (b === btn);
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+      });
+      document.getElementById('tab-transcription').hidden = (target !== 'transcription');
+      document.getElementById('tab-repartition').hidden = (target !== 'repartition');
+    });
+  });
+
+  // Aperçu best-effort : lit le sessionToken courant à chaque tick (vide tant
+  // qu'aucun enregistrement n'a démarré) — l'onglet 2 se remplit au fil des
+  // jobs 5 min terminés en fond.
+  setInterval(pollRepartition, 5000);
 })();
 </script>
 {% endif %}

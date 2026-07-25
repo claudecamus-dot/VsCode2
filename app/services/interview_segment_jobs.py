@@ -17,6 +17,13 @@ réintroduisant le mur multi-heures que le Palier 2 devait justement éviter) :
 un job qui échoue OU qui reste bloqué trop longtemps (`_is_stale`, cf. plus bas)
 est re-traité individuellement — seule SA tranche (~30min max), jamais la
 transcription complète — par `recover_stalled_or_failed_jobs()`.
+
+Généralisation 2026-07-25 : le même dispositif sert désormais aussi le mode
+STRUCTURÉ (`record.html`) — `kind="answers"` répartit la tranche sur les
+questions de la trame (`extract_answers_from_text`) au fil de l'enregistrement,
+au lieu d'un unique appel synchrone sur la transcription complète à l'arrêt.
+`_extract_for_job()` route selon `kind` ; `merge_segment_answers()` fusionne
+(première réponse non vide par question, ordre chronologique des tranches).
 """
 from __future__ import annotations
 
@@ -27,7 +34,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..db import SessionLocal
-from ..models import InterviewSegmentJob
+from ..models import InterviewSegmentJob, Mission
+from .interview_extract_ai import (
+    InterviewExtractAIError,
+    extract_answers_from_text,
+)
 from .interview_libre_extract_ai import (
     InterviewLibreExtractAIError,
     extract_turns_from_text,
@@ -38,6 +49,39 @@ _EMPTY_IDENTITY = {
     "interviewee_role": "",
     "interviewee_entity": "",
 }
+
+# Les deux erreurs fonctionnelles d'extraction (libre / structuré) — un job ne
+# lève jamais, il consigne le message dans `error` pour l'UI.
+_EXTRACT_ERRORS = (InterviewLibreExtractAIError, InterviewExtractAIError)
+
+
+def _extract_for_job(db: Session, job: InterviewSegmentJob) -> dict:
+    """Traite le texte d'UN job selon sa nature (`kind`) et retourne le
+    payload à stocker dans `turns_result` :
+
+    - "libre_turns" (historique) : tours de parole d'un entretien libre.
+    - "answers" : répartition question/réponse sur la trame de la mission
+      (`mission_id` requis — il faut les questions). Clés d'answers converties
+      en str (JSON SQLite ne préserve pas les clés int) ; reconverties par
+      `merge_segment_answers`.
+
+    Lève une des `_EXTRACT_ERRORS` en cas d'échec — l'appelant décide (statut
+    `failed` pour la tâche de fond, re-raise borné pour la récupération)."""
+    if job.kind == "answers":
+        mission = db.get(Mission, job.mission_id) if job.mission_id else None
+        questions = (
+            [q for t in mission.trame.themes for q in t.questions]
+            if mission is not None and mission.trame is not None
+            else []
+        )
+        if not questions:
+            raise InterviewExtractAIError(
+                "La mission de ce job n'a pas (ou plus) de trame avec des "
+                "questions — impossible de répartir la tranche."
+            )
+        answers = extract_answers_from_text(questions, job.text)
+        return {"answers": {str(qid): ans for qid, ans in answers.items()}}
+    return extract_turns_from_text(job.text)
 
 
 def segment_job_stale_after_s() -> int:
@@ -82,8 +126,8 @@ def run_segment_job(job_id: int) -> None:
         job.status = "running"
         db.commit()
         try:
-            result = extract_turns_from_text(job.text)
-        except InterviewLibreExtractAIError as exc:
+            result = _extract_for_job(db, job)
+        except _EXTRACT_ERRORS as exc:
             job.status = "failed"
             job.error = str(exc)
             db.commit()
@@ -165,10 +209,10 @@ def recover_stalled_or_failed_jobs(db: Session, jobs: list[InterviewSegmentJob])
             job.error = job.error or "Aucun texte associé à ce job."
             continue
         try:
-            job.turns_result = extract_turns_from_text(job.text)
+            job.turns_result = _extract_for_job(db, job)
             job.status = "done"
             job.error = None
-        except InterviewLibreExtractAIError as exc:
+        except _EXTRACT_ERRORS as exc:
             job.status = "failed"
             job.error = str(exc)
         db.commit()
@@ -194,6 +238,67 @@ def merge_segment_turns(jobs: list[InterviewSegmentJob], tail_result: dict | Non
             identity = {k: res_identity.get(k, "") for k in _EMPTY_IDENTITY}
 
     return {"turns": all_turns, "identity": identity}
+
+
+def _merge_answer_into(merged: dict[int, dict], qid: int, answer: dict) -> None:
+    """Fusionne la réponse d'UNE tranche pour une question. Contrairement au
+    map-reduce par paragraphes d'`extract_answers_from_text` (first-wins),
+    les tranches sont des fenêtres TEMPORELLES de 5 min : une réponse
+    commencée à 4:30 et finie à 6:00 est vue par DEUX tranches — garder
+    seulement la première amputait la suite (revue adversariale 2026-07-25).
+    On concatène donc les continuations distinctes (une redite exacte est
+    ignorée) : un éventuel excès de matière est visible et éditable sur
+    l'écran de revue, une perte serait invisible."""
+    text = (answer.get("text") or "").strip()
+    verbatims = [v for v in answer.get("verbatims") or [] if v]
+    if qid not in merged:
+        merged[qid] = {"text": text, "verbatims": list(verbatims)}
+        return
+    existing = merged[qid]
+    if text and text not in existing["text"]:
+        existing["text"] = (existing["text"] + "\n" + text).strip()
+    for v in verbatims:
+        if v not in existing["verbatims"]:
+            existing["verbatims"].append(v)
+
+
+def merge_segment_answers(
+    jobs: list[InterviewSegmentJob], tail_result: dict[int, dict] | None
+) -> dict[int, dict]:
+    """Fusionne les répartitions Q/R (`kind="answers"`) des jobs terminés,
+    dans l'ordre chronologique (`position`), puis le reliquat final — sans
+    appel IA (`_merge_answer_into` : concaténation des continuations, jamais
+    de perte). Reconvertit les clés str du JSON stocké en int — le contrat
+    d'`extract_answers_from_text` et de l'écran de revue."""
+    merged: dict[int, dict] = {}
+    for job in sorted(jobs, key=lambda j: j.position):
+        result = job.turns_result or {}
+        for qid_str, answer in (result.get("answers") or {}).items():
+            try:
+                qid = int(qid_str)
+            except (TypeError, ValueError):
+                continue
+            _merge_answer_into(merged, qid, answer)
+    for qid, answer in (tail_result or {}).items():
+        _merge_answer_into(merged, int(qid), answer)
+    return merged
+
+
+def purge_stale_segment_jobs(db: Session, max_age_days: int = 7) -> None:
+    """Balaie les jobs orphelins (« Recommencer », wizard abandonné, session
+    jamais finalisée) : leur colonne `text` porte jusqu'à 5 min de propos
+    d'entretien — pour une app qui promet que la voix ne quitte pas la
+    machine, ils ne doivent pas s'entasser en base pour toujours. Appelé à
+    chaque création de job (auto-entretien, pas de tâche planifiée) ; 7 jours
+    laissent large pour reprendre une session après erreur."""
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+        days=max_age_days
+    )
+    for job in db.scalars(
+        select(InterviewSegmentJob).where(InterviewSegmentJob.created_at < cutoff)
+    ):
+        db.delete(job)
+    db.commit()
 
 
 def delete_segment_jobs(db: Session, session_token: str) -> None:

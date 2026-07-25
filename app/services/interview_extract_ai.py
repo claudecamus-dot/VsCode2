@@ -30,8 +30,11 @@ SYSTEM = (
     "entretien. Pour chaque question réellement abordée dans le document, "
     "produis une réponse synthétique fidèle aux propos (n'invente rien) et, "
     "si le document contient des citations mot-pour-mot pertinentes, "
-    "relève-les comme verbatims. Ignore les questions non abordées — ne les "
-    "fais pas apparaître dans le résultat plutôt que d'inventer une réponse."
+    "relève-les comme verbatims. Le champ \"text\" contient ce que la "
+    "personne interviewée a RÉPONDU (reformulé fidèlement) — jamais une "
+    "recopie du libellé de la question. Ignore les questions non abordées — "
+    "ne les fais pas apparaître dans le résultat plutôt que d'inventer une "
+    "réponse."
 )
 
 _SCHEMA = {
@@ -57,7 +60,9 @@ _SCHEMA = {
 
 _JSON_HINT = (
     '\nRéponds UNIQUEMENT par un objet JSON à la clé "answers" '
-    '(liste de {"question_id", "text", "verbatims": [...]}).'
+    '(liste de {"question_id", "text", "verbatims": [...]}). '
+    '"question_id" est le nombre ENTIER entre crochets devant la question ; '
+    '"text" est la réponse de la personne interviewée, jamais la question.'
 )
 
 
@@ -73,9 +78,61 @@ def _build_prompt(questions, text: str) -> str:
     return "\n".join(lines)
 
 
+def _coerce_text(value) -> str:
+    """Aplatit le champ `text` d'une réponse IA en chaîne — jamais dropper
+    pour une simple question de type (cf. mémoire « Ollama JSON type
+    coercion: flatten don't drop ») : un modèle local renvoie parfois une
+    liste de fragments, voire un dict (déjà vécu sur les quadrants SWOT),
+    malgré le schéma."""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, list):
+        return " ".join(s for s in (_coerce_text(v) for v in value) if s)
+    if isinstance(value, dict):
+        return " ".join(s for s in (_coerce_text(v) for v in value.values()) if s)
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _coerce_question_id(value) -> int | None:
+    """`question_id` tel que les modèles locaux le renvoient VRAIMENT : int,
+    chaîne ("8"), parfois "8.0"/8.0. `bool` est rejeté (int(True) == 1
+    s'attacherait à la question 1) et un float non entier (8.9) est droppé
+    plutôt qu'arrondi vers la mauvaise question."""
+    if isinstance(value, bool):
+        return None
+    try:
+        as_float = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not as_float.is_integer():
+        return None
+    return int(as_float)
+
+
+def _normalise(value: str) -> str:
+    return " ".join(value.casefold().split()).strip(" ?.!:…")
+
+
+def _echoes_label(text_value: str, label: str) -> bool:
+    """Vrai si la « réponse » n'est qu'une recopie du libellé de la question —
+    comportement observé en réel sur un petit modèle local (qwen2.5:3b,
+    2026-07-25) : le texte utile était alors dans les verbatims."""
+    return bool(text_value) and _normalise(text_value) == _normalise(label)
+
+
 def _extract_answers_chunk(questions, text: str) -> dict[int, dict]:
     """Un seul appel IA sur un tronçon de texte — factorisé pour le
-    map-reduce de `extract_answers_from_text()`."""
+    map-reduce de `extract_answers_from_text()`.
+
+    Robustesse aux sorties réelles des modèles locaux (constats d'un passage
+    réel qwen2.5:3b, 2026-07-25 — les mocks des tests ne renvoient que des
+    types propres) : `question_id` arrive souvent en CHAÎNE ("8") — l'ancien
+    `qid not in valid_ids` (set d'ints) droppait alors TOUTES les réponses en
+    silence ; et le champ `text` peut n'être qu'un écho du libellé de la
+    question, la matière étant dans les verbatims — on replie alors la réponse
+    sur les verbatims plutôt que de livrer la question en guise de réponse."""
     data = call_ai_json(
         SYSTEM,
         _build_prompt(questions, text),
@@ -84,17 +141,32 @@ def _extract_answers_chunk(questions, text: str) -> dict[int, dict]:
         max_tokens=MAX_TOKENS,
         error_cls=InterviewExtractAIError,
     )
-    valid_ids = {q.id for q in questions}
+    by_id = {q.id: q for q in questions}
     result: dict[int, dict] = {}
     for row in data.get("answers") or []:
-        qid = row.get("question_id")
-        text_value = (row.get("text") or "").strip()
-        if qid not in valid_ids or not text_value:
+        qid = _coerce_question_id(row.get("question_id"))
+        question = by_id.get(qid)
+        if question is None:
             continue
-        result[qid] = {
-            "text": text_value,
-            "verbatims": [v.strip() for v in row.get("verbatims") or [] if v.strip()],
-        }
+        raw_verbatims = row.get("verbatims") or []
+        if isinstance(raw_verbatims, str):
+            raw_verbatims = [raw_verbatims]
+        verbatims = [
+            s for s in (str(v).strip() for v in raw_verbatims) if s
+        ]
+        text_value = _coerce_text(row.get("text"))
+        if _echoes_label(text_value, question.label):
+            # Les verbatims deviennent LA réponse : on les vide (sinon le même
+            # contenu apparaît deux fois — réponse + citation — jusque dans
+            # les exports), et on re-teste l'écho (modèle qui recopie le
+            # libellé PARTOUT : rien d'exploitable, question écartée).
+            text_value = " ".join(verbatims)
+            verbatims = []
+            if _echoes_label(text_value, question.label):
+                text_value = ""
+        if not text_value:
+            continue
+        result[qid] = {"text": text_value, "verbatims": verbatims}
     return result
 
 

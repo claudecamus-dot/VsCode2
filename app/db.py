@@ -70,7 +70,16 @@ def _add_missing_columns() -> None:
         "questions": {"help_text": "TEXT"},
         "missions": {"pptx_template_path": "TEXT", "is_draft": "BOOLEAN DEFAULT 0", "restitution_verbatim_ids": "JSON", "is_demo": "BOOLEAN DEFAULT 0"},
         "interview_turns": {"section_title": "TEXT"},
-        "interview_segment_jobs": {"text": "TEXT DEFAULT ''"},
+        "interview_segment_jobs": {
+            "text": "TEXT DEFAULT ''",
+            # Extension 2026-07-25 (répartition Q/R au fil de l'eau, mode
+            # structuré) : nature du job + mission porteuse de la trame.
+            # Pas de clause REFERENCES sur une colonne ajoutée après coup
+            # (les jobs sont éphémères, la FK n'est portée que par les bases
+            # neuves via create_all) — même compromis que `interview_id`.
+            "kind": "TEXT DEFAULT 'libre_turns'",
+            "mission_id": "INTEGER",
+        },
     }
     with engine.begin() as conn:
         for table, cols in additions.items():

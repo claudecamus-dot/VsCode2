@@ -643,6 +643,11 @@ class AgentResult(Base):
 # Statuts d'un job de traitement de tranche (Palier 2, segmentation 30min).
 SEGMENT_JOB_STATUSES = ("pending", "running", "done", "failed")
 
+# Nature du traitement d'une tranche : tours de parole d'un entretien libre
+# (historique), ou répartition question/réponse sur la trame d'une mission
+# (mode structuré, `record.html` — extension 2026-07-25).
+SEGMENT_JOB_KINDS = ("libre_turns", "answers")
+
 
 class InterviewSegmentJob(Base):
     """Job d'extraction des tours de parole d'UNE tranche de texte (Palier 2 —
@@ -672,6 +677,17 @@ class InterviewSegmentJob(Base):
     interview_id: Mapped[int | None] = mapped_column(
         ForeignKey("interviews.id", ondelete="CASCADE"), default=None
     )
+    # Nature du traitement (SEGMENT_JOB_KINDS) : "libre_turns" = tours de
+    # parole d'un entretien libre (extract_turns_from_text) ; "answers" =
+    # répartition question/réponse sur la trame de la mission
+    # (extract_answers_from_text, mode structuré `record.html`). La colonne
+    # `mission_id` n'est requise que pour "answers" (il faut la trame pour
+    # connaître les questions) — CASCADE : un job orphelin de mission
+    # supprimée n'a plus de sens.
+    kind: Mapped[str] = mapped_column(String(20), default="libre_turns")
+    mission_id: Mapped[int | None] = mapped_column(
+        ForeignKey("missions.id", ondelete="CASCADE"), default=None
+    )
     position: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(20), default="pending")
     # Texte de la tranche, persisté (pas seulement passé en paramètre de la
@@ -680,8 +696,12 @@ class InterviewSegmentJob(Base):
     # RE-traiter juste CETTE tranche (pas toute la transcription) si le job
     # échoue ou reste bloqué — voir `interview_segment_jobs.recover_stalled_or_failed_jobs`.
     text: Mapped[str] = mapped_column(Text, default="")
-    # {"turns": [...], "identity": {...}} produit par extract_turns_from_text,
-    # None tant que le job n'est pas `done`.
+    # Résultat du traitement, None tant que le job n'est pas `done`.
+    # kind="libre_turns" : {"turns": [...], "identity": {...}} produit par
+    # extract_turns_from_text. kind="answers" : {"answers": {"<qid>": {"text",
+    # "verbatims"}}} produit par extract_answers_from_text (clés str : JSON ne
+    # préserve pas les clés int — reconverties à la fusion). Le nom de colonne
+    # reste `turns_result` (historique) pour éviter une vraie migration.
     turns_result: Mapped[dict | None] = mapped_column(JSON, default=None)
     error: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)

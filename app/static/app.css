@@ -540,6 +540,11 @@ input[type=text].turn-section-input:placeholder-shown {
 .rec-rep-section { margin: 16px 0 8px; font-size: .95rem; font-weight: 700; color: var(--text); border-bottom: 1.5px solid #0f766e; padding-bottom: 3px; }
 .rec-rep-section:first-child { margin-top: 0; }
 .rec-rep-turn { margin: 5px 0; line-height: 1.55; }
+/* Réponses de l'onglet Répartition (Q/R) du mode structuré : le JS assemble
+   réponse + verbatims avec des \n via textContent — sans pre-line ils
+   s'affichent collés sur une seule ligne. */
+.rec-rep-answer { white-space: pre-line; }
+.rec-rep-qa { margin: 0 0 10px; }
 .rec-rep-q { color: #0f766e; }
 .rec-rep-r { color: #1e3a5f; }
 #rec-preview { display: block; width: 100%; margin-bottom: 10px; }
