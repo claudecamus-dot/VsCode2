@@ -582,7 +582,10 @@ def test_design_cache_image_proc_ne_bloque_pas_la_photo(tmp_path, monkeypatch) -
     """Le repli procédural (tests/offline) n'occupe JAMAIS le slot photo : un run
     en ligne ultérieur doit retenter le vrai fetch (cause racine des images
     « générées » servies à vie sur les slides synthèse, 2026-07-22)."""
-    import app.services.pptx_export as px
+    # Les internes image vivent dans le sous-module `images` depuis le découpage
+    # du gros module pptx_export (audit 2026-07-24) — le monkeypatch de
+    # _IMG_CACHE doit viser le module où _resoudre_image_cachee lit sa globale.
+    import app.services.pptx_export.images as px
     if not px._FRAMED_OK:  # infra image absente : rien à vérifier ici
         return
     monkeypatch.setattr(px, "_IMG_CACHE", tmp_path)
