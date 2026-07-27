@@ -9,11 +9,12 @@
 <div class="page-head">
   <h1>{{ interview.interviewee_name }} <span class="muted">— entretien libre</span></h1>
   <div class="head-actions">
-    {# Écran réorganisé en onglets (demande utilisateur 2026-07-27) : Tours de
-       parole (édition) / Transcription / Aperçu — le bouton Enregistrer reste
-       ICI, hors onglets, toujours visible quel que soit l'onglet actif. Les
-       téléchargements spécifiques (transcription seule, tours de parole)
-       vivent dans leur onglet respectif. #}
+    {# Écran réorganisé en onglets (demande utilisateur 2026-07-27) — ordre
+       demandé : 1. Transcription (la matière brute, point de départ)
+       2. Tour de table (l'édition des tours) 3. Aperçu (le rendu). Le bouton
+       Enregistrer reste ICI, hors onglets, toujours visible quel que soit
+       l'onglet actif. Les téléchargements spécifiques (transcription seule,
+       tour de table) vivent dans leur onglet respectif. #}
     <a class="btn" href="/missions/{{ mission.id }}">← Mission</a>
     <button class="btn btn-primary" type="submit" form="libre-detail-form">Enregistrer les modifications</button>
     <a class="btn" href="/interviews/{{ interview.id }}/export/markdown">Télécharger (.md)</a>
@@ -66,17 +67,50 @@
 
 <form method="post" action="/interviews/{{ interview.id }}/libre" class="card form" id="libre-detail-form">
   <div class="rec-tabs" role="tablist">
-    <button type="button" role="tab" aria-selected="true" class="rec-tab active" data-turntab="tours">Tours de parole</button>
-    <button type="button" role="tab" aria-selected="false" class="rec-tab" data-turntab="transcription">Transcription</button>
+    <button type="button" role="tab" aria-selected="true" class="rec-tab active" data-turntab="transcription">Transcription</button>
+    <button type="button" role="tab" aria-selected="false" class="rec-tab" data-turntab="tours">Tour de table</button>
     <button type="button" role="tab" aria-selected="false" class="rec-tab" data-turntab="apercu">Aperçu</button>
   </div>
 
   {# Les panneaux inactifs sont seulement `hidden` : leurs champs restent dans
      le DOM et POSTÉS — « Enregistrer » (en tête, hors onglets) sauve donc les
-     tours quel que soit l'onglet affiché. #}
-  <div id="turntab-tours" class="rec-tab-panel">
+     tours quel que soit l'onglet affiché, y compris depuis l'onglet
+     Transcription affiché par défaut. #}
+  <div id="turntab-transcription" class="rec-tab-panel">
     <section class="card">
-      <h2>Tours de parole</h2>
+      <h2>Transcription</h2>
+      {% if transcript %}
+      {% if transcript_reconstitue %}
+      {# Point 4 de la demande utilisateur 2026-07-27 : un tour de table
+         renseigné implique une transcription renseignée. Le mot-à-mot d'origine
+         n'a pas été conservé pour cet entretien (champ ajouté le 2026-07-19,
+         jamais rempli par l'import .docx) — plutôt qu'un onglet vide en face
+         d'un tour de table plein, on remet la même matière à plat, en le
+         disant. #}
+      <p class="muted">Reconstituée à partir du tour de table — le mot-à-mot
+        d'origine n'a pas été conservé pour cet entretien. Lecture seule :
+        modifie les tours dans l'onglet « Tour de table ».</p>
+      {% else %}
+      <p class="muted">Texte tel que transcrit à l'enregistrement, avant structuration par l'IA — lecture seule.</p>
+      {% endif %}
+      <textarea class="record-transcript" rows="14" readonly
+                aria-label="Transcription de l'entretien (lecture seule)">{{ transcript }}</textarea>
+      <div class="tab-panel-actions">
+        <a class="btn btn-sm" href="/interviews/{{ interview.id }}/export/transcription/pdf">Télécharger la transcription (PDF)</a>
+      </div>
+      {% else %}
+      <p class="muted">Pas de transcription pour cet entretien : ni texte brut
+        conservé, ni tour de parole d'où la reconstituer.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  <div id="turntab-tours" class="rec-tab-panel" hidden>
+    <section class="card">
+      {# « Tour de table » est le nom que l'utilisateur donne à cet écran
+         (2026-07-27) ; « tours de parole » reste le terme du modèle de données
+         (`InterviewTurn`) et des explications ci-dessous. #}
+      <h2>Tour de table</h2>
       {% if not turns %}
       <p class="muted">Aucun tour de parole.</p>
       {% else %}
@@ -100,7 +134,7 @@
            sans déclencher l'enregistrement. #}
         <button class="btn btn-sm" type="submit" formnovalidate
                 formaction="/interviews/turns/export-pdf"
-                title="Exporte les tours de parole tels qu'affichés (modifications non enregistrées comprises)">Télécharger les tours de parole (PDF)</button>
+                title="Exporte le tour de table tel qu'affiché (modifications non enregistrées comprises)">Télécharger le tour de table (PDF)</button>
       </div>
       {% endif %}
     </section>
@@ -111,23 +145,6 @@
         Message central (1 à 3 phrases)
         <textarea name="resume" rows="2">{{ interview.resume or '' }}</textarea>
       </label>
-    </section>
-  </div>
-
-  <div id="turntab-transcription" class="rec-tab-panel" hidden>
-    <section class="card">
-      <h2>Transcription brute</h2>
-      {% if interview.raw_transcript %}
-      <p class="muted">Texte tel que transcrit à l'enregistrement, avant structuration par l'IA — lecture seule.</p>
-      <textarea class="record-transcript" rows="14" readonly>{{ interview.raw_transcript }}</textarea>
-      <div class="tab-panel-actions">
-        <a class="btn btn-sm" href="/interviews/{{ interview.id }}/export/transcription/pdf">Télécharger la transcription (PDF)</a>
-      </div>
-      {% else %}
-      <p class="muted">Pas de transcription brute conservée pour cet entretien
-        (entretien saisi ou importé avant que la transcription soit
-        enregistrée).</p>
-      {% endif %}
     </section>
   </div>
 
@@ -185,8 +202,8 @@
 {% include "interviews/_turns_script.html" %}
 <script>
 (function () {
-  // Navigation entre les onglets Tours / Transcription / Aperçu — même
-  // pattern que l'écran de revue du wizard (data-turntab).
+  // Navigation entre les onglets Transcription / Tour de table / Aperçu —
+  // même pattern que l'écran de revue du wizard (data-turntab).
   var tabs = document.querySelectorAll('.rec-tab[data-turntab]');
   if (!tabs.length) return;
   Array.prototype.forEach.call(tabs, function (btn) {

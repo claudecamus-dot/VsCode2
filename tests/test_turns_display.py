@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 
+import fitz
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -374,19 +375,138 @@ def test_ecran_detail_applique_les_memes_regles(client):
     assert "Réponse / commentaire" in html
     assert ">Remarque<" not in html
 
-    # Réorganisation en onglets (2026-07-27) : Tours / Transcription / Aperçu,
-    # chaque téléchargement dans son onglet, enregistrement HORS onglets.
+    # Réorganisation en onglets (2026-07-27) : Transcription / Tour de table /
+    # Aperçu, chaque téléchargement dans son onglet, enregistrement HORS onglets.
     for tab in ("tours", "transcription", "apercu"):
         assert f'data-turntab="{tab}"' in html
-    # Tours : export PDF des tours, via les champs du formulaire courant.
+    # Tour de table : export PDF via les champs du formulaire courant.
     assert 'formaction="/interviews/turns/export-pdf"' in html
-    # Transcription : uniquement l'export de la transcription brute.
+    # Transcription : uniquement l'export de la transcription.
     assert f"/interviews/{interview_id}/export/transcription/pdf" in html
     # Aperçu : rendu par sections (titre de section présent une fois).
     assert '<div id="turntab-apercu"' in html
     assert "preview-doc" in html
     # Enregistrer, indépendant des onglets : en tête (form=) ET en pied.
     assert 'form="libre-detail-form"' in html
+
+
+def _entretien_libre(raw_transcript: str | None, avec_tours: bool = True) -> int:
+    """Crée un entretien libre enregistré et rend son id."""
+    db = SessionLocal()
+    try:
+        mission = Mission(name="Mission onglets")
+        db.add(mission)
+        db.commit()
+        interview = Interview(
+            mission_id=mission.id, interviewee_name="Marc Dupont", mode="libre",
+            raw_transcript=raw_transcript,
+        )
+        db.add(interview)
+        db.commit()
+        if avec_tours:
+            for position, turn in enumerate(_TURNS):
+                db.add(InterviewTurn(
+                    interview_id=interview.id, position=position,
+                    interlocuteur=turn["interlocuteur"], question=turn["question"] or None,
+                    remarque=turn["remarque"] or None, section_title=turn["section_title"] or None,
+                ))
+            db.commit()
+        return interview.id
+    finally:
+        db.close()
+
+
+def test_ordre_des_onglets_transcription_puis_tour_de_table_puis_apercu(client):
+    """Ordre demandé (2026-07-27) : 1. Transcription 2. Tour de table
+    3. Aperçu — et c'est bien la Transcription qui s'affiche à l'ouverture."""
+    html = client.get(f"/interviews/{_entretien_libre('Texte brut.')}").text
+    positions = [html.index(f'data-turntab="{tab}"') for tab in ("transcription", "tours", "apercu")]
+    assert positions == sorted(positions)
+    assert "Tour de table" in html
+    # Panneau visible à l'ouverture = transcription ; les deux autres masqués.
+    assert '<div id="turntab-transcription" class="rec-tab-panel">' in html
+    assert '<div id="turntab-tours" class="rec-tab-panel" hidden>' in html
+    assert '<div id="turntab-apercu" class="rec-tab-panel" hidden>' in html
+
+
+def test_les_deux_exports_pdf_sont_disponibles(client):
+    """Un bouton d'export par onglet : transcription (lien GET) et tour de
+    table (submit sur les champs du formulaire courant)."""
+    interview_id = _entretien_libre("Texte brut.")
+    html = client.get(f"/interviews/{interview_id}").text
+    assert f'href="/interviews/{interview_id}/export/transcription/pdf"' in html
+    assert "Télécharger la transcription (PDF)" in html
+    assert 'formaction="/interviews/turns/export-pdf"' in html
+    assert "Télécharger le tour de table (PDF)" in html
+
+
+def test_tour_de_table_renseigne_implique_transcription_renseignee(client):
+    """Point 4 de la demande utilisateur 2026-07-27 : un entretien dont les
+    tours sont remplis ne doit JAMAIS afficher un onglet Transcription vide,
+    même sans `raw_transcript` (entretiens d'avant le champ, imports .docx)."""
+    interview_id = _entretien_libre(None)
+    html = client.get(f"/interviews/{interview_id}").text
+    assert "Reconstituée à partir du tour de table" in html
+    # La matière des tours est bien restituée dans le panneau transcription.
+    panneau = html.split('id="turntab-transcription"')[1].split('id="turntab-tours"')[0]
+    assert "On travaille en silo." in panneau
+    assert "Comment ça se passe ?" in panneau
+    # ... et l'export reste proposé (avant, le bouton disparaissait avec le texte).
+    assert f"/interviews/{interview_id}/export/transcription/pdf" in panneau
+
+
+def test_export_transcription_pdf_rend_la_transcription_pas_les_tours(client):
+    """La route rendait `build_turns_only_pdf`, soit exactement le même document
+    que le bouton « tour de table » de l'onglet voisin — deux boutons, un seul
+    contenu (constat utilisateur 2026-07-27)."""
+    interview_id = _entretien_libre("Marqueur de transcription brute.")
+    response = client.get(f"/interviews/{interview_id}/export/transcription/pdf")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/pdf"
+    with fitz.open(stream=response.content, filetype="pdf") as doc:
+        texte = "\n".join(page.get_text() for page in doc)
+    assert "Marqueur de transcription brute." in texte
+
+
+def test_export_transcription_pdf_se_replie_sur_les_tours(client):
+    """Sans transcription brute, l'export suit la même règle que l'écran :
+    reconstitution depuis les tours (sinon le bouton affiché téléchargerait un
+    document vide, ou un 400)."""
+    interview_id = _entretien_libre(None)
+    response = client.get(f"/interviews/{interview_id}/export/transcription/pdf")
+    assert response.status_code == 200
+    with fitz.open(stream=response.content, filetype="pdf") as doc:
+        texte = "\n".join(page.get_text() for page in doc)
+    assert "On travaille en silo." in texte
+    # Le document dit d'où vient le texte, et n'annonce plus un « export de
+    # secours après échec IA » (sous-titre par défaut du builder) alors que
+    # rien n'a échoué.
+    assert "Reconstituée à partir du tour de table" in texte
+    assert "Export de secours" not in texte
+
+
+def test_export_transcription_pdf_400_si_rien_a_exporter(client):
+    interview_id = _entretien_libre(None, avec_tours=False)
+    response = client.get(f"/interviews/{interview_id}/export/transcription/pdf")
+    assert response.status_code == 400
+
+
+def test_reconstitution_nomme_un_interlocuteur_manquant(client):
+    """Un tour peut porter du contenu sans interlocuteur identifié (filtrage
+    relâché du 2026-07-22) : la ligne reconstituée ne doit pas s'ouvrir sur un
+    « : » orphelin."""
+    from app.services.interview_export import transcript_from_turns
+
+    class _Tour:
+        section_title, question, interlocuteur = None, None, ""
+        remarque = "Propos sans interlocuteur."
+
+    assert transcript_from_turns([_Tour()]) == "Intervenant : Propos sans interlocuteur."
+
+
+def test_sans_tours_ni_transcription_l_onglet_le_dit(client):
+    html = client.get(f"/interviews/{_entretien_libre(None, avec_tours=False)}").text
+    assert "Pas de transcription pour cet entretien" in html
 
 
 def test_entretien_structure_sans_trame_ne_500_pas(client):

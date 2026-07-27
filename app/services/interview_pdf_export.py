@@ -263,16 +263,28 @@ def build_interview_pdf(interview: Interview) -> bytes:
     return buffer.getvalue()
 
 
-def build_transcript_only_pdf(transcript: str, interviewee_name: str = "") -> bytes:
-    """PDF de secours contenant uniquement une transcription brute — sans
-    passer par un `Interview` enregistré en base (2026-07-19).
+SECOURS_SUBTITLE = (
+    "Export de secours — l'extraction IA n'a pas (encore) abouti sur ce "
+    "texte, qui reste disponible tel qu'enregistré ci-dessous."
+)
 
-    Utilisée quand l'extraction IA en aval (tours de parole, réponses,
-    répartition) échoue : avant cette fonction, un texte transcrit — parfois
-    issu d'un entretien d'1h ou plus — restait bloqué dans le formulaire
-    d'erreur sans aucune façon de le récupérer autrement qu'en le
-    resélectionnant/copiant à la main. Le `title`/`running_title` reprend le
-    nom de l'interviewé·e si connu, sinon un libellé générique."""
+
+def build_transcript_only_pdf(
+    transcript: str, interviewee_name: str = "", subtitle: str = SECOURS_SUBTITLE,
+) -> bytes:
+    """PDF contenant uniquement une transcription — sans passer par un
+    `Interview` enregistré en base (2026-07-19).
+
+    Née comme export de SECOURS : quand l'extraction IA en aval (tours de
+    parole, réponses, répartition) échoue, un texte transcrit — parfois issu
+    d'un entretien d'1h ou plus — restait sinon bloqué dans le formulaire
+    d'erreur, sans autre issue que de le recopier à la main. D'où le
+    sous-titre par défaut.
+
+    Depuis le 2026-07-27 elle sert aussi l'onglet « Transcription » d'un
+    entretien enregistré, où ce sous-titre serait faux (rien n'a échoué) :
+    l'appelant passe alors le sien. Le `title`/`running_title` reprend le nom
+    de l'interviewé·e si connu, sinon un libellé générique."""
     title = f"Transcription brute — {interviewee_name}" if interviewee_name.strip() else "Transcription brute"
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -281,11 +293,7 @@ def build_transcript_only_pdf(transcript: str, interviewee_name: str = "") -> by
     )
     flowables = [
         Paragraph(_text(title), _STYLES["title"]),
-        Paragraph(
-            "Export de secours — l'extraction IA n'a pas (encore) abouti sur ce "
-            "texte, qui reste disponible tel qu'enregistré ci-dessous.",
-            _STYLES["subtitle"],
-        ),
+        Paragraph(_text(subtitle), _STYLES["subtitle"]),
     ]
     for paragraph in (transcript or "").strip().split("\n\n"):
         if paragraph.strip():

@@ -11,7 +11,13 @@ from __future__ import annotations
 from ..models import Interview, InterviewTurn
 from .mission_export import slugify
 
-__all__ = ["build_interview_markdown", "group_turns_into_sections", "slugify"]
+__all__ = [
+    "build_interview_markdown",
+    "group_turns_into_sections",
+    "slugify",
+    "transcript_from_turns",
+    "transcript_of",
+]
 
 REPARTITION_LABELS = {
     "contexte": "Contexte",
@@ -33,6 +39,48 @@ def group_turns_into_sections(turns: list[InterviewTurn]) -> list[dict]:
             sections.append({"title": turn.section_title, "turns": []})
         sections[-1]["turns"].append(turn)
     return sections
+
+
+def transcript_from_turns(turns: list[InterviewTurn]) -> str:
+    """Reconstitue un texte de transcription à partir des tours de parole.
+
+    Sert de repli quand `Interview.raw_transcript` est absent : les entretiens
+    créés avant que la transcription brute soit conservée (champ ajouté le
+    2026-07-19), ceux importés depuis un `.docx`, et ceux dont le texte n'a
+    jamais transité par l'écran d'enregistrement n'en ont pas — l'onglet
+    Transcription s'affichait alors vide alors que le tour de table, lui, était
+    rempli. Demande utilisateur 2026-07-27 : si le tour de table est renseigné,
+    la transcription l'est aussi.
+
+    Ce n'est pas le mot-à-mot d'origine (il est perdu, pas récupérable) mais la
+    même matière remise à plat — l'appelant doit le dire à l'utilisateur.
+    """
+    lignes: list[str] = []
+    for section in group_turns_into_sections(turns):
+        if section["title"]:
+            lignes.append(f"[{section['title']}]")
+        for turn in section["turns"]:
+            propos = " ".join(p for p in (turn.question, turn.remarque) if p)
+            if not propos.strip():
+                continue
+            # Même repli que `_parse_turns_from_form` : un tour porte parfois du
+            # contenu sans interlocuteur (identifié). Sans ce défaut la ligne
+            # s'ouvrirait sur un « : » orphelin, ou sur « None » pour une
+            # ligne d'avant la contrainte de colonne.
+            lignes.append(f"{turn.interlocuteur or 'Intervenant'} : {propos}")
+    return "\n\n".join(lignes)
+
+
+def transcript_of(interview: Interview) -> tuple[str, bool]:
+    """Transcription d'un entretien et son origine : `(texte, reconstitue)`.
+
+    Une seule règle, partagée entre l'écran de consultation et l'export PDF —
+    sinon l'onglet afficherait un texte que son propre bouton de
+    téléchargement refuserait d'exporter."""
+    brut = (interview.raw_transcript or "").strip()
+    if brut:
+        return brut, False
+    return transcript_from_turns(interview.turns), True
 
 
 def _header_lines(interview: Interview) -> list[str]:

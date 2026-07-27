@@ -48,7 +48,12 @@ from ..services.audio_file_jobs import (
     purge_stale_audio_file_jobs,
     run_audio_file_job,
 )
-from ..services.interview_export import build_interview_markdown, group_turns_into_sections, slugify
+from ..services.interview_export import (
+    build_interview_markdown,
+    group_turns_into_sections,
+    slugify,
+    transcript_of,
+)
 from ..services.interview_pdf_export import (
     build_interview_pdf,
     build_synthese_only_pdf,
@@ -1528,6 +1533,11 @@ def capture(
 ):
     interview = _get_interview(db, interview_id)
     if interview.mode == "libre":
+        # Onglet Transcription : jamais vide dès que le tour de table est
+        # renseigné (demande utilisateur 2026-07-27) — `transcript_of` rend la
+        # transcription brute si elle a été conservée, sinon la reconstitue
+        # depuis les tours, et dit laquelle des deux pour que l'écran l'annonce.
+        transcript, transcript_reconstitue = transcript_of(interview)
         return templates.TemplateResponse(
             request,
             "interviews/libre_detail.html",
@@ -1535,6 +1545,8 @@ def capture(
                 "interview": interview,
                 "mission": interview.mission,
                 "turns": interview.turns,
+                "transcript": transcript,
+                "transcript_reconstitue": transcript_reconstitue,
                 # Onglet Aperçu (2026-07-27) : même rendu par sections que
                 # l'écran /analyse, directement sur la fiche entretien.
                 "sections": group_turns_into_sections(interview.turns),
@@ -1962,30 +1974,37 @@ def export_interview_pdf(interview_id: int, db: Session = Depends(get_session)):
 
 @router.get("/interviews/{interview_id}/export/transcription/pdf")
 def export_interview_transcription_pdf(interview_id: int, db: Session = Depends(get_session)):
-    """PDF de la seule transcription (dialogue par section) d'un entretien —
-    export de l'onglet « Transcription » de la consultation (2026-07-20).
-    Réutilise `build_turns_only_pdf` (dialogue teal/navy façon transcription
-    éditée), sans le résumé ni la répartition que porte l'export complet
-    ci-dessus."""
+    """PDF de la seule TRANSCRIPTION d'un entretien — bouton de l'onglet
+    « Transcription » de la consultation.
+
+    Rendait jusqu'ici les tours de parole (`build_turns_only_pdf`), c'est-à-dire
+    exactement le même document que le bouton « tour de table » de l'onglet
+    voisin : deux boutons distincts, un seul contenu (constat utilisateur
+    2026-07-27). Il rend désormais le texte que l'onglet affiche —
+    `transcript_of()` tient la règle commune aux deux, transcription brute si
+    elle a été conservée, sinon reconstitution depuis le tour de table."""
     interview = _get_interview(db, interview_id)
-    if not interview.turns:
-        # Comme les exports POST frères (turns/synthese) : un entretien sans
-        # tours (structuré, ou libre aux tours tous supprimés) n'a pas de
-        # transcription à rendre — 400 plutôt qu'un PDF au titre seul.
+    transcript, reconstitue = transcript_of(interview)
+    if not transcript.strip():
+        # Comme les exports POST frères (turns/synthese) : sans transcription
+        # brute NI tour de table, il n'y a rien à rendre — 400 plutôt qu'un PDF
+        # au titre seul.
         raise HTTPException(
             status_code=400,
-            detail="Cet entretien n'a pas de tours de parole à exporter.",
+            detail="Cet entretien n'a ni transcription ni tour de parole à exporter.",
         )
-    turns = [
-        {
-            "interlocuteur": t.interlocuteur,
-            "question": t.question,
-            "remarque": t.remarque,
-            "section_title": t.section_title,
-        }
-        for t in interview.turns
-    ]
-    content = build_turns_only_pdf(turns, interview.interviewee_name)
+    # Le sous-titre par défaut de ce builder annonce un export de SECOURS après
+    # échec IA — faux ici, où rien n'a échoué : on dit d'où vient le texte.
+    content = build_transcript_only_pdf(
+        transcript,
+        interview.interviewee_name,
+        subtitle=(
+            "Reconstituée à partir du tour de table — le mot-à-mot d'origine "
+            "n'a pas été conservé pour cet entretien."
+            if reconstitue else
+            "Texte tel que transcrit à l'enregistrement, avant structuration par l'IA."
+        ),
+    )
     filename = f"transcription_{slugify(interview.interviewee_name)}.pdf"
     return Response(
         content=content,

@@ -15,6 +15,14 @@
 # (auto-start VS Code : ne redémarre pas un serveur déjà frais — une génération
 # IA en cours n'est pas avortée à la réouverture du dossier).
 #
+# Élargi (2026-07-27) : le scope « ExecutablePath sous la racine » laissait
+# passer un serveur lancé avec un python HORS venv (python système). Son worker
+# orphelin tenait le port 8040 sans être vu par la purge, et le kill du listener
+# le ratait aussi puisque le socket est attribué au PID du PARENT, mort. La
+# purge cherche désormais, en plus, les workers dont le parent mort détient le
+# socket du port visé — quel que soit leur interpréteur (cf.
+# Get-WorkersOrphelinsDuPort).
+#
 # Usage :  powershell -ExecutionPolicy Bypass -File scripts/serveur-dev.ps1
 #          [-Port 8020] [-StopOnly] [-KeepIfFresh]
 
@@ -48,6 +56,45 @@ function Get-ProcessusServeur {
         ($idsParents -contains $_.ParentProcessId -or -not $vivants.ContainsKey([uint32]$_.ParentProcessId))
     })
     return @($parents) + @($workers)
+}
+
+function Get-WorkersDeParent {
+    # Tous les process VIVANTS qu'un multiprocessing.spawn a fait naître du PID
+    # $PidParent — quel que soit leur interpréteur (python système, pythonw,
+    # python d'un autre venv). Le lien n'est pas déduit de ParentProcessId (que
+    # Windows recycle et qui ne prouve rien une fois le parent mort) mais du
+    # `parent_pid=<pid>` que spawn_main écrit LITTÉRALEMENT dans la ligne de
+    # commande de l'enfant : un PID recyclé ne peut pas produire ce marqueur par
+    # hasard, donc aucun risque de tuer le worker d'une appli tierce.
+    param([int]$PidParent)
+    return @(Get-CimInstance Win32_Process |
+        Where-Object {
+            $_.CommandLine -like "*multiprocessing*" -and
+            $_.CommandLine -like "*parent_pid=$PidParent*"
+        })
+}
+
+function Get-WorkersOrphelinsDuPort {
+    # Cas vécu le 2026-07-27 : le port répond, mais son PID propriétaire n'existe
+    # plus. C'est le worker orphelin d'un uvicorn --reload dont le parent est
+    # mort ; netstat continue d'attribuer le socket au parent. La purge scopée au
+    # repo (Get-ProcessusServeur) ne le voit pas quand le serveur a été lancé
+    # avec un python hors venv, et le kill du listener ne le voit pas non plus
+    # puisque le PID du listener est mort. On remonte donc du PID mort à ses
+    # workers — le seul chemin qui reste.
+    param([int]$NumPort)
+    $orphelins = @()
+    foreach ($c in @(Get-NetTCPConnection -LocalPort $NumPort -State Listen -ErrorAction SilentlyContinue)) {
+        $pidProprio = [int]$c.OwningProcess
+        # Propriétaire vivant : c'est un vrai serveur, traité par la purge
+        # normale (qui refuse de tuer un listener non-python).
+        if (Get-Process -Id $pidProprio -ErrorAction SilentlyContinue) { continue }
+        $trouves = @(Get-WorkersDeParent -PidParent $pidProprio)
+        Write-Host ("Socket fantôme sur $NumPort : PID propriétaire $pidProprio est mort, " +
+                    "$($trouves.Count) worker(s) orphelin(s) rattaché(s).")
+        $orphelins += $trouves
+    }
+    return $orphelins
 }
 
 function Test-PortRepond {
@@ -116,7 +163,7 @@ if ($KeepIfFresh -and -not $StopOnly -and (Test-PortRepond -NumPort $Port)) {
 # @( ) OBLIGATOIRE : PS 5.1 déroule un retour de fonction à 1 élément en scalaire
 # et `+=` sur un CimInstance scalaire lève op_Addition sous EAP Stop — le
 # scénario phare (exactement 1 fantôme) tuait le script avant la purge.
-$aTuer = @(Get-ProcessusServeur)
+$aTuer = @(Get-ProcessusServeur) + @(Get-WorkersOrphelinsDuPort -NumPort $Port)
 $ecoute = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
 foreach ($c in @($ecoute)) {
     $p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
@@ -136,7 +183,10 @@ if ($ids.Count -gt 0) {
 
 # Le port doit avoir VRAIMENT cessé de répondre (pas seulement netstat propre).
 if (Test-PortRepond -NumPort $Port) {
-    Write-Error "Le port $Port répond ENCORE après purge : fantôme hors de portée. Relancer avec -Port $($Port + 10) — et reporter ce port dans .vscode/tasks.json (2 occurrences), sinon l'auto-start rejouera l'échec à chaque ouverture du dossier."
+    Write-Error ("Le port $Port répond ENCORE après purge : fantôme hors de portée (ni process du repo, " +
+                 "ni worker rattaché au PID propriétaire du socket, cherché par parent_pid=). " +
+                 "Relancer avec -Port $($Port + 10) — et reporter ce port dans .vscode/tasks.json " +
+                 "(2 occurrences), sinon l'auto-start rejouera l'échec à chaque ouverture du dossier.")
     exit 1
 }
 if ($StopOnly) { Write-Host "Serveur arrêté, port $Port libre."; exit 0 }
