@@ -107,6 +107,18 @@
 
   <div id="turntab-tours" class="rec-tab-panel" hidden>
     <section class="card">
+      {# Identité éditable ici depuis le 2026-07-27 (demande utilisateur) :
+         elle n'était modifiable NULLE PART après enregistrement — un entretien
+         resté « Sans nom » (identité non relevée à l'oral, enregistrement sans
+         passer par l'écran de synthèse) l'était définitivement. #}
+      {% set ident_name = interview.interviewee_name %}
+      {% set ident_role = interview.interviewee_role %}
+      {% set ident_entity = interview.interviewee_entity %}
+      {% set ident_date = interview.interview_date.strftime('%Y-%m-%d') if interview.interview_date else '' %}
+      {% include "interviews/_identite_block.html" %}
+    </section>
+
+    <section class="card">
       {# « Tour de table » est le nom que l'utilisateur donne à cet écran
          (2026-07-27) ; « tours de parole » reste le terme du modèle de données
          (`InterviewTurn`) et des explications ci-dessous. #}

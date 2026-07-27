@@ -154,7 +154,7 @@ def test_generate_swot_route_saves_and_renders(
 ) -> None:
     mission_id = _mission_with_global_synthesis()
     monkeypatch.setattr("app.routers.export.is_configured", lambda: True)
-    monkeypatch.setattr("app.routers.export.generate_swot", lambda gs: dict(_FAKE_SWOT))
+    monkeypatch.setattr("app.routers.export.generate_swot", lambda gs, axes=None: dict(_FAKE_SWOT))
 
     response = client.post(f"/missions/{mission_id}/swot/generate")
     assert response.status_code == 200

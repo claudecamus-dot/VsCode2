@@ -127,6 +127,11 @@ class Mission(Base):
         cascade="all, delete-orphan",
         order_by="MissionDifficulty.position",
     )
+    synthesis_axes: Mapped[list["MissionSynthesisAxis"]] = relationship(
+        back_populates="mission",
+        cascade="all, delete-orphan",
+        order_by="MissionSynthesisAxis.position",
+    )
 
     @property
     def all_verbatims(self) -> list["Verbatim"]:
@@ -419,11 +424,19 @@ class GlobalSynthesis(Base):
     mission_id: Mapped[int] = mapped_column(
         ForeignKey("missions.id", ondelete="CASCADE")
     )
+    # Les 5 colonnes historiques. Depuis que les axes sont configurables
+    # (2026-07-27, `MissionSynthesisAxis`), le contenu vit dans `valeurs` ; ces
+    # colonnes sont conservées et tenues à jour en miroir pour les 5 clés par
+    # défaut — une base existante reste lisible telle quelle, et un retour en
+    # arrière ne perd rien.
     contexte: Mapped[str] = mapped_column(Text, default="")
     culture_adn: Mapped[str] = mapped_column(Text, default="")
     forces_succes: Mapped[str] = mapped_column(Text, default="")
     points_amelioration: Mapped[str] = mapped_column(Text, default="")
     aspirations: Mapped[str] = mapped_column(Text, default="")
+    # Contenu par clé d'axe : {"contexte": "...", "axe_6": "..."}. Source de
+    # vérité depuis 2026-07-27 (migration additive `db.py`).
+    valeurs: Mapped[dict] = mapped_column(JSON, default=dict)
     # empty | generated | edited
     status: Mapped[str] = mapped_column(String(20), default="empty")
     generated_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
@@ -433,19 +446,82 @@ class GlobalSynthesis(Base):
 
     mission: Mapped["Mission"] = relationship(back_populates="global_synthesis")
 
+    # Clés des 5 colonnes historiques, tenues en miroir de `valeurs`.
+    LEGACY_KEYS = (
+        "contexte", "culture_adn", "forces_succes", "points_amelioration", "aspirations",
+    )
+
+    def contenu(self, key: str) -> str:
+        """Contenu d'un axe. Retombe sur la colonne historique tant que
+        `valeurs` n'a pas encore été alimenté (base d'avant 2026-07-27 dont la
+        synthèse n'a pas été ré-enregistrée depuis)."""
+        valeurs = self.valeurs or {}
+        if key in valeurs:
+            return valeurs[key] or ""
+        if key in self.LEGACY_KEYS:
+            return getattr(self, key) or ""
+        return ""
+
+    def set_contenu(self, key: str, value: str) -> None:
+        # Réassignation (pas de mutation en place) : SQLAlchemy ne détecte pas
+        # la mutation d'une colonne JSON.
+        self.valeurs = {**(self.valeurs or {}), key: value}
+        if key in self.LEGACY_KEYS:
+            setattr(self, key, value)
+
+    def contenus(self, keys) -> dict[str, str]:
+        return {key: self.contenu(key) for key in keys}
+
     @property
     def has_content(self) -> bool:
-        return bool(
-            (self.contexte or "").strip()
-            or (self.culture_adn or "").strip()
-            or (self.forces_succes or "").strip()
-            or (self.points_amelioration or "").strip()
-            or (self.aspirations or "").strip()
-        )
+        """Vrai dès qu'un axe QUELCONQUE porte du texte — y compris un axe
+        ajouté par l'utilisateur, d'où la lecture de `valeurs` et pas seulement
+        des 5 colonnes historiques."""
+        valeurs = list((self.valeurs or {}).values())
+        valeurs += [getattr(self, key) for key in self.LEGACY_KEYS]
+        return any((v or "").strip() for v in valeurs)
 
     @property
     def status_label(self) -> str:
         return SYNTHESIS_STATUS_LABELS.get(self.status, self.status)
+
+
+class MissionSynthesisAxis(Base):
+    """Axe d'étude d'une mission — les rubriques de la synthèse globale
+    (2026-07-27, demande utilisateur : « on doit pouvoir modifier ces axes,
+    leurs noms, en ajouter ou en supprimer »).
+
+    Jusqu'ici ces 5 axes étaient FIGÉS, jusque dans le schéma : cinq colonnes de
+    `GlobalSynthesis`, cinq clés du schéma JSON envoyé à l'IA, cinq rubriques du
+    gabarit d'export. Une mission qui étudiait autre chose n'avait aucun moyen
+    de le dire. Ils deviennent des lignes, propres à chaque mission, semées aux
+    5 valeurs historiques (`mission_axes.DEFAUTS`) pour ne rien changer aux
+    missions existantes.
+
+    `key` est la clé STABLE de stockage (`GlobalSynthesis.valeurs`,
+    `Interview.repartition`) : elle est fabriquée à la création et ne bouge
+    JAMAIS ensuite — renommer un axe garde donc son contenu. Supprimer un axe,
+    en revanche, retire sa matière de la synthèse (l'écran le dit).
+    """
+
+    __tablename__ = "mission_synthesis_axes"
+    __table_args__ = (
+        UniqueConstraint("mission_id", "key", name="uq_mission_axis_key"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mission_id: Mapped[int] = mapped_column(
+        ForeignKey("missions.id", ondelete="CASCADE")
+    )
+    key: Mapped[str] = mapped_column(String(60))
+    label: Mapped[str] = mapped_column(String(200), default="")
+    # Consigne facultative donnée à l'IA pour cet axe (« ce qu'on veut y
+    # trouver ») — remplace, pour les 5 axes par défaut, la description qui
+    # était codée en dur dans le prompt système.
+    hint: Mapped[str] = mapped_column(Text, default="")
+    position: Mapped[int] = mapped_column(Integer, default=0)
+
+    mission: Mapped["Mission"] = relationship(back_populates="synthesis_axes")
 
 
 class MissionSwot(Base):

@@ -283,6 +283,55 @@ _SYNTHESE_JSON_HINT = (
 )
 
 
+def repartition_keys(axes=None) -> tuple:
+    """Clés de répartition à demander au modèle : les AXES de la mission
+    (2026-07-27). Sans axes fournis, les 5 historiques.
+
+    La répartition d'un entretien alimente la synthèse globale de la mission
+    (`synthese._libre_material`) : si elle vise d'autres rubriques que les axes
+    d'étude, la matière d'un axe ajouté ne serait jamais collectée sur les
+    entretiens libres."""
+    return tuple(axe.key for axe in axes) if axes else REPARTITION_KEYS
+
+
+def _synthese_system(axes=None) -> str:
+    keys = repartition_keys(axes)
+    if keys == REPARTITION_KEYS:
+        return _SYNTHESE_SYSTEM  # texte historique, mot pour mot
+    return _SYNTHESE_SYSTEM.replace(
+        "les 5 catégories contexte / culture_adn / forces_succes / "
+        "points_amelioration / aspirations",
+        f"les {len(keys)} catégories " + " / ".join(keys),
+    )
+
+
+def _synthese_schema(axes=None) -> dict:
+    keys = list(repartition_keys(axes))
+    return {
+        "type": "object",
+        "properties": {
+            "repartition": {
+                "type": "object",
+                "properties": {k: {"type": "string"} for k in keys},
+                "required": keys,
+                "additionalProperties": False,
+            },
+            "resume": {"type": "string"},
+        },
+        "required": ["repartition", "resume"],
+        "additionalProperties": False,
+    }
+
+
+def _synthese_json_hint(axes=None) -> str:
+    keys = repartition_keys(axes)
+    return (
+        '\nRéponds UNIQUEMENT par un objet JSON aux clés "repartition" (objet '
+        f"aux {len(keys)} clés " + "/".join(keys) +
+        ') et "resume" (chaîne, 1-3 phrases).'
+    )
+
+
 def _turns_to_text(turns: list[dict]) -> str:
     """Reconstruit un texte lisible depuis les tours de parole validés, pour
     servir de matière à l'étape 2 — plutôt que de repasser sur la
@@ -301,12 +350,12 @@ def _chunk_turns(turns: list[dict], max_turns: int) -> list[list[dict]]:
     return [turns[i:i + max_turns] for i in range(0, len(turns), max_turns)] or [[]]
 
 
-def _call_synthese(turns_text: str, extrait_hint: str = "") -> dict:
+def _call_synthese(turns_text: str, extrait_hint: str = "", axes=None) -> dict:
     data = call_ai_json(
-        _SYNTHESE_SYSTEM,
+        _synthese_system(axes),
         f"TOURS DE PAROLE{extrait_hint} :\n{turns_text}",
-        _SYNTHESE_SCHEMA,
-        _SYNTHESE_JSON_HINT,
+        _synthese_schema(axes),
+        _synthese_json_hint(axes),
         max_tokens=MAX_TOKENS,
         error_cls=InterviewLibreExtractAIError,
     )
@@ -314,7 +363,7 @@ def _call_synthese(turns_text: str, extrait_hint: str = "") -> dict:
     repartition_raw = _safe_dict(data.get("repartition"))
     repartition = {
         key: _safe_str(repartition_raw.get(key))
-        for key in REPARTITION_KEYS
+        for key in repartition_keys(axes)
     }
     resume = _safe_str(data.get("resume"))
     return {"repartition": repartition, "resume": resume}
@@ -335,7 +384,7 @@ _REDUCE_SYSTEM = (
 )
 
 
-def _reduce_partial_syntheses(partials: list[dict]) -> dict:
+def _reduce_partial_syntheses(partials: list[dict], axes=None) -> dict:
     """Fusionne plusieurs synthèses partielles (une par tronçon) en une
     seule — un appel IA dédié, pas une simple concaténation, pour que le
     résumé final reste un vrai résumé et non une suite de résumés
@@ -343,7 +392,7 @@ def _reduce_partial_syntheses(partials: list[dict]) -> dict:
     lines = []
     for i, partial in enumerate(partials, start=1):
         lines.append(f"--- Synthèse partielle {i}/{len(partials)} ---")
-        for key in REPARTITION_KEYS:
+        for key in repartition_keys(axes):
             value = partial["repartition"].get(key)
             if value:
                 lines.append(f"{key} : {value}")
@@ -363,13 +412,13 @@ def _reduce_partial_syntheses(partials: list[dict]) -> dict:
     repartition_raw = _safe_dict(data.get("repartition"))
     repartition = {
         key: _safe_str(repartition_raw.get(key))
-        for key in REPARTITION_KEYS
+        for key in repartition_keys(axes)
     }
     resume = _safe_str(data.get("resume"))
     return {"repartition": repartition, "resume": resume}
 
 
-def generate_repartition_from_turns(turns: list[dict]) -> dict:
+def generate_repartition_from_turns(turns: list[dict], axes=None) -> dict:
     """Retourne `{"repartition": {contexte, culture_adn, forces_succes,
     points_amelioration, aspirations}, "resume": str}` à partir des tours de
     parole déjà validés (étape 1). Découpe `turns` en tronçons (map) si
@@ -382,10 +431,10 @@ def generate_repartition_from_turns(turns: list[dict]) -> dict:
     groups = _chunk_turns(turns, _CHUNK_MAX_TURNS)
 
     if len(groups) == 1:
-        return _call_synthese(_turns_to_text(groups[0]))
+        return _call_synthese(_turns_to_text(groups[0]), axes=axes)
 
     partials = [
-        _call_synthese(_turns_to_text(group), extrait_hint=f" (extrait {i}/{len(groups)})")
+        _call_synthese(_turns_to_text(group), extrait_hint=f" (extrait {i}/{len(groups)})", axes=axes)
         for i, group in enumerate(groups, start=1)
     ]
-    return _reduce_partial_syntheses(partials)
+    return _reduce_partial_syntheses(partials, axes)

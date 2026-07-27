@@ -132,7 +132,7 @@ def test_generate_es_route_saves_and_renders(
 ) -> None:
     mission_id = _mission_with_global_synthesis()
     monkeypatch.setattr("app.routers.export.is_configured", lambda: True)
-    monkeypatch.setattr("app.routers.export.generate_executive_summary", lambda gs: dict(_FAKE_ES))
+    monkeypatch.setattr("app.routers.export.generate_executive_summary", lambda gs, axes=None: dict(_FAKE_ES))
 
     response = client.post(f"/missions/{mission_id}/executive-summary/generate")
     assert response.status_code == 200

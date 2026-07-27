@@ -88,10 +88,29 @@ def _split_sections(text: str, heading_re: re.Pattern) -> list[tuple[str, str]]:
     return sections
 
 
-def _match_global_field(title: str) -> str | None:
-    lowered = title.lower()
+def _match_global_field(title: str, axes=None) -> str | None:
+    """Clé d'axe correspondant à un titre `###` du document réimporté.
+
+    Priorité au LIBELLÉ EXACT des axes de la mission (2026-07-27) : depuis
+    qu'ils sont configurables, un axe ajouté (« Outillage & données ») ou
+    renommé n'a aucune chance d'être reconnu par les mots-clés historiques —
+    sa rubrique serait silencieusement ignorée au retour de l'analyse externe,
+    alors que le gabarit l'avait bien demandée.
+
+    Les mots-clés restent en repli pour les 5 axes par défaut : ils tolèrent
+    les variantes de titre qu'un analyste externe introduit (« Points
+    d'amélioration / douleurs »), tolérance déjà acquise qu'on ne retire pas.
+    """
+    lowered = title.strip().lower()
+    for axe in axes or []:
+        if (axe.label or "").strip().lower() == lowered:
+            return axe.key
+    cles_connues = {axe.key for axe in axes} if axes else None
     for keyword, field in GLOBAL_FIELD_KEYWORDS.items():
         if keyword in lowered:
+            # Ne jamais réintroduire une rubrique que la mission n'étudie plus.
+            if cles_connues is not None and field not in cles_connues:
+                continue
             return field
     return None
 
@@ -168,19 +187,25 @@ def _parse_recommendations_section(text: str) -> list[dict]:
     return axes
 
 
-def parse_analysis_markdown(text: str) -> dict:
-    """Retourne {"global_synthesis": {...5 clés...}, "axes": [...]}.
+def parse_analysis_markdown(text: str, axes_etude=None) -> dict:
+    """Retourne {"global_synthesis": {clé d'axe: texte}, "axes": [...]}.
+
+    `axes_etude` : les axes d'étude de la mission (`mission_axes`) — les
+    rubriques reconnues sont les leurs. Sans eux, les 5 axes par défaut,
+    comportement d'avant 2026-07-27. Le nom est explicite à dessein : `axes`
+    désigne déjà, plus bas, les axes de RECOMMANDATION extraits du document —
+    la collision entre les deux vidait silencieusement la liste des axes
+    d'étude avant le premier `_match_global_field` (attrapé par
+    `tests/test_axes_etude.py`).
 
     Lève `AnalysisParseError` si aucune des sections attendues n'est trouvée
     (le fichier n'a pas conservé la structure de titres du gabarit exporté).
     """
-    global_synthesis = {
-        "contexte": "",
-        "culture_adn": "",
-        "forces_succes": "",
-        "points_amelioration": "",
-        "aspirations": "",
-    }
+    if axes_etude is None:
+        from .synthese_ai import _axes_par_defaut
+
+        axes_etude = _axes_par_defaut()
+    global_synthesis = {axe.key: "" for axe in axes_etude}
     axes: list[dict] = []
     found_any = False
 
@@ -188,7 +213,7 @@ def parse_analysis_markdown(text: str) -> dict:
         lowered = h2_title.lower()
         if "synthèse" in lowered or "synthese" in lowered:
             for h3_title, h3_body in _split_sections(h2_body, _H3_RE):
-                field = _match_global_field(h3_title)
+                field = _match_global_field(h3_title, axes_etude)
                 if field:
                     global_synthesis[field] = h3_body.strip()
                     found_any = True

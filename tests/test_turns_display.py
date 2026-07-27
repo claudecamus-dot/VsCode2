@@ -181,39 +181,45 @@ def test_remarque_est_renommee_reponse_ou_commentaire(client, monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Identité : onglet dédié seulement si relevée
+# Identité : pavé repliable DANS le tour de table (2026-07-27)
 # --------------------------------------------------------------------------- #
-def test_identite_non_relevee_reste_atteignable_mais_en_retrait(client, monkeypatch):
-    """L'onglet ne s'impose pas quand l'IA n'a rien relevé, mais il doit rester
-    ATTEIGNABLE : « Enregistrer sans la synthèse » saute l'étape suivante, seul
-    autre écran portant ces champs — sinon l'entretien reste « Sans nom » pour
+def test_identite_non_relevee_est_repliee_mais_presente(client, monkeypatch):
+    """Repliée quand l'IA n'a trouvé aucun nom, mais TOUJOURS présente et
+    postée : « Enregistrer sans la synthèse » saute l'étape suivante, seul autre
+    écran portant ces champs — sinon l'entretien reste « Sans nom » pour
     toujours (revue adversariale 2026-07-27)."""
     html = _review_html(client, monkeypatch)
-    assert "rec-tab-optional" in html
     assert "+ Renseigner l'identité" in html
+    assert "aucun nom trouvé" in html
+    # `<details>` sans `open` : replié, mais les champs sont dans le DOM donc
+    # postés — même invariant que les champs de tour masqués.
+    assert '<details class="identite-bloc">' in html
     assert 'name="interviewee_name"' in html
     assert 'name="interview_date"' in html
 
 
-def test_identite_relevee_n_est_pas_en_retrait(client, monkeypatch):
+def test_identite_relevee_est_depliee(client, monkeypatch):
     html = _review_html(client, monkeypatch, identity={
         "interviewee_name": "Michel Nakache", "interviewee_role": "",
         "interviewee_entity": "",
     })
-    assert "rec-tab-optional" not in html
+    assert '<details class="identite-bloc" open>' in html
     assert "+ Renseigner l'identité" not in html
+    assert "Michel Nakache" in html
 
 
-def test_identite_relevee_affiche_un_onglet_dedie(client, monkeypatch):
+def test_l_identite_vit_dans_le_tour_de_table_sans_onglet(client, monkeypatch):
+    """Le pavé revient dans le tour de table (demande utilisateur) : plus
+    d'onglet séparé, dont le libellé était la seule façon de savoir qu'il
+    fallait aller le remplir."""
     html = _review_html(client, monkeypatch, identity={
         "interviewee_name": "Marc Dupont", "interviewee_role": "DSI",
         "interviewee_entity": "",
     })
-    assert 'data-turntab="identite"' in html
-    assert 'data-turntab="tours"' in html
+    assert 'data-turntab="identite"' not in html
     assert "Marc Dupont" in html
-    # L'onglet Tours reste celui affiché par défaut.
-    assert '<div id="turntab-identite" class="rec-tab-panel" hidden>' in html
+    panneau = html.split('id="turntab-tours"')[1]
+    assert 'class="identite-bloc"' in panneau
 
 
 # --------------------------------------------------------------------------- #
@@ -489,6 +495,62 @@ def test_export_transcription_pdf_400_si_rien_a_exporter(client):
     interview_id = _entretien_libre(None, avec_tours=False)
     response = client.get(f"/interviews/{interview_id}/export/transcription/pdf")
     assert response.status_code == 400
+
+
+def test_l_ecran_detail_permet_de_corriger_une_identite(client):
+    """Un entretien enregistré « Sans nom » (identité non relevée à l'oral,
+    enregistrement sans passer par l'écran de synthèse) n'était renommable
+    NULLE PART : l'écran de consultation ne portait aucun champ d'identité et
+    sa route de sauvegarde les ignorait."""
+    interview_id = _entretien_libre("Texte brut.")
+    html = client.get(f"/interviews/{interview_id}").text
+    assert 'class="identite-bloc"' in html
+    assert 'name="interviewee_name"' in html
+
+    db = SessionLocal()
+    try:
+        turns = [(str(t.id), t.interlocuteur, t.question or "", t.remarque or "",
+                  t.section_title or "") for t in db.get(Interview, interview_id).turns]
+    finally:
+        db.close()
+    response = client.post(
+        f"/interviews/{interview_id}/libre",
+        data={
+            "turn_id": [t[0] for t in turns],
+            "turn_interlocuteur": [t[1] for t in turns],
+            "turn_question": [t[2] for t in turns],
+            "turn_remarque": [t[3] for t in turns],
+            "turn_section_title": [t[4] for t in turns],
+            "interviewee_name": "Michel Nakache",
+            "interviewee_role": "DSI",
+            "interviewee_entity": "Direction technique",
+            "interview_date": "2026-07-27",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    db = SessionLocal()
+    try:
+        interview = db.get(Interview, interview_id)
+        assert interview.interviewee_name == "Michel Nakache"
+        assert interview.interviewee_role == "DSI"
+        assert interview.interview_date.isoformat() == "2026-07-27"
+        # Les tours ne doivent pas avoir souffert de l'aller-retour.
+        assert len(interview.turns) == len(_TURNS)
+    finally:
+        db.close()
+
+
+def test_un_nom_vide_retombe_sur_sans_nom(client):
+    """Même défaut qu'à la création : la mission liste ses entretiens par ce
+    nom, une chaîne vide y ferait un trou."""
+    interview_id = _entretien_libre("Texte brut.", avec_tours=False)
+    client.post(f"/interviews/{interview_id}/libre", data={"interviewee_name": "   "})
+    db = SessionLocal()
+    try:
+        assert db.get(Interview, interview_id).interviewee_name == "Sans nom"
+    finally:
+        db.close()
 
 
 def test_reconstitution_nomme_un_interlocuteur_manquant(client):

@@ -603,6 +603,28 @@ input[type=text].turn-section-input:placeholder-shown {
 .ref-text { width: 100%; resize: vertical; font: inherit;
   border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: #fff; }
 
+/* Axes d'étude configurables — onglet 1 de l'étape Analyse (2026-07-27).
+   Une ligne = un axe : son formulaire (nom + consigne IA) et sa suppression. */
+.axes-etude { list-style: none; padding: 0; margin: 0 0 16px; }
+.axe-etude {
+  display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap;
+  padding: 10px 0; border-bottom: 1px dashed var(--border-subtle, var(--border));
+}
+.axe-etude-form { display: flex; align-items: flex-end; gap: 12px; flex: 1 1 480px; flex-wrap: wrap; }
+.axe-etude-form label { display: flex; flex-direction: column; gap: 4px; flex: 1 1 200px; margin: 0; }
+.axe-etude-form input[type="text"] { width: 100%; }
+.axe-etude-new { padding-top: 12px; }
+
+/* Pavé identité repliable, dans le tour de table (2026-07-27). Même traitement
+   visuel que .ref-box : c'est aussi un encadré secondaire, ouvert seulement
+   quand il porte de la matière (ici : un nom trouvé). */
+.identite-bloc > summary {
+  cursor: pointer; font-weight: 600; font-size: .92rem;
+  list-style: revert; padding: 4px 0;
+}
+.identite-bloc[open] > summary { margin-bottom: 8px; }
+.identite-bloc > summary .muted { font-weight: 400; }
+
 /* Verbatims (citations mot-pour-mot) */
 .verbatims-block { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--border); }
 .verbatims { list-style: none; padding: 0; margin: 0; }

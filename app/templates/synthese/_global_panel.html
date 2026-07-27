@@ -27,11 +27,12 @@
   <p class="muted ai-hint">Aucune réponse saisie sur la mission pour l'instant — rien à synthétiser.</p>
   {% endif %}
 
-  {{ field(mission, 'contexte', 'Contexte', global_synthesis.contexte) }}
-  {{ field(mission, 'culture_adn', 'Culture & ADN', global_synthesis.culture_adn) }}
-  {{ field(mission, 'forces_succes', 'Forces & succès', global_synthesis.forces_succes) }}
-  {{ field(mission, 'points_amelioration', 'Points d\'amélioration', global_synthesis.points_amelioration) }}
-  {{ field(mission, 'aspirations', 'Aspirations (baguette magique)', global_synthesis.aspirations) }}
+  {# Un champ par AXE de la mission (2026-07-27) : les 5 rubriques étaient
+     écrites en dur ici, elles se configurent désormais dans l'onglet
+     « Axes d'étude » de l'étape Analyse. #}
+  {% for axe in synthesis_axes %}
+  {{ field(mission, axe.key, axe.label, global_synthesis.contenu(axe.key)) }}
+  {% endfor %}
 
   <div class="synth-actions">
     {% set can_generate = ai_ready and answer_count %}
@@ -39,7 +40,7 @@
       hx-post="/missions/{{ mission.id }}/synthese/globale/generate"
       hx-target="#global-synth-panel" hx-swap="outerHTML"
       hx-disabled-elt="this"
-      {% if global_synthesis.status != 'empty' %}hx-confirm="Remplacer la synthèse globale actuelle par une nouvelle génération IA ? Le contenu actuel des 5 catégories sera perdu."{% endif %}
+      {% if global_synthesis.status != 'empty' %}hx-confirm="Remplacer la synthèse globale actuelle par une nouvelle génération IA ? Le contenu actuel de tous les axes sera perdu."{% endif %}
       {% if not can_generate %}disabled title="{% if not ai_ready %}Service IA indisponible — définissez {{ api_key_env }}{% else %}Aucune réponse saisie sur la mission{% endif %}"{% endif %}>
       <span class="htmx-indicator">⏳ </span>{{ 'Générer (IA)' if global_synthesis.status == 'empty' else '↻ Régénérer (IA)' }}
     </button>

@@ -1,0 +1,40 @@
+{# Pavé « identité de l'interviewé·e », partagé par l'écran de revue du wizard
+   libre (`libre_turns_review.html`) et l'écran de consultation d'un entretien
+   enregistré (`libre_detail.html`).
+
+   Demande utilisateur 2026-07-27 : le pavé revient DANS le tour de table
+   (il vivait dans un onglet séparé, et n'existait pas du tout sur l'écran de
+   consultation — le nom d'un entretien enregistré « Sans nom » n'était donc
+   corrigeable nulle part). Replié quand aucun nom n'a été trouvé, dépliable
+   d'un clic.
+
+   `<details>` plutôt qu'un panneau masqué en JS : le contenu replié reste dans
+   le DOM et donc POSTÉ — même invariant que les champs de tour masqués
+   (cf. `_turn_block.html`), obtenu ici sans une ligne de script.
+
+   Contexte attendu : `ident_name`, `ident_role`, `ident_entity`, `ident_date`
+   (chaîne `AAAA-MM-JJ` ou vide), `ident_hint` (facultatif). #}
+{% set ident_trouvee = (ident_name or '') | trim %}
+<details class="identite-bloc"{% if ident_trouvee %} open{% endif %}>
+  <summary>
+    {% if ident_trouvee %}Identité de l'interviewé·e{% else %}+ Renseigner l'identité{% endif %}
+    {% if not ident_trouvee %}<span class="muted">— aucun nom trouvé</span>{% endif %}
+  </summary>
+  {% if ident_hint %}<p class="muted">{{ ident_hint }}</p>{% endif %}
+  <label>
+    Nom &amp; prénom de l'interviewé·e
+    <input type="text" name="interviewee_name" value="{{ ident_name or '' }}">
+  </label>
+  <label>
+    Rôle / fonction
+    <input type="text" name="interviewee_role" value="{{ ident_role or '' }}">
+  </label>
+  <label>
+    Équipe / département
+    <input type="text" name="interviewee_entity" value="{{ ident_entity or '' }}">
+  </label>
+  <label>
+    Date de l'entretien
+    <input type="date" name="interview_date" value="{{ ident_date or '' }}">
+  </label>
+</details>

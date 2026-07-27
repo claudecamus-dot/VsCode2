@@ -32,50 +32,26 @@
   <input type="hidden" name="audio_segments" value="{{ identity.audio_segments or '[]' }}">
   <input type="hidden" name="transcript" value="{{ transcript or '' }}">
 
-  {# Identité : onglet dédié UNIQUEMENT si l'IA a relevé quelque chose à
-     l'oral (demande utilisateur 2026-07-27). Sinon, 4 champs vides à vérifier
-     n'apportent rien ici — ils restent postés en champs cachés et se
-     renseignent à l'étape suivante (`libre_review.html`, qui porte le même
-     formulaire d'identité) ou après enregistrement. #}
-  {% set identity_detected = (identity.interviewee_name or identity.interviewee_role
-                              or identity.interviewee_entity or identity.interview_date) %}
-
-  <div class="rec-tabs" role="tablist">
-    <button type="button" role="tab" aria-selected="true" class="rec-tab active" data-turntab="tours">Tours de parole</button>
-    {# Onglet Identité affiché d'emblée seulement si l'IA a relevé quelque
-       chose. Sinon il reste atteignable par un lien discret : sans lui,
-       « Enregistrer sans la synthèse » (qui saute l'étape 3, seul autre écran
-       portant ces champs) enregistrait définitivement un entretien « Sans
-       nom » — revue adversariale 2026-07-27. #}
-    <button type="button" role="tab" aria-selected="false"
-            class="rec-tab{% if not identity_detected %} rec-tab-optional{% endif %}"
-            data-turntab="identite">{% if identity_detected %}Identité{% else %}+ Renseigner l'identité{% endif %}</button>
-  </div>
-  <div id="turntab-identite" class="rec-tab-panel" hidden>
-    <section class="card">
-      <p class="muted">{% if identity_detected %}Relevé à l'oral par l'IA — à vérifier.{% else %}Non relevé à l'oral — à compléter si tu enregistres sans passer par la synthèse.{% endif %}</p>
-      <label>
-        Nom &amp; prénom de l'interviewé·e
-        <input type="text" name="interviewee_name" value="{{ identity.interviewee_name or '' }}">
-      </label>
-      <label>
-        Rôle / fonction
-        <input type="text" name="interviewee_role" value="{{ identity.interviewee_role or '' }}">
-      </label>
-      <label>
-        Équipe / département
-        <input type="text" name="interviewee_entity" value="{{ identity.interviewee_entity or '' }}">
-      </label>
-      <label>
-        Date de l'entretien
-        <input type="date" name="interview_date" value="{{ identity.interview_date or '' }}">
-      </label>
-    </section>
-  </div>
-
+  {# Identité : pavé repliable DANS le tour de table (demande utilisateur
+     2026-07-27) — il vivait dans un onglet séparé, dont le libellé était la
+     seule façon de savoir qu'il fallait aller le remplir. Replié tant qu'aucun
+     nom n'a été relevé à l'oral, mais TOUJOURS présent et posté : sans ces
+     champs, « Enregistrer sans la synthèse » (qui saute l'étape 3, seul autre
+     écran les portant) enregistrait définitivement un entretien « Sans nom »
+     — revue adversariale 2026-07-27. #}
   <div id="turntab-tours" class="rec-tab-panel">
     <section class="card">
-      <h2>Tours de parole (questions &amp; réponses)</h2>
+      {% set ident_name = identity.interviewee_name %}
+      {% set ident_role = identity.interviewee_role %}
+      {% set ident_entity = identity.interviewee_entity %}
+      {% set ident_date = identity.interview_date %}
+      {% set ident_hint = "Relevée à l'oral par l'IA — à vérifier." if ident_name
+                          else "Non relevée à l'oral — à compléter, sinon l'entretien s'enregistre « Sans nom »." %}
+      {% include "interviews/_identite_block.html" %}
+    </section>
+
+    <section class="card">
+      <h2>Tour de table (questions &amp; réponses)</h2>
       <p class="muted">Seuls les champs renseignés sont affichés, et un interlocuteur qui enchaîne plusieurs tours n'est nommé qu'une fois. Survole un tour pour ajouter ce qui manque (titre de section, question, réponse).</p>
       <div class="turns-list">
       {% for turn in turns %}
@@ -191,22 +167,7 @@
   });
 })();
 </script>
-<script>
-(function () {
-  // Onglets Tours / Identité (rendus seulement si une identité a été relevée).
-  var tabs = document.querySelectorAll('.rec-tab[data-turntab]');
-  if (!tabs.length) return;
-  Array.prototype.forEach.call(tabs, function (btn) {
-    btn.addEventListener('click', function () {
-      Array.prototype.forEach.call(tabs, function (b) {
-        var on = (b === btn);
-        b.classList.toggle('active', on);
-        b.setAttribute('aria-selected', on ? 'true' : 'false');
-        var panel = document.getElementById('turntab-' + b.getAttribute('data-turntab'));
-        if (panel) panel.hidden = !on;
-      });
-    });
-  });
-})();
-</script>
+{# Plus d'onglets sur cet écran depuis que l'identité est un pavé repliable
+   dans le tour de table (2026-07-27) : le script de navigation entre onglets
+   qui vivait ici n'avait plus rien à piloter. #}
 {% endblock %}

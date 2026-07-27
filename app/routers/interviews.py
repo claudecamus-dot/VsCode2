@@ -48,6 +48,7 @@ from ..services.audio_file_jobs import (
     purge_stale_audio_file_jobs,
     run_audio_file_job,
 )
+from ..services.mission_axes import axes_of
 from ..services.interview_export import (
     build_interview_markdown,
     group_turns_into_sections,
@@ -79,6 +80,29 @@ from ..services.interview_segment_jobs import (
     segment_jobs_status,
 )
 from ..templating import templates
+
+def _parse_repartition(repartition_json: str, valeurs_nommees: tuple) -> dict:
+    """Répartition postée par le wizard libre.
+
+    Depuis que les axes d'étude sont configurables (2026-07-27), elle voyage
+    entre écrans dans UN champ JSON (`repartition_json`) : ses clés ne sont plus
+    connues d'avance. Repli sur les 5 champs nommés historiques quand le JSON
+    est absent ou illisible — un formulaire déjà ouvert dans un onglet, ou un
+    appelant qui poste l'ancien format, ne doit pas perdre sa répartition ni
+    faire échouer un enregistrement d'entretien pour ce champ annexe.
+    """
+    if repartition_json.strip():
+        try:
+            data = json.loads(repartition_json)
+            if isinstance(data, dict):
+                return {
+                    str(key): (value or "").strip() if isinstance(value, str) else ""
+                    for key, value in data.items()
+                }
+        except (ValueError, TypeError):
+            pass
+    return {key: value.strip() for key, value in zip(REPARTITION_KEYS, valeurs_nommees)}
+
 
 REPARTITION_KEYS = (
     "contexte", "culture_adn", "forces_succes", "points_amelioration", "aspirations",
@@ -1021,7 +1045,7 @@ def record_libre_synthese(
         )
 
     try:
-        synth = generate_repartition_from_turns(turns)
+        synth = generate_repartition_from_turns(turns, axes_of(db, mission))
     except InterviewLibreExtractAIError as exc:
         return templates.TemplateResponse(
             request,
@@ -1066,6 +1090,10 @@ def record_libre_confirm(
     turn_question: list[str] = Form([]),
     turn_remarque: list[str] = Form([]),
     turn_section_title: list[str] = Form([]),
+    repartition_json: str = Form(""),
+    # Les 5 champs nommés d'avant les axes configurables (2026-07-27) : gardés
+    # en repli pour qu'un formulaire déjà ouvert dans un onglet du navigateur
+    # (ou un test historique) continue de poster une répartition valide.
     repartition_contexte: str = Form(""),
     repartition_culture_adn: str = Form(""),
     repartition_forces_succes: str = Form(""),
@@ -1080,13 +1108,6 @@ def record_libre_confirm(
     except ValueError:
         parsed_date = None
 
-    repartition_values = (
-        repartition_contexte,
-        repartition_culture_adn,
-        repartition_forces_succes,
-        repartition_points_amelioration,
-        repartition_aspirations,
-    )
     turns_to_save = _parse_turns_from_form(
         turn_interlocuteur, turn_question, turn_remarque, turn_section_title
     )
@@ -1117,9 +1138,11 @@ def record_libre_confirm(
     # laisser à None plutôt qu'un dict de 5 chaînes vides, qui reste `truthy`
     # et ferait injecter une matière sans contenu dans la synthèse globale de
     # mission (`synthese._libre_material`).
-    repartition = {
-        key: value.strip() for key, value in zip(REPARTITION_KEYS, repartition_values)
-    }
+    repartition = _parse_repartition(
+        repartition_json,
+        (repartition_contexte, repartition_culture_adn, repartition_forces_succes,
+         repartition_points_amelioration, repartition_aspirations),
+    )
     if not any(repartition.values()):
         repartition = None
     interview = Interview(
@@ -1462,7 +1485,7 @@ def libre_analyse_regenerer(
         for turn in interview.turns
     ]
     try:
-        synth = generate_repartition_from_turns(turns)
+        synth = generate_repartition_from_turns(turns, axes_of(db, interview.mission))
     except InterviewLibreExtractAIError as exc:
         context = _libre_analyse_context(interview)
         context["error"] = str(exc)
@@ -1487,6 +1510,10 @@ def libre_analyse_regenerer(
 def libre_analyse_regenerer_confirm(
     interview_id: int,
     resume: str = Form(""),
+    repartition_json: str = Form(""),
+    # Les 5 champs nommés d'avant les axes configurables (2026-07-27) : gardés
+    # en repli pour qu'un formulaire déjà ouvert dans un onglet du navigateur
+    # (ou un test historique) continue de poster une répartition valide.
     repartition_contexte: str = Form(""),
     repartition_culture_adn: str = Form(""),
     repartition_forces_succes: str = Form(""),
@@ -1497,17 +1524,12 @@ def libre_analyse_regenerer_confirm(
     """N'écrase que le résumé et la répartition — les tours de parole (la
     source de la régénération) et l'identité ne bougent pas."""
     interview = _get_interview_libre(db, interview_id)
-    repartition_values = (
-        repartition_contexte,
-        repartition_culture_adn,
-        repartition_forces_succes,
-        repartition_points_amelioration,
-        repartition_aspirations,
-    )
     interview.resume = resume.strip() or None
-    interview.repartition = {
-        key: value.strip() for key, value in zip(REPARTITION_KEYS, repartition_values)
-    }
+    interview.repartition = _parse_repartition(
+        repartition_json,
+        (repartition_contexte, repartition_culture_adn, repartition_forces_succes,
+         repartition_points_amelioration, repartition_aspirations),
+    )
     db.commit()
     return RedirectResponse(f"/interviews/{interview_id}/analyse", status_code=303)
 
@@ -1618,10 +1640,14 @@ def save_libre_detail(
     turn_remarque: list[str] = Form([]),
     turn_section_title: list[str] = Form([]),
     resume: str = Form(""),
+    interviewee_name: str = Form(""),
+    interviewee_role: str = Form(""),
+    interviewee_entity: str = Form(""),
+    interview_date: str = Form(""),
     db: Session = Depends(get_session),
 ):
-    """Édition d'un entretien libre déjà enregistré : tours de parole et
-    résumé, révisables après coup (ex. un ajustement suite à relecture).
+    """Édition d'un entretien libre déjà enregistré : identité, tours de parole
+    et résumé, révisables après coup (ex. un ajustement suite à relecture).
     Ne touche jamais `mode` — verrou serveur (US9.1). Ne touche PAS non plus
     la `repartition` : c'est une matière de niveau *mission* (elle alimente
     la synthèse globale, cf. `_libre_material()`), plus éditée par entretien
@@ -1645,6 +1671,21 @@ def save_libre_detail(
         turn.section_title = section_title.strip() or None
 
     interview.resume = resume.strip() or None
+
+    # Identité : éditable ici depuis le 2026-07-27 (pavé repliable du tour de
+    # table). Avant, un entretien enregistré « Sans nom » — identité non relevée
+    # à l'oral et enregistrement sans passer par l'écran de synthèse — ne se
+    # renommait NULLE PART. Le défaut « Sans nom » est conservé sur un nom vidé,
+    # comme à la création : la mission liste ses entretiens par ce nom.
+    interview.interviewee_name = interviewee_name.strip() or "Sans nom"
+    interview.interviewee_role = interviewee_role.strip()
+    interview.interviewee_entity = interviewee_entity.strip()
+    try:
+        interview.interview_date = date.fromisoformat(interview_date) if interview_date else None
+    except ValueError:
+        # Même tolérance que les autres routes portant ce champ : une date
+        # illisible ne fait pas perdre la saisie des tours qui l'accompagne.
+        pass
     db.commit()
     return RedirectResponse(f"/interviews/{interview.id}", status_code=303)
 
@@ -2063,6 +2104,10 @@ def export_turns_only_pdf(
 def export_synthese_only_pdf(
     interviewee_name: str = Form(""),
     resume: str = Form(""),
+    repartition_json: str = Form(""),
+    # Les 5 champs nommés d'avant les axes configurables (2026-07-27) : gardés
+    # en repli pour qu'un formulaire déjà ouvert dans un onglet du navigateur
+    # (ou un test historique) continue de poster une répartition valide.
     repartition_contexte: str = Form(""),
     repartition_culture_adn: str = Form(""),
     repartition_forces_succes: str = Form(""),
@@ -2072,11 +2117,11 @@ def export_synthese_only_pdf(
     """Export PDF du résumé + de la répartition pas encore enregistrés —
     bouton sur l'écran « Synthèse avant enregistrement » du wizard libre
     (2026-07-19), façon `02_Synthese_session_3…docx`."""
-    repartition_values = (
-        repartition_contexte, repartition_culture_adn, repartition_forces_succes,
-        repartition_points_amelioration, repartition_aspirations,
+    repartition = _parse_repartition(
+        repartition_json,
+        (repartition_contexte, repartition_culture_adn, repartition_forces_succes,
+         repartition_points_amelioration, repartition_aspirations),
     )
-    repartition = {key: value.strip() for key, value in zip(REPARTITION_KEYS, repartition_values)}
     if not resume.strip() and not any(repartition.values()):
         raise HTTPException(status_code=400, detail="Synthèse vide — rien à exporter.")
     content = build_synthese_only_pdf(resume, repartition, interviewee_name)

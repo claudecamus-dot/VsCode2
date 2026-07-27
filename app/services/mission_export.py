@@ -30,10 +30,33 @@ def slugify(name: str) -> str:
     return slug or "mission"
 
 
-def build_export_markdown(mission: Mission) -> str:
+def _rubriques_synthese(axes) -> list[str]:
+    """Les rubriques `###` de la demande d'analyse — une par AXE de la mission
+    (2026-07-27). Elles étaient écrites en dur : une mission qui avait ajouté un
+    axe l'aurait vu absent du document envoyé à l'analyse externe, donc jamais
+    rempli, donc jamais réimporté. Les titres doivent rester EXACTEMENT les
+    libellés des axes : c'est sur eux que `analyse_import` reconnaît la
+    rubrique au retour."""
+    lignes: list[str] = []
+    for axe in axes:
+        lignes.append(f"### {axe.label}")
+        if (axe.hint or "").strip():
+            lignes.append(f"_{axe.hint.strip()}_")
+        lignes.append("")
+    return lignes
+
+
+def build_export_markdown(mission: Mission, axes=None) -> str:
     # Import local : `interview_export` importe déjà `slugify` d'ici — au
     # niveau module, les deux se référenceraient circulairement.
     from .interview_export import group_turns_into_sections
+
+    # `axes` optionnel : un appelant qui ne les passe pas (tests historiques)
+    # obtient les 5 rubriques d'origine, document inchangé.
+    if axes is None:
+        from .synthese_ai import _axes_par_defaut
+
+        axes = _axes_par_defaut()
 
     material_by_theme = _all_theme_material(mission)
     now = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
@@ -129,27 +152,7 @@ def build_export_markdown(mission: Mission) -> str:
         "(« ... » — Prénom Nom) pour ancrer le point sur un propos réel qui "
         "résume bien une tension ou un constat partagé.",
         "",
-        "### Contexte",
-        "_Faits marquants du contexte : organisation, historique, "
-        "évènements récents qui éclairent la lecture du reste._",
-        "",
-        "### Culture & ADN",
-        "_Traits de culture observés, pratiques en place, ce qui définit "
-        "\"la façon de faire\" ici._",
-        "",
-        "### Forces & succès",
-        "_Ce qui marche bien : leviers de succès, pratiques à préserver, "
-        "sources de fierté ou de motivation revenues dans plusieurs "
-        "entretiens._",
-        "",
-        "### Points d'amélioration",
-        "_Douleurs, tensions, blocages — les axes d'amélioration qui "
-        "reviennent le plus souvent, avec leur impact concret._",
-        "",
-        "### Aspirations (baguette magique)",
-        "_Ce que les personnes espèrent ou changeraient si elles le "
-        "pouvaient — la direction souhaitée, pas seulement les problèmes._",
-        "",
+        *_rubriques_synthese(axes),
         "## RECOMMANDATIONS",
         "",
         "Regroupe 3 à 4 axes **transverses** à la mission (pas un axe par "

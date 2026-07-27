@@ -31,11 +31,70 @@
    est falsy pour le form d'import qui le précède physiquement). #}
 {% set has_content = (global_synthesis and global_synthesis.has_content) or axes %}
 
+{# Ordre demandé (2026-07-27) : 1. les axes qu'on veut étudier, 2. l'analyse
+   externe (export/import), 3. l'IA intégrée. Le paramétrage vient en premier
+   parce qu'il conditionne les deux autres : le gabarit d'export ET le prompt
+   IA sont construits à partir de ces axes. #}
 <div data-tabs>
   <div class="tab-strip">
-    <button type="button" class="tab" data-tab="ia">IA intégrée</button>
+    <button type="button" class="tab" data-tab="axes-etude">Axes d'étude</button>
     <button type="button" class="tab" data-tab="manuel">Manuel (export / import)</button>
+    <button type="button" class="tab" data-tab="ia">IA intégrée</button>
   </div>
+
+  <section class="tab-panel" data-panel="axes-etude">
+    <section class="card">
+      <h2>Axes d'étude de la mission</h2>
+      <p class="muted">
+        Les rubriques de la synthèse globale. Elles alimentent le gabarit
+        d'export de l'onglet « Manuel », le prompt de l'IA intégrée, l'aperçu et
+        le deck PowerPoint — modifier un axe ici se répercute partout.
+        Renommer un axe conserve son contenu ; le supprimer le perd.
+      </p>
+
+      <ul class="axes-etude">
+        {% for axe in synthesis_axes %}
+        <li class="axe-etude">
+          <form method="post" action="/missions/{{ mission.id }}/axes/{{ axe.id }}" class="axe-etude-form">
+            <label>
+              <span class="muted">Nom de l'axe</span>
+              <input type="text" name="label" value="{{ axe.label }}" required>
+            </label>
+            <label>
+              <span class="muted">Ce qu'on veut y trouver (consigne donnée à l'IA)</span>
+              <input type="text" name="hint" value="{{ axe.hint }}"
+                     placeholder="ex. douleurs, tensions, ce qui bloque">
+            </label>
+            <button class="btn btn-sm" type="submit">Enregistrer</button>
+          </form>
+          {% if synthesis_axes | length > 1 %}
+          <form method="post" action="/missions/{{ mission.id }}/axes/{{ axe.id }}/delete"
+                onsubmit="return confirm('Supprimer l’axe « {{ axe.label }} » ? Le contenu déjà rédigé ou généré sur cet axe sera perdu.');">
+            <button class="btn btn-danger btn-sm" type="submit">Supprimer</button>
+          </form>
+          {% else %}
+          {# Dernier axe : le supprimer laisserait la mission sans aucune
+             rubrique, et le semis des défauts le ferait réapparaître à la
+             lecture suivante — suppression qui s'annule toute seule. #}
+          <span class="muted">Dernier axe — non supprimable</span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+
+      <form method="post" action="/missions/{{ mission.id }}/axes" class="axe-etude-form axe-etude-new">
+        <label>
+          <span class="muted">Ajouter un axe</span>
+          <input type="text" name="label" placeholder="ex. Outillage & données" required>
+        </label>
+        <label>
+          <span class="muted">Ce qu'on veut y trouver (facultatif)</span>
+          <input type="text" name="hint" placeholder="consigne donnée à l'IA">
+        </label>
+        <button class="btn btn-primary btn-sm" type="submit">Ajouter</button>
+      </form>
+    </section>
+  </section>
 
   <section class="tab-panel" data-panel="ia">
     {% include "synthese/_global_panel.html" %}

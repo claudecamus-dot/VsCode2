@@ -73,7 +73,7 @@ def test_global_synthesis_mission_courte_un_seul_appel(monkeypatch: pytest.Monke
     calls = _capture_calls(monkeypatch)
     result = synthese_ai.generate_global_synthesis(_mission(), _material(2))
     assert len(calls) == 1  # chemin court inchangé : pas de reduce
-    assert calls[0]["system"] == synthese_ai.GLOBAL_SYSTEM
+    assert calls[0]["system"] == synthese_ai.global_system(synthese_ai._axes_par_defaut())
     assert "MISSION : Mission Test" in calls[0]["prompt"]
     assert "Thème 2" in calls[0]["prompt"]
     assert result["contexte"] == "- partiel 1"
@@ -86,10 +86,10 @@ def test_global_synthesis_mission_longue_map_puis_reduce(monkeypatch: pytest.Mon
     result = synthese_ai.generate_global_synthesis(_mission(), _material(3))
     assert len(calls) == 4  # 3 map + 1 reduce
     for i, call in enumerate(calls[:3], start=1):
-        assert call["system"] == synthese_ai.GLOBAL_SYSTEM
+        assert call["system"] == synthese_ai.global_system(synthese_ai._axes_par_defaut())
         assert f"(extrait {i}/3)" in call["prompt"]
     reduce_call = calls[3]
-    assert reduce_call["system"] == synthese_ai.GLOBAL_REDUCE_SYSTEM
+    assert reduce_call["system"] == synthese_ai.global_reduce_system(synthese_ai._axes_par_defaut())
     assert "Synthèse partielle 1/3" in reduce_call["prompt"]
     assert "- partiel 2" in reduce_call["prompt"]
     # Le résultat vient de l'appel de réduction (le 4e).

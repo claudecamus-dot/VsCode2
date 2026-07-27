@@ -66,6 +66,11 @@ def _add_missing_columns() -> None:
             "raw_transcript": "TEXT",
             "audio_segments": "JSON",
         },
+        # Axes de synthèse configurables (2026-07-27) : le contenu passe des 5
+        # colonnes figées à un dictionnaire par clé d'axe. Les colonnes
+        # historiques restent (miroir des 5 clés par défaut, cf.
+        # `GlobalSynthesis.set_contenu`).
+        "global_syntheses": {"valeurs": "JSON"},
         "trames": {"intro_text": "TEXT"},
         "questions": {"help_text": "TEXT"},
         "missions": {"pptx_template_path": "TEXT", "is_draft": "BOOLEAN DEFAULT 0", "restitution_verbatim_ids": "JSON", "is_demo": "BOOLEAN DEFAULT 0"},

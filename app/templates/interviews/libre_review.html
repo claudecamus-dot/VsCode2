@@ -64,11 +64,12 @@
        comme bloc éditable sur cet écran. Révisable depuis l'écran Aperçu de
        l'entretien (bouton "Régénérer l'analyse") ou la synthèse globale de
        la mission une fois tous les entretiens saisis. -->
-  <input type="hidden" name="repartition_contexte" value="{{ repartition.contexte }}">
-  <input type="hidden" name="repartition_culture_adn" value="{{ repartition.culture_adn }}">
-  <input type="hidden" name="repartition_forces_succes" value="{{ repartition.forces_succes }}">
-  <input type="hidden" name="repartition_points_amelioration" value="{{ repartition.points_amelioration }}">
-  <input type="hidden" name="repartition_aspirations" value="{{ repartition.aspirations }}">
+  {# UN champ JSON plutôt que cinq champs nommés (2026-07-27) : depuis que les
+     axes d'étude sont configurables, la répartition n'a plus 5 clés connues
+     d'avance. Avec des champs nommés en dur, la matière d'un axe ajouté était
+     produite par l'IA puis silencieusement jetée au moment de l'enregistrement,
+     faute de champ pour la porter. #}
+  <input type="hidden" name="repartition_json" value='{{ repartition | tojson }}'>
 
   <div class="form-actions">
     <button class="btn" type="submit" formnovalidate

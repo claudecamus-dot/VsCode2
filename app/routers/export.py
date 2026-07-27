@@ -31,6 +31,7 @@ from ..routers.synthese import (
     _total_answer_count,
 )
 from ..services.ai_common import api_key_env_name, is_configured
+from ..services.mission_axes import axes_of
 from ..services.synthese_ai import (
     SynthesisAIError,
     generate_difficulties,
@@ -56,7 +57,7 @@ def _get_mission(db: Session, mission_id: int) -> Mission:
     return mission
 
 
-def _synthese_context(mission: Mission, error: str | None = None) -> dict:
+def _synthese_context(db: Session, mission: Mission, error: str | None = None) -> dict:
     """Contexte de gabarit partagé par l'étape 1 (analyse — IA intégrée +
     export/import manuel) et l'étape 4 (export PPT) — toutes ont besoin de
     savoir si de la matière existe déjà ; l'étape 1 en plus affiche le
@@ -72,6 +73,10 @@ def _synthese_context(mission: Mission, error: str | None = None) -> dict:
         "executive_summary": mission.executive_summary,
         "difficulties": mission.difficulties,
         "axes": mission.recommendation_axes,
+        # Axes d'etude configurables (2026-07-27) : l'onglet de parametrage,
+        # les champs de la synthese et l'apercu sont tous rendus depuis cette
+        # liste — plus aucune rubrique n'est ecrite en dur dans un gabarit.
+        "synthesis_axes": axes_of(db, mission),
         "error": error,
         "ai_ready": is_configured(),
         "api_key_env": api_key_env_name(),
@@ -91,13 +96,13 @@ def export_import_view(mission_id: int, request: Request, db: Session = Depends(
     # (comme son autre appelant, synthese.global_synthese_view).
     _get_or_create_global_synthesis(db, mission)
     db.commit()
-    return templates.TemplateResponse(request, "synthese/export_import.html", _synthese_context(mission))
+    return templates.TemplateResponse(request, "synthese/export_import.html", _synthese_context(db, mission))
 
 
 @router.get("/missions/{mission_id}/export/interviews")
 def export_interviews(mission_id: int, db: Session = Depends(get_session)):
     mission = _get_mission(db, mission_id)
-    content = build_export_markdown(mission)
+    content = build_export_markdown(mission, axes_of(db, mission))
     filename = f"entretiens_{slugify(mission.name)}.md"
     return Response(
         content=content,
@@ -126,7 +131,7 @@ async def import_analyse(
     try:
         raw = await file.read()
         text = decode_text_upload(raw)
-        parsed = parse_analysis_markdown(text)
+        parsed = parse_analysis_markdown(text, axes_of(db, mission))
 
         if any((v or "").strip() for v in parsed["global_synthesis"].values()):
             _apply_global_synthesis_result(global_synthesis, parsed["global_synthesis"])
@@ -136,14 +141,14 @@ async def import_analyse(
     except AnalysisParseError as exc:
         db.rollback()
         return templates.TemplateResponse(
-            request, "synthese/export_import.html", _synthese_context(mission, error=str(exc))
+            request, "synthese/export_import.html", _synthese_context(db, mission, error=str(exc))
         )
     except Exception as exc:  # garde-fou : jamais de 500 brute sur un import utilisateur
         db.rollback()
         return templates.TemplateResponse(
             request,
             "synthese/export_import.html",
-            _synthese_context(mission, error=f"Échec de l'import : {exc}"),
+            _synthese_context(db, mission, error=f"Échec de l'import : {exc}"),
         )
 
     # Suite logique du parcours : aller relire/éditer la synthèse globale
@@ -157,7 +162,7 @@ async def import_analyse(
 @router.get("/missions/{mission_id}/synthese/apercu")
 def apercu_view(mission_id: int, request: Request, db: Session = Depends(get_session)):
     mission = _get_mission(db, mission_id)
-    return templates.TemplateResponse(request, "synthese/apercu.html", _synthese_context(mission))
+    return templates.TemplateResponse(request, "synthese/apercu.html", _synthese_context(db, mission))
 
 
 @router.post("/missions/{mission_id}/swot/generate")
@@ -180,14 +185,14 @@ def generate_swot_view(mission_id: int, request: Request, db: Session = Depends(
         error = "Générez d'abord la synthèse globale — la SWOT en découle."
     else:
         try:
-            result = generate_swot(global_synthesis)
+            result = generate_swot(global_synthesis, axes_of(db, mission))
             _apply_swot_result(swot, result)
             db.commit()
         except SynthesisAIError as exc:
             error = str(exc)
 
     return templates.TemplateResponse(
-        request, "synthese/apercu.html", _synthese_context(mission, error)
+        request, "synthese/apercu.html", _synthese_context(db, mission, error)
     )
 
 
@@ -212,14 +217,14 @@ def generate_executive_summary_view(
         error = "Générez d'abord la synthèse globale — l'executive summary en découle."
     else:
         try:
-            result = generate_executive_summary(global_synthesis)
+            result = generate_executive_summary(global_synthesis, axes_of(db, mission))
             _apply_executive_summary_result(es, result)
             db.commit()
         except SynthesisAIError as exc:
             error = str(exc)
 
     return templates.TemplateResponse(
-        request, "synthese/apercu.html", _synthese_context(mission, error)
+        request, "synthese/apercu.html", _synthese_context(db, mission, error)
     )
 
 
@@ -244,7 +249,7 @@ def generate_difficulties_view(
         error = "Générez d'abord la synthèse globale — les difficultés en découlent."
     else:
         try:
-            labels = generate_difficulties(global_synthesis)
+            labels = generate_difficulties(global_synthesis, axes_of(db, mission))
             if not labels:
                 # Ne JAMAIS écraser une liste affinée (+ liens citation) par du vide :
                 # modèle muet ou clé JSON inattendue -> on garde l'existant, on signale.
@@ -259,7 +264,7 @@ def generate_difficulties_view(
             error = str(exc)
 
     return templates.TemplateResponse(
-        request, "synthese/apercu.html", _synthese_context(mission, error)
+        request, "synthese/apercu.html", _synthese_context(db, mission, error)
     )
 
 
@@ -304,7 +309,10 @@ def export_pptx(
     else:
         include_kwargs = {}
 
-    prs = build_presentation(mission, template_path=template_path, **include_kwargs)
+    prs = build_presentation(
+        mission, template_path=template_path,
+        axes_etude=axes_of(db, mission), **include_kwargs
+    )
 
     buf = io.BytesIO()
     prs.save(buf)
@@ -331,7 +339,7 @@ async def upload_pptx_template(
         return templates.TemplateResponse(
             request,
             "synthese/apercu.html",
-            _synthese_context(mission, error="Un fichier .pptx est attendu."),
+            _synthese_context(db, mission, error="Un fichier .pptx est attendu."),
         )
 
     content = await file.read()
@@ -343,7 +351,7 @@ async def upload_pptx_template(
         return templates.TemplateResponse(
             request,
             "synthese/apercu.html",
-            _synthese_context(mission, error="Fichier .pptx invalide ou corrompu."),
+            _synthese_context(db, mission, error="Fichier .pptx invalide ou corrompu."),
         )
 
     filename = f"{mission_id}.pptx"

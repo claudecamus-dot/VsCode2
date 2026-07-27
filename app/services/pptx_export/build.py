@@ -36,6 +36,16 @@ from .slides_trajectoire import (
 )
 
 
+def _axes(axes_etude):
+    """Axes d'étude à restituer. Sans liste fournie (appelants historiques,
+    tests), les 5 axes par défaut — deck inchangé."""
+    if axes_etude:
+        return list(axes_etude)
+    from ..synthese_ai import _axes_par_defaut
+
+    return _axes_par_defaut()
+
+
 def build_presentation(
     mission: Mission,
     template_path: Path | None = None,
@@ -48,6 +58,7 @@ def build_presentation(
     include_axes_overview: bool = True,
     include_matrix: bool = True,
     include_axis_ids: set[int] | None = None,
+    axes_etude=None,
 ) -> Presentation:
     """`include_axis_ids=None` inclut les fiches de recommandation de tous les
     axes (comportement par défaut/rétrocompatible) ; un set (même vide)
@@ -133,13 +144,9 @@ def build_presentation(
     if ch_sections[_CH_DIAGNOSTIC]:
         _chapitre(_CH_DIAGNOSTIC)
         if include_synthese and gs and gs.has_content:
-            categories = [
-                ("Contexte", gs.contexte),
-                ("Culture & ADN", gs.culture_adn),
-                ("Forces & succès", gs.forces_succes),
-                ("Points d'amélioration", gs.points_amelioration),
-                ("Aspirations (baguette magique)", gs.aspirations),
-            ]
+            # Une slide par AXE de la mission (2026-07-27) : les 5 rubriques
+            # étaient figées ici, un axe ajouté n'aurait jamais atteint le deck.
+            categories = [(axe.label, gs.contenu(axe.key)) for axe in _axes(axes_etude)]
             for label, content in categories:
                 if (content or "").strip():
                     _slide_synthese_categorie(prs, label, content)

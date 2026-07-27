@@ -162,7 +162,7 @@ def generate_theme_synthesis(theme, by_question, verbatims) -> dict:
 # fixes transverses à tous les thèmes (contexte, culture, forces, points
 # d'amélioration, aspirations) — calqué sur un rapport de restitution réel.
 # --------------------------------------------------------------------------- #
-GLOBAL_SYSTEM = (
+GLOBAL_SYSTEM_HEAD = (
     "Tu es consultant·e senior en conduite du changement. À partir de "
     "l'ensemble des réponses de tous les entretiens d'une mission (tous "
     "thèmes de trame confondus), tu produis une synthèse transverse en "
@@ -170,45 +170,67 @@ GLOBAL_SYSTEM = (
     "jamais un simple dump question par question. Pour chaque catégorie, "
     "structure ta réponse en quelques sous-thèmes courts, chacun suivi de "
     "puces factuelles fidèles aux propos recueillis :\n"
-    "- contexte : faits marquants du contexte (organisation, historique, "
-    "évènements récents) ;\n"
-    "- culture_adn : traits de culture observés, pratiques en place ;\n"
-    "- forces_succes : ce qui fonctionne bien, les leviers de succès ;\n"
-    "- points_amelioration : douleurs, tensions, ce qui bloque ;\n"
-    "- aspirations : ce que les personnes espèrent ou proposeraient si "
-    "elles le pouvaient (« baguette magique »).\n"
+)
+GLOBAL_SYSTEM_TAIL = (
     "N'invente rien ; si une catégorie manque de matière, indique-le "
     "brièvement plutôt que de combler artificiellement."
 )
 
-GLOBAL_JSON_HINT = (
-    "\nRéponds UNIQUEMENT par un objet JSON aux clés "
-    '"contexte", "culture_adn", "forces_succes", "points_amelioration", '
-    '"aspirations".'
-)
 
-GLOBAL_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "contexte": {"type": "string"},
-        "culture_adn": {"type": "string"},
-        "forces_succes": {"type": "string"},
-        "points_amelioration": {"type": "string"},
-        "aspirations": {"type": "string"},
-    },
-    "required": [
-        "contexte", "culture_adn", "forces_succes", "points_amelioration", "aspirations",
-    ],
-    "additionalProperties": False,
-}
+def global_system(axes) -> str:
+    """Prompt système construit sur les AXES DE LA MISSION (2026-07-27).
+
+    Les 5 catégories étaient énumérées en dur ici ; elles sont désormais
+    configurables (`mission_axes`), et la liste envoyée au modèle doit suivre —
+    sinon l'IA continuerait de remplir des rubriques que la mission n'étudie
+    plus, et laisserait vides celles qu'elle a ajoutées. `hint` porte la
+    description de l'axe (celles des 5 défauts sont les textes historiques,
+    repris mot pour mot)."""
+    lignes = [
+        f"- {axe.key} : {axe.hint or axe.label} ;\n" if i < len(axes) - 1
+        else f"- {axe.key} : {axe.hint or axe.label}.\n"
+        for i, axe in enumerate(axes)
+    ]
+    return GLOBAL_SYSTEM_HEAD + "".join(lignes) + GLOBAL_SYSTEM_TAIL
 
 
-GLOBAL_KEYS = (
-    "contexte", "culture_adn", "forces_succes", "points_amelioration", "aspirations",
-)
+def global_json_hint(axes) -> str:
+    cles = ", ".join(f'"{axe.key}"' for axe in axes)
+    return f"\nRéponds UNIQUEMENT par un objet JSON aux clés {cles}."
 
 
-def _global_material_blocks(material_by_theme, material_libre=None) -> list[str]:
+def global_schema(axes) -> dict:
+    cles = [axe.key for axe in axes]
+    return {
+        "type": "object",
+        "properties": {key: {"type": "string"} for key in cles},
+        "required": cles,
+        "additionalProperties": False,
+    }
+
+
+def global_keys(axes) -> tuple:
+    return tuple(axe.key for axe in axes)
+
+
+class _AxeParDefaut:
+    """Axe minimal (key/label/hint) pour les appelants qui n'en fournissent
+    pas — ce module ne dépend pas de la couche ORM, et une mission non encore
+    semée doit produire exactement la synthèse d'avant 2026-07-27."""
+
+    __slots__ = ("key", "label", "hint")
+
+    def __init__(self, key: str, label: str, hint: str):
+        self.key, self.label, self.hint = key, label, hint
+
+
+def _axes_par_defaut() -> list:
+    from .mission_axes import DEFAUTS
+
+    return [_AxeParDefaut(*d) for d in DEFAUTS]
+
+
+def _global_material_blocks(material_by_theme, material_libre=None, axes=None) -> list[str]:
     """Un bloc de texte par thème et par entretien libre — l'unité de découpe
     du map-reduce (on ne coupe jamais au milieu d'un thème ou d'un entretien).
 
@@ -242,6 +264,7 @@ def _global_material_blocks(material_by_theme, material_libre=None) -> list[str]
             for v in verbatims:
                 lines.append(f"  « {v['quote']} » — {v['interviewee']}")
         blocks.append("\n".join(lines))
+    libelles = {axe.key: axe.label for axe in (axes or _axes_par_defaut())}
     for interview, repartition in material_libre or []:
         if not any((repartition or {}).values()):
             continue
@@ -284,8 +307,8 @@ def _chunk_blocks(blocks: list[str], max_words: int) -> list[list[str]]:
     return chunks or [[]]
 
 
-def _clean_global(data) -> dict:
-    """Coerce la réponse JSON vers les 5 clés attendues — une valeur du
+def _clean_global(data, keys) -> dict:
+    """Coerce la réponse JSON vers les clés d'axes attendues — une valeur du
     mauvais type (dict imbriqué là où une chaîne était attendue, déjà observé
     avec Ollama sur la répartition libre, cf. `_safe_str` dans
     `interview_libre_extract_ai.py`) est traitée comme absente plutôt que de
@@ -294,44 +317,49 @@ def _clean_global(data) -> dict:
         data = {}
     return {
         key: (data.get(key).strip() if isinstance(data.get(key), str) else "")
-        for key in GLOBAL_KEYS
+        for key in keys
     }
 
 
-GLOBAL_REDUCE_SYSTEM = (
-    "Tu es consultant·e senior en conduite du changement. On te donne "
-    "plusieurs synthèses PARTIELLES d'une même mission (chacune produite sur "
-    "un sous-ensemble différent des thèmes et entretiens). Fusionne-les en "
-    "UNE seule synthèse transverse cohérente, fidèlement, sans rien inventer "
-    "ni répéter deux fois la même idée : pour chacune des 5 catégories "
-    "(contexte, culture_adn, forces_succes, points_amelioration, "
-    "aspirations), fusionne le contenu de toutes les synthèses partielles en "
-    "sous-thèmes émergents nommés suivis de puces factuelles — garde tout ce "
-    "qui est factuel, élimine les doublons. Si une catégorie manque de "
-    "matière, indique-le brièvement."
-)
+def global_reduce_system(axes) -> str:
+    """Prompt de fusion des synthèses partielles — mêmes catégories que le
+    prompt de synthèse, donc construites sur les axes de la mission."""
+    cles = ", ".join(axe.key for axe in axes)
+    return (
+        "Tu es consultant·e senior en conduite du changement. On te donne "
+        "plusieurs synthèses PARTIELLES d'une même mission (chacune produite sur "
+        "un sous-ensemble différent des thèmes et entretiens). Fusionne-les en "
+        "UNE seule synthèse transverse cohérente, fidèlement, sans rien inventer "
+        f"ni répéter deux fois la même idée : pour chacune des catégories "
+        f"({cles}), fusionne le contenu de toutes les synthèses partielles en "
+        "sous-thèmes émergents nommés suivis de puces factuelles — garde tout ce "
+        "qui est factuel, élimine les doublons. Si une catégorie manque de "
+        "matière, indique-le brièvement."
+    )
 
 
-def _reduce_partial_globals(mission, partials: list[dict]) -> dict:
+def _reduce_partial_globals(mission, partials: list[dict], axes) -> dict:
     """Fusionne les synthèses globales partielles (une par tronçon) en une
     seule — un appel IA dédié, comme `_reduce_partial_syntheses` côté
     extraction libre : la concaténation brute donnerait 5 catégories répétées
     N fois, pas une synthèse transverse."""
+    keys = global_keys(axes)
     lines = [f"MISSION : {mission.name}", ""]
     for i, partial in enumerate(partials, start=1):
         lines.append(f"--- Synthèse partielle {i}/{len(partials)} ---")
-        for key in GLOBAL_KEYS:
+        for key in keys:
             if partial.get(key):
                 lines.append(f"{key} : {partial[key]}")
         lines.append("")
     data = _call_claude(
-        GLOBAL_REDUCE_SYSTEM, "\n".join(lines), GLOBAL_SCHEMA, GLOBAL_JSON_HINT
+        global_reduce_system(axes), "\n".join(lines),
+        global_schema(axes), global_json_hint(axes),
     )
-    return _clean_global(data)
+    return _clean_global(data, keys)
 
 
-def generate_global_synthesis(mission, material_by_theme, material_libre=None) -> dict:
-    """Retourne un dict aux 5 clés de `GlobalSynthesis`. Lève SynthesisAIError.
+def generate_global_synthesis(mission, material_by_theme, material_libre=None, axes=None) -> dict:
+    """Retourne un dict aux clés des AXES de la mission. Lève SynthesisAIError.
 
     Map-reduce (2026-07-18) : sur une mission fournie (nombreux entretiens ou
     entretiens longs), le prompt unique dépassait la fenêtre de contexte du
@@ -343,23 +371,25 @@ def generate_global_synthesis(mission, material_by_theme, material_libre=None) -
     pattern que `interview_libre_extract_ai.generate_repartition_from_turns`.
     Une mission qui tient dans un tronçon ne fait qu'un appel, comportement
     inchangé."""
+    # `axes` optionnel : les appelants historiques (et les tests) qui ne le
+    # passent pas retombent sur les 5 axes par défaut, comportement inchangé.
+    axes = list(axes) if axes else _axes_par_defaut()
+    system, schema, hint = global_system(axes), global_schema(axes), global_json_hint(axes)
+    keys = global_keys(axes)
+
     header = f"MISSION : {mission.name}"
-    blocks = _global_material_blocks(material_by_theme, material_libre)
+    blocks = _global_material_blocks(material_by_theme, material_libre, axes)
     groups = _chunk_blocks(blocks, ollama_chunk_max_words())
 
     if len(groups) == 1:
-        data = _call_claude(
-            GLOBAL_SYSTEM, "\n\n".join([header, *groups[0]]), GLOBAL_SCHEMA, GLOBAL_JSON_HINT
-        )
-        return _clean_global(data)
+        data = _call_claude(system, "\n\n".join([header, *groups[0]]), schema, hint)
+        return _clean_global(data, keys)
 
     partials = []
     for i, group in enumerate(groups, start=1):
         prompt = "\n\n".join([f"{header} (extrait {i}/{len(groups)})", *group])
-        partials.append(
-            _clean_global(_call_claude(GLOBAL_SYSTEM, prompt, GLOBAL_SCHEMA, GLOBAL_JSON_HINT))
-        )
-    return _reduce_partial_globals(mission, partials)
+        partials.append(_clean_global(_call_claude(system, prompt, schema, hint), keys))
+    return _reduce_partial_globals(mission, partials, axes)
 
 
 def generate_demo_global_synthesis(mission, material_by_theme, material_libre=None) -> dict:
@@ -488,15 +518,14 @@ def _clamp_score(value) -> int:
     return max(1, min(5, n))
 
 
-def _build_reco_prompt(global_synthesis) -> str:
+def _build_reco_prompt(global_synthesis, axes=None) -> str:
+    """Matière des recommandations (et, par ricochet, du SWOT et des
+    difficultés, qui en dérivent) : les rubriques suivent désormais les AXES de
+    la mission. Sans axes fournis, les 5 historiques — le contenu d'un axe
+    ajouté serait sinon absent du prompt, donc jamais restitué."""
     lines = ["SYNTHÈSE TRANSVERSE DE LA MISSION", ""]
-    fields = [
-        ("Contexte", global_synthesis.contexte),
-        ("Culture & ADN", global_synthesis.culture_adn),
-        ("Forces & succès", global_synthesis.forces_succes),
-        ("Points d'amélioration", global_synthesis.points_amelioration),
-        ("Aspirations (baguette magique)", global_synthesis.aspirations),
-    ]
+    axes = list(axes) if axes else _axes_par_defaut()
+    fields = [(axe.label, global_synthesis.contenu(axe.key)) for axe in axes]
     for label, content in fields:
         if (content or "").strip():
             lines.append(f"=== {label} ===")
@@ -505,10 +534,10 @@ def _build_reco_prompt(global_synthesis) -> str:
     return "\n".join(lines)
 
 
-def generate_recommendations(global_synthesis) -> list[dict]:
+def generate_recommendations(global_synthesis, axes=None) -> list[dict]:
     """Retourne une liste d'axes {"title", "recommendations": [...]}.
     Lève SynthesisAIError."""
-    prompt = _build_reco_prompt(global_synthesis)
+    prompt = _build_reco_prompt(global_synthesis, axes)
     data = _call_claude(RECO_SYSTEM, prompt, RECO_SCHEMA, RECO_JSON_HINT, max_tokens=RECO_MAX_TOKENS)
     axes = []
     for axis in data.get("axes") or []:
@@ -656,11 +685,11 @@ def _clean_swot(data) -> dict:
     return {key: _coerce_bullets(data.get(key)) for key in SWOT_KEYS}
 
 
-def generate_swot(global_synthesis) -> dict:
+def generate_swot(global_synthesis, axes=None) -> dict:
     """Retourne un dict aux 4 clés de `MissionSwot`. Lève SynthesisAIError.
     Dérivée de la synthèse globale (mêmes 5 catégories que les recommandations,
     via `_build_reco_prompt`), un seul appel — la synthèse est déjà condensée."""
-    prompt = _build_reco_prompt(global_synthesis)
+    prompt = _build_reco_prompt(global_synthesis, axes)
     data = _call_claude(SWOT_SYSTEM, prompt, SWOT_SCHEMA, SWOT_JSON_HINT)
     return _clean_swot(data)
 
@@ -746,11 +775,11 @@ def _clean_executive_summary(data) -> dict:
     }
 
 
-def generate_executive_summary(global_synthesis) -> dict:
+def generate_executive_summary(global_synthesis, axes=None) -> dict:
     """Retourne un dict aux 3 clés de `MissionExecutiveSummary`. Lève
     SynthesisAIError. Dérivée de la synthèse globale (comme la SWOT), un seul
     appel — la synthèse est déjà condensée."""
-    prompt = _build_reco_prompt(global_synthesis)
+    prompt = _build_reco_prompt(global_synthesis, axes)
     data = _call_claude(
         EXEC_SUMMARY_SYSTEM, prompt, EXEC_SUMMARY_SCHEMA, EXEC_SUMMARY_JSON_HINT
     )
@@ -826,11 +855,11 @@ def _clean_difficulties(data) -> list:
     return out
 
 
-def generate_difficulties(global_synthesis) -> list:
+def generate_difficulties(global_synthesis, axes=None) -> list:
     """Retourne une liste ORDONNEE de libellés de difficultés (hierarchie),
     derivee de la synthese globale (surtout points_amelioration), un seul appel.
     Leve SynthesisAIError."""
-    prompt = _build_reco_prompt(global_synthesis)
+    prompt = _build_reco_prompt(global_synthesis, axes)
     data = _call_claude(
         DIFFICULTES_SYSTEM, prompt, DIFFICULTES_SCHEMA, DIFFICULTES_JSON_HINT
     )

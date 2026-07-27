@@ -36,9 +36,10 @@
      globale de mission, qui croise tous les entretiens. La matière régénérée
      continue d'être transmise telle quelle — c'est elle qui alimente cette
      synthèse (`synthese._libre_material`). #}
-  {% for key in ('contexte', 'culture_adn', 'forces_succes', 'points_amelioration', 'aspirations') %}
-  <input type="hidden" name="repartition_{{ key }}" value="{{ repartition[key] or '' }}">
-  {% endfor %}
+  {# UN champ JSON : les axes d'étude étant configurables (2026-07-27), les
+     clés de la répartition ne sont plus connues d'avance — cinq champs nommés
+     en dur jetaient la matière d'un axe ajouté au moment de la confirmation. #}
+  <input type="hidden" name="repartition_json" value='{{ repartition | tojson }}'>
   <p class="muted">
     La matière transverse de cet entretien est mise à jour en même temps ; elle
     se relit et se corrige dans la

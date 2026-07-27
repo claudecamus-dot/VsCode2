@@ -1281,7 +1281,7 @@ def test_global_synthesis_generate_and_autosave(
 
     monkeypatch.setattr("app.routers.synthese.is_configured", lambda: True)
 
-    def fake_generate_global(mission, material_by_theme, material_libre=None):
+    def fake_generate_global(mission, material_by_theme, material_libre=None, axes=None):
         assert mission.name == "Mission Synthese Globale"
         # Les deux thèmes de la mission doivent être présents, pas un seul.
         assert len(material_by_theme) == 2
@@ -1386,7 +1386,7 @@ def test_recommendations_generate_from_global_synthesis(
     monkeypatch.setattr("app.routers.synthese.is_configured", lambda: True)
     monkeypatch.setattr(
         "app.routers.synthese.generate_global_synthesis",
-        lambda mission, material_by_theme, material_libre=None: {
+        lambda mission, material_by_theme, material_libre=None, axes=None: {
             "contexte": "- Contexte",
             "culture_adn": "- Culture",
             "forces_succes": "- Forces",
@@ -1397,7 +1397,7 @@ def test_recommendations_generate_from_global_synthesis(
     response = client.post(f"/missions/{mission_id}/synthese/globale/generate")
     assert response.status_code == 200
 
-    def fake_generate_recommendations(global_synthesis):
+    def fake_generate_recommendations(global_synthesis, axes=None):
         assert global_synthesis.contexte == "- Contexte"
         return [
             {

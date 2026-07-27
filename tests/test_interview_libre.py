@@ -10,6 +10,10 @@ pour le flux mission/entretien).
 """
 from __future__ import annotations
 
+import json
+import re
+from html import unescape
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -33,6 +37,17 @@ def teardown_module() -> None:
         pass
     if DB_PATH.exists():
         DB_PATH.unlink()
+
+
+def _repartition_postee(html: str) -> dict:
+    """Répartition portée par le champ caché `repartition_json` d'un écran de
+    revue. Depuis que les axes d'étude sont configurables (2026-07-27), elle
+    ne voyage plus dans 5 champs nommés mais dans un JSON — dont `tojson`
+    échappe les accents, d'où le décodage plutôt qu'une recherche de
+    sous-chaîne."""
+    m = re.search(r"""name="repartition_json" value='([^']*)'""", html)
+    assert m, "champ repartition_json absent de l'écran"
+    return json.loads(unescape(m.group(1)))
 
 
 @pytest.fixture
@@ -386,7 +401,8 @@ def _fake_extract_turns(turns=None, identity=None):
 def _fake_generate_repartition(repartition=None, resume=None):
     repartition = repartition or _DEFAULT_REPARTITION
     resume = "- Résumé de test" if resume is None else resume
-    return lambda turns: {"repartition": repartition, "resume": resume}
+    # `axes` : la répartition vise désormais les axes d'étude de la mission.
+    return lambda turns, axes=None: {"repartition": repartition, "resume": resume}
 
 
 def _patch_libre_extract_ai(
@@ -459,7 +475,9 @@ def test_libre_flow_creates_draft_then_finalise_as_new_mission(
     response = _post_libre_synthese(client, mission_id, interviewee_name="Claire Rousseau")
     assert response.status_code == 200
     assert "Synthèse avant enregistrement" in response.text
-    assert "Silos entre équipes" in response.text
+    # La répartition générée est portée par le champ JSON (axes configurables) ;
+    # ses accents y sont échappés, d'où le décodage.
+    assert _repartition_postee(response.text)["points_amelioration"] == "- Silos entre équipes"
 
     response = client.post(
         f"/missions/{mission_id}/interviews/record-libre/confirm",
@@ -806,7 +824,7 @@ def test_synthese_globale_generate_uses_libre_material(
     monkeypatch.setattr("app.routers.synthese.is_configured", lambda: True)
     captured = {}
 
-    def fake_generate_global(mission, material_by_theme, material_libre=None):
+    def fake_generate_global(mission, material_by_theme, material_libre=None, axes=None):
         captured["material_libre"] = material_libre
         captured["material_by_theme"] = material_by_theme
         return {
@@ -1057,7 +1075,10 @@ def test_regenerer_analyse_revue_puis_confirmation(
     assert response.status_code == 200
     assert "Nouvelle analyse proposée" in response.text
     assert "- Résumé régénéré" in response.text
-    assert "- Contexte régénéré" in response.text
+    # La répartition voyage désormais dans un champ JSON (axes configurables) :
+    # `tojson` échappe les accents, on vérifie donc le contenu décodé, pas une
+    # sous-chaîne du HTML.
+    assert _repartition_postee(response.text)["contexte"] == "- Contexte régénéré"
 
     # Rien n'est écrasé tant que la revue n'est pas confirmée (le helper
     # confirme sans champ resume : la valeur enregistrée est None).
@@ -1103,7 +1124,7 @@ def test_regenerer_analyse_erreur_ia_reste_sur_analyse(
     mission_id = _create_and_finish_libre_mission(client, monkeypatch, "Regen KO")
     interview_id = _libre_interview_id(mission_id)
 
-    def _boom(turns):
+    def _boom(turns, axes=None):
         raise interview_libre_extract_ai.InterviewLibreExtractAIError("Panne IA simulée.")
 
     monkeypatch.setattr("app.routers.interviews.generate_repartition_from_turns", _boom)
@@ -1295,7 +1316,7 @@ def test_libre_turns_review_erreur_repartition_propose_export_pdf_transcript(
         data={"transcript": "Transcription complète à préserver.", "interviewee_name": "Repartition KO"},
     )
 
-    def _boom(turns):
+    def _boom(turns, axes=None):
         raise interview_libre_extract_ai.InterviewLibreExtractAIError("Panne répartition simulée.")
 
     monkeypatch.setattr("app.routers.interviews.generate_repartition_from_turns", _boom)
@@ -1394,7 +1415,11 @@ def test_libre_review_a_le_bouton_export_pdf_synthese_et_repartition_non_editabl
     assert "Télécharger la synthèse (PDF)" in response.text
     assert "Répartition dans la synthèse globale de mission" not in response.text
     assert '<textarea name="repartition_contexte"' not in response.text
-    assert 'name="repartition_contexte" value="- Contexte généré"' in response.text
+    # Depuis que les axes d'étude sont configurables (2026-07-27), la
+    # répartition transite dans UN champ JSON — cinq champs nommés en dur
+    # jetaient la matière d'un axe ajouté à l'enregistrement.
+    assert 'name="repartition_json"' in response.text
+    assert "Contexte g" in response.text  # la matière générée est bien portée
 
     export = client.post(
         "/interviews/synthese/export-pdf",

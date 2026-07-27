@@ -106,7 +106,7 @@ def test_generate_difficulties_route_creates_ordered_rows(
     mid = _mission_with_gs()
     monkeypatch.setattr("app.routers.export.is_configured", lambda: True)
     monkeypatch.setattr(
-        "app.routers.export.generate_difficulties", lambda gs: ["Difficulté A", "Difficulté B"]
+        "app.routers.export.generate_difficulties", lambda gs, axes=None: ["Difficulté A", "Difficulté B"]
     )
     resp = client.post(f"/missions/{mid}/difficultes/generate")
     assert resp.status_code == 200
@@ -131,9 +131,9 @@ def test_generate_difficulties_replaces_previous(
     """Régénérer remplace la liste (les anciennes lignes ne s'accumulent pas)."""
     mid = _mission_with_gs("Diff regen")
     monkeypatch.setattr("app.routers.export.is_configured", lambda: True)
-    monkeypatch.setattr("app.routers.export.generate_difficulties", lambda gs: ["A", "B", "C"])
+    monkeypatch.setattr("app.routers.export.generate_difficulties", lambda gs, axes=None: ["A", "B", "C"])
     client.post(f"/missions/{mid}/difficultes/generate")
-    monkeypatch.setattr("app.routers.export.generate_difficulties", lambda gs: ["X"])
+    monkeypatch.setattr("app.routers.export.generate_difficulties", lambda gs, axes=None: ["X"])
     client.post(f"/missions/{mid}/difficultes/generate")
     db = SessionLocal()
     try:
@@ -169,7 +169,7 @@ def test_difficulty_label_autosave(
 ) -> None:
     mid = _mission_with_gs("Diff autosave")
     monkeypatch.setattr("app.routers.export.is_configured", lambda: True)
-    monkeypatch.setattr("app.routers.export.generate_difficulties", lambda gs: ["À corriger"])
+    monkeypatch.setattr("app.routers.export.generate_difficulties", lambda gs, axes=None: ["À corriger"])
     client.post(f"/missions/{mid}/difficultes/generate")
     db = SessionLocal()
     did = db.scalars(select(MissionDifficulty.id).where(MissionDifficulty.mission_id == mid)).first()
@@ -321,10 +321,10 @@ def test_generate_empty_result_keeps_existing_and_shows_error(
     JAMAIS écraser une liste affinée + ses liens citation — on garde, on signale."""
     mid = _mission_with_gs("Diff no wipe")
     monkeypatch.setattr("app.routers.export.is_configured", lambda: True)
-    monkeypatch.setattr("app.routers.export.generate_difficulties", lambda gs: ["A garder", "B garder"])
+    monkeypatch.setattr("app.routers.export.generate_difficulties", lambda gs, axes=None: ["A garder", "B garder"])
     client.post(f"/missions/{mid}/difficultes/generate")
 
-    monkeypatch.setattr("app.routers.export.generate_difficulties", lambda gs: [])
+    monkeypatch.setattr("app.routers.export.generate_difficulties", lambda gs, axes=None: [])
     resp = client.post(f"/missions/{mid}/difficultes/generate")
     assert resp.status_code == 200
     assert "aucune difficulté" in resp.text.lower()  # message d'erreur affiché

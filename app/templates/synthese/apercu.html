@@ -145,12 +145,12 @@
     {% if (global_synthesis and global_synthesis.has_content) or (executive_summary and executive_summary.has_content) %}
     <button type="button" class="tab" data-tab="executive-summary">Executive Summary</button>
     {% endif %}
+    {# Un onglet par AXE de la mission (2026-07-27) — les 5 rubriques étaient
+       listées en dur ici ET dans les panneaux plus bas, deux listes à garder
+       en phase à la main. #}
     {% if global_synthesis %}
-    {% for key, label in [
-      ('contexte', 'Contexte'), ('culture_adn', 'Culture & ADN'), ('forces_succes', 'Forces & succès'),
-      ('points_amelioration', "Points d'amélioration"), ('aspirations', 'Aspirations'),
-    ] %}
-    <button type="button" class="tab" data-tab="synth-{{ key }}">{{ label }}</button>
+    {% for axe in synthesis_axes %}
+    <button type="button" class="tab" data-tab="synth-{{ axe.key }}">{{ axe.label }}</button>
     {% endfor %}
     {% endif %}
     {% if (global_synthesis and global_synthesis.has_content) or difficulties %}
@@ -210,13 +210,11 @@
     </section>
 
     {% if global_synthesis %}
-    {% for key, label in [
-      ('contexte', 'Contexte'), ('culture_adn', 'Culture & ADN'), ('forces_succes', 'Forces & succès'),
-      ('points_amelioration', "Points d'amélioration"), ('aspirations', 'Aspirations (baguette magique)'),
-    ] %}
+    {% for axe in synthesis_axes %}
+    {% set key = axe.key %}{% set label = axe.label %}
     <section class="tab-panel two-col" data-panel="synth-{{ key }}">
       <div class="deck-pane deck-pane-form">
-        {{ bullet_field(label, '/syntheses/globale/' ~ mission.id ~ '/field', key, global_synthesis[key],
+        {{ bullet_field(label, '/syntheses/globale/' ~ mission.id ~ '/field', key, global_synthesis.contenu(key),
                          'fit-hint-global-' ~ key, 'preview-global-' ~ key, 'global-saved-' ~ key, rows=6,
                          fit_key='synthese_categorie') }}
         <span id="global-saved-{{ key }}" class="saved"></span>
@@ -224,7 +222,7 @@
       <div class="deck-pane deck-pane-preview">
         <div class="slide-preview-body">
           <h3>{{ label }}</h3>
-          <ul id="preview-global-{{ key }}" class="ppt-bullets">{% for line in (global_synthesis[key] or '').splitlines() if line.strip() %}<li>{{ line.strip().lstrip('-•').strip() }}</li>{% endfor %}</ul>
+          <ul id="preview-global-{{ key }}" class="ppt-bullets">{% for line in (global_synthesis.contenu(key) or '').splitlines() if line.strip() %}<li>{{ line.strip().lstrip('-•').strip() }}</li>{% endfor %}</ul>
         </div>
       </div>
     </section>

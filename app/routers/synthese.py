@@ -1,6 +1,7 @@
 """Synthèse transverse — mission (incr.3, étendue incr.9 aux missions sans trame).
 
-Synthèse globale (5 catégories) + recommandations, agrégeant tous les
+Synthèse globale (axes d'étude configurables depuis le 2026-07-27, cf.
+`services/mission_axes.py`) + recommandations, agrégeant tous les
 entretiens de la mission (structurés par thème et/ou libres). L'ancienne vue
 de synthèse par thème (US4.1-4.3) a été retirée le 2026-07-17 : superflue
 depuis l'écran unifié Analyse/Synthèse globale/Recommandations/Export PPT
@@ -11,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
 from ..db import get_session
@@ -21,12 +22,14 @@ from ..models import (
     MissionDifficulty,
     MissionExecutiveSummary,
     MissionSwot,
+    MissionSynthesisAxis,
     Recommendation,
     RecommendationAxis,
     Theme,
 )
 from ..services.ai_common import api_key_env_name
 from ..services.pptx_export import field_fit_hint
+from ..services.mission_axes import axes_of, creer_axe, supprimer_axe
 from ..services.synthese_ai import (
     SynthesisAIError,
     generate_global_synthesis,
@@ -38,9 +41,10 @@ from ..templating import templates
 
 router = APIRouter(tags=["synthese"])
 
-GLOBAL_SYNTH_FIELDS = (
-    "contexte", "culture_adn", "forces_succes", "points_amelioration", "aspirations",
-)
+# Les rubriques de la synthese globale ne sont plus une constante depuis le
+# 2026-07-27 : ce sont les AXES de la mission (`mission_axes`), configurables.
+# La constante historique ne sert plus qu'a decrire les 5 defauts, via le
+# service — toute lecture passe par `axes_of(db, mission)`.
 SWOT_FIELDS = ("forces", "faiblesses", "opportunites", "menaces")
 EXEC_SUMMARY_FIELDS = ("headline", "points", "key_message")
 RECO_TEXT_FIELDS = (
@@ -212,8 +216,10 @@ def _total_answer_count(material_by_theme: list[tuple[Theme, dict, list]]) -> in
 # qui produisent toutes deux exactement la même forme de résultat.
 # --------------------------------------------------------------------------- #
 def _apply_global_synthesis_result(global_synthesis: GlobalSynthesis, result: dict) -> None:
-    for field in GLOBAL_SYNTH_FIELDS:
-        setattr(global_synthesis, field, result[field])
+    # `result` est deja borne aux cles d'axes par `_clean_global` ; on ecrit ce
+    # qu'il porte, sans presumer des 5 rubriques historiques.
+    for key, value in result.items():
+        global_synthesis.set_contenu(key, value)
     global_synthesis.status = "generated"
     global_synthesis.generated_at = datetime.now(timezone.utc)
 
@@ -258,6 +264,7 @@ def global_synthese_view(
             "mission": mission,
             "themes": mission.trame.themes if mission.trame else [],
             "global_synthesis": global_synthesis,
+            "synthesis_axes": axes_of(db, mission),
             "axes": mission.recommendation_axes,
             "ai_ready": is_configured(),
             "api_key_env": api_key_env_name(),
@@ -289,7 +296,9 @@ def generate_global(
         error = "Aucune réponse saisie sur la mission — rien à synthétiser."
     else:
         try:
-            result = generate_global_synthesis(mission, material_by_theme, material_libre)
+            result = generate_global_synthesis(
+                mission, material_by_theme, material_libre, axes=axes_of(db, mission)
+            )
             _apply_global_synthesis_result(global_synthesis, result)
             db.commit()
         except SynthesisAIError as exc:
@@ -301,11 +310,71 @@ def generate_global(
         {
             "mission": mission,
             "global_synthesis": global_synthesis,
+            "synthesis_axes": axes_of(db, mission),
             "ai_ready": is_configured(),
             "api_key_env": api_key_env_name(),
             "error": error,
             "answer_count": _total_answer_count(material_by_theme),
         },
+    )
+
+
+# --------------------------------------------------------------------------- #
+# Axes d'étude de la mission (2026-07-27) — onglet 1 de l'étape Analyse.
+# Ils pilotent le gabarit d'export, le prompt IA, l'aperçu et le PPT : c'est
+# pour ça qu'ils sont configurés AVANT les deux autres onglets.
+# --------------------------------------------------------------------------- #
+def _get_axe(db: Session, mission: Mission, axe_id: int) -> MissionSynthesisAxis:
+    axe = db.get(MissionSynthesisAxis, axe_id)
+    if axe is None or axe.mission_id != mission.id:
+        # Jamais l'axe d'une autre mission, même avec un id valide.
+        raise HTTPException(status_code=404, detail="Axe introuvable.")
+    return axe
+
+
+@router.post("/missions/{mission_id}/axes")
+def create_axe(
+    mission_id: int,
+    label: str = Form(""),
+    hint: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    mission = _get_mission(db, mission_id)
+    if label.strip():
+        creer_axe(db, mission, label, hint)
+    return RedirectResponse(
+        f"/missions/{mission_id}/synthese/export-import", status_code=303
+    )
+
+
+@router.post("/missions/{mission_id}/axes/{axe_id}")
+def update_axe(
+    mission_id: int,
+    axe_id: int,
+    label: str = Form(""),
+    hint: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    """Renomme un axe / change sa consigne. `key` n'est JAMAIS touchée : c'est
+    l'adresse du contenu déjà rédigé (`GlobalSynthesis.valeurs`,
+    `Interview.repartition`) — le renommer le rendrait orphelin."""
+    mission = _get_mission(db, mission_id)
+    axe = _get_axe(db, mission, axe_id)
+    if label.strip():
+        axe.label = label.strip()
+    axe.hint = hint.strip()
+    db.commit()
+    return RedirectResponse(
+        f"/missions/{mission_id}/synthese/export-import", status_code=303
+    )
+
+
+@router.post("/missions/{mission_id}/axes/{axe_id}/delete")
+def delete_axe(mission_id: int, axe_id: int, db: Session = Depends(get_session)):
+    mission = _get_mission(db, mission_id)
+    supprimer_axe(db, mission, _get_axe(db, mission, axe_id))
+    return RedirectResponse(
+        f"/missions/{mission_id}/synthese/export-import", status_code=303
     )
 
 
@@ -316,11 +385,13 @@ def save_global_field(
     value: str = Form(""),
     db: Session = Depends(get_session),
 ):
-    if field not in GLOBAL_SYNTH_FIELDS:
-        raise HTTPException(status_code=400, detail="Champ inconnu.")
     mission = _get_mission(db, mission_id)
+    if field not in {axe.key for axe in axes_of(db, mission)}:
+        # Axe supprime entre l'affichage de l'ecran et la frappe : refuser
+        # plutot que d'ecrire une cle qui ne sera plus jamais lue.
+        raise HTTPException(status_code=400, detail="Champ inconnu.")
     global_synthesis = _get_or_create_global_synthesis(db, mission)
-    setattr(global_synthesis, field, value)
+    global_synthesis.set_contenu(field, value)
     if global_synthesis.has_content:
         global_synthesis.status = "edited"
     db.commit()
@@ -376,7 +447,7 @@ def generate_recommendations_view(
         error = "Générez d'abord la synthèse globale — les recommandations en découlent."
     else:
         try:
-            axes_data = generate_recommendations(global_synthesis)
+            axes_data = generate_recommendations(global_synthesis, axes_of(db, mission))
             _apply_recommendations_result(db, mission, axes_data)
             db.commit()
             db.refresh(mission)
