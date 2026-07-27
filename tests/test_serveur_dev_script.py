@@ -49,10 +49,45 @@ def test_la_recherche_de_workers_est_independante_de_l_interpreteur(source: str)
     assert ".venv" not in corps and "$racine" not in corps
 
 
+def test_seules_les_racines_sont_scopees_au_repo(source: str) -> None:
+    """CAUSE RACINE de la saga des ports condamnés (trouvée le 2026-07-27) :
+    `.venv\\Scripts\\python.exe` est un redirecteur — le vrai uvicorn et son
+    worker `--reload` tournent sous le python de BASE, hors de la racine du
+    repo. Filtrer la DESCENDANCE sur l'exécutable rendait la purge aveugle au
+    worker de notre propre serveur, qui survivait à chaque redémarrage et
+    tenait le port. Le scope repo ne doit donc porter que sur les RACINES."""
+    debut = source.index("function Get-ProcessusServeur")
+    corps = source[debut:source.index("function", debut + 10)]
+    racines, reste = corps.split("Get-DescendantsProcessus", 1)
+    assert "$racine\\*" in racines, "les racines restent scopées au repo"
+    # `$racines` (la variable) apparaît légitimement dans le reste : ce qui ne
+    # doit PAS y apparaître, c'est un nouveau filtre sur l'exécutable.
+    assert "ExecutablePath" not in reste
+    assert "$racine\\*" not in reste, "la descendance ne doit pas être re-filtrée sur l'exécutable"
+
+
+def test_la_descendance_suit_les_deux_liens_de_parente(source: str) -> None:
+    """Les deux liens sont nécessaires : `ParentProcessId` rate le worker spawn
+    dont le parent est déjà mort, `parent_pid=` rate un enfant qui n'est pas un
+    worker spawn (le vrai python derrière le redirecteur du venv)."""
+    debut = source.index("function Get-DescendantsProcessus")
+    corps = source[debut:source.index("function", debut + 10)]
+    assert "ParentProcessId -eq $id" in corps
+    assert "parent_pid=$id" in corps
+
+
+def test_la_purge_fait_deux_passes(source: str) -> None:
+    """Tant que le parent vit, ses workers ne sont pas encore « orphelins du
+    port » : un worker qui survit à la 1re passe n'est détectable qu'à la 2e.
+    Sans reprise, le port était déclaré hanté à tort."""
+    assert "foreach ($passe in 1..2)" in source
+    assert "if (-not (Test-PortRepond -NumPort $Port)) { break }" in source
+
+
 def test_la_purge_appelle_la_recherche_d_orphelins(source: str) -> None:
     """Défaut le plus probable en cas de retouche : la fonction reste définie
     mais plus personne ne l'appelle — le port redevient hanté en silence."""
-    ligne = next(l for l in source.splitlines() if l.startswith("$aTuer ="))
+    ligne = next(l for l in source.splitlines() if l.strip().startswith("$aTuer ="))
     assert "Get-WorkersOrphelinsDuPort" in ligne
     assert "Get-ProcessusServeur" in ligne, "la purge scopée au repo reste nécessaire"
 

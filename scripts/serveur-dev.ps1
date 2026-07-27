@@ -39,23 +39,53 @@ $racine = Split-Path -Parent $PSScriptRoot   # scripts/ -> racine du repo
 $python = Join-Path $racine ".venv\Scripts\python.exe"
 $journal = Join-Path $env:TEMP ("uvicorn_dev_" + $Port + ".log")
 
+function Get-DescendantsProcessus {
+    # Descendance COMPLÈTE de PID racines, par parenté OS (ParentProcessId) et
+    # par marqueur `parent_pid=` de multiprocessing.spawn. Les deux liens sont
+    # nécessaires : le premier rate le worker spawn quand son parent est déjà
+    # mort, le second rate un enfant qui n'est pas un worker spawn.
+    param([int[]]$Racines)
+    $tous = @(Get-CimInstance Win32_Process)
+    $resultat = @()
+    $vus = @{}
+    $frontiere = @($Racines)
+    while ($frontiere.Count -gt 0) {
+        $suivante = @()
+        foreach ($id in $frontiere) {
+            if ($vus.ContainsKey($id)) { continue }
+            $vus[$id] = $true
+            foreach ($enfant in @($tous | Where-Object {
+                [int]$_.ParentProcessId -eq $id -or $_.CommandLine -like "*parent_pid=$id*"
+            })) {
+                $resultat += $enfant
+                $suivante += [int]$enfant.ProcessId
+            }
+        }
+        $frontiere = $suivante
+    }
+    return $resultat
+}
+
 function Get-ProcessusServeur {
-    # Tous les process liés au serveur DE CE REPO : parents uvicorn + workers
-    # multiprocessing. Scopé sur ExecutablePath sous $racine (le python du venv)
-    # — jamais l'uvicorn d'un repo frère ni les workers spawn d'une appli tierce.
-    $tous = Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
-        Where-Object { $_.ExecutablePath -like "$racine\*" }
-    $parents = @($tous | Where-Object { $_.CommandLine -like "*uvicorn app.main*" })
-    $idsParents = @($parents | ForEach-Object { $_.ProcessId })
-    $vivants = @{}
-    foreach ($p in $tous) { $vivants[[uint32]$p.ProcessId] = $true }
-    # Workers spawn : enfant d'un parent uvicorn connu, OU orphelin (parent mort)
-    # — c'est le fantôme qui a empoisonné 8010 puis 8020.
-    $workers = @($tous | Where-Object {
-        $_.CommandLine -like "*multiprocessing.spawn*" -and
-        ($idsParents -contains $_.ParentProcessId -or -not $vivants.ContainsKey([uint32]$_.ParentProcessId))
-    })
-    return @($parents) + @($workers)
+    # Tous les process liés au serveur DE CE REPO. Les RACINES restent scopées à
+    # $racine (ExecutablePath sous la racine + ligne de commande uvicorn) — on
+    # ne tue jamais l'uvicorn d'un repo frère ni un process tiers. Mais on tue
+    # toute leur DESCENDANCE, sans la re-filtrer sur l'exécutable.
+    #
+    # Pourquoi (cause racine de la saga des ports 8010/8020/8030/8040, trouvée
+    # le 2026-07-27) : `.venv\Scripts\python.exe` est un REDIRECTEUR — le vrai
+    # processus uvicorn et son worker `--reload` tournent sous le python de BASE
+    # (C:\PythonXXX\python.exe), donc HORS de $racine. Le filtre par exécutable
+    # était structurellement aveugle au worker de NOTRE PROPRE serveur : chaque
+    # purge tuait le redirecteur et le parent, laissait le worker vivant, et
+    # celui-ci continuait de servir sur un socket que netstat attribue au PID du
+    # parent mort. Un port de plus condamné à chaque redémarrage.
+    $racines = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
+        Where-Object {
+            $_.ExecutablePath -like "$racine\*" -and $_.CommandLine -like "*uvicorn app.main*"
+        })
+    if ($racines.Count -eq 0) { return @() }
+    return @($racines) + @(Get-DescendantsProcessus -Racines @($racines | ForEach-Object { [int]$_.ProcessId }))
 }
 
 function Get-WorkersDeParent {
@@ -159,26 +189,35 @@ if ($KeepIfFresh -and -not $StopOnly -and (Test-PortRepond -NumPort $Port)) {
     Write-Host "Serveur présent mais contenu périmé — purge et relance."
 }
 
-# ---- 1. Purge : parents uvicorn + workers spawn du repo + listener du port ----
+# ---- 1. Purge : parents uvicorn + toute leur descendance + listener du port ----
 # @( ) OBLIGATOIRE : PS 5.1 déroule un retour de fonction à 1 élément en scalaire
 # et `+=` sur un CimInstance scalaire lève op_Addition sous EAP Stop — le
 # scénario phare (exactement 1 fantôme) tuait le script avant la purge.
-$aTuer = @(Get-ProcessusServeur) + @(Get-WorkersOrphelinsDuPort -NumPort $Port)
-$ecoute = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-foreach ($c in @($ecoute)) {
-    $p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
-    if ($p -and $p.ProcessName -ne "python") {
-        # Jamais de kill aveugle d'une appli tierce légitime sur ce port.
-        Write-Error "Le port $Port est occupé par '$($p.ProcessName)' (PID $($p.Id)) — non tué. Choisir un autre port (-Port $($Port + 10))."
-        exit 1
+#
+# DEUX passes : tant que le parent est vivant, ses workers ne sont pas encore
+# des « orphelins du port » (Get-WorkersOrphelinsDuPort passe son chemin sur un
+# PID propriétaire vivant). Un worker qui survit à la 1re passe devient donc
+# détectable seulement à la 2e — sans elle, le port était déclaré hanté alors
+# qu'une simple reprise suffisait (vécu le 2026-07-27).
+foreach ($passe in 1..2) {
+    $aTuer = @(Get-ProcessusServeur) + @(Get-WorkersOrphelinsDuPort -NumPort $Port)
+    $ecoute = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
+    foreach ($c in @($ecoute)) {
+        $p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
+        if ($p -and $p.ProcessName -ne "python") {
+            # Jamais de kill aveugle d'une appli tierce légitime sur ce port.
+            Write-Error "Le port $Port est occupé par '$($p.ProcessName)' (PID $($p.Id)) — non tué. Choisir un autre port (-Port $($Port + 10))."
+            exit 1
+        }
+        if ($p) { $aTuer += @(Get-CimInstance Win32_Process -Filter "ProcessId=$($c.OwningProcess)") }
     }
-    if ($p) { $aTuer += @(Get-CimInstance Win32_Process -Filter "ProcessId=$($c.OwningProcess)") }
-}
-$ids = @($aTuer | ForEach-Object { $_.ProcessId } | Sort-Object -Unique)
-if ($ids.Count -gt 0) {
-    Write-Host "Purge de $($ids.Count) processus serveur (parents uvicorn + workers spawn) : $($ids -join ', ')"
-    foreach ($id in $ids) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
-    Start-Sleep -Seconds 2
+    $ids = @($aTuer | ForEach-Object { $_.ProcessId } | Sort-Object -Unique)
+    if ($ids.Count -gt 0) {
+        Write-Host "Purge (passe $passe) de $($ids.Count) processus serveur (uvicorn + descendance) : $($ids -join ', ')"
+        foreach ($id in $ids) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
+        Start-Sleep -Seconds 2
+    }
+    if (-not (Test-PortRepond -NumPort $Port)) { break }
 }
 
 # Le port doit avoir VRAIMENT cessé de répondre (pas seulement netstat propre).
