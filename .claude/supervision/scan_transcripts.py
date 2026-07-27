@@ -79,6 +79,14 @@ ARBITRAGES_PATH = os.environ.get("AGENT_SUPERVISION_ARBITRAGES") or os.path.join
     SUP_DIR, "arbitrages.json"
 )
 DORMANT_DAYS = 30
+# Version de la LOGIQUE DE DÉTECTION (préfiltre + parsing des invocations dans
+# scan()). À incrémenter à chaque fois qu'on apprend à reconnaître un mode
+# d'invocation de plus : le scan rejoue alors l'intégralité des transcripts au
+# lieu de reprendre après l'offset — sans quoi la nouvelle détection ne verrait
+# jamais le passé déjà consommé par l'ancienne (cf. reset_si_detecteur_change).
+# v2 : détection des slash-commands <command-name> (ajoutée le 2026-07-23, restée
+#      sans effet rétroactif jusqu'au 2026-07-27).
+DETECTOR_VERSION = 2
 PROVEN_MIN = 3  # invocations à partir desquelles un agent/skill est "éprouvé"
 DIAGNOSTIC_CADENCE_DAYS = 14  # au-delà : le diagnostic étage 2 est signalé "à relancer"
 DIAGNOSTIC_STALE_RUNS = 3  # runs d'orchestration non couverts qui périment aussi le diagnostic
@@ -153,8 +161,38 @@ def record(agg: dict, key: str, ts: str) -> None:
             entry["last"] = ts
 
 
+def reset_si_detecteur_change(state: dict) -> bool:
+    """Rejoue tout l'historique quand la logique de détection a changé.
+
+    Les offsets rendent le scan incrémental, mais ils survivaient au remplacement
+    du détecteur : la détection des slash-commands ajoutée le 2026-07-23 n'a
+    jamais revu les 854 Ko déjà consommés par l'ancienne version, et `skills` est
+    resté vide pendant 4 jours (constat superviseur VSCode 2026-07-27 — offset
+    854518 identique avant et après le commit qui ajoutait le détecteur), au point
+    de faire passer tout le catalogue pour « jamais utilisé ».
+
+    Les agrégats sont dérivés des seuls transcripts : on les remet à zéro en même
+    temps que les offsets, sinon le rejeu compterait deux fois ce qui est déjà là.
+    Contrepartie assumée : un rejeu ne voit que les transcripts encore présents sur
+    le disque — mieux vaut un historique tronqué qu'un compteur figé à faux.
+    """
+    if state.get("detector_version") == DETECTOR_VERSION:
+        return False
+    state["files"] = {}
+    state["skills"] = {}
+    state["subagents"] = {}
+    state["detector_version"] = DETECTOR_VERSION
+    state["last_replay"] = dt.datetime.now().astimezone().isoformat(timespec="seconds")
+    return True
+
+
 def scan(state: dict) -> int:
     tdir = transcript_dir()
+    if reset_si_detecteur_change(state):
+        print(
+            f"Supervision agents : detecteur v{DETECTOR_VERSION} — rejeu complet "
+            "des transcripts (offsets et agregats remis a zero)."
+        )
     files_state = state.setdefault("files", {})
     skills = state.setdefault("skills", {})
     subagents = state.setdefault("subagents", {})
@@ -245,6 +283,30 @@ def _agents_text() -> str:
     return _AGENTS_TEXT
 
 
+def skills_reference_declares() -> set:
+    """Skills déclarés « bibliothèque/référence » par ARBITRAGE humain, dans le
+    fichier versionné `.claude/supervision/skills_reference.json` (liste de noms,
+    ou {"skills": [...]}). Complément explicite des deux critères structurels de
+    non_invocation_skills, pour les usages qu'aucun critère déterministe ne peut
+    voir : skill consommé par lecture depuis les projets CIBLES (deck-design-library,
+    restitution-deck-design) ou exécuté inline par la session qui le suit sans
+    l'invoquer formellement (veille-agentic, prouvé par son artefact daté
+    .claude/veille/veille.json — finding agent-mort du 2026-07-27). Ce n'est pas une
+    liste codée en dur : c'est une donnée par projet, arbitrée et tracée. Fichier
+    absent ou invalide → ensemble vide (fail open)."""
+    path = os.path.join(REPO, ".claude", "supervision", "skills_reference.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return set()
+    if isinstance(data, dict):
+        data = data.get("skills", [])
+    if not isinstance(data, list):
+        return set()
+    return {s for s in data if isinstance(s, str)}
+
+
 def non_invocation_skills(fam: dict) -> set:
     """Skills dont la valeur se consomme en LISANT/EXÉCUTANT leurs ressources, jamais
     via l'outil Skill — le compteur d'invocations ne peut donc structurellement pas les
@@ -255,17 +317,23 @@ def non_invocation_skills(fam: dict) -> set:
         un sous-agent le déclare comme ressource à lire/exécuter (cf. ppt-designer
         « Skills you rely on » — lui n'a PAS l'outil Skill). On exige le chemin, pas
         une simple mention du nom : sinon un skill juste *nommé* en prose (ex. un
-        agent qui écrit « within agent-orchestrator ») serait happé à tort.
-    Un skill sans `scripts/` ET cité par chemin nulle part reste, lui, un vrai
-    « jamais utilisé » — on ne suppose pas l'usage sans preuve."""
+        agent qui écrit « within agent-orchestrator ») serait happé à tort, ou
+      - il est déclaré par arbitrage dans skills_reference.json (cf.
+        skills_reference_declares — usages réels invisibles des deux critères
+        structurels ci-dessus).
+    Un skill sans `scripts/`, cité par chemin nulle part et non déclaré reste, lui,
+    un vrai « jamais utilisé » — on ne suppose pas l'usage sans preuve."""
     text = _agents_text()
+    declares = skills_reference_declares()
     out = set()
     for name, family in fam.items():
         if family == "BMAD":
             continue
         proj = os.path.join(REPO, ".claude", "skills", name, "scripts")
         glb = os.path.join(os.path.expanduser("~"), ".claude", "skills", name, "scripts")
-        if os.path.isdir(proj) or os.path.isdir(glb):
+        if name in declares:
+            out.add(name)
+        elif os.path.isdir(proj) or os.path.isdir(glb):
             out.add(name)
         elif re.search(r"skills/" + re.escape(name) + r"(?![\w-])", text):
             out.add(name)
@@ -422,31 +490,37 @@ def build_runs_stats(runs: list):
     Approximation assumée : un run n'enregistre qu'un résultat global (log_run.py, format
     O-A/O-B inchangé), donc chaque agent du plan hérite du résultat et des reprises du run
     entier — pas de granularité par étape.
+
+    `en-cours` (run journalisé dès la composition du plan, avant l'exécution) est compté
+    à part : il ne dit encore ni réussite ni échec, donc l'inclure dans `n` fausserait les
+    taux à la baisse. Un `en_cours` qui ne se solde jamais est le signal utile — c'est un
+    run interrompu ou abandonné, exactement ce que l'ancien schéma « journaliser à la fin »
+    perdait en silence.
     """
     par_playbook, par_agent = {}, {}
+
+    def cumuler(agg: dict, cle: str, resultat, reprises: int) -> None:
+        e = agg.setdefault(cle, {"n": 0, "succes": 0, "echecs": 0, "reprises": 0, "en_cours": 0})
+        if resultat == "en-cours":
+            e["en_cours"] += 1
+            return
+        e["n"] += 1
+        e["reprises"] += reprises
+        if resultat == "succes":
+            e["succes"] += 1
+        elif resultat == "echec":
+            e["echecs"] += 1
+
     for r in runs:
         resultat = r.get("resultat")
         reprises = r.get("reprises") or 0
         playbook = r.get("playbook")
         if playbook:
-            e = par_playbook.setdefault(playbook, {"n": 0, "succes": 0, "echecs": 0, "reprises": 0})
-            e["n"] += 1
-            e["reprises"] += reprises
-            if resultat == "succes":
-                e["succes"] += 1
-            elif resultat == "echec":
-                e["echecs"] += 1
+            cumuler(par_playbook, playbook, resultat, reprises)
         for etape in r.get("plan") or []:
             agent = etape.get("agent")
-            if not agent:
-                continue
-            e = par_agent.setdefault(agent, {"n": 0, "succes": 0, "echecs": 0, "reprises": 0})
-            e["n"] += 1
-            e["reprises"] += reprises
-            if resultat == "succes":
-                e["succes"] += 1
-            elif resultat == "echec":
-                e["echecs"] += 1
+            if agent:
+                cumuler(par_agent, agent, resultat, reprises)
     return par_playbook, par_agent
 
 
@@ -895,12 +969,17 @@ def update_wiki_html(state: dict, fam: dict, todos: list, diag_todos: list = Non
 
     Ne fait rien si la page ou les marqueurs n'existent pas (les marqueurs sont posés
     une fois à la main dans la page ; ce script n'insère jamais à l'aveugle dans du HTML).
+
+    Trois issues distinctes, parce que deux d'entre elles se confondaient dans le message
+    de fin et faisaient crier à l'anomalie sur des projets parfaitement sains :
+    True (bloc à jour), "absent" (pas de page HTML — cas NORMAL d'un projet cible, seul le
+    hub publie un wiki HTML), False (page présente mais sans marqueurs — vraie anomalie).
     """
     try:
         with open(WIKI_HTML, encoding="utf-8") as fh:
             txt = fh.read()
     except OSError:
-        return False
+        return "absent"
     if HTML_MARK_START not in txt or HTML_MARK_END not in txt:
         return False
     block = (
@@ -974,14 +1053,14 @@ def main(argv) -> int:
     html_ok = update_wiki_html(state, fam, todos, diag_todos, diag_a_jour, openhub, arbitrages, diagnostic_ran)
     missing = state.get("transcript_dir_missing")
     detail = f" (transcripts introuvables : {missing})" if missing else ""
-    if not html_ok:
+    if html_ok is False:
         detail += " (wiki.html sans marqueurs TODO-AGENTS-HTML : bloc HTML non mis a jour)"
     if not diag_a_jour:
         detail += " (diagnostic agent-supervisor a lancer ou perime)"
     print(
         f"Supervision agents : +{new_events} evenement(s), {len(state.get('files', {}))} sessions couvertes, "
         f"{len(todos)} TODO, {len(runs)} run(s) orchestrateur -> agents-supervision.md, index.md"
-        f"{' et wiki.html' if html_ok else ''}, routing-hints.json a jour.{detail}"
+        f"{' et wiki.html' if html_ok is True else ''}, routing-hints.json a jour.{detail}"
     )
     return 0
 

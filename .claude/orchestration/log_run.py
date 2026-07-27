@@ -10,14 +10,23 @@
 Usage : py .claude/orchestration/log_run.py '<json>'   (ou JSON sur stdin)
 Champs requis : demande (str), qualification (orchestre|direct-signale).
 Champs usuels : plan (liste d'étapes {etape, agent, mode, modele}), resultat
-(succes|partiel|echec), reprises (int), notes (str), playbook (str|null : nom du
-playbook instancié, incrément O-B — null en composition libre). `ts` est ajouté si absent.
+(en-cours|succes|en-attente-validation|partiel|echec), reprises (int), notes (str),
+playbook (str|null : nom du playbook instancié, incrément O-B — null en composition
+libre). `ts` est ajouté si absent.
 Consommé à terme par le superviseur étage 2 (métrique « plan vs réel »).
 
-Solde d'un run en attente (constat superviseur 2026-07-23 : la boucle
+JOURNALISER DÈS LA COMPOSITION DU PLAN, PAS À LA FIN (constat superviseur VSCode
+2026-07-27 : runs.jsonl inexistant 4 jours après le déploiement du dispositif alors
+que des enchaînements multi-étapes avaient bien eu lieu — journaliser en dernier
+revient à ne rien journaliser dès que le run est interrompu, or c'est précisément
+là que le signal vaut le plus). L'orchestrateur écrit donc la ligne à l'étape 2 avec
+`"resultat": "en-cours"`, puis la solde à la remise. Un `en-cours` qui traîne est un
+run abandonné : le scan le compte à part et ne le mêle pas aux taux de réussite.
+
+Solde d'un run ouvert ou en attente (constat superviseur 2026-07-23 : la boucle
 en-attente-validation ne se refermait jamais sans édition manuelle du journal) :
 
-    py .claude/orchestration/log_run.py --solde <prefixe-ts> <succes|partiel|echec> "note"
+    py .claude/orchestration/log_run.py --solde <prefixe-ts> <resultat> "note"
 
 Requalifie LE run dont le ts commence par <prefixe-ts> (erreur si 0 ou >1
 correspondance) et trace la validation dans notes (`solde <date> : <note>`).
@@ -40,17 +49,22 @@ RUNS_PATH = os.environ.get("AGENT_ORCHESTRATION_RUNS") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "runs.jsonl"
 )
 QUALIFICATIONS = ("orchestre", "direct-signale")
+# Un run ouvert à la composition vaut « en-cours » ; il se solde ensuite vers l'un des
+# états terminaux, dont « en-attente-validation » — état par défaut d'un livrable que
+# l'utilisateur doit approuver, et qui manquait ici (la skill l'exige pourtant, il
+# n'était donc atteignable qu'en éditant le journal à la main).
+RESULTATS_SOLDE = ("succes", "en-attente-validation", "partiel", "echec")
 
 
 def solder(argv) -> int:
     """--solde <prefixe-ts> <resultat> [note] — requalifie un run existant."""
     if len(argv) < 2:
-        print("log_run --solde : usage : --solde <prefixe-ts> <succes|partiel|echec> [note]")
+        print(f"log_run --solde : usage : --solde <prefixe-ts> <{'|'.join(RESULTATS_SOLDE)}> [note]")
         return 1
     prefixe, resultat = argv[0], argv[1]
     note = argv[2] if len(argv) > 2 else "valide par l'utilisateur"
-    if resultat not in ("succes", "partiel", "echec"):
-        print("log_run --solde : resultat attendu : succes | partiel | echec")
+    if resultat not in RESULTATS_SOLDE:
+        print(f"log_run --solde : resultat attendu : {' | '.join(RESULTATS_SOLDE)}")
         return 1
     try:
         with open(RUNS_PATH, encoding="utf-8") as fh:
