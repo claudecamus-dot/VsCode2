@@ -878,11 +878,13 @@ def test_libre_analyse_groups_turns_into_sections(
     assert response.text.index("Réponse sans nouvelle section.") < response.text.index("Deuxième thème")
 
 
-def test_libre_analyse_shows_resume_and_repartition(
+def test_libre_analyse_shows_resume_but_not_repartition(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Depuis la fusion du 2026-07-17, résumé + répartition s'affichent sur
-    /analyse (même écran que les tours de parole, plus de page séparée)."""
+    """Depuis le 2026-07-27, les 5 catégories transverses ne sont PLUS
+    restituées au niveau d'un entretien : elles se lisent et s'éditent dans la
+    synthèse globale de mission uniquement. L'écran Aperçu garde le résumé et
+    renvoie vers la synthèse globale."""
     mission_id = _create_and_finish_libre_mission(client, monkeypatch, "Synthese Test")
     session = SessionLocal()
     try:
@@ -895,8 +897,9 @@ def test_libre_analyse_shows_resume_and_repartition(
 
     response = client.get(f"/interviews/{interview_id}/analyse")
     assert response.status_code == 200
-    assert "- Contexte" in response.text
-    assert "- Point" in response.text
+    assert "Répartition par catégorie" not in response.text
+    assert "- Contexte" not in response.text
+    assert f"/missions/{mission_id}/synthese/globale" in response.text
 
 
 def test_libre_analyse_synthese_redirects_to_analyse(
@@ -942,10 +945,10 @@ def test_export_interview_markdown_libre(
     assert "# Entretien — Export Libre" in md
     assert "## Transcription structurée" in md
     assert "**Consultant·e** : Une question ?" in md
-    assert "## Répartition par catégorie" in md
-    assert "### Contexte" in md
-    assert "- Contexte" in md
-    assert "- Point" in md
+    # Les 5 catégories transverses ne s'exportent plus par entretien
+    # (2026-07-27) : elles vivent dans la synthèse globale de mission.
+    assert "## Répartition par catégorie" not in md
+    assert "### Contexte" not in md
 
 
 def test_libre_analyse_and_synthese_reject_structured_interview(client: TestClient) -> None:

@@ -230,10 +230,10 @@ def test_build_interview_pdf_libre_content_and_multiline_preserved() -> None:
     assert "Message central de l'entretien." in text
     assert "Ouverture" in text
     assert "Comment ça se passe ?" in text
-    assert "Contexte détaillé" in text
-    assert "Force clé" in text
-    # Catégorie vide : le texte de substitution s'affiche, pas une case vide muette.
-    assert "pas de matière sur cette catégorie" in text
+    # Les 5 catégories transverses ne s'exportent plus par entretien
+    # (2026-07-27) : elles vivent dans la synthèse globale de mission.
+    assert "Répartition par catégorie" not in text
+    assert "Contexte détaillé" not in text
 
     # Le préfixe interlocuteur reste sur la 1ère ligne du tour (« Claire
     # Rousseau : Première ligne… ») ; seule la suite du tour continue en
@@ -395,24 +395,20 @@ def test_build_turns_only_pdf_sans_tours_montre_placeholder() -> None:
 
 
 def test_build_synthese_only_pdf_content() -> None:
+    # Depuis le 2026-07-27, la répartition n'est plus rendue par entretien
+    # (les 5 catégories vivent dans la synthèse globale de mission) — le
+    # paramètre reste accepté mais ignoré.
     pdf_bytes = build_synthese_only_pdf(
         resume="Message central de synthèse.",
-        repartition={
-            "contexte": "- Contexte détaillé",
-            "culture_adn": "",
-            "forces_succes": "- Force clé",
-            "points_amelioration": "",
-            "aspirations": "",
-        },
+        repartition={"contexte": "- Contexte détaillé"},
         interviewee_name="Vérif Synthèse",
     )
     assert pdf_bytes[:4] == b"%PDF"
     text = _pdf_text(pdf_bytes)
     assert "Synthèse — Vérif Synthèse" in text
     assert "Message central de synthèse." in text
-    assert "Contexte détaillé" in text
-    assert "Force clé" in text
-    assert "pas de matière sur cette catégorie" in text
+    assert "Contexte détaillé" not in text
+    assert "Répartition par catégorie" not in text
 
 
 def test_build_synthese_only_pdf_sans_nom_titre_generique() -> None:
@@ -458,7 +454,8 @@ def test_export_synthese_only_pdf_route(client: TestClient) -> None:
     assert response.headers["content-type"] == "application/pdf"
     text = _pdf_text(response.content)
     assert "Résumé de test." in text
-    assert "Contexte route" in text
+    # La répartition postée n'est plus rendue (catégories = niveau mission).
+    assert "Contexte route" not in text
 
 
 def test_export_synthese_only_pdf_route_rejects_empty(client: TestClient) -> None:

@@ -1,5 +1,5 @@
 ---
-updated: 2026-07-23
+updated: 2026-07-27
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -9,24 +9,25 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-23T15:39:25+02:00 · **39 sessions** (transcripts) · **83** invocations de skills · **59** lancements de sous-agents.
+Dernier scan : 2026-07-27T14:55:08+02:00 · **44 sessions** (transcripts) · **110** invocations de skills · **63** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `run-dev-server` | projet | 21 | 2026-07-03 | 2026-07-23 |
-| `agent-orchestrator` | projet | 9 | 2026-07-17 | 2026-07-22 |
-| `agent-supervisor` | projet | 9 | 2026-07-18 | 2026-07-23 |
-| `bmad-code-review` | BMAD | 7 | 2026-07-20 | 2026-07-23 |
+| `run-dev-server` | projet | 25 | 2026-07-03 | 2026-07-27 |
+| `agent-orchestrator` | projet | 23 | 2026-07-17 | 2026-07-23 |
+| `agent-supervisor` | projet | 16 | 2026-07-18 | 2026-07-23 |
+| `bmad-code-review` | BMAD | 8 | 2026-07-20 | 2026-07-27 |
+| `pptx-verify` | global | 7 | 2026-07-03 | 2026-07-23 |
 | `revue-increment` | projet | 7 | 2026-07-18 | 2026-07-22 |
-| `pptx-verify` | global | 6 | 2026-07-03 | 2026-07-22 |
 | `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
-| `roadmap-keeper` | global | 5 | 2026-06-25 | 2026-07-15 |
+| `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
 | `pptx-deck` | global | 2 | 2026-07-02 | 2026-07-03 |
 | `skill-creator` | global | 2 | 2026-07-03 | 2026-07-03 |
 | `slide-text-polish` | projet | 2 | 2026-07-22 | 2026-07-22 |
+| `bmad-sprint-status` | BMAD | 1 | 2026-07-22 | 2026-07-22 |
 | `claude-api` | (builtin/session) | 1 | 2026-06-29 | 2026-06-29 |
 | `deck-design-review` | projet | 1 | 2026-07-22 | 2026-07-22 |
 | `init` | (builtin/session) | 1 | 2026-07-03 | 2026-07-03 |
@@ -36,7 +37,7 @@ Dernier scan : 2026-07-23T15:39:25+02:00 · **39 sessions** (transcripts) · **8
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 27 | 2026-07-15 | 2026-07-23 |
+| `general-purpose` | 31 | 2026-07-15 | 2026-07-27 |
 | `Explore` | 24 | 2026-06-30 | 2026-07-23 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
@@ -44,17 +45,23 @@ Dernier scan : 2026-07-23T15:39:25+02:00 · **39 sessions** (transcripts) · **8
 
 ## Jamais utilisés
 
-**projet** — 4/10 jamais invoqués :
+**projet** — 3/10 jamais invoqués :
 
-`deck-design-library`, `pptx-framed-image`, `priority-matrix`, `swot-matrix`
+`deck-design-library`, `priority-matrix`, `swot-matrix`
 
-**BMAD** — 38/39 jamais invoqués :
+**BMAD** — 37/39 jamais invoqués :
 
 <details><summary>Voir la liste</summary>
 
-`bmad-advanced-elicitation`, `bmad-agent-analyst`, `bmad-agent-architect`, `bmad-agent-dev`, `bmad-agent-pm`, `bmad-agent-tech-writer`, `bmad-agent-ux-designer`, `bmad-architecture`, `bmad-brainstorming`, `bmad-check-implementation-readiness`, `bmad-checkpoint-preview`, `bmad-correct-course`, `bmad-create-epics-and-stories`, `bmad-create-story`, `bmad-customize`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-forge-idea`, `bmad-generate-project-context`, `bmad-help`, `bmad-index-docs`, `bmad-market-research`, `bmad-party-mode`, `bmad-prd`, `bmad-prfaq`, `bmad-product-brief`, `bmad-retrospective`, `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-shard-doc`, `bmad-sprint-planning`, `bmad-sprint-status`, `bmad-technical-research`, `bmad-ux`
+`bmad-advanced-elicitation`, `bmad-agent-analyst`, `bmad-agent-architect`, `bmad-agent-dev`, `bmad-agent-pm`, `bmad-agent-tech-writer`, `bmad-agent-ux-designer`, `bmad-architecture`, `bmad-brainstorming`, `bmad-check-implementation-readiness`, `bmad-checkpoint-preview`, `bmad-correct-course`, `bmad-create-epics-and-stories`, `bmad-create-story`, `bmad-customize`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-forge-idea`, `bmad-generate-project-context`, `bmad-help`, `bmad-index-docs`, `bmad-market-research`, `bmad-party-mode`, `bmad-prd`, `bmad-prfaq`, `bmad-product-brief`, `bmad-retrospective`, `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-shard-doc`, `bmad-sprint-planning`, `bmad-technical-research`, `bmad-ux`
 
 </details>
+
+## Skills bibliothèque / référence
+
+_Consommés en lisant/exécutant leurs `scripts/`, ou via un sous-agent qui les suit (ex. `ppt-designer`, qui n'a pas l'outil Skill) — le compteur d'invocations ne peut structurellement pas les voir. `n=0` n'y vaut donc PAS « mort » : ne pas désinstaller sur ce seul signal (constat superviseur #2)._
+
+`pptx-framed-image`
 
 ## TODO agents (constats automatiques)
 

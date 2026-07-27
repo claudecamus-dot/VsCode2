@@ -55,6 +55,16 @@
     <span class="rec-timer" id="rec-timer">00:00</span>
     <span class="muted" id="rec-status"></span>
   </div>
+  <!-- Import d'un entretien déjà enregistré (au lieu du micro). Même
+       comportement qu'un enregistrement en direct : le serveur transcrit le
+       fichier par blocs d'~1 min (/audio/transcribe-file) et chaque bloc est
+       affiché puis réparti sur la trame en tâche de fond dès qu'il est prêt. -->
+  <div class="record-controls" style="border: 1px dashed #999; padding: 8px; margin-top: 8px;">
+    <span class="muted">Ou importer un fichier audio déjà enregistré :</span>
+    <label for="rec-file-upload" class="visually-hidden">Fichier audio à transcrire</label>
+    <input type="file" id="rec-file-upload" accept="audio/*">
+    <button class="btn" type="button" id="rec-file-upload-btn">Transcrire ce fichier</button>
+  </div>
   <div class="autosave-line"><span class="muted" id="rec-backup-status"></span></div>
   <div class="autosave-line" id="rec-audio-playback" hidden>
     <audio controls id="rec-audio-player" class="record-audio-player"></audio>
@@ -400,6 +410,141 @@
       });
   }
 
+  // ---- Import d'un fichier audio : mêmes blocs qu'un enregistrement direct ----
+  // Le serveur découpe le fichier en blocs (~1 min, cf. audio_file_jobs.py) :
+  // on affiche chaque bloc dès qu'il est transcrit et on soumet sa répartition
+  // (kind="answers") en tâche de fond — exactement ce que fait la rotation
+  // micro, donc l'onglet « Répartition (Q/R) » se remplit aussi au fil de l'eau
+  // au lieu d'attendre la transcription complète pour tout traiter d'un coup.
+  var fileUploadInput = document.getElementById('rec-file-upload');
+  var fileUploadBtn = document.getElementById('rec-file-upload-btn');
+  var fileImportTimer = null;   // poll en cours (null = aucun import actif)
+  var fileImportDone = true;    // garde : un seul décrément de pendingSegments par import
+
+  // `gen` : toutes les fins d'import (succès, échec, abandon) passent ici et
+  // vérifient la génération — un import abandonné (« Recommencer », nouvel
+  // enregistrement) ne doit pas écrire son message d'erreur dans la NOUVELLE
+  // session (revue adversariale 2026-07-27 : les `.catch` ne vérifiaient rien).
+  function finishFileImport(errMsg, gen) {
+    if (fileImportDone) return;
+    fileImportDone = true;
+    if (fileImportTimer) { clearTimeout(fileImportTimer); fileImportTimer = null; }
+    var vivant = (gen === undefined || gen === recGeneration);
+    if (errMsg && vivant) appendTranscript(errMsg);
+    fileUploadBtn.disabled = false;
+    pendingSegments--;
+    updateSubmitState();
+    if (errMsg && vivant) {
+      // updateSubmitState pose un libellé générique (« prêt à envoyer ») :
+      // le message d'échec doit venir APRÈS pour ne pas être écrasé.
+      statusEl.textContent = 'Échec de la transcription du fichier.';
+      return;
+    }
+    // Reliquat éventuel (dernier bloc non encore couvert par un job) : même
+    // mécanisme de fin que l'arrêt d'un enregistrement micro. Jamais sur le
+    // chemin d'échec : cela soumettrait le MESSAGE D'ERREUR à l'extraction IA.
+    if (vivant) maybeSubmitFinalJob();
+  }
+
+  function pollFileImport(jobId, gen, consumed, failures) {
+    fileImportTimer = setTimeout(function () {
+      fileImportTimer = null;
+      // Session abandonnée entre-temps (« Recommencer », nouvel enregistrement) :
+      // même garde de génération que les uploads de segments.
+      if (gen !== recGeneration) { finishFileImport(null, gen); return; }
+      // `since` : le serveur ne renvoie que les blocs pas encore consommés
+      // (sinon toute la transcription repasserait à chaque tick de 3 s).
+      fetch('/audio/transcribe-file/status?job_id=' + encodeURIComponent(jobId)
+            + '&session_token=' + encodeURIComponent(sessionToken)
+            + '&since=' + consumed)
+        .then(function (res) {
+          if (!res.ok) throw new Error('statut indisponible');
+          return res.json();
+        })
+        .then(function (data) {
+          if (gen !== recGeneration) { finishFileImport(null, gen); return; }
+          var fresh = data.blocks || [];
+          for (var i = 0; i < fresh.length; i++) {
+            appendTranscript(fresh[i]);
+            // Répartition du bloc en tâche de fond, comme le tick du direct.
+            // La garde de ré-entrance de submitSegmentJob peut sauter un
+            // tick : le texte non couvert repart au suivant, jamais perdu.
+            submitSegmentJob();
+          }
+          consumed = (typeof data.done === 'number') ? data.done : consumed + fresh.length;
+          if (data.status === 'failed') {
+            finishFileImport('⚠ [fichier : ' + (data.error || 'échec de la transcription') + ']', gen);
+            return;
+          }
+          if (data.status === 'done') {
+            finishFileImport(null, gen);
+            // APRÈS finishFileImport : updateSubmitState y écrit son libellé
+            // générique, qui écraserait sinon ce message.
+            statusEl.textContent = 'Fichier transcrit (' + consumed + ' bloc'
+              + (consumed > 1 ? 's' : '') + ') — prêt à envoyer.';
+            return;
+          }
+          statusEl.textContent = 'Transcription du fichier en cours — ' + consumed
+            + (data.total ? '/' + data.total : '') + ' bloc(s) transcrit(s)…';
+          pollFileImport(jobId, gen, consumed, 0);
+        })
+        .catch(function (err) {
+          // Aléa réseau : on retente, mais pas indéfiniment — sinon un serveur
+          // tombé laisserait « Envoyer » désactivé pour toujours.
+          if (failures >= 5) {
+            finishFileImport('⚠ [fichier : ' + err.message + ']', gen);
+            return;
+          }
+          pollFileImport(jobId, gen, consumed, failures + 1);
+        });
+    }, 3000);
+  }
+
+  fileUploadBtn.addEventListener('click', function () {
+    if (!fileImportDone) {
+      statusEl.textContent = 'Un import est déjà en cours — attends sa fin.';
+      return;
+    }
+    if (!fileUploadInput.files.length) {
+      statusEl.textContent = 'Choisis d\'abord un fichier audio.';
+      return;
+    }
+    if (recordingActive) {
+      statusEl.textContent = 'Arrête l\'enregistrement avant d\'importer un fichier.';
+      return;
+    }
+    var file = fileUploadInput.files[0];
+    // Les blocs importés alimentent les mêmes jobs de répartition que le direct :
+    // il leur faut une session (aucune si l'utilisateur n'a jamais enregistré).
+    if (!sessionToken) {
+      sessionToken = newSessionToken();
+      sessionTokenHidden.value = sessionToken;
+    }
+    var gen = recGeneration;
+    fileImportDone = false;
+    pendingSegments++;
+    fileUploadBtn.disabled = true;
+    updateSubmitState();
+    statusEl.textContent = 'Envoi du fichier « ' + file.name + ' »…';
+    var formData = new FormData();
+    formData.append('file', file);
+    formData.append('session_token', sessionToken);
+    fetch('/audio/transcribe-file', { method: 'POST', body: formData })
+      .then(function (res) {
+        return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+      })
+      .then(function (result) {
+        if (!result.ok || !result.data.job_id) {
+          throw new Error(result.data.error || result.data.detail || 'import refusé');
+        }
+        statusEl.textContent = 'Transcription du fichier en cours (par blocs)…';
+        pollFileImport(result.data.job_id, gen, 0, 0);
+      })
+      .catch(function (err) {
+        finishFileImport('⚠ [fichier : ' + err.message + ']', gen);
+      });
+  });
+
   if (transcriptSoFar.trim()) {
     // updateSubmitState AVANT le message : il pose sinon son libellé générique
     // (« prêt à envoyer ») PAR-DESSUS l'explication du contexte d'erreur.
@@ -413,6 +558,15 @@
     // flux (constat 2026-07-20 côté libre). Un bouton désactivé ne redéclenche
     // pas l'évènement click.
     if (recordingActive) return;
+    // Import de fichier en cours : la transcription mobilise déjà tous les
+    // cœurs (jusqu'à 8 processus Whisper) et n'est pas annulable côté serveur
+    // — démarrer un micro maintenant ferait décrocher la transcription en
+    // direct pendant tout le reste de l'entretien (revue adversariale
+    // 2026-07-27).
+    if (!fileImportDone) {
+      statusEl.textContent = "Import de fichier en cours — attends sa fin avant d'enregistrer.";
+      return;
+    }
     // Une transcription restaurée après erreur (parfois 1h d'entretien) ne
     // doit pas être écrasée sur un simple clic — confirmation explicite.
     if (transcriptSoFar.trim() &&

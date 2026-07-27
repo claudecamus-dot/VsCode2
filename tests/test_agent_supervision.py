@@ -169,12 +169,15 @@ def test_routing_hints_croisent_usage_et_runs(tmp_path):
         _run_line()
         + _run_line(resultat="echec", reprises=2, plan=[
             {"etape": "revue", "agent": "Explore", "mode": "parallele", "modele": "haiku"}
-        ]),
+        ])
+        # Run journalisé à la composition du plan, pas encore soldé : compté à
+        # part, jamais dans `n` (sinon il ferait chuter le taux de réussite).
+        + _run_line(resultat="en-cours", reprises=0),
         encoding="utf-8",
     )
     result = _run(tmp_path)
     assert result.returncode == 0, result.stderr
-    assert "2 run(s) orchestrateur" in result.stdout
+    assert "3 run(s) orchestrateur" in result.stdout
     assert "routing-hints.json a jour" in result.stdout
 
     hints = json.loads((tmp_path / "routing-hints.json").read_text(encoding="utf-8"))
@@ -182,8 +185,12 @@ def test_routing_hints_croisent_usage_et_runs(tmp_path):
     assert "revue-increment" in hints["jamais_utilises"]
     assert any("revue-increment" in v for v in hints["verifications_oubliees"])
     # Plan vs réel : stats par playbook et par agent héritées du résultat du run.
-    assert hints["playbooks"]["dev-verifie"] == {"n": 2, "succes": 1, "echecs": 1, "reprises": 2}
-    assert hints["agents"]["Explore"] == {"n": 1, "succes": 0, "echecs": 1, "reprises": 2}
+    assert hints["playbooks"]["dev-verifie"] == {
+        "n": 2, "succes": 1, "echecs": 1, "reprises": 2, "en_cours": 1,
+    }
+    assert hints["agents"]["Explore"] == {
+        "n": 1, "succes": 0, "echecs": 1, "reprises": 2, "en_cours": 0,
+    }
     # Pas de diagnostic étage 2 : signalé comme à lancer.
     assert hints["diagnostic_a_jour"] is False
     assert "diagnostic agent-supervisor a lancer ou perime" in result.stdout

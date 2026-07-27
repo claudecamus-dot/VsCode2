@@ -34,6 +34,7 @@ from ..importers.docx_trame import extract_text_bytes
 from ..models import (
     SEGMENT_JOB_KINDS,
     Answer,
+    AudioFileJob,
     Interview,
     InterviewSegmentJob,
     InterviewTurn,
@@ -42,6 +43,11 @@ from ..models import (
     Verbatim,
 )
 from ..services import audio_transcribe
+from ..services.audio_file_jobs import (
+    is_audio_file_job_stale,
+    purge_stale_audio_file_jobs,
+    run_audio_file_job,
+)
 from ..services.interview_export import build_interview_markdown, group_turns_into_sections, slugify
 from ..services.interview_pdf_export import (
     build_interview_pdf,
@@ -109,7 +115,10 @@ def _get_or_create_answer(db: Session, interview: Interview, question_id: int) -
 
 
 def _all_questions(interview: Interview) -> list[Question]:
-    return [q for t in interview.mission.trame.themes for q in t.questions]
+    trame = interview.mission.trame
+    if trame is None:
+        return []  # mission sans trame : aucune question, pas une erreur
+    return [q for t in trame.themes for q in t.questions]
 
 
 def _coverage(interview: Interview) -> tuple[int, int]:
@@ -931,8 +940,13 @@ def _parse_turns_from_form(
     turn_section_title: list[str],
 ) -> list[dict]:
     """Reconstruit la liste de tours de parole depuis les champs de
-    formulaire répétés (même filtrage que `extract_turns_from_text` : un
-    tour sans interlocuteur, ou ni question ni remarque, n'est pas gardé)."""
+    formulaire répétés (même filtrage que `extract_turns_from_text` : un tour
+    sans AUCUN contenu n'est pas gardé ; un tour qui porte du contenu mais
+    dont l'interlocuteur a été vidé est conservé sous « Intervenant » plutôt
+    que jeté — filtrage relâché du 2026-07-22, étendu ici au formulaire après
+    la revue adversariale 2026-07-27 : depuis que les tours consécutifs d'un
+    même interlocuteur partagent un seul champ visible, vider ce champ vidait
+    silencieusement TOUT le groupe)."""
     turns = []
     for interlocuteur, question, remarque, section_title in zip_longest(
         turn_interlocuteur, turn_question, turn_remarque, turn_section_title,
@@ -942,8 +956,9 @@ def _parse_turns_from_form(
         question = question.strip() or None
         remarque = remarque.strip() or None
         section_title = section_title.strip() or None
-        if not interlocuteur or (question is None and remarque is None):
+        if question is None and remarque is None:
             continue
+        interlocuteur = interlocuteur or "Intervenant"
         turns.append({
             "interlocuteur": interlocuteur,
             "question": question,
@@ -1033,6 +1048,8 @@ def record_libre_synthese(
 @router.post("/missions/{mission_id}/interviews/record-libre/confirm")
 def record_libre_confirm(
     mission_id: int,
+    request: Request,
+    transcript: str = Form(""),
     interviewee_name: str = Form(""),
     interviewee_role: str = Form(""),
     interviewee_entity: str = Form(""),
@@ -1065,6 +1082,41 @@ def record_libre_confirm(
         repartition_points_amelioration,
         repartition_aspirations,
     )
+    turns_to_save = _parse_turns_from_form(
+        turn_interlocuteur, turn_question, turn_remarque, turn_section_title
+    )
+    if not turns_to_save:
+        # Même garde que `record_libre_synthese` : sans elle, « Enregistrer
+        # sans la synthèse » sur un écran sans tour créait un entretien vide
+        # « Sans nom », compté dans la mission et injecté dans la synthèse
+        # globale (revue adversariale 2026-07-27).
+        return templates.TemplateResponse(
+            request,
+            "interviews/libre_turns_review.html",
+            {
+                "mission": mission,
+                "turns": [],
+                "identity": {
+                    "interviewee_name": interviewee_name,
+                    "interviewee_role": interviewee_role,
+                    "interviewee_entity": interviewee_entity,
+                    "interview_date": interview_date,
+                    "audio_backup_path": audio_backup_path,
+                    "audio_segments": audio_segments,
+                },
+                "transcript": transcript,
+                "error": "Aucun tour de parole à enregistrer — corrige au moins un tour.",
+            },
+        )
+    # Répartition entièrement vide (enregistrement sans la synthèse) : la
+    # laisser à None plutôt qu'un dict de 5 chaînes vides, qui reste `truthy`
+    # et ferait injecter une matière sans contenu dans la synthèse globale de
+    # mission (`synthese._libre_material`).
+    repartition = {
+        key: value.strip() for key, value in zip(REPARTITION_KEYS, repartition_values)
+    }
+    if not any(repartition.values()):
+        repartition = None
     interview = Interview(
         mission_id=mission_id,
         mode="libre",
@@ -1076,34 +1128,28 @@ def record_libre_confirm(
         audio_backup_path=audio_backup_path or None,
         audio_segments=_parse_audio_segments(audio_segments),
         resume=resume.strip() or None,
-        repartition={
-            key: value.strip()
-            for key, value in zip(REPARTITION_KEYS, repartition_values)
-        },
+        repartition=repartition,
+        # La transcription brute était postée par l'écran de revue mais jamais
+        # lue ici : elle disparaissait à l'enregistrement. Anodin tant que la
+        # synthèse aboutissait, grave depuis « Enregistrer sans la synthèse »,
+        # dont le cas d'usage est justement l'échec IA à répétition — le texte
+        # est alors l'artefact le plus précieux (revue adversariale 2026-07-27).
+        raw_transcript=transcript.strip() or None,
     )
     db.add(interview)
     db.flush()  # attribue interview.id avant de créer les tours liés
 
-    for position, (interlocuteur, question, remarque, section_title) in enumerate(
-        zip_longest(
-            turn_interlocuteur, turn_question, turn_remarque, turn_section_title,
-            fillvalue="",
-        )
-    ):
-        interlocuteur = interlocuteur.strip()
-        question = question.strip() or None
-        remarque = remarque.strip() or None
-        section_title = section_title.strip() or None
-        if not interlocuteur or (question is None and remarque is None):
-            continue
+    # Même filtrage que l'écran de synthèse (`_parse_turns_from_form`) : une
+    # seule implémentation, plus deux règles à garder en phase.
+    for position, turn in enumerate(turns_to_save):
         db.add(
             InterviewTurn(
                 interview_id=interview.id,
                 position=position,
-                interlocuteur=interlocuteur,
-                question=question,
-                remarque=remarque,
-                section_title=section_title,
+                interlocuteur=turn["interlocuteur"],
+                question=turn["question"],
+                remarque=turn["remarque"],
+                section_title=turn["section_title"],
             )
         )
 
@@ -1132,6 +1178,116 @@ async def transcribe_segment(file: UploadFile = File(...)):
         logger.exception("Échec inattendu de la transcription d'un segment")
         return JSONResponse({"error": str(exc)}, status_code=500)
     return JSONResponse({"text": text})
+
+
+@router.post("/audio/transcribe-file")
+async def transcribe_file(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    session_token: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    """Importe un fichier audio déjà enregistré et lance sa transcription
+    BLOC PAR BLOC en tâche de fond (2026-07-27).
+
+    Remplace, pour ce cas, l'appel synchrone unique à `/audio/transcribe-segment`
+    (qui ne rendait la main qu'une fois le fichier ENTIER transcrit — rien à
+    l'écran pendant des dizaines de minutes, et aucune extraction IA démarrée
+    avant la fin). Le client récupère les blocs au fil de l'eau
+    (`transcribe_file_status`) et soumet, bloc par bloc, les mêmes jobs
+    d'extraction que pendant un enregistrement micro : à partir du texte, un
+    fichier importé se comporte exactement comme un direct."""
+    try:
+        suffix = "".join(c for c in (file.filename or "")[-16:] if c.isalnum() or c == ".")
+        suffix = suffix[suffix.rfind("."):] if "." in suffix else ".audio"
+        filename = f"import_{int(time.time())}_{uuid.uuid4().hex[:8]}{suffix}"
+        # Streaming par blocs vers le disque (même raison que save_record_backup) :
+        # un entretien de 1h30-3h ne doit pas passer entièrement en RAM.
+        def _ecrire():
+            with open(RECORDINGS_DIR / filename, "wb") as out:
+                shutil.copyfileobj(file.file, out, length=1024 * 1024)
+        await asyncio.to_thread(_ecrire)
+    except Exception as exc:
+        logger.exception("Échec de l'import du fichier audio à transcrire")
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+    if not session_token.strip():
+        # Le jeton scope la lecture du statut (le seul endpoint qui renvoie du
+        # contenu d'entretien) : sans lui, n'importe quel `job_id` — ils sont
+        # séquentiels — rendrait la transcription d'autrui.
+        (RECORDINGS_DIR / filename).unlink(missing_ok=True)
+        return JSONResponse(
+            {"error": "Session d'enregistrement absente."}, status_code=400
+        )
+    try:
+        purge_stale_audio_file_jobs(db)
+        job = AudioFileJob(
+            session_token=session_token[:64],
+            filename=filename,
+            status="pending",
+            block_seconds=audio_transcribe.FILE_BLOCK_S,
+            blocks=[],
+        )
+        db.add(job)
+        db.commit()
+        db.refresh(job)
+    except Exception as exc:
+        # Fichier déjà écrit mais aucun job pour le référencer : la purge ne
+        # le retrouverait jamais (elle part des lignes en base) — on le retire
+        # tout de suite (revue adversariale 2026-07-27).
+        (RECORDINGS_DIR / filename).unlink(missing_ok=True)
+        logger.exception("Création du job de transcription de fichier impossible")
+        return JSONResponse({"error": str(exc)}, status_code=500)
+    background_tasks.add_task(run_audio_file_job, job.id)
+    return JSONResponse(
+        {"job_id": job.id, "status": "pending", "block_seconds": job.block_seconds}
+    )
+
+
+@router.get("/audio/transcribe-file/status")
+def transcribe_file_status(
+    job_id: int,
+    session_token: str = "",
+    since: int = 0,
+    db: Session = Depends(get_session),
+):
+    """Blocs transcrits d'un fichier importé depuis le curseur `since` —
+    interrogé en boucle par l'écran d'enregistrement.
+
+    `session_token` est EXIGÉ et vérifié : cet endpoint est le seul à renvoyer
+    du contenu d'entretien, et les `job_id` sont séquentiels. `since` évite de
+    re-transférer toute la transcription à chaque tick (3 s) : sur un entretien
+    de 3 h le volume cumulé devenait quadratique. Un job resté bloqué
+    (redémarrage serveur) est rapporté `failed` plutôt que de faire poller
+    l'écran indéfiniment."""
+    job = db.get(AudioFileJob, job_id)
+    if job is None or not session_token or job.session_token != session_token:
+        raise HTTPException(status_code=404, detail="Import introuvable.")
+    blocks = list(job.blocks or [])
+    status, error = job.status, job.error or ""
+    if is_audio_file_job_stale(job):
+        status = "failed"
+        error = error or (
+            "La transcription de ce fichier ne répond plus (serveur redémarré ?) "
+            "— relance l'import."
+        )
+    payload = {
+        "status": status,
+        # Curseur : seuls les blocs non encore consommés par le client.
+        "blocks": blocks[max(0, since):],
+        "done": len(blocks),
+        "total": job.total_blocks,
+        "error": error,
+    }
+    if status in ("done", "failed") and since >= len(blocks):
+        # Job consommé : sa colonne `blocks` porte la transcription complète
+        # d'un entretien. La purge périodique ne s'exécute qu'au prochain
+        # import — sur un poste où l'on importe rarement, le texte serait resté
+        # des mois en base (revue adversariale 2026-07-27). On le supprime dès
+        # que le client a tout récupéré.
+        db.delete(job)
+        db.commit()
+    return JSONResponse(payload)
 
 
 @router.post("/missions/{mission_id}/interviews/record/backup")
@@ -1379,9 +1535,17 @@ def capture(
                 "interview": interview,
                 "mission": interview.mission,
                 "turns": interview.turns,
+                # Onglet Aperçu (2026-07-27) : même rendu par sections que
+                # l'écran /analyse, directement sur la fiche entretien.
+                "sections": group_turns_into_sections(interview.turns),
             },
         )
-    themes = interview.mission.trame.themes
+    # Mission sans trame (entretien structuré créé avant la trame, ou trame
+    # supprimée depuis) : l'écran a déjà son message « la trame est vide »,
+    # mais `mission.trame.themes` levait une AttributeError -> 500 sur une
+    # simple consultation (constat sur données réelles, 2026-07-27 — même
+    # famille que les gardes « Mission sans trame » des écrans de synthèse).
+    themes = interview.mission.trame.themes if interview.mission.trame else []
     answers = {a.question_id: a for a in interview.answers}
     verbatims_by_q: dict[int, list[Verbatim]] = {}
     for v in interview.verbatims:

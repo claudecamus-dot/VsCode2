@@ -343,6 +343,47 @@ input[type=text].turn-section-input:placeholder-shown {
   border-color: var(--border-subtle); background: var(--surface-subtle);
 }
 
+/* Champ vide (titre de section, question) : masqué derrière un lien discret
+   plutôt qu'affiché vide — l'écran se lit comme un dialogue, pas comme une
+   grille de formulaire à moitié remplie (demande utilisateur 2026-07-27). Le
+   champ reste dans le DOM et POSTÉ : le serveur lit les listes de champs en
+   parallèle, un champ omis décalerait tous les tours suivants. */
+.turn-optional .turn-add-field {
+  font-size: .78rem; color: var(--muted); padding: 0; background: none;
+  border: none; cursor: pointer; text-align: left;
+  /* Invisible au repos (l'écran doit se lire comme un dialogue, pas comme une
+     liste de champs à remplir) mais la place reste réservée : pas de saut de
+     mise en page au survol. `visibility` et NON `opacity` : un bouton à
+     `opacity: 0` reste cliquable, donc sur tablette (pas de survol) chaque
+     tour portait des cibles tactiles invisibles qui détournaient le tap
+     destiné au texte (revue adversariale 2026-07-27). */
+  visibility: hidden; transition: opacity .12s ease;
+}
+.turn-block:hover .turn-add-field,
+.turn-block:focus-within .turn-add-field,
+.turn-add-field:focus-visible { visibility: visible; }
+/* Sans survol (tactile), les liens restent atteignables en permanence. */
+@media (hover: none) {
+  .turn-optional .turn-add-field { visibility: visible; opacity: .55; }
+}
+.turn-optional .turn-add-field:hover { color: var(--accent-dark); text-decoration: underline; }
+
+/* Tours consécutifs du même interlocuteur : le nom n'est écrit qu'une fois,
+   les suivants portent un simple chevron (leur champ reste masqué et
+   synchronisé en JS sur le tour qui porte le nom, jusqu'à un éventuel
+   détachement manuel). */
+/* Onglet « + Renseigner l'identité » : présent mais en retrait tant que l'IA
+   n'a rien relevé — ce n'est pas une étape attendue, juste une issue. */
+.rec-tab.rec-tab-optional { font-weight: 400; opacity: .7; }
+
+.turn-speaker-cont { padding-top: 16px; text-align: right; padding-right: 6px; }
+.turn-speaker-cont .turn-cont-mark {
+  display: block; color: var(--border); font-size: 1.4rem; line-height: 1;
+}
+.turn-block.turn-block-cont {
+  padding-top: 8px; padding-bottom: 8px; border-bottom-style: dotted;
+}
+
 @media (max-width: 620px) {
   .turn-block {
     grid-template-columns: 1fr;

@@ -31,6 +31,10 @@ def slugify(name: str) -> str:
 
 
 def build_export_markdown(mission: Mission) -> str:
+    # Import local : `interview_export` importe déjà `slugify` d'ici — au
+    # niveau module, les deux se référenceraient circulairement.
+    from .interview_export import group_turns_into_sections
+
     material_by_theme = _all_theme_material(mission)
     now = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
 
@@ -54,6 +58,28 @@ def build_export_markdown(mission: Mission) -> str:
         if (iv.free_notes or "").strip():
             lines.append(f"  Notes libres : {iv.free_notes.strip()}")
     lines.append("")
+
+    # Entretiens libres : aucune trame, donc aucune matière dans
+    # `material_by_theme` — ils étaient purement et simplement ABSENTS d'un
+    # export qui s'annonce « l'ensemble des entretiens ». On sort leur matière
+    # brute (tours de parole), et surtout PAS leur répartition par catégorie :
+    # les 5 catégories transverses ne se déduisent qu'en croisant tous les
+    # entretiens, c'est précisément le travail demandé plus bas
+    # (demande utilisateur 2026-07-27).
+    libres = [iv for iv in mission.interviews if iv.mode == "libre" and iv.turns]
+    if libres:
+        lines += ["## Matière par entretien libre", ""]
+        for iv in libres:
+            lines += [f"### {iv.interviewee_name}", ""]
+            if (iv.resume or "").strip():
+                lines += [f"_Message central : {iv.resume.strip()}_", ""]
+            for section in group_turns_into_sections(iv.turns):
+                if section["title"]:
+                    lines += [f"**{section['title']}**", ""]
+                for turn in section["turns"]:
+                    propos = " ".join(p for p in (turn.question, turn.remarque) if p)
+                    lines.append(f"- {turn.interlocuteur} : {propos}")
+                lines.append("")
 
     lines.append("## Matière par thème")
     lines.append("")

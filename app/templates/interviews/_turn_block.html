@@ -1,0 +1,102 @@
+{# Bloc d'édition d'UN tour de parole — partagé par l'écran de revue du wizard
+   libre (`libre_turns_review.html`) et l'écran d'édition d'un entretien déjà
+   enregistré (`libre_detail.html`), jusque-là dupliqué à l'identique.
+
+   Règle d'affichage (demande utilisateur 2026-07-27) : ne montrer que ce qui
+   porte du contenu — un titre de section vide, une question vide ou un
+   interlocuteur identique au tour précédent n'apparaissent pas. L'écran se lit
+   alors comme un dialogue, plus comme une grille de formulaire à moitié vide.
+
+   ⚠ Les 4 champs sont TOUJOURS postés, même masqués : le serveur lit les
+   listes `turn_interlocuteur`/`turn_question`/`turn_remarque`/
+   `turn_section_title` EN PARALLÈLE (`_parse_turns_from_form`,
+   `save_libre_detail`) — omettre un champ décalerait tous les tours suivants.
+   Un champ masqué reste donc dans le DOM (label `hidden`), révélable par son
+   lien « + … » pour le remplir.
+
+   Contexte attendu : `turn`, `turn_index`, `same_speaker`, `with_id`. #}
+<div class="turn-block{% if same_speaker %} turn-block-cont{% endif %}">
+  {% if with_id %}<input type="hidden" name="turn_id" value="{{ turn.id }}">{% endif %}
+
+  {% if turn.section_title %}
+  <label class="turn-section-field">
+    <span class="turn-field-caption">Titre de section</span>
+    <input type="text" name="turn_section_title" class="turn-section-input"
+           value="{{ turn.section_title }}">
+  </label>
+  {% else %}
+  <div class="turn-section-field turn-optional">
+    <button type="button" class="btn-link turn-add-field">+ Titre de section</button>
+    <label class="turn-optional-field" hidden>
+      <span class="turn-field-caption">Titre de section (nouveau sujet)</span>
+      <input type="text" name="turn_section_title" class="turn-section-input" value=""
+             placeholder="— laisser vide pour continuer le sujet précédent —">
+    </label>
+  </div>
+  {% endif %}
+
+  {% if same_speaker %}
+  {# Même interlocuteur que le tour précédent : le nom n'est écrit qu'une fois.
+     La valeur reste postée par ce champ, tenu à jour en JS quand l'utilisateur
+     corrige le nom sur le tour qui le porte. « + Autre interlocuteur » le rend
+     éditable et le DÉTACHE du groupe (`data-speaker-detached`) : sans cette
+     sortie, un tour mal rattaché par l'IA n'était plus corrigeable du tout,
+     alors que chaque tour l'était avant cette refonte — revue adversariale
+     2026-07-27. #}
+  <div class="turn-speaker-field turn-speaker-cont turn-optional"
+       title="Même interlocuteur que le tour précédent">
+    <span class="turn-cont-mark" aria-hidden="true">↳</span>
+    <button type="button" class="btn-link turn-add-field turn-detach-speaker">+ Autre interlocuteur</button>
+    <label class="turn-optional-field" hidden>
+      <span class="turn-field-caption">Tour {{ turn_index }} · interlocuteur</span>
+      <input type="text" name="turn_interlocuteur" class="turn-speaker-input"
+             value="{{ turn.interlocuteur }}" data-speaker-echo>
+    </label>
+  </div>
+  {% else %}
+  <label class="turn-speaker-field">
+    <span class="turn-field-caption">Tour {{ turn_index }} · interlocuteur</span>
+    <input type="text" name="turn_interlocuteur" class="turn-speaker-input"
+           value="{{ turn.interlocuteur }}" data-speaker-lead>
+  </label>
+  {% endif %}
+
+  <div class="turn-content">
+    {% if turn.question %}
+    <label>
+      <span class="turn-field-caption">Question</span>
+      <textarea name="turn_question" class="turn-textarea" rows="2">{{ turn.question }}</textarea>
+    </label>
+    {% else %}
+    <div class="turn-optional">
+      <button type="button" class="btn-link turn-add-field">+ Question</button>
+      <label class="turn-optional-field" hidden>
+        <span class="turn-field-caption">Question</span>
+        <textarea name="turn_question" class="turn-textarea" rows="2"></textarea>
+      </label>
+    </div>
+    {% endif %}
+    {% if turn.remarque or not turn.question %}
+    {# Le `or not turn.question` évite un tour ENTIÈREMENT masqué : un tour
+       vidé à la main sur l'écran d'édition (que `save_libre_detail` conserve
+       tel quel) n'aurait plus affiché qu'un nom et deux liens invisibles —
+       impossible à repérer, encore moins à corriger (revue adversariale
+       2026-07-27). #}
+    <label>
+      <span class="turn-field-caption">Réponse / commentaire</span>
+      <textarea name="turn_remarque" class="turn-textarea" rows="2">{{ turn.remarque or '' }}</textarea>
+    </label>
+    {% else %}
+    {# Sur un tour qui ne porte qu'une question (le consultant interroge, la
+       réponse est le tour suivant), une grande zone vide n'apportait que du
+       bruit. #}
+    <div class="turn-optional">
+      <button type="button" class="btn-link turn-add-field">+ Réponse / commentaire</button>
+      <label class="turn-optional-field" hidden>
+        <span class="turn-field-caption">Réponse / commentaire</span>
+        <textarea name="turn_remarque" class="turn-textarea" rows="2"></textarea>
+      </label>
+    </div>
+    {% endif %}
+  </div>
+</div>

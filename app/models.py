@@ -705,3 +705,45 @@ class InterviewSegmentJob(Base):
     turns_result: Mapped[dict | None] = mapped_column(JSON, default=None)
     error: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class AudioFileJob(Base):
+    """Transcription BLOC PAR BLOC d'un fichier audio importé (2026-07-27).
+
+    Un fichier pré-enregistré passait auparavant par un unique appel synchrone
+    (`/audio/transcribe-segment`) : rien ne s'affichait avant la fin — plusieurs
+    dizaines de minutes sur un entretien réel — et l'extraction IA (tours de
+    parole / répartition Q/R) ne démarrait qu'ensuite, sur la transcription
+    entière. Ce job rejoue côté serveur ce que la rotation du micro fait côté
+    navigateur : la transcription est découpée en blocs d'environ
+    `block_seconds`, chacun persisté dès qu'il est prêt (`blocks`). L'écran
+    d'enregistrement les récupère au fil de l'eau (poll) et soumet, bloc par
+    bloc, les `InterviewSegmentJob` d'extraction habituels — mêmes tranches,
+    même fusion, même écran de revue que le direct.
+
+    Sans entretien en base à ce stade (le wizard ne crée l'`Interview` qu'à la
+    confirmation), le job vit sur son `id`, avec le même `session_token`
+    éphémère que les jobs d'extraction de la session.
+    """
+
+    __tablename__ = "audio_file_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    session_token: Mapped[str] = mapped_column(String(64), index=True, default="")
+    # Nom du fichier uploadé, écrit dans RECORDINGS_DIR (hors base) — supprimé
+    # dès la transcription terminée : l'audio d'un entretien ne doit pas
+    # s'entasser sur le disque une fois son texte obtenu.
+    filename: Mapped[str] = mapped_column(String(255), default="")
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    # Défaut aligné sur `audio_transcribe.FILE_BLOCK_S` (60 s, la rotation du
+    # direct). Un défaut divergent (300) redeviendrait vivant pour tout job
+    # créé hors de la route d'import et lui ferait perdre, en silence, la
+    # propriété « au fil de l'eau » (revue adversariale 2026-07-27).
+    block_seconds: Mapped[int] = mapped_column(Integer, default=60)
+    # Nombre total de blocs, connu seulement après le décodage (0 avant).
+    total_blocks: Mapped[int] = mapped_column(Integer, default=0)
+    # Textes des blocs déjà transcrits, dans l'ordre — réassignés (jamais mutés
+    # en place) pour que SQLAlchemy détecte le changement sur une colonne JSON.
+    blocks: Mapped[list] = mapped_column(JSON, default=list)
+    error: Mapped[str | None] = mapped_column(Text, default=None)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)

@@ -1,0 +1,79 @@
+{# Comportements de la liste de tours de parole (cf. `_turn_block.html`) —
+   inclus UNE fois par écran, après la liste. Vanilla JS, sans dépendance. #}
+<script>
+(function () {
+  var lists = document.querySelectorAll('.turns-list');
+  if (!lists.length) return;
+
+  // Repli pour un navigateur sans Element.closest : sans lui, les liens
+  // « + … » seraient inertes et un champ masqué deviendrait définitivement
+  // non renseignable (revue adversariale 2026-07-27).
+  function closestMatch(node, selector) {
+    if (node && node.closest) return node.closest(selector);
+    while (node && node.nodeType === 1) {
+      if (node.matches ? node.matches(selector)
+                       : (node.className || '').split(' ').indexOf(selector.slice(1)) >= 0) {
+        return node;
+      }
+      node = node.parentNode;
+    }
+    return null;
+  }
+
+  // Propage le nom du tour « meneur » aux tours suivants du même groupe. Un
+  // tour détaché à la main (« + Autre interlocuteur ») garde le sien.
+  function syncGroup(lead) {
+    var block = closestMatch(lead, '.turn-block');
+    var next = block ? block.nextElementSibling : null;
+    while (next && next.className.indexOf('turn-block-cont') >= 0) {
+      var echo = next.querySelector('[data-speaker-echo]');
+      if (echo && !echo.hasAttribute('data-speaker-detached')) echo.value = lead.value;
+      next = next.nextElementSibling;
+    }
+  }
+
+  Array.prototype.forEach.call(lists, function (list) {
+    // 1. Révéler un champ masqué (titre de section / question / réponse vides,
+    //    ou l'interlocuteur d'un tour replié) : le champ est déjà dans le DOM
+    //    (il DOIT être posté), on lève juste son attribut `hidden`.
+    list.addEventListener('click', function (event) {
+      var btn = closestMatch(event.target, '.turn-add-field');
+      if (!btn || !list.contains(btn)) return;
+      var field = btn.parentNode.querySelector('.turn-optional-field');
+      if (!field) return;
+      field.hidden = false;
+      btn.hidden = true;
+      var input = field.querySelector('input, textarea');
+      if (input) {
+        // Interlocuteur rendu éditable : il sort du groupe, la synchro ne doit
+        // plus l'écraser avec le nom du meneur.
+        if (input.hasAttribute('data-speaker-echo')) {
+          input.setAttribute('data-speaker-detached', '1');
+          var mark = btn.parentNode.querySelector('.turn-cont-mark');
+          if (mark) mark.hidden = true;
+        }
+        input.focus();
+      }
+    });
+
+    // 2. Tours consécutifs du même interlocuteur : le nom n'est saisissable que
+    //    sur le premier tour du groupe, les suivants le portent en écho.
+    //    Sans cette synchro, corriger « Mrc » en « Marc » ne corrigerait que le
+    //    premier tour et laisserait les suivants sur l'ancienne valeur.
+    list.addEventListener('input', function (event) {
+      var lead = event.target;
+      if (!lead.hasAttribute || !lead.hasAttribute('data-speaker-lead')) return;
+      syncGroup(lead);
+    });
+
+    // 3. Au chargement : l'écran regroupe des orthographes équivalentes
+    //    (« Marc » / « MARC », comparaison insensible à la casse) mais les
+    //    échos gardaient leur propre graphie — l'entretien enregistré montrait
+    //    alors deux personnes là où l'écran en montrait une. On aligne tout de
+    //    suite les échos sur le nom affiché (revue adversariale 2026-07-27).
+    Array.prototype.forEach.call(
+      list.querySelectorAll('[data-speaker-lead]'), syncGroup
+    );
+  });
+})();
+</script>

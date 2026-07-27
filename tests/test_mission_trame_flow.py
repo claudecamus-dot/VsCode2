@@ -13,7 +13,7 @@ from pptx.util import Emu, Inches
 from app.main import app
 from app.db import DB_PATH, SessionLocal, engine, init_db
 from app.importers.docx_trame import parse_docx_bytes
-from app.models import Answer, Interview, Mission, Question, Recommendation, RecommendationAxis, Theme, Trame
+from app.models import Answer, Interview, InterviewTurn, Mission, Question, Recommendation, RecommendationAxis, Theme, Trame
 from app.routers.trames import _parsed_to_json
 from app.services import audio_transcribe, interview_extract_ai
 from app.services.openhub_agents import invoke_skill
@@ -1615,6 +1615,40 @@ def test_export_markdown_contains_data_and_analysis_template(client: TestClient)
     assert "## RECOMMANDATIONS" in text
     assert "#### Axe 1" in text
     assert "##### Recommandation 1.1" in text
+
+
+def test_export_markdown_includes_libre_interviews_material(client: TestClient) -> None:
+    """Un entretien libre n'a pas de trame : sa matière (tours de parole)
+    était absente de l'export « ensemble des entretiens » (2026-07-27). Elle
+    doit y figurer en brut — et PAS sa répartition par catégorie, dont la
+    déduction transverse est justement le travail demandé par le gabarit."""
+    mission_id, _qid = _setup_mission_with_one_answer(client, "Mission Export Libre")
+
+    session = SessionLocal()
+    try:
+        interview = Interview(
+            mission_id=int(mission_id), mode="libre",
+            interviewee_name="Libre Exporté", resume="Message central libre.",
+            repartition={"contexte": "- NE-DOIT-PAS-APPARAITRE"},
+        )
+        session.add(interview)
+        session.flush()
+        session.add(InterviewTurn(
+            interview_id=interview.id, position=0,
+            interlocuteur="Libre Exporté", remarque="Un propos libre exporté.",
+            section_title="Sujet libre",
+        ))
+        session.commit()
+    finally:
+        session.close()
+
+    text = client.get(f"/missions/{mission_id}/export/interviews").text
+    assert "## Matière par entretien libre" in text
+    assert "### Libre Exporté" in text
+    assert "Sujet libre" in text
+    assert "Un propos libre exporté." in text
+    assert "Message central libre." in text
+    assert "NE-DOIT-PAS-APPARAITRE" not in text
 
 
 def test_import_analyse_populates_global_synthesis_and_recommendations(client: TestClient) -> None:

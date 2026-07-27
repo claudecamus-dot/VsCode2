@@ -34,7 +34,7 @@ from reportlab.platypus import (
 )
 
 from ..models import Interview
-from .interview_export import REPARTITION_LABELS, group_turns_into_sections
+from .interview_export import group_turns_into_sections
 
 __all__ = [
     "build_interview_pdf",
@@ -164,20 +164,6 @@ def _dialogue_flowables(turns) -> list:
     return flowables
 
 
-def _repartition_flowables(repartition: dict | None) -> list:
-    """Section « Répartition par catégorie » (5 catégories fixes)."""
-    repartition = repartition or {}
-    flowables = _h1("Répartition par catégorie")
-    for key, label in REPARTITION_LABELS.items():
-        value = (repartition.get(key) or "").strip()
-        flowables.append(Paragraph(_text(label), _STYLES["h2"]))
-        flowables.append(Paragraph(
-            _text(value) if value else "— pas de matière sur cette catégorie —",
-            _STYLES["body"] if value else _STYLES["muted"],
-        ))
-    return flowables
-
-
 def _libre_body_flowables(interview: Interview) -> list:
     flowables = _resume_flowables(interview.resume)
     flowables += _h1("Transcription structurée")
@@ -187,7 +173,9 @@ def _libre_body_flowables(interview: Interview) -> list:
         _STYLES["muted"],
     ))
     flowables += _dialogue_flowables(interview.turns)
-    flowables += _repartition_flowables(interview.repartition)
+    # Les 5 catégories transverses ne sont plus restituées par entretien
+    # (demande utilisateur 2026-07-27) — elles vivent dans la synthèse globale
+    # de mission, qui croise tous les entretiens.
     return flowables
 
 
@@ -334,15 +322,17 @@ def build_turns_only_pdf(turns: list[dict], interviewee_name: str = "") -> bytes
     return buffer.getvalue()
 
 
-def build_synthese_only_pdf(resume: str, repartition: dict | None, interviewee_name: str = "") -> bytes:
-    """PDF du résumé + de la répartition d'un entretien libre pas encore
-    enregistré — écran « Synthèse avant enregistrement » du wizard
-    (2026-07-19), avant confirmation finale. Même mise en forme que la
-    matière équivalente de `build_interview_pdf()` (mode libre) :
-    `_resume_flowables()`/`_repartition_flowables()` sont factorisées entre
-    les deux — palette/structure du document modèle
-    (`02_Synthese_session_3…docx` : encadré « Message central », sous-titres
-    par catégorie) reprises à l'identique, pas réinventées pour cet écran."""
+def build_synthese_only_pdf(resume: str, repartition: dict | None = None, interviewee_name: str = "") -> bytes:
+    """PDF du résumé d'un entretien libre pas encore enregistré — écran
+    « Synthèse avant enregistrement » du wizard (2026-07-19), avant
+    confirmation finale. Même mise en forme que la matière équivalente de
+    `build_interview_pdf()` (mode libre) : `_resume_flowables()` est
+    factorisée entre les deux — encadré « Message central » du document
+    modèle (`02_Synthese_session_3…docx`) repris à l'identique.
+
+    `repartition` n'est plus rendue (demande utilisateur 2026-07-27 : les 5
+    catégories transverses ne se restituent qu'au niveau mission) ; le
+    paramètre reste accepté pour ne pas casser les appelants."""
     title = f"Synthèse — {interviewee_name}" if interviewee_name.strip() else "Synthèse"
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -351,7 +341,6 @@ def build_synthese_only_pdf(resume: str, repartition: dict | None, interviewee_n
     )
     flowables = [Paragraph(_text(title), _STYLES["title"])]
     flowables += _resume_flowables(resume)
-    flowables += _repartition_flowables(repartition)
     decorate = _page_decorator(title)
     doc.build(flowables, onFirstPage=decorate, onLaterPages=decorate)
     return buffer.getvalue()

@@ -66,16 +66,11 @@ def _build_libre_body(interview: Interview) -> list[str]:
             lines.append(f"**{turn.interlocuteur}** : {propos}")
         lines.append("")
 
-    repartition = interview.repartition or {}
-    lines += ["## Répartition par catégorie", ""]
-    for key, label in REPARTITION_LABELS.items():
-        value = (repartition.get(key) or "").strip()
-        lines += [
-            f"### {label}",
-            "",
-            value if value else "_— pas de matière sur cette catégorie —_",
-            "",
-        ]
+    # Les 5 catégories transverses ne sont plus restituées par entretien
+    # (demande utilisateur 2026-07-27) : elles n'ont de sens qu'une fois tous
+    # les entretiens croisés et vivent dans la synthèse globale de mission.
+    # La répartition reste calculée en coulisse — c'est la matière de cette
+    # synthèse (`synthese._libre_material`) — mais n'est plus exportée ici.
     return lines
 
 

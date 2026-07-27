@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 data/
 .pytest_cache/
+.coverage
 .roadmap/*.svg
 .env
 .DS_Store

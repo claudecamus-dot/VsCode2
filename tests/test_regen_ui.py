@@ -121,9 +121,10 @@ def test_forms_generation_portent_busy_label(client: TestClient) -> None:
     # recommandations.html (trou trouvé par la revue adversariale).
     exp = (TEMPLATES / "synthese" / "export_import.html").read_text(encoding="utf-8")
     assert "onsubmit" in exp and "confirm(" in exp, "export_import.html : régénération sans confirm"
-    # libre_analyse.html : le form « Régénérer l'analyse (IA) » (route non-/generate).
+    # libre_analyse.html : le bouton « Régénérer l'analyse (IA) » a été retiré
+    # sur demande utilisateur (2026-07-27) — plus de form de génération ici.
     analyse = (TEMPLATES / "interviews" / "libre_analyse.html").read_text(encoding="utf-8")
-    assert "data-busy-label=" in analyse, "form régénérer de libre_analyse.html sans busy-label"
+    assert "regenerer" not in analyse, "libre_analyse.html : le bouton régénérer devait être retiré"
 
 
 def test_forms_extraction_ia_portent_busy_label(client: TestClient) -> None:

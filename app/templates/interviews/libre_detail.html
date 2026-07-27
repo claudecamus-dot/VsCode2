@@ -9,14 +9,13 @@
 <div class="page-head">
   <h1>{{ interview.interviewee_name }} <span class="muted">— entretien libre</span></h1>
   <div class="head-actions">
-    {# Libellés « Télécharger (…) » alignés sur preview.html (revue UX 2026-07-23
-       P2-12) ; retour mission en tête, comme « Terminer » côté structuré (P2-9). #}
+    {# Écran réorganisé en onglets (demande utilisateur 2026-07-27) : Tours de
+       parole (édition) / Transcription / Aperçu — le bouton Enregistrer reste
+       ICI, hors onglets, toujours visible quel que soit l'onglet actif. Les
+       téléchargements spécifiques (transcription seule, tours de parole)
+       vivent dans leur onglet respectif. #}
     <a class="btn" href="/missions/{{ mission.id }}">← Mission</a>
-    {# Submit épinglé en tête (P2-9 : l'asymétrie visée était le « Terminer »
-       épinglé du mode structuré — un simple lien retour ne suffisait pas). #}
     <button class="btn btn-primary" type="submit" form="libre-detail-form">Enregistrer les modifications</button>
-    <a class="btn" href="/interviews/{{ interview.id }}/analyse">Aperçu</a>
-    <a class="btn" href="/interviews/{{ interview.id }}/export/transcription/pdf">Télécharger la transcription (PDF)</a>
     <a class="btn" href="/interviews/{{ interview.id }}/export/markdown">Télécharger (.md)</a>
     <a class="btn" href="/interviews/{{ interview.id }}/export/pdf">Télécharger (PDF)</a>
     <form method="post" action="/interviews/{{ interview.id }}/delete"
@@ -66,57 +65,141 @@
 {% endif %}
 
 <form method="post" action="/interviews/{{ interview.id }}/libre" class="card form" id="libre-detail-form">
-  <section class="card">
-    <h2>Tours de parole</h2>
-    {% if not turns %}
-    <p class="muted">Aucun tour de parole.</p>
-    {% endif %}
-    <div class="turns-list">
-    {% for turn in turns %}
-    <div class="turn-block">
-      <input type="hidden" name="turn_id" value="{{ turn.id }}">
-      <label class="turn-section-field">
-        <span class="turn-field-caption">Titre de section (si nouveau sujet)</span>
-        <input type="text" name="turn_section_title" class="turn-section-input"
-               value="{{ turn.section_title or '' }}"
-               placeholder="— laisser vide pour continuer le sujet précédent —">
-      </label>
-      <label class="turn-speaker-field">
-        <span class="turn-field-caption">Tour {{ loop.index }} · interlocuteur</span>
-        <input type="text" name="turn_interlocuteur" class="turn-speaker-input" value="{{ turn.interlocuteur }}">
-      </label>
-      <div class="turn-content">
-        <label>
-          <span class="turn-field-caption">Question</span>
-          <textarea name="turn_question" class="turn-textarea" rows="2">{{ turn.question or '' }}</textarea>
-        </label>
-        <label>
-          <span class="turn-field-caption">Remarque</span>
-          <textarea name="turn_remarque" class="turn-textarea" rows="2">{{ turn.remarque or '' }}</textarea>
-        </label>
+  <div class="rec-tabs" role="tablist">
+    <button type="button" role="tab" aria-selected="true" class="rec-tab active" data-turntab="tours">Tours de parole</button>
+    <button type="button" role="tab" aria-selected="false" class="rec-tab" data-turntab="transcription">Transcription</button>
+    <button type="button" role="tab" aria-selected="false" class="rec-tab" data-turntab="apercu">Aperçu</button>
+  </div>
+
+  {# Les panneaux inactifs sont seulement `hidden` : leurs champs restent dans
+     le DOM et POSTÉS — « Enregistrer » (en tête, hors onglets) sauve donc les
+     tours quel que soit l'onglet affiché. #}
+  <div id="turntab-tours" class="rec-tab-panel">
+    <section class="card">
+      <h2>Tours de parole</h2>
+      {% if not turns %}
+      <p class="muted">Aucun tour de parole.</p>
+      {% else %}
+      <p class="muted">Seuls les champs renseignés sont affichés, et un interlocuteur qui enchaîne plusieurs tours n'est nommé qu'une fois. Survole un tour pour ajouter ce qui manque (titre de section, question, réponse).</p>
+      {% endif %}
+      <div class="turns-list">
+      {% for turn in turns %}
+      {% set turn_index = loop.index %}
+      {% set with_id = true %}
+      {% set same_speaker = (not loop.first)
+             and (turn.interlocuteur or '') | trim
+             and (turn.interlocuteur or '') | trim | lower
+                 == (loop.previtem.interlocuteur or '') | trim | lower %}
+      {% include "interviews/_turn_block.html" %}
+      {% endfor %}
       </div>
-    </div>
-    {% endfor %}
-    </div>
-  </section>
+      {% if turns %}
+      <div class="tab-panel-actions">
+        {# Le POST réutilise les champs turn_* de CE formulaire — même document
+           PDF que l'export du wizard. formnovalidate/formaction : télécharge
+           sans déclencher l'enregistrement. #}
+        <button class="btn btn-sm" type="submit" formnovalidate
+                formaction="/interviews/turns/export-pdf"
+                title="Exporte les tours de parole tels qu'affichés (modifications non enregistrées comprises)">Télécharger les tours de parole (PDF)</button>
+      </div>
+      {% endif %}
+    </section>
 
-  <section class="card">
-    <h2>Résumé</h2>
-    <label>
-      Message central (1 à 3 phrases)
-      <textarea name="resume" rows="2">{{ interview.resume or '' }}</textarea>
-    </label>
-  </section>
+    <section class="card">
+      <h2>Résumé</h2>
+      <label>
+        Message central (1 à 3 phrases)
+        <textarea name="resume" rows="2">{{ interview.resume or '' }}</textarea>
+      </label>
+    </section>
+  </div>
 
-  {# La répartition dans la synthèse globale de mission n'est plus éditée ici :
-     c'est une matière de niveau *mission* (elle alimente `_libre_material()` / la
-     synthèse globale, cf. router `save_libre_detail`), révisable via « Régénérer
-     l'analyse » (écran Aperçu) ou la synthèse globale — bloc retiré le 2026-07-20
-     (le router n'accepte plus les champs `repartition_*`). #}
+  <div id="turntab-transcription" class="rec-tab-panel" hidden>
+    <section class="card">
+      <h2>Transcription brute</h2>
+      {% if interview.raw_transcript %}
+      <p class="muted">Texte tel que transcrit à l'enregistrement, avant structuration par l'IA — lecture seule.</p>
+      <textarea class="record-transcript" rows="14" readonly>{{ interview.raw_transcript }}</textarea>
+      <div class="tab-panel-actions">
+        <a class="btn btn-sm" href="/interviews/{{ interview.id }}/export/transcription/pdf">Télécharger la transcription (PDF)</a>
+      </div>
+      {% else %}
+      <p class="muted">Pas de transcription brute conservée pour cet entretien
+        (entretien saisi ou importé avant que la transcription soit
+        enregistrée).</p>
+      {% endif %}
+    </section>
+  </div>
 
+  <div id="turntab-apercu" class="rec-tab-panel" hidden>
+    <article class="preview-doc">
+      <header class="preview-doc-head">
+        <h1>{{ interview.interviewee_name }}</h1>
+        <p class="muted">
+          {% if interview.interviewee_role %}{{ interview.interviewee_role }}{% endif %}
+          {% if interview.interviewee_entity %} — {{ interview.interviewee_entity }}{% endif %}
+          {% if interview.interview_date %} · {{ interview.interview_date.strftime('%d/%m/%Y') }}{% endif %}
+        </p>
+        <p class="preview-note">
+          Transcription structurée par IA depuis un entretien libre — pas un
+          verbatim mot à mot. L'aperçu reflète l'état <strong>enregistré</strong>
+          de l'entretien.
+        </p>
+      </header>
+      {% if not sections %}
+      <p class="preview-empty">Aucun tour de parole.</p>
+      {% endif %}
+      {% for section in sections %}
+      <section class="preview-theme">
+        {% if section.title %}<h2>{{ section.title }}</h2>{% endif %}
+        {% for turn in section.turns %}
+        <p class="preview-turn">
+          <span class="preview-turn-speaker">{{ turn.interlocuteur }} :</span>
+          {% if turn.question %}{{ turn.question }}{% endif %}
+          {% if turn.remarque %}{{ turn.remarque }}{% endif %}
+        </p>
+        {% endfor %}
+      </section>
+      {% endfor %}
+      {% if interview.resume %}
+      <section class="preview-resume">
+        <p class="preview-resume-kicker">Message central — cet entretien</p>
+        <p class="preview-resume-text">{{ interview.resume }}</p>
+      </section>
+      {% endif %}
+      <p class="muted">
+        Les 5 catégories transverses se lisent et se modifient dans la
+        <a href="/missions/{{ mission.id }}/synthese/globale">synthèse globale de la mission</a>,
+        qui croise tous les entretiens.
+      </p>
+    </article>
+  </div>
+
+  {# Bouton d'enregistrement HORS onglets (demande utilisateur 2026-07-27) —
+     doublé en tête d'écran, toujours visible. #}
   <div class="form-actions">
     <a class="btn" href="/missions/{{ mission.id }}">Retour à la mission</a>
     <button class="btn btn-primary" type="submit">Enregistrer les modifications</button>
   </div>
 </form>
+{% include "interviews/_turns_script.html" %}
+<script>
+(function () {
+  // Navigation entre les onglets Tours / Transcription / Aperçu — même
+  // pattern que l'écran de revue du wizard (data-turntab).
+  var tabs = document.querySelectorAll('.rec-tab[data-turntab]');
+  if (!tabs.length) return;
+  Array.prototype.forEach.call(tabs, function (btn) {
+    btn.addEventListener('click', function () {
+      Array.prototype.forEach.call(tabs, function (b) {
+        var on = (b === btn);
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-selected', on ? 'true' : 'false');
+        var panel = document.getElementById('turntab-' + b.getAttribute('data-turntab'));
+        if (panel) panel.hidden = !on;
+      });
+    });
+  });
+})();
+</script>
 {% endblock %}
