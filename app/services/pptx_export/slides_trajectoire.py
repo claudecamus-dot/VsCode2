@@ -91,6 +91,26 @@ def _slide_axes_overview(prs: Presentation, axes: list, palette: list[str]) -> N
 # Quadrants de la matrice de priorisation (skill priority-matrix) : le SENS de
 # chaque quadrant est écrit dessus — c'est ce qui transforme un nuage de points en
 # outil de décision. (label, couleur) par position (colonne, ligne) de la grille.
+def _fraction_score(score: int, bande: float = 0.0) -> float:
+    """Position 0..1 du CENTRE d'une bulle sur son axe (0 = extrémité basse).
+
+    Découpage PAR MOITIÉ (2026-07-28) : les scores 1-3 se répartissent dans la moitié
+    basse, 4-5 dans la moitié haute. La règle linéaire précédente `(s-0.5)/5` posait le
+    score 3 EXACTEMENT sur la frontière des quadrants — la bulle chevauchait deux
+    quadrants de sens opposé et recouvrait leur libellé (constat de rendu). Ranger un
+    3/5 dans la moitié basse ne trahit pas la donnée : c'est ce que dit la note, seuls
+    4 et 5 sont « hauts ».
+
+    `bande` (en fraction de l'axe) est réservée en TÊTE de chaque moitié, là où sont
+    ancrés les libellés de quadrant — sans elle, une bulle de score 3 ou 5 vient les
+    recouvrir."""
+    if score <= 3:
+        debut, fin, rang, nb = 0.0, 0.5, score - 1, 3
+    else:
+        debut, fin, rang, nb = 0.5, 1.0, score - 4, 2
+    return debut + (rang + 0.5) / nb * (fin - bande - debut)
+
+
 _PRIO_QUADRANTS = {
     # Libellés courts exprès : à `small` bold ils doivent tenir sur UNE ligne dans
     # une demi-grille (« CHANTIERS STRUCTURANTS » wrappait derrière les bulles).
@@ -154,15 +174,17 @@ def _slide_matrice_effort_valeur(prs: Presentation, axes: list,
             c = max(1, min(5, r.complexite or 3))
             v = max(1, min(5, r.valeur or 3))
             lignes_bulles.setdefault(v, []).append((c, f"{i + 1}.{j + 1}", i))
-    # Les bulles vivent SOUS la bande des libellés de quadrant (0.38 réservé en
-    # haut) : à valeur=5 elles venaient sinon recouvrir le libellé (constat rendu).
-    ph_bulles = ph - 0.38
+    # Une bande de 0.38 est réservée en tête de CHAQUE moitié verticale (et plus
+    # seulement en haut du graphe) : c'est là que sont ancrés les libellés de
+    # quadrant, que les bulles de score 5 — puis, depuis le découpage par moitié,
+    # celles de score 3 — venaient recouvrir.
+    bande = 0.38 / ph
     for v, membres in lignes_bulles.items():
         membres.sort(key=lambda m: (m[0], m[1]))
-        by = pb - (v - 0.5) / 5 * ph_bulles - d / 2
+        by = pb - _fraction_score(v, bande) * ph - d / 2
         xs: list[float] = []
         for c, _num, _ai in membres:
-            cible = pl + (c - 0.5) / 5 * pw - d / 2
+            cible = pl + _fraction_score(c) * pw - d / 2
             xs.append(cible if not xs else max(cible, xs[-1] + d + gap))
         depassement = xs[-1] - (pl + pw - d - 0.02)
         if depassement > 0:  # recale toute la ligne dans la zone
@@ -193,7 +215,6 @@ def _slide_matrice_effort_valeur(prs: Presentation, axes: list,
     # par-dessus (revue adversariale, mesuré sur le master ; même garde que la
     # fiche reco).
     leg_bottom = h_in - 0.60
-    D.add_card(slide, lx, pt, lw, leg_bottom - pt)
     lpad = 0.12
     tx = lx + lpad
     tw = lw - 2 * lpad
@@ -228,6 +249,14 @@ def _slide_matrice_effort_valeur(prs: Presentation, axes: list,
             t_leg -= 0.5  # dernier étage : 1 ligne, 7.5→6.5 (loge ~16 recos)
         else:
             break  # plafond structurel ~18 recos — au-delà le garde-fou du rendu coupe
+    # Carte dimensionnée AU CONTENU (2026-07-28) : elle occupait toute la hauteur du
+    # graphe quel que soit le nombre de recos, si bien qu'un deck à 3 recommandations
+    # affichait trois lignes en haut d'un grand rectangle vide (défaut « panneau
+    # étiré » de la checklist pptx-verify). `besoin` sort de la boucle ci-dessus à la
+    # taille retenue ; il est PESSIMISTE, donc la carte ne peut pas être trop courte.
+    carte_bas = pt + min(besoin + 2 * lpad, leg_bottom - pt)
+    if besoin > 0:  # aucune reco = aucune légende, plutôt qu'un liseré vide
+        D.add_card(slide, lx, pt, lw, carte_bas - pt)
     y = pt + lpad
     plein = False  # garde-fou ultime : coupe TOUT le reste (pas d'items suivants
     # rendus après un trou — des numéros manquants au milieu seraient trompeurs)
@@ -236,7 +265,7 @@ def _slide_matrice_effort_valeur(prs: Presentation, axes: list,
         for j, r in enumerate(axis.recommendations):
             item = D.tronquer_a_lignes(f"{i + 1}.{j + 1}  {r.title}", tw - 0.24, t_leg, lignes_leg)
             h_item = D.estimer_lignes(item, tw - 0.24, t_leg, cpi_ref=10.7) * lh_leg
-            if y + h_item > leg_bottom - lpad:
+            if y + h_item > carte_bas - lpad:  # la carte, pas le bas de la slide
                 plein = True
                 break
             D.add_rect(slide, tx, y + 0.03, 0.12, 0.12, fill=color, rounded=True, radius=0.5)

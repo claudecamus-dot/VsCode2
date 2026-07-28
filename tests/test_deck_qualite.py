@@ -733,3 +733,70 @@ def test_design_sommaire_ne_promet_pas_une_synthese_sans_slide() -> None:
     assert not any("Synthèse globale" in t for t in textes), (  # …donc pas au sommaire
         "le sommaire annonce une section sans la moindre slide"
     )
+
+
+def test_design_matrice_aucune_bulle_sur_la_frontiere_des_quadrants() -> None:
+    """Invariant R4 (rendu 2026-07-28) : la règle linéaire `(s-0.5)/5` posait le score 3
+    EXACTEMENT sur la frontière des quadrants — la bulle chevauchait deux quadrants de
+    sens opposé (« OPPORTUNISTES » / « QUICK WINS ») et recouvrait leur libellé. Le
+    découpage par moitié (1-3 en bas, 4-5 en haut) garantit qu'aucune bulle ne touche la
+    ligne médiane ni la bande des libellés."""
+    from app.services.pptx_export.slides_trajectoire import _fraction_score
+
+    demi_bulle = 0.46 / 2 / 3.95  # rayon de bulle rapporté à la largeur de plot
+    for score in (1, 2, 3, 4, 5):
+        f = _fraction_score(score)
+        assert abs(f - 0.5) > demi_bulle, (
+            f"score {score} : bulle à cheval sur la frontière des quadrants (f={f:.3f})"
+        )
+        assert demi_bulle < f < 1 - demi_bulle, f"score {score} hors zone de tracé"
+        assert (f < 0.5) == (score <= 3), f"score {score} du mauvais côté de la médiane"
+
+    # Bande réservée aux libellés en tête de CHAQUE moitié : ni le score 5 (haut du
+    # graphe) ni le score 3 (haut de la moitié basse) ne doit y entrer.
+    bande = 0.38 / 4.0
+    for score, plafond in ((3, 0.5), (5, 1.0)):
+        f = _fraction_score(score, bande)
+        assert f + demi_bulle < plafond - bande, (
+            f"score {score} : la bulle mord sur le libellé de quadrant"
+        )
+
+    # Ordre strictement croissant conservé : la matrice reste lisible comme un
+    # classement, on n'a pas seulement écarté les bulles de la ligne.
+    fractions = [_fraction_score(s) for s in range(1, 6)]
+    assert fractions == sorted(fractions)
+
+
+def test_design_matrice_legende_dimensionnee_au_contenu() -> None:
+    """Invariant R4 : la carte de légende occupait TOUTE la hauteur du graphe quel que
+    soit le nombre de recos — trois lignes en haut d'un grand rectangle vide, défaut
+    « panneau étiré » de la checklist pptx-verify."""
+    from pptx.util import Emu
+
+    from app.services.pptx_export import build_presentation
+
+    db = SessionLocal()
+    mission = db.query(Mission).first()
+    prs = build_presentation(
+        mission, include_sommaire=False, include_executive_summary=False,
+        include_synthese=False, include_difficultes=False, include_swot=False,
+        include_verbatims=False, include_axes_overview=False, include_matrix=True,
+        include_axis_ids=set(),
+    )
+    db.close()
+
+    matrice = [
+        slide for slide in prs.slides
+        if any(sh.has_text_frame and sh.text_frame.text.startswith("Matrice de priorisation")
+               for sh in slide.shapes)
+    ]
+    assert len(matrice) == 1
+    # La carte de légende est la forme la plus à droite ; elle ne doit pas descendre
+    # jusqu'au bas de la zone de tracé (le label d'axe X, lui, y reste).
+    formes = [sh for sh in matrice[0].shapes if sh.width and sh.left]
+    droite = max(formes, key=lambda sh: sh.left)
+    hauteur_in = Emu(droite.height).inches
+    assert hauteur_in < 3.5, (
+        f"la légende occupe {hauteur_in:.2f}in de haut pour quelques recos — "
+        "carte étirée au lieu d'être dimensionnée au contenu"
+    )
