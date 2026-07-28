@@ -10,6 +10,18 @@ Les étapes de vérification réelle sont **conditionnelles au type de fichiers 
 (table des vérifications obligatoires de la skill) : ne garder à l'instanciation que
 celles dont la condition s'applique, ne jamais retirer `pytest` ni `revue-increment`.
 
+**Deux étapes ajoutées le 2026-07-27** (arbitrage utilisateur sur le constat superviseur
+prio 4 — le gate a sauté sur un diff de 12 fichiers produit, commité PUIS revu) :
+
+- `autorisation-sous-agents` en tête : quand le harnais exige un accord explicite pour
+  lancer des sous-agents, il se demande **une fois pour tout le run**, au début. C'est
+  précisément au moment du gate — tard, avec le code déjà écrit et l'utilisateur en
+  attente — que la question ne se pose plus et que la revue saute.
+- `revue-adversariale` **avant** le commit, et non après : une revue jouée après un
+  `git push` ne protège plus rien, elle documente. Elle est conditionnelle aux seuils de
+  `revue-increment` (> 5 fichiers produit sous `app/`, JS de concurrence de
+  `record*.html`, logique à risque) — en dessous, la revue inline suffit et l'étape saute.
+
 Frontière avec `export-ppt-verifie` : un changement de code qui *touche* l'export PPT au
 passage reste ici (l'étape `verification-pptx` couvre) ; quand le **livrable est le deck
 lui-même** (layout, contenu, visuel), préférer `export-ppt-verifie` qui déroule la chaîne
@@ -28,6 +40,17 @@ PPT complète (cadres photo, polish, passe design).
     "fin d'incrément, préparation d'un commit de code produit"
   ],
   "etapes": [
+    {
+      "id": "autorisation-sous-agents",
+      "agent": "session principale",
+      "mode": "cascade",
+      "modele": "(session)",
+      "contrat": {
+        "type": "deterministe",
+        "critere": "SI le harnais exige un accord explicite pour lancer des sous-agents : accord demandé UNE FOIS, au début du run, pour l'ensemble du run (revue adversariale comprise) — jamais au moment du gate, où le code est déjà écrit et où la question ne se pose plus"
+      },
+      "checkpoint": false
+    },
     {
       "id": "cadrage",
       "agent": "session principale",
@@ -85,6 +108,18 @@ PPT complète (cadres photo, polish, passe design).
       "checkpoint": false
     },
     {
+      "id": "revue-adversariale",
+      "agent": "bmad-code-review",
+      "mode": "parallele",
+      "fan_out_max": 3,
+      "modele": "(session)",
+      "contrat": {
+        "type": "reel",
+        "critere": "SI seuil atteint (> 5 fichiers produit sous app/, JS de concurrence de record*.html, ou logique à risque : suppression/écrasement de données, migration, export irréversible) : chasseurs lancés SUR LE CODE PAS ENCORE COMMITÉ, triage clos APRÈS la fin de flux de CHAQUE chasseur (une 1re notification est provisoire), correctifs appliqués puis RELUS — la revue n'a validé que le code d'avant"
+      },
+      "checkpoint": "BLOQUANT : aucun commit de code produit tant que le triage n'est pas clos. Une revue jouée après le commit ne protège plus rien (constat superviseur prio 4 du 2026-07-27 : 12 fichiers produit poussés puis revus)"
+    },
+    {
       "id": "revue-increment",
       "agent": "revue-increment",
       "mode": "cascade",
@@ -94,6 +129,17 @@ PPT complète (cadres photo, polish, passe design).
         "critere": "boucle revue + application des correctifs + re-vérification réelle exécutée en entier"
       },
       "checkpoint": "avant tout commit — action difficilement réversible, proposer, ne pas exécuter unilatéralement"
+    },
+    {
+      "id": "commit-et-journal",
+      "agent": "session principale",
+      "mode": "cascade",
+      "modele": "(session)",
+      "contrat": {
+        "type": "deterministe",
+        "critere": "le run est journalisé (py .claude/orchestration/log_run.py) AU MOMENT DU COMMIT, pas à la fin de la séance — une séance longue enchaîne les demandes et ne se termine presque jamais par une action de clôture (constat superviseur prio 2 du 2026-07-27 : 4 commits, aucune ligne de journal)"
+      },
+      "checkpoint": false
     }
   ],
   "regle_reprise": "une relance ciblée par étape en échec de contrat, puis escalade utilisateur avec l'état réel"

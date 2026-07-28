@@ -2,6 +2,18 @@
   "_doc": "Décisions humaines qui closent un constat automatique du superviseur (fichier VERSIONNÉ, édité à la main — le scan le lit, ne l'écrit jamais). cible : nom de skill, ou famille:<Nom> pour une famille entière. Un constat arbitré disparaît des TODO auto mais reste visible dans la section « Arbitrages enregistrés » du tableau de bord ; l'usage réel reste mesuré (un arbitrage n'est pas une preuve d'utilité — le superviseur étage 2 peut le re-challenger avec des données nouvelles).",
   "arbitrages": [
     {
+      "cible": "dev-verifie",
+      "decision": "Constat superviseur du 2026-07-27 (prio 4, gate de revue adversariale sauté — 12 fichiers produit du commit 38a040d poussés PUIS revus) appliqué : le playbook gagne deux étapes. « revue-adversariale » (bmad-code-review, parallèle, fan_out_max 3) s'insère AVANT « revue-increment » avec un checkpoint BLOQUANT — aucun commit de code produit tant que le triage n'est pas clos, et le triage n'est clos qu'après la fin de flux de CHAQUE chasseur. « autorisation-sous-agents » passe en tête : l'accord de lancer des sous-agents se demande une fois pour tout le run, au début — au moment du gate le code est écrit et la question ne se pose plus, c'est là que la revue saute. Invariant de test précisé (test_playbooks_de_dev_se_terminent_par_revue_increment : rien d'autre qu'un commit ne passe après la DoD) + nouveau test_dev_verifie_revoit_avant_de_committer.",
+      "date": "2026-07-27",
+      "source": "utilisateur"
+    },
+    {
+      "cible": "agent-orchestrator",
+      "decision": "Constat superviseur du 2026-07-27 (prio 2, séance de 4 commits et 3 demandes multi-étapes sans aucune ligne de journal — runs.jsonl s'arrêtait au 2026-07-25) appliqué : la section « Journaliser » de la skill accroche log_run.py AU MOMENT DU COMMIT et non « à la fin du run ». Une séance longue enchaîne les demandes et ne se termine presque jamais par une action de clôture ; le commit est un point de passage obligé et daté. Corollaire assumé : plusieurs commits = plusieurs lignes, une par unité livrée plutôt qu'une par conversation. Le playbook dev-verifie porte l'étape « commit-et-journal » correspondante.",
+      "date": "2026-07-27",
+      "source": "utilisateur"
+    },
+    {
       "cible": "agent-orchestrator",
       "decision": "Constat superviseur du 2026-07-23 (prio 5, « en-attente-validation » jamais utilisé en 47 runs) appliqué, commit e638ccc : le garde-fou est devenu exécutable dans log_run.py — un run « succes » dont la demande/notes portent un livrable utilisateur (deck/slide/écran/export) sans mention « validé par l'utilisateur » imprime un AVERTISSEMENT non bloquant rappelant le statut attendu ; UTF-8 forcé sur stdin/stdout (mojibake cp1252). Test : test_log_run_avertit_succes_sur_livrable_utilisateur_sans_validation.",
       "date": "2026-07-23",

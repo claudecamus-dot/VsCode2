@@ -281,7 +281,11 @@ def test_le_prompt_et_le_schema_ia_suivent_les_axes():
     assert "outillage_donnees" in schema["properties"]
     assert "outillage_donnees" in schema["required"]
     system = global_system(axes)
-    assert "outillage_donnees : les outils en place" in system
+    # La clé JSON et le libellé sont explicitement appariés : la matière est
+    # étiquetée par LIBELLÉ, la réponse attendue par CLÉ — et un axe renommé
+    # (« Contexte & historique » ↔ `contexte`) rend cette correspondance
+    # non devinable.
+    assert "outillage_donnees (rubrique « Outillage & données ») : les outils en place" in system
 
 
 # --------------------------------------------------------------------------- #

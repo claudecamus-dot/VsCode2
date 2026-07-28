@@ -164,13 +164,45 @@ def test_playbook_source_genere_marque_le_script():
 
 
 def test_playbooks_de_dev_se_terminent_par_revue_increment():
-    """Leçon superviseur rendue structurelle : la DoD clôt tout playbook de dev."""
+    """Leçon superviseur rendue structurelle : la DoD clôt tout playbook de dev.
+
+    Invariant PRÉCISÉ le 2026-07-27 (arbitrage utilisateur, constats superviseur
+    prio 4 et 2) : `revue-increment` reste la dernière étape de REVUE, mais une
+    étape de commit/journal peut la suivre — le journal s'accroche désormais au
+    commit, pas à la fin de séance. Ce qui doit rester vrai est que **rien
+    d'autre qu'un commit** ne passe après la definition-of-done : sinon le gate
+    cesserait d'être un gate.
+    """
     for name in ("dev-verifie", "export-ppt-verifie", "cycle-produit-bmad"):
         pb = _extract_playbook_json(PLAYBOOKS_DIR / f"{name}.md")
-        derniere = pb["etapes"][-1]
-        assert derniere["agent"] == "revue-increment"
-        # Étape terminale = garde-fou commit, donc checkpoint non-false.
-        assert derniere["checkpoint"]
+        agents = [e["agent"] for e in pb["etapes"]]
+        assert "revue-increment" in agents, f"{name} : pas de DoD"
+        index = agents.index("revue-increment")
+        # Checkpoint sur la DoD elle-même = garde-fou commit.
+        assert pb["etapes"][index]["checkpoint"]
+        # Après elle, uniquement du commit/journal — jamais une étape qui
+        # produirait du code non revu.
+        for etape in pb["etapes"][index + 1:]:
+            assert etape["id"] in ("commit-et-journal",), (
+                f"{name} : « {etape['id']} » passe APRÈS la definition-of-done"
+            )
+
+
+def test_dev_verifie_revoit_avant_de_committer():
+    """Constat superviseur prio 4 du 2026-07-27 : 12 fichiers produit ont été
+    poussés PUIS revus. Une revue adversariale jouée après le commit ne protège
+    plus rien — l'étape doit précéder la DoD et porter un checkpoint bloquant."""
+    pb = _extract_playbook_json(PLAYBOOKS_DIR / "dev-verifie.md")
+    ids = [e["id"] for e in pb["etapes"]]
+    assert "revue-adversariale" in ids
+    assert ids.index("revue-adversariale") < ids.index("revue-increment")
+    assert ids.index("revue-increment") < ids.index("commit-et-journal")
+    adversariale = pb["etapes"][ids.index("revue-adversariale")]
+    assert adversariale["checkpoint"], "la revue adversariale doit bloquer le commit"
+    # L'accord de lancer des sous-agents se demande AU DÉBUT du run : au moment
+    # du gate, le code est écrit et la question ne se pose plus — c'est là que
+    # la revue saute en pratique.
+    assert ids[0] == "autorisation-sous-agents"
 
 
 def test_generateur_bmad_est_deterministe_et_synchro(tmp_path):

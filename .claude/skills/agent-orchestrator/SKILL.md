@@ -106,7 +106,19 @@ pill) ; l'oracle, c'est l'utilisateur sur SON artefact.
 
 ### 5. Journaliser
 
-À la fin du run (succès **ou** échec), une ligne dans `.claude/orchestration/runs.jsonl` :
+**Au moment du COMMIT** (et non « à la fin du run ») — succès **ou** échec — une ligne
+dans `.claude/orchestration/runs.jsonl`. Un run sans commit se journalise à sa dernière
+étape, comme avant.
+
+Pourquoi ce déplacement (constat superviseur prio 2 du 2026-07-27, arbitré par
+l'utilisateur) : une séance longue **enchaîne les demandes** et ne se termine presque
+jamais par une action de clôture — la séance du 2026-07-27 a produit 4 commits et
+3 demandes multi-étapes sans laisser **aucune** ligne, alors que `runs.jsonl` s'arrêtait
+deux jours plus tôt. Le commit, lui, est un point de passage obligé et daté : y accrocher
+le journal le rend robuste à une séance interrompue, à un enchaînement de demandes, ou à
+un changement de sujet en cours de route. Corollaire : plusieurs commits dans une séance
+= plusieurs lignes, ce qui est le comportement voulu (une ligne par unité livrée, pas par
+conversation).
 
 ```bash
 py .claude/orchestration/log_run.py '{"demande": "résumé court", "qualification": "orchestre", "playbook": "dev-verifie", "plan": [{"etape": "revue design", "agent": "Explore", "mode": "parallele", "modele": "haiku"}], "resultat": "succes", "reprises": 0, "notes": ""}'

@@ -186,9 +186,16 @@ def global_system(axes) -> str:
     plus, et laisserait vides celles qu'elle a ajoutées. `hint` porte la
     description de l'axe (celles des 5 défauts sont les textes historiques,
     repris mot pour mot)."""
+    # La clé JSON ET le libellé, explicitement appariés : la matière fournie au
+    # modèle est étiquetée par LIBELLÉ (« Outillage & données : … ») alors que
+    # la réponse est attendue par CLÉ (`outillage_donnees`). Pour les 5 axes
+    # historiques la correspondance est triviale (contexte ≈ Contexte) ; pour un
+    # axe ajouté elle ne l'est pas, et un modèle local rendait alors cette
+    # rubrique VIDE de façon reproductible — constaté sur un passage réel
+    # (revue d'incrément 2026-07-27), invisible pour la suite mockée.
     lignes = [
-        f"- {axe.key} : {axe.hint or axe.label} ;\n" if i < len(axes) - 1
-        else f"- {axe.key} : {axe.hint or axe.label}.\n"
+        f"- {axe.key} (rubrique « {axe.label} ») : {axe.hint or axe.label}"
+        + (" ;\n" if i < len(axes) - 1 else ".\n")
         for i, axe in enumerate(axes)
     ]
     return GLOBAL_SYSTEM_HEAD + "".join(lignes) + GLOBAL_SYSTEM_TAIL

@@ -26,6 +26,7 @@ import urllib.request
 import pytest
 
 from app.services import ai_common
+from app.services.synthese_ai import generate_global_synthesis
 from app.services.interview_libre_extract_ai import (
     extract_turns_from_text,
     generate_repartition_from_turns,
@@ -104,3 +105,74 @@ def test_repartition_real_ollama_is_nonempty() -> None:
     print(f"\n[integration] repartition : {dt:.1f}s, resume={result['resume'][:60]!r}")
     assert result["resume"].strip(), "Résumé vide — modèle défaut inutilisable pour la répartition."
     assert dt < 120
+
+
+class _Axe:
+    """Axe d'étude minimal — `generate_global_synthesis` n'a besoin que de
+    key/label/hint, pas d'une ligne en base (ce test ne touche aucune DB)."""
+
+    def __init__(self, key: str, label: str, hint: str):
+        self.key, self.label, self.hint = key, label, hint
+
+
+@pytest.mark.xfail(
+    strict=False,
+    reason=(
+        "GAP CONNU (revue d'incrément 2026-07-27, non corrigé) : le modèle défaut "
+        "ne remplit que la première rubrique demandée et rend les suivantes vides. "
+        "Marqué xfail pour rester VISIBLE sans rendre la suite rouge — il repassera "
+        "au vert de lui-même le jour où la cause est traitée (prompt par rubrique, "
+        "ou modèle plus capable). Décision produit à l'utilisateur."
+    ),
+)
+def test_synthese_globale_remplit_toutes_les_rubriques() -> None:
+    """Chaque rubrique demandée doit revenir REMPLIE quand la matière la
+    concerne explicitement.
+
+    Trou trouvé par la revue d'incrément du 2026-07-27 : les 426 tests de la
+    suite monkeypatchent `call_ai_json`, donc aucun ne voyait que le modèle
+    défaut ne remplit en pratique que la PREMIÈRE rubrique et rend les
+    suivantes VIDES (0 caractère) — reproduit 2 fois, y compris sur des axes
+    par défaut, avec une matière explicite sur chacune. Résultat côté produit :
+    l'onglet « IA intégrée » livre une synthèse amputée sans que rien ne le
+    signale. Ce test est le garde-fou exécutable de ce comportement ; il
+    ÉCHOUERA tant que la cause (prompt par rubrique, ou modèle plus capable)
+    n'est pas traitée — c'est voulu, un gap connu doit rester visible."""
+    axes = [
+        _Axe("contexte", "Contexte", "faits marquants du contexte"),
+        _Axe("points_amelioration", "Points d'amélioration",
+             "douleurs, tensions, ce qui bloque"),
+    ]
+
+    class _Mission:
+        name = "Mission d'intégration"
+
+    class _Interview:
+        interviewee_name = "Marc Dubois"
+
+    repartition = {
+        "contexte": "- L'équipe est passée de 6 à 14 personnes en deux ans.",
+        "points_amelioration": (
+            "- Jira et trois tableurs Excel en parallèle ; les chiffres ne "
+            "concordent jamais ; une demi-journée par semaine de "
+            "réconciliation manuelle ; aucun référentiel commun."
+        ),
+    }
+    t0 = time.time()
+    result = generate_global_synthesis(
+        _Mission(), [], [(_Interview(), repartition)], axes=axes
+    )
+    dt = time.time() - t0
+    print(f"\n[integration] synthèse globale : {dt:.1f}s, "
+          + ", ".join(f"{k}={len(v)}c" for k, v in result.items()))
+
+    assert set(result) == {a.key for a in axes}
+    for axe in axes:
+        # `strip` des puces : le modèle rend parfois un « - » seul, qui passe
+        # une garde `.strip()` naïve tout en n'étant PAS du contenu.
+        contenu = (result.get(axe.key) or "").strip(" -\n\t")
+        assert len(contenu) >= 20, (
+            f"Rubrique « {axe.label} » quasi vide ({result.get(axe.key)!r}) alors "
+            f"que la matière la concerne explicitement — le modèle défaut "
+            f"({ai_common.active_model()}) ne remplit qu'une partie des rubriques."
+        )
