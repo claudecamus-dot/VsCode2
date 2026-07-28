@@ -380,9 +380,20 @@ def load_arbitrages() -> list:
     return [e for e in entries if isinstance(e, dict) and e.get("cible") and e.get("decision")]
 
 
+# Doit rester le MIROIR de `CATEGORIES` dans write_diagnostic.py : ce qui s'écrit dans
+# un diagnostic doit pouvoir se fermer dans un arbitrage. Le volet 2 (pratiques
+# d'ingénierie, documentation, cadrage produit) manquait ici au rapatriement du
+# 2026-07-28 — le contrôle criait « hors vocabulaire » sur les 5 catégories `pratique-*`
+# réellement utilisées par les arbitrages du hub, alors qu'elles ferment bien leurs
+# constats. Un garde-fou qui hurle à tort finit ignoré : c'est lui qu'on corrige.
 CATEGORIES_CONNUES = (
+    # Volet 1 — usage des agents
     "ko-repete", "inefficacite", "agent-mort", "interaction",
-    "verification-manquante", "non-convergence", "autre",
+    "verification-manquante", "non-convergence",
+    # Volet 2 — pratiques d'ingénierie, documentation, cadrage produit
+    "pratique-test", "pratique-dev", "pratique-revue", "pratique-design",
+    "pratique-doc", "pratique-produit",
+    "autre",
 )
 
 
