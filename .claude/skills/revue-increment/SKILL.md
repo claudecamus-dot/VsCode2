@@ -123,6 +123,23 @@ ci-dessus plutôt que d'en dupliquer la logique.
     Mesurer aussi à la taille **maximale réellement configurée** (`OLLAMA_CHUNK_MAX_WORDS`),
     pas un prompt jouet. cf. [[feedback-ai-timeout-fix-verify-at-configured-scale]],
     [[feedback-ai-real-e2e-and-nonempty-not-just-timing]].
+- [ ] **Le diff touche `app/services/pptx_export/**` → un rendu `pptx-verify` est
+      OBLIGATOIRE avant de clore**, seuil sur le CHEMIN, pas sur l'appréciation
+      (« ce n'est qu'un déplacement de code », « la géométrie passe »). Si le
+      changement rend une **cardinalité ou un libellé variables** (une slide par axe
+      d'étude, N cartes), rendre un cas **non par défaut** — le semis démo ne montre
+      que le cas nominal. Déclencheur : le générateur de deck a été modifié deux fois
+      (a3ca545, 38a040d) sans aucun rendu, et l'une de ces modifications a laissé un
+      visuel indexé par libellé alors que le libellé était devenu renommable.
+- [ ] **Un défaut PRODUIT découvert en vérification réelle ne se clôt pas par un
+      `xfail`.** L'`xfail` est la preuve exécutable du gap, jamais son canal de
+      remontée : dans un fichier opt-in auto-skippé (`test_ollama_integration.py`,
+      absent de la CI), personne ne le verra. Il faut **une trace hors-test** (TODO
+      wiki ou roadmap) **et** le gap nommé à l'utilisateur comme décision en attente.
+      Et avant de le ranger : chercher la cause. Le gap « synthèse amputée » rangé en
+      xfail le 2026-07-27 s'est révélé être, une sonde plus tard, une valeur JSON de
+      type liste jetée par une garde `str` — pas une limite du modèle.
+      cf. [[feedback-ollama-json-type-coercion-flatten-not-drop]].
 - [ ] **Un rendu réel prouve « ça marche », pas « ça ne régressera pas ».** Fix
       frontend ou invariant de structure (quelle classe CSS, quel panneau rendu) →
       ajouter, **en plus** du screenshot, une assertion au niveau template dans
@@ -168,12 +185,17 @@ ci-dessus plutôt que d'en dupliquer la logique.
       matériellement (pas pour un détail).
 - [ ] `docs/wiki/` : seulement si dans le périmètre (souvent différé — le noter
       comme reste-à-faire plutôt que de laisser croire que c'est fait).
-- [ ] Si `docs/wiki/technical/agents-supervision.md` ou `docs/wiki.html`
-      apparaissent modifiés dans `git status` (régénérés par le hook
-      SessionStart pendant la séance), les inclure dans le commit de fin
-      d'incrément plutôt que les laisser dériver localement — constat du
-      2026-07-20 : ces fichiers étaient restés modifiés sans être committés
-      pendant 4 commits consécutifs, faute d'étape dédiée.
+- [ ] **`git status --short` est VIDE à la clôture — ou chaque reliquat est nommé
+      à l'utilisateur avec sa raison** (travail d'une autre session, préférence
+      machine non versionnée, décision en attente). Jamais de reliquat silencieux.
+      Vérification déterministe, une commande. Cas particulier historique, désormais
+      couvert par la règle générale : `docs/wiki/technical/agents-supervision.md` et
+      `docs/wiki.html`, régénérés par le hook SessionStart pendant la séance, sont à
+      inclure dans le commit plutôt qu'à laisser dériver (constat du 2026-07-20 :
+      4 commits consécutifs sans les inclure). Élargi le 2026-07-28 après une
+      séance close sur 9 fichiers modifiés dont **l'application des arbitrages de la
+      veille et du code produit** : le correctif du gate de revue est resté hors de
+      l'historique, donc ni exercé ni protégé par ses propres tests.
 
 ## 5. Capitalisation (mémoire)
 

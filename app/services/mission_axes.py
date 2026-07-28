@@ -82,6 +82,14 @@ def cle_libre(db: Session, mission: Mission, label: str) -> str:
     la relation chargée en session ne voit pas un axe ajouté juste avant, et
     deux créations successives produisaient alors la même clé (violation de
     contrainte d'unicité, attrapée par `tests/test_axes_etude.py`).
+
+    Sont « prises » AUSSI les clés qui portent encore du contenu dans
+    `GlobalSynthesis.valeurs` alors que leur axe n'existe plus (2026-07-28,
+    trouvé en revue adversariale) : sans cela, supprimer un axe puis recréer un
+    axe de même libellé rendait exactement la même clé — et le nouvel axe
+    s'ouvrait sur l'ancien contenu, précisément ce que cette docstring promet
+    d'empêcher. La suppression, elle, ne détruit rien : le contenu reste
+    récupérable tant que personne ne le remplace.
     """
     base = _slug(label) or "axe"
     prises = set(db.scalars(
@@ -89,6 +97,9 @@ def cle_libre(db: Session, mission: Mission, label: str) -> str:
             MissionSynthesisAxis.mission_id == mission.id
         )
     ))
+    gs = mission.global_synthesis
+    if gs is not None:
+        prises |= {k for k, v in (gs.valeurs or {}).items() if (v or "").strip()}
     if base not in prises:
         return base
     n = 2

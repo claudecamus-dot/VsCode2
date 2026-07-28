@@ -108,6 +108,20 @@ def test_une_cle_est_unique_et_ne_recycle_pas_celle_d_un_axe_supprime():
         assert a1.key == "outillage_donnees"
         a2 = mission_axes.creer_axe(db, mission, "Outillage & données")
         assert a2.key != a1.key
+
+        # Le cas que ce test NOMMAIT sans l'exercer (trouvé en revue adversariale
+        # 2026-07-28) : deux axes SIMULTANÉS ne prouvent rien du recyclage après
+        # SUPPRESSION — et le recyclage avait bien lieu, ressuscitant le contenu.
+        cle_supprimee = a1.key  # relu avant suppression : l'objet ORM expire ensuite
+        gs = GlobalSynthesis(mission_id=mission.id)
+        db.add(gs)
+        gs.set_contenu(cle_supprimee, "Ancien contenu, propriété de l'axe supprimé.")
+        db.commit()
+        assert mission_axes.supprimer_axe(db, mission, a1) is True
+
+        a3 = mission_axes.creer_axe(db, mission, "Outillage & données")
+        assert a3.key != cle_supprimee, "la clé d'un axe supprimé a été recyclée"
+        assert gs.contenu(a3.key) == "", "le nouvel axe hérite du contenu de l'ancien"
     finally:
         db.close()
 

@@ -33,3 +33,8 @@ _bmad-output/
 # "Fixtures de test a partir de tests/exemple/" dans docs/wiki.html pour le
 # decoupage en extraits courts a committer separement.
 tests/exemple/
+
+# Preference d'editeur propre a la machine (le gestionnaire d'environnement
+# python de l'extension VS Code) ; .vscode/tasks.json, lui, reste versionne —
+# il porte le lancement du serveur de dev partage par l'equipe.
+.vscode/settings.json

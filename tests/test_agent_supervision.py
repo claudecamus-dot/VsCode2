@@ -289,13 +289,18 @@ def test_diagnostic_arbitre_disparait_du_todo_et_de_la_prudence_mais_reste_mesur
     assert result.returncode == 0, result.stderr
 
     page = (tmp_path / "page.md").read_text(encoding="utf-8")
-    assert "pptx-verify échoue sans LibreOffice" not in page
+    # Plus un constat ACTIF (ni numéroté ni en gras) — mais nommé comme écarté depuis
+    # le 2026-07-28, le filtrage ne devant plus être silencieux (cf.
+    # test_un_constat_ecarte_par_arbitrage_reste_visible_comme_ecarte).
+    assert "1. **pptx-verify échoue sans LibreOffice**" not in page
+    assert "~~pptx-verify échoue sans LibreOffice~~" in page
     assert "Jamais lancé" not in page
     assert "rien à signaler, tous les constats précédents ont été arbitrés" in page
     assert "soffice installé sur le poste dev depuis le 2026-07-19" in page  # section Arbitrages
 
     html_txt = html.read_text(encoding="utf-8")
-    assert "pptx-verify échoue sans LibreOffice" not in html_txt
+    assert '<p>pptx-verify échoue sans LibreOffice' not in html_txt  # pas un constat actif
+    assert "<s>pptx-verify échoue sans LibreOffice</s>" in html_txt
     assert "Jamais lancé" not in html_txt
     assert "rien à signaler" in html_txt
 
@@ -330,6 +335,170 @@ def test_write_diagnostic_valide_et_horodate(tmp_path):
     (tdir / "s1.jsonl").write_text(_line(skill="run-dev-server"), encoding="utf-8")
     _run(tmp_path)
     assert "46 skills BMAD sans usage" in (tmp_path / "page.md").read_text(encoding="utf-8")
+
+
+def test_un_constat_ecarte_par_arbitrage_reste_visible_comme_ecarte(tmp_path):
+    """Le filtrage par arbitrage ne doit JAMAIS être silencieux (constat prio 5 du
+    2026-07-28 : 3 constats sur 4 avaient disparu du tableau de bord sans laisser de
+    trace, si bien que l'humain qui a arbitré ne pouvait pas savoir que sa décision
+    continuait de fermer des constats neufs)."""
+    tdir = tmp_path / "transcripts"
+    tdir.mkdir()
+    (tdir / "s1.jsonl").write_text(_line(skill="run-dev-server"), encoding="utf-8")
+    (tmp_path / "arbitrages.json").write_text(json.dumps({"arbitrages": [
+        {"cible": "revue-increment", "decision": "règle déjà ajoutée le 2026-07-20",
+         "date": "2026-07-20", "categories": ["verification-manquante"]},
+    ]}, ensure_ascii=False), encoding="utf-8")
+    assert _write_diag(tmp_path, {"findings": [
+        {"categorie": "verification-manquante", "cible": "revue-increment",
+         "titre": "un gap produit rangé en xfail", "preuve": "test auto-skippé sans Ollama"},
+    ]}).returncode == 0
+
+    result = _run(tmp_path)
+    page = (tmp_path / "page.md").read_text(encoding="utf-8")
+    # Écarté du diagnostic actif...
+    assert "1. **un gap produit rangé en xfail**" not in page
+    # ...mais nommé comme écarté, et compté sur la sortie du scan.
+    assert "1 constat(s) de ce diagnostic écarté(s) par un arbitrage" in page
+    assert "~~un gap produit rangé en xfail~~" in page
+    assert "1 constat(s) du diagnostic ecarte(s) par arbitrage" in result.stdout
+
+
+def test_re_challenge_passe_outre_un_arbitrage_de_meme_cible_et_categorie(tmp_path):
+    """La granularité par `categories` ne suffit pas : deux constats DIFFÉRENTS sur la
+    même cible partagent souvent la même catégorie (2026-07-28 — un constat neuf « aucun
+    rendu du deck » masqué par un arbitrage de 2026-07-22 sur « ne pas affirmer la charte
+    de mémoire », tous deux `verification-manquante` sur `export-ppt-verifie`). Le
+    superviseur doit pouvoir re-challenger explicitement, avec des données nouvelles."""
+    tdir = tmp_path / "transcripts"
+    tdir.mkdir()
+    (tdir / "s1.jsonl").write_text(_line(skill="run-dev-server"), encoding="utf-8")
+    (tmp_path / "arbitrages.json").write_text(json.dumps({"arbitrages": [
+        {"cible": "export-ppt-verifie", "decision": "rendre la référence avant d'implémenter",
+         "date": "2026-07-22", "categories": ["verification-manquante"]},
+    ]}, ensure_ascii=False), encoding="utf-8")
+    payload = {"categorie": "verification-manquante", "cible": "export-ppt-verifie",
+               "titre": "le deck a changé sans aucun rendu",
+               "preuve": "commit 38a040d touche build.py, pptx-verify absent depuis le 2026-07-23"}
+
+    # Sans re_challenge : masqué (comportement voulu pour une redite déjà tranchée).
+    assert _write_diag(tmp_path, {"findings": [dict(payload)]}).returncode == 0
+    _run(tmp_path)
+    assert "le deck a changé sans aucun rendu" not in (
+        tmp_path / "page.md").read_text(encoding="utf-8").split("écarté(s) par un arbitrage")[0]
+
+    # Avec re_challenge : le constat s'affiche malgré l'arbitrage.
+    assert _write_diag(tmp_path, {"findings": [dict(payload, re_challenge=True)]}).returncode == 0
+    _run(tmp_path)
+    page = (tmp_path / "page.md").read_text(encoding="utf-8")
+    assert "1. **le deck a changé sans aucun rendu**" in page
+    assert "écarté(s) par un arbitrage" not in page
+
+
+def test_re_challenge_rouvre_l_affichage_mais_jamais_le_routage(tmp_path):
+    """Trouvé en revue adversariale : `re_challenge` traversait aussi le calcul de
+    `prudence`, donc le superviseur remettait de lui-même une cible sous surveillance
+    de l'orchestrateur en écrasant une décision humaine — et le premier usage réel a
+    placé `revue-increment` (étape terminale OBLIGATOIRE du playbook dev-verifie) dans
+    `prudence`. Le re-challenge rouvre le débat devant l'humain, pas le routage."""
+    tdir = tmp_path / "transcripts"
+    tdir.mkdir()
+    (tdir / "s1.jsonl").write_text(_line(skill="run-dev-server"), encoding="utf-8")
+    (tmp_path / "arbitrages.json").write_text(json.dumps({"arbitrages": [
+        {"cible": "revue-increment", "decision": "règle ajoutée le 2026-07-20",
+         "date": "2026-07-20", "categories": ["ko-repete"]},
+    ]}, ensure_ascii=False), encoding="utf-8")
+    assert _write_diag(tmp_path, {"findings": [
+        {"categorie": "ko-repete", "cible": "revue-increment", "re_challenge": True,
+         "titre": "une séance se clôt sur un arbre sale", "preuve": "9 fichiers modifiés"},
+    ]}).returncode == 0
+
+    _run(tmp_path)
+    page = (tmp_path / "page.md").read_text(encoding="utf-8")
+    assert "1. **une séance se clôt sur un arbre sale**" in page  # affiché
+    hints = json.loads((tmp_path / "routing-hints.json").read_text(encoding="utf-8"))
+    assert hints["prudence"] == []  # mais le routage reste celui qu'a décidé l'humain
+
+
+def test_un_arbitrage_de_verification_ne_ferme_pas_un_todo_d_usage(tmp_path):
+    """Symétrique du filtre de l'étage 2 : les TODO déterministes (skill installée
+    sans usage) sont de catégorie `agent-mort` et ne consultaient que la CIBLE. Une
+    décision portant sur la vérification éteignait donc un constat d'usage sur la même
+    skill — la friction que `categories` avait supprimée d'un seul côté du pipeline."""
+    tdir = tmp_path / "transcripts"
+    tdir.mkdir()
+    (tdir / "s1.jsonl").write_text(_line(skill="run-dev-server"), encoding="utf-8")
+    # `priority-matrix` est une skill projet réelle du repo, sans usage dans ce scan.
+    (tmp_path / "arbitrages.json").write_text(json.dumps({"arbitrages": [
+        {"cible": "priority-matrix", "decision": "rendu vérifié au render",
+         "date": "2026-07-23", "categories": ["verification-manquante"]},
+    ]}, ensure_ascii=False), encoding="utf-8")
+    _run(tmp_path)
+    page = (tmp_path / "page.md").read_text(encoding="utf-8")
+    assert "priority-matrix" in page.split("## TODO agents")[1].split("##")[0]
+
+    # Le même arbitrage, s'il ferme bien `agent-mort`, éteint le TODO.
+    (tmp_path / "arbitrages.json").write_text(json.dumps({"arbitrages": [
+        {"cible": "priority-matrix", "decision": "conservée, reliée au playbook",
+         "date": "2026-07-23", "categories": ["agent-mort"]},
+    ]}, ensure_ascii=False), encoding="utf-8")
+    _run(tmp_path)
+    page = (tmp_path / "page.md").read_text(encoding="utf-8")
+    assert "priority-matrix" not in page.split("## TODO agents")[1].split("##")[0]
+
+
+def test_write_diagnostic_refuse_plus_de_cinq_constats(tmp_path):
+    """Le scan n'affiche que les 5 premiers : au-delà, un constat se perdait sans
+    trace. La priorisation se fait chez le superviseur, pas par troncature muette."""
+    out = _write_diag(tmp_path, {"findings": [
+        {"categorie": "autre", "titre": f"constat {i}", "preuve": "p"} for i in range(6)
+    ]})
+    assert out.returncode == 1 and "maximum 5" in out.stdout
+    assert not (tmp_path / "diagnostic.json").exists()
+
+
+def test_un_arbitrage_pris_depuis_le_diagnostic_referme_un_re_challenge(tmp_path):
+    """La boucle propose→arbitre doit se TERMINER : sans cette règle, un constat
+    re-challengé restait un TODO actif jusqu'à la réécriture du diagnostic (cadence
+    14 j) alors même que l'humain venait de le trancher en ajoutant un arbitrage."""
+    tdir = tmp_path / "transcripts"
+    tdir.mkdir()
+    (tdir / "s1.jsonl").write_text(_line(skill="run-dev-server"), encoding="utf-8")
+    assert _write_diag(tmp_path, {"findings": [
+        {"categorie": "verification-manquante", "cible": "export-ppt-verifie",
+         "re_challenge": True, "titre": "le deck a changé sans aucun rendu",
+         "preuve": "commit 38a040d, pptx-verify absent depuis le 2026-07-23"},
+    ]}).returncode == 0
+    ancien = {"cible": "export-ppt-verifie", "decision": "rendre la référence d'abord",
+              "date": "2026-07-22", "categories": ["verification-manquante"]}
+
+    # Arbitrage ANTÉRIEUR : le re-challenge tient, le constat s'affiche.
+    (tmp_path / "arbitrages.json").write_text(
+        json.dumps({"arbitrages": [ancien]}, ensure_ascii=False), encoding="utf-8")
+    _run(tmp_path)
+    assert "1. **le deck a changé sans aucun rendu**" in (
+        tmp_path / "page.md").read_text(encoding="utf-8")
+
+    # L'humain tranche AUJOURD'HUI : le constat se referme (et reste visible comme écarté).
+    aujourdhui = dt.date.today().isoformat()
+    (tmp_path / "arbitrages.json").write_text(json.dumps({"arbitrages": [
+        ancien,
+        {"cible": "export-ppt-verifie", "decision": "seuil objectif sur chemin de diff",
+         "date": aujourdhui, "categories": ["verification-manquante"]},
+    ]}, ensure_ascii=False), encoding="utf-8")
+    _run(tmp_path)
+    page = (tmp_path / "page.md").read_text(encoding="utf-8")
+    assert "1. **le deck a changé sans aucun rendu**" not in page
+    assert "~~le deck a changé sans aucun rendu~~" in page
+
+
+def test_re_challenge_sans_cible_est_refuse(tmp_path):
+    """Un re-challenge conteste un arbitrage, qui porte toujours sur une cible : sans
+    cible, le champ ne veut rien dire et deviendrait un passe-droit universel."""
+    out = _write_diag(tmp_path, {"findings": [
+        {"categorie": "ko-repete", "titre": "t", "preuve": "p", "re_challenge": True},
+    ]})
+    assert out.returncode == 1 and "re_challenge sans cible" in out.stdout
 
 
 def test_write_diagnostic_rejette_sans_preuve_ou_categorie_inconnue(tmp_path):

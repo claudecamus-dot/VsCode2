@@ -370,7 +370,8 @@ def load_arbitrages() -> list:
     """Décisions humaines closant des constats automatiques (fichier versionné, jamais écrit ici).
     Chaque entrée : {cible, decision, date, source, categories?} — cible = nom de skill ou
     famille:<Nom> ; `categories` (optionnel) restreint les catégories de constats fermées
-    par cet arbitrage (défaut : toutes, cf. finding_arbitre)."""
+    par cet arbitrage (défaut : toutes, cf. finding_arbitre). Le contrôle du vocabulaire
+    des catégories est fait à part, par `categories_inconnues`."""
     try:
         with open(ARBITRAGES_PATH, encoding="utf-8") as fh:
             entries = json.load(fh).get("arbitrages", [])
@@ -379,24 +380,117 @@ def load_arbitrages() -> list:
     return [e for e in entries if isinstance(e, dict) and e.get("cible") and e.get("decision")]
 
 
-def finding_arbitre(finding: dict, arbitrages: list = None) -> bool:
-    """Vrai si un arbitrage ferme ce constat : même `cible` ET catégorie couverte.
+CATEGORIES_CONNUES = (
+    "ko-repete", "inefficacite", "agent-mort", "interaction",
+    "verification-manquante", "non-convergence", "autre",
+)
 
-    Un arbitrage sans champ `categories` couvre toutes les catégories (rétro-compatible :
-    comportement historique). Un arbitrage `categories: [...]` ne ferme QUE ces catégories
-    — ainsi un arbitrage de *routage* (ex. « agent activé ») cesse de masquer un constat de
-    *vérification/qualité* sur la même cible (friction cible-suppression, 2026-07-21)."""
+
+def categories_inconnues(arbitrages: list) -> list:
+    """Catégories hors vocabulaire dans `arbitrages.json` — signalées, jamais corrigées
+    (fichier humain). Sans ce contrôle, une faute de frappe (`verification_manquante`)
+    donnerait un arbitrage qui ne ferme rien, sans le moindre message."""
+    vues = set()
+    for a in arbitrages or []:
+        cats = a.get("categories")
+        if isinstance(cats, list):
+            vues.update(c for c in cats if c not in CATEGORIES_CONNUES)
+        elif cats is not None:
+            vues.add(f"{a.get('cible')}: champ `categories` mal formé")
+    return sorted(vues)
+
+
+def _couvre(arbitrage: dict, categorie: str) -> bool:
+    """Cet arbitrage ferme-t-il cette CATÉGORIE de constat ?
+
+    `categories` absent = ferme tout (rétro-compatible). Liste = ferme exactement ces
+    catégories — donc `[]` ne ferme rien, la lecture naturelle. Un champ mal formé
+    (chaîne, nombre) ne ferme rien non plus : un `in` sur une chaîne matcherait par
+    sous-chaîne (`"interaction" in "interactions-multiples"`), silencieusement faux."""
+    cats = arbitrage.get("categories")
+    if cats is None:
+        return True
+    return isinstance(cats, list) and categorie in cats
+
+
+def finding_arbitre(finding: dict, arbitrages: list = None, respecter_re_challenge: bool = True,
+                    posterieur_a: str = "") -> bool:
+    """Vrai si un arbitrage ferme ce constat : même `cible` ET catégorie couverte
+    (cf. `_couvre`) — ainsi un arbitrage de *routage* (ex. « agent activé ») cesse de
+    masquer un constat de *vérification/qualité* sur la même cible (friction
+    cible-suppression, 2026-07-21).
+
+    `re_challenge: true` sur le CONSTAT prime sur les arbitrages ANTÉRIEURS au diagnostic
+    (2026-07-28) : le superviseur déclare re-challenger une décision close avec des
+    données NOUVELLES — ce que le fichier d'arbitrages autorise depuis toujours dans sa
+    doctrine (« un arbitrage n'est pas une preuve d'utilité »), mais que le filtre rendait
+    impossible en pratique. La granularité par catégorie n'y suffit pas : deux constats
+    différents sur la même cible partagent souvent la même catégorie (constat prio 5 du
+    2026-07-28 — 3 constats sur 4 masqués avant d'atteindre le tableau de bord). Un
+    arbitrage pris DEPUIS le diagnostic, lui, referme le constat : c'est la réponse de
+    l'humain, la boucle propose→arbitre se termine.
+
+    `respecter_re_challenge=False` neutralise ce passe-droit : un re-challenge rouvre
+    l'AFFICHAGE (l'humain doit voir le constat pour le trancher), jamais le ROUTAGE.
+    Sans quoi le superviseur écraserait de lui-même une décision humaine dans
+    `prudence` — exactement l'auto-modification que sa propre gouvernance interdit,
+    et le cas s'est produit dès le premier usage : un constat `ko-repete` re-challengé
+    sur `revue-increment` y plaçait la skill que le playbook `dev-verifie` rend
+    obligatoire, deux hints contradictoires livrés ensemble."""
     cible = finding.get("cible")
     if not cible:
         return False
     cat = finding.get("categorie")
-    for a in arbitrages or []:
-        if a.get("cible") != cible:
-            continue
-        cats = a.get("categories")
-        if not cats or cat in cats:
-            return True
-    return False
+    couvrants = [a for a in arbitrages or [] if a.get("cible") == cible and _couvre(a, cat)]
+    if not couvrants:
+        return False
+    if not (respecter_re_challenge and finding.get("re_challenge") is True):
+        return True
+    # Un arbitrage du JOUR du diagnostic ou postérieur tranche le re-challenge : c'est
+    # la réponse humaine à ce constat précis, elle referme la boucle. Sans cette règle,
+    # un constat re-challengé resterait un TODO actif jusqu'à la réécriture du
+    # diagnostic (cadence 14 j) alors même que l'humain l'aurait tranché — or il
+    # l'arbitre presque toujours le jour même, d'où la comparaison à la JOURNÉE (les
+    # deux champs n'ont pas la même précision : date seule contre horodatage complet).
+    jour = (posterieur_a or "")[:10]
+    if not jour:
+        return False
+    return any((a.get("date") or "")[:10] >= jour for a in couvrants)
+
+
+def diagnostic_masques(diagnostic, arbitrages: list = None) -> list:
+    """Constats du diagnostic écartés par un arbitrage — rendus VISIBLES (2026-07-28).
+
+    Le filtrage était silencieux : rien dans le tableau de bord (md + HTML) ni sur la
+    sortie du scan n'indiquait qu'un constat avait été écarté, si bien que le superviseur
+    pouvait écrire cinq constats justes et n'en afficher aucun. On n'affiche que le titre
+    et la cible : l'humain voit ce que sa décision passée continue de fermer, et peut
+    demander un re-challenge."""
+    return [
+        {"titre": _titre_court(f), "cible": f.get("cible") or "?"}
+        for f in _findings(diagnostic)
+        if _titre_court(f) and finding_arbitre(f, arbitrages, posterieur_a=_genere_le(diagnostic))
+    ]
+
+
+def _findings(diagnostic) -> list:
+    """Constats exploitables d'un diagnostic. `diagnostic.json` est une donnée machine
+    éditable à la main : une entrée mal formée (chaîne au lieu d'objet, `findings` qui
+    n'est pas une liste) ne doit pas faire échouer la régénération du wiki ET des hints."""
+    if not isinstance(diagnostic, dict):
+        return []
+    findings = diagnostic.get("findings")
+    return [f for f in findings if isinstance(f, dict)] if isinstance(findings, list) else []
+
+
+def _genere_le(diagnostic) -> str:
+    return (diagnostic or {}).get("generated", "") if isinstance(diagnostic, dict) else ""
+
+
+def _titre_court(finding: dict) -> str:
+    """Titre sur UNE ligne : il est rendu dans une puce markdown et dans un `<li>`, où
+    un saut de ligne casserait la mise en forme."""
+    return " ".join((finding.get("titre") or "").split())
 
 
 def load_diagnostic() -> dict:
@@ -427,13 +521,17 @@ def diagnostic_todos(diagnostic, arbitrages: list = None) -> list:
     Un constat fermé par un arbitrage (`finding_arbitre` : même cible ET catégorie couverte)
     est exclu — même contrat que `build_todos()` pour les constats déterministes : une
     décision humaine ferme le TODO affiché, sans effacer la mesure réelle ni le diagnostic."""
-    if not diagnostic:
-        return []
-    findings = [f for f in (diagnostic.get("findings", []) or []) if not finding_arbitre(f, arbitrages)]
+    genere = _genere_le(diagnostic)
+    findings = [
+        f for f in _findings(diagnostic)
+        if not finding_arbitre(f, arbitrages, posterieur_a=genere)
+    ]
     findings.sort(key=lambda f: -(f.get("priorite") or 0))
     out = []
+    # `[:5]` = le plafond de la skill (« 5 constats max ») ; `write_diagnostic.py` le
+    # refuse désormais à l'écriture, donc plus rien ne se perd ici en silence.
     for f in findings[:5]:
-        titre = (f.get("titre") or "").strip()
+        titre = _titre_court(f)
         if not titre:
             continue
         reco = (f.get("recommandation") or "").strip()
@@ -545,14 +643,17 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
             "revue-increment jamais invoquee malgre le rappel SessionStart -> l'inserer d'office en etape terminale des plans de dev"
         )
     prudence = []
-    if diagnostic:
-        for f in diagnostic.get("findings", []) or []:
-            if (
-                f.get("categorie") in ("ko-repete", "inefficacite")
-                and f.get("cible")
-                and not finding_arbitre(f, arbitrages)  # arbitrage couvrant la catégorie -> ne pèse plus sur le routage
-            ):
-                prudence.append({"cible": f["cible"], "raison": (f.get("titre") or "").strip()})
+    for f in _findings(diagnostic):
+        if (
+            f.get("categorie") in ("ko-repete", "inefficacite")
+            and f.get("cible")
+            # Arbitrage couvrant la catégorie -> ne pèse plus sur le routage. Un
+            # `re_challenge` NE rouvre PAS le routage (respecter_re_challenge=False) :
+            # il rouvre le débat devant l'humain, qui tranche — le superviseur propose,
+            # il n'applique pas.
+            and not finding_arbitre(f, arbitrages, respecter_re_challenge=False)
+        ):
+            prudence.append({"cible": f["cible"], "raison": _titre_court(f)})
     # Incrément C — prudence déterministe : échecs répétés dans le journal d'orchestration,
     # sans attendre le diagnostic LLM (dédupliqué sur les cibles déjà signalées).
     deja = {p["cible"] for p in prudence}
@@ -588,7 +689,17 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
 
 
 def build_todos(skills: dict, fam: dict, gaps: dict = None, arbitrages: list = None) -> list:
-    arbitres = {a["cible"] for a in arbitrages or []}
+    # Les TODO déterministes de cette fonction sont TOUS de catégorie `agent-mort`
+    # (skill installée sans usage). Ne retenir donc que les arbitrages qui ferment
+    # cette catégorie-là (2026-07-28) : jusqu'ici la cible seule suffisait, si bien
+    # qu'une décision portant sur la VÉRIFICATION (ex. les deux arbitrages
+    # `run-dev-server`) aurait éteint un futur constat d'usage sur la même skill —
+    # précisément la friction que le champ `categories` a supprimée côté étage 2,
+    # laissée intacte de ce côté-ci.
+    arbitres = {
+        a["cible"] for a in arbitrages or []
+        if not a.get("categories") or "agent-mort" in a["categories"]
+    }
     todos = []
     # Incrément C : un même agent demandé/recréé plusieurs fois ad hoc = trou récurrent.
     for (res, nom), n in sorted((gaps or {}).items(), key=lambda kv: -kv[1]):
@@ -631,6 +742,11 @@ def build_todos(skills: dict, fam: dict, gaps: dict = None, arbitrages: list = N
             + ", ".join(f"`{s}`" for s in proj_unused)
             + " — vérifier pertinence et déclencheurs."
         )
+    # Le sommeil ne consulte PAS `arbitres`, et c'est délibéré (2026-07-28) : « cette
+    # skill n'est pas morte » (agent-mort, décidé un jour donné) ne dit rien de « elle
+    # dort depuis deux mois » — signal différent, sur une skill qui a bel et bien servi.
+    # Filtrer ici éteindrait définitivement le sommeil de bmad-code-review,
+    # restitution-deck-design et slide-text-polish, toutes arbitrées et actives.
     dormant = sorted(
         k
         for k, e in skills.items()
@@ -673,7 +789,8 @@ def _usage_table(agg: dict, fam: dict = None) -> list:
 
 
 def build_page(state: dict, fam: dict, todos: list, diag_todos: list = None, diag_a_jour: bool = False,
-               openhub: dict = None, arbitrages: list = None, diagnostic_ran: bool = False) -> str:
+               openhub: dict = None, arbitrages: list = None, diagnostic_ran: bool = False,
+               masques: list = None) -> str:
     skills = state.get("skills", {})
     subagents = state.get("subagents", {})
     nb_files = len(state.get("files", {}))
@@ -783,6 +900,18 @@ def build_page(state: dict, fam: dict, todos: list, diag_todos: list = None, dia
             "_Jamais lancé — invoquer la skill `agent-supervisor` (intégrée à `revue-increment`) "
             "pour un diagnostic qualitatif (KO répétés, efficacité, interactions entre agents)._"
         )
+    if masques:
+        # Filtrage rendu auditable (2026-07-28) : sans cette ligne, un constat écarté par
+        # un arbitrage disparaissait sans laisser de trace — l'humain qui a arbitré ne
+        # pouvait pas savoir que sa décision continuait de fermer des constats NEUFS.
+        L += [
+            "",
+            f"_{len(masques)} constat(s) de ce diagnostic écarté(s) par un arbitrage "
+            "— pour en rouvrir un, demander au superviseur un `re_challenge` avec des "
+            "données nouvelles :_",
+            "",
+        ]
+        L += [f"- ~~{m['titre']}~~ (`{m['cible']}`)" for m in masques]
     L += [
         "",
         "---",
@@ -825,7 +954,8 @@ def _html_usage_rows(agg: dict, fam: dict = None) -> str:
 
 
 def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = None, diag_a_jour: bool = False,
-                       openhub: dict = None, arbitrages: list = None, diagnostic_ran: bool = False) -> str:
+                       openhub: dict = None, arbitrages: list = None, diagnostic_ran: bool = False,
+                       masques: list = None) -> str:
     skills = state.get("skills", {})
     subagents = state.get("subagents", {})
     nb_files = len(state.get("files", {}))
@@ -893,6 +1023,15 @@ def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = N
         diag_body = (
             "      <p><em>Jamais lancé — invoquer la skill <code>agent-supervisor</code> "
             "(intégrée à <code>revue-increment</code>).</em></p>"
+        )
+    if masques:  # filtrage auditable (2026-07-28) — cf. build_page
+        items = "".join(
+            f"<li><s>{_esc(m['titre'])}</s> (<code>{_esc(m['cible'])}</code>)</li>" for m in masques
+        )
+        diag_body += (
+            f"\n      <p><em>{len(masques)} constat(s) de ce diagnostic écarté(s) par un "
+            "arbitrage — pour en rouvrir un, demander au superviseur un "
+            f"<code>re_challenge</code> avec des données nouvelles :</em></p>\n      <ul>{items}</ul>"
         )
     if arbitrages:
         items = "\n".join(
@@ -964,7 +1103,8 @@ def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = N
 
 
 def update_wiki_html(state: dict, fam: dict, todos: list, diag_todos: list = None, diag_a_jour: bool = False,
-                     openhub: dict = None, arbitrages: list = None, diagnostic_ran: bool = False) -> bool:
+                     openhub: dict = None, arbitrages: list = None, diagnostic_ran: bool = False,
+                     masques: list = None) -> bool:
     """Remplace le bloc entre marqueurs TODO-AGENTS-HTML de docs/wiki.html.
 
     Ne fait rien si la page ou les marqueurs n'existent pas (les marqueurs sont posés
@@ -984,7 +1124,8 @@ def update_wiki_html(state: dict, fam: dict, todos: list, diag_todos: list = Non
         return False
     block = (
         f"{HTML_MARK_START} — bloc généré par .claude/supervision/scan_transcripts.py, ne pas éditer à la main -->"
-        + build_html_section(state, fam, todos, diag_todos, diag_a_jour, openhub, arbitrages, diagnostic_ran)
+        + build_html_section(state, fam, todos, diag_todos, diag_a_jour, openhub, arbitrages,
+                             diagnostic_ran, masques)
         + HTML_MARK_END
     )
     pattern = re.escape(HTML_MARK_START) + r".*?" + re.escape(HTML_MARK_END)
@@ -1034,6 +1175,7 @@ def main(argv) -> int:
     par_playbook, par_agent = build_runs_stats(runs)
     diagnostic = load_diagnostic()
     diag_todos = diagnostic_todos(diagnostic, arbitrages)
+    masques = diagnostic_masques(diagnostic, arbitrages)
     diag_a_jour = diagnostic_a_jour(diagnostic, runs)
     openhub = openhub_stats()
     hints = build_routing_hints(state, fam, par_playbook, par_agent, diagnostic, runs, arbitrages)
@@ -1048,15 +1190,25 @@ def main(argv) -> int:
         os.makedirs(page_dir, exist_ok=True)
     diagnostic_ran = diagnostic is not None
     with open(WIKI_PAGE, "w", encoding="utf-8") as fh:
-        fh.write(build_page(state, fam, todos, diag_todos, diag_a_jour, openhub, arbitrages, diagnostic_ran))
+        fh.write(build_page(state, fam, todos, diag_todos, diag_a_jour, openhub, arbitrages,
+                            diagnostic_ran, masques))
     update_index(todos)
-    html_ok = update_wiki_html(state, fam, todos, diag_todos, diag_a_jour, openhub, arbitrages, diagnostic_ran)
+    html_ok = update_wiki_html(state, fam, todos, diag_todos, diag_a_jour, openhub, arbitrages,
+                               diagnostic_ran, masques)
     missing = state.get("transcript_dir_missing")
     detail = f" (transcripts introuvables : {missing})" if missing else ""
     if html_ok is False:
         detail += " (wiki.html sans marqueurs TODO-AGENTS-HTML : bloc HTML non mis a jour)"
     if not diag_a_jour:
         detail += " (diagnostic agent-supervisor a lancer ou perime)"
+    if masques:
+        # Le filtrage ne doit jamais être silencieux : le superviseur peut écrire des
+        # constats justes et n'en afficher aucun (constat prio 5 du 2026-07-28).
+        detail += f" ({len(masques)} constat(s) du diagnostic ecarte(s) par arbitrage)"
+    inconnues = categories_inconnues(arbitrages)
+    if inconnues:
+        detail += (" (arbitrages.json : categorie(s) hors vocabulaire, sans effet -> "
+                   + ", ".join(inconnues) + ")")
     print(
         f"Supervision agents : +{new_events} evenement(s), {len(state.get('files', {}))} sessions couvertes, "
         f"{len(todos)} TODO, {len(runs)} run(s) orchestrateur -> agents-supervision.md, index.md"

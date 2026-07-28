@@ -103,7 +103,7 @@ PPT complète (cadres photo, polish, passe design).
       "modele": "(session)",
       "contrat": {
         "type": "reel",
-        "critere": "SI pptx_export.py/pptx_deck.py touché : export réel rendu en images et inspecté (python-pptx est un parseur tolérant)"
+        "critere": "SI le diff touche `app/services/pptx_export/**` ou `pptx_deck.py` (seuil sur le CHEMIN, jamais sur l'appréciation « ce n'est qu'un déplacement de code ») : export réel rendu en images et inspecté (python-pptx est un parseur tolérant) ; et SI le changement rend une cardinalité ou un libellé VARIABLES (une slide par axe, N cartes), le rendu porte sur un cas NON par défaut, le semis démo ne montrant que le cas nominal — constat superviseur prio 5 du 2026-07-28 : deux commits (a3ca545, 38a040d) ont modifié le générateur sans aucun rendu"
       },
       "checkpoint": false
     },
@@ -137,7 +137,7 @@ PPT complète (cadres photo, polish, passe design).
       "modele": "(session)",
       "contrat": {
         "type": "deterministe",
-        "critere": "le run est journalisé (py .claude/orchestration/log_run.py) AU MOMENT DU COMMIT, pas à la fin de la séance — une séance longue enchaîne les demandes et ne se termine presque jamais par une action de clôture (constat superviseur prio 2 du 2026-07-27 : 4 commits, aucune ligne de journal)"
+        "critere": "le run est journalisé (py .claude/orchestration/log_run.py) AU MOMENT DU COMMIT, pas à la fin de la séance — une séance longue enchaîne les demandes et ne se termine presque jamais par une action de clôture (constat superviseur prio 2 du 2026-07-27 : 4 commits, aucune ligne de journal) ; et `git status --short` est VIDE à la clôture, ou chaque reliquat est NOMMÉ à l'utilisateur avec sa raison (constat superviseur prio 4 du 2026-07-28 : la séance précédente s'était close sur 9 fichiers modifiés, dont l'application des arbitrages et du code produit, restés hors de l'historique)"
       },
       "checkpoint": false
     }

@@ -106,10 +106,18 @@ def build_presentation(
 
     # Sections présentes, groupées par chapitre (P2 — structure narrative). Un
     # intercalaire ouvre chaque chapitre qui a du contenu ; le sommaire quali les liste.
+    # Matière de synthèse RÉELLEMENT restituable : le contenu des axes que la mission
+    # étudie AUJOURD'HUI. `gs.has_content` répond sur `valeurs` + les 5 colonnes
+    # historiques, donc reste vrai pour un axe supprimé depuis — le sommaire annonçait
+    # alors « Synthèse globale » et l'intercalaire s'ouvrait sur zéro slide (même défaut
+    # de parité que celui corrigé le 2026-07-22 sur les difficultés).
+    synthese_axes = (
+        [a for a in _axes(axes_etude) if (gs.contenu(a.key) or "").strip()] if gs else []
+    )
     ch_sections: list[list[str]] = [[] for _ in _CHAPITRES]
     if include_executive_summary and executive_summary and executive_summary.has_content:
         ch_sections[_CH_RETENIR].append("Executive Summary")
-    if include_synthese and gs and gs.has_content:
+    if include_synthese and synthese_axes:
         ch_sections[_CH_DIAGNOSTIC].append("Synthèse globale")
     if include_difficultes and difficulties:
         ch_sections[_CH_DIAGNOSTIC].append("Difficultés")
@@ -143,13 +151,14 @@ def build_presentation(
     # Chapitre 2 — Le diagnostic
     if ch_sections[_CH_DIAGNOSTIC]:
         _chapitre(_CH_DIAGNOSTIC)
-        if include_synthese and gs and gs.has_content:
-            # Une slide par AXE de la mission (2026-07-27) : les 5 rubriques
-            # étaient figées ici, un axe ajouté n'aurait jamais atteint le deck.
-            categories = [(axe.label, gs.contenu(axe.key)) for axe in _axes(axes_etude)]
-            for label, content in categories:
-                if (content or "").strip():
-                    _slide_synthese_categorie(prs, label, content)
+        if include_synthese:
+            # Une slide par AXE de la mission (2026-07-27) : les 5 rubriques étaient
+            # figées ici, un axe ajouté n'aurait jamais atteint le deck. Même liste
+            # que celle qui a décidé du sommaire (parité), et la `key` accompagne le
+            # libellé jusqu'à la slide : le visuel est indexé dessus, le libellé
+            # étant renommable (correctif 2026-07-28).
+            for axe in synthese_axes:
+                _slide_synthese_categorie(prs, axe.label, gs.contenu(axe.key), axe.key)
         if include_difficultes and difficulties:
             _slide_difficultes(prs, difficulties)
         if include_swot and swot and swot.has_content:

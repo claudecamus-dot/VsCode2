@@ -273,25 +273,24 @@ def _global_material_blocks(material_by_theme, material_libre=None, axes=None) -
         blocks.append("\n".join(lines))
     libelles = {axe.key: axe.label for axe in (axes or _axes_par_defaut())}
     for interview, repartition in material_libre or []:
-        if not any((repartition or {}).values()):
-            continue
         lines = [f"=== ENTRETIEN LIBRE : {interview.interviewee_name} ==="]
-        for key, label in (
-            ("contexte", "Contexte"),
-            ("culture_adn", "Culture & ADN"),
-            ("forces_succes", "Forces / succès"),
-            ("points_amelioration", "Points d'amélioration"),
-            ("aspirations", "Aspirations"),
-        ):
+        # Les AXES DE LA MISSION, pas les 5 clés historiques (correctif 2026-07-28,
+        # trouvé en revue adversariale) : `libelles` était construite ici puis jamais
+        # lue, et la boucle restait figée sur les 5 défauts. Or `Interview.repartition`
+        # est produit sur un schéma construit depuis les axes — la matière recueillie
+        # pour un axe SUR MESURE n'atteignait donc jamais le prompt de synthèse, et la
+        # rubrique correspondante ressortait vide sans que rien ne le signale.
+        for key, label in libelles.items():
             value = (repartition or {}).get(key)
             if value:
                 lines.append(f"{label} : {value}")
-        blocks.append("\n".join(lines))
+        # Le garde de non-vacuité porte sur les lignes RETENUES, pas sur la répartition
+        # brute : un entretien dont la répartition ne porte que des clés hors axes (axe
+        # supprimé depuis) produisait un bloc réduit à son en-tête — trompeur pour le
+        # modèle, et consommant du budget de tronçonnage pour rien.
+        if len(lines) > 1:
+            blocks.append("\n".join(lines))
     return blocks
-
-
-def _build_global_prompt(mission, material_by_theme, material_libre=None) -> str:
-    return "\n\n".join([f"MISSION : {mission.name}", *_global_material_blocks(material_by_theme, material_libre)])
 
 
 def _chunk_blocks(blocks: list[str], max_words: int) -> list[list[str]]:
@@ -315,15 +314,27 @@ def _chunk_blocks(blocks: list[str], max_words: int) -> list[list[str]]:
 
 
 def _clean_global(data, keys) -> dict:
-    """Coerce la réponse JSON vers les clés d'axes attendues — une valeur du
-    mauvais type (dict imbriqué là où une chaîne était attendue, déjà observé
-    avec Ollama sur la répartition libre, cf. `_safe_str` dans
-    `interview_libre_extract_ai.py`) est traitée comme absente plutôt que de
-    planter sur `.strip()`."""
+    """Coerce la réponse JSON vers les clés d'axes attendues.
+
+    Une valeur qui n'est pas une chaîne est APLATIE en puces (`_coerce_bullets`),
+    plus jamais jetée (2026-07-28) : `format: "json"` garantit du JSON valide, pas
+    le type demandé, et le modèle par défaut rend régulièrement une LISTE
+    d'objets `{"sous_theme": …, "facteur": …}` là où le schéma attend une chaîne.
+    La garde stricte str-sinon-"" vidait alors la rubrique EN SILENCE — mesuré
+    contre un Ollama réel (`contexte=54c, points_amelioration=0c` alors que le
+    modèle avait bien produit deux sous-thèmes pour la seconde), ce qui livrait
+    une synthèse amputée à l'écran. Exactement le défaut déjà corrigé côté SWOT
+    le 2026-07-21 ([[feedback-ollama-json-type-coercion-flatten-not-drop]]) et
+    resté ici, où `_clean_swot` supposait à tort que « le prompt élicite des
+    chaînes » suffisait.
+
+    Une chaîne, elle, reste INTACTE : le prompt demande des sous-thèmes nommés
+    suivis de puces, et passer ce texte dans `_coerce_bullets` transformerait les
+    titres de sous-thème en puces."""
     if not isinstance(data, dict):
         data = {}
     return {
-        key: (data.get(key).strip() if isinstance(data.get(key), str) else "")
+        key: (data[key].strip() if isinstance(data.get(key), str) else _coerce_bullets(data.get(key)))
         for key in keys
     }
 
@@ -662,9 +673,11 @@ def _coerce_bullets(value) -> str:
     renvoyée par le modèle. Ollama (`format: "json"` garantit du JSON valide,
     pas le type EXACT demandé) renvoie très souvent une LISTE par quadrant —
     parfois une liste de petits objets `{"poids": "..."}` — là où le schéma
-    attend une chaîne. La garde stricte de `_clean_global`/`_safe_str` (str
-    sinon "") jetait alors tout le contenu : le passage réel du 2026-07-21
-    ressortait les 4 quadrants VIDES malgré une génération pertinente. On aplati
+    attend une chaîne. La garde stricte str-sinon-"" jetait alors tout le
+    contenu : le passage réel du 2026-07-21 ressortait les 4 quadrants VIDES
+    malgré une génération pertinente (même défaut retrouvé le 2026-07-28 dans
+    `_clean_global`, qui s'appuie désormais lui aussi sur cet aplatissement).
+    On aplati
     plutôt que de perdre. Défense en profondeur — `SWOT_JSON_HINT` demande déjà
     une chaîne, mais un 7-8B local n'obéit pas de façon fiable. Les lignes/puces
     vides (ex. `"- \n- "` renvoyé par le modèle pour un quadrant sans matière)
@@ -682,11 +695,13 @@ def _coerce_bullets(value) -> str:
 
 
 def _clean_swot(data) -> dict:
-    """Coerce la réponse JSON vers les 4 quadrants. Contrairement à
-    `_clean_global` (str strict, suffisant là où le prompt élicite des
-    chaînes), on APLATIT listes/objets en puces via `_coerce_bullets` — le
-    prompt SWOT (« chacun en quelques puces ») élicite au contraire des listes
-    qu'il ne faut pas perdre (cf. le correctif du 2026-07-21)."""
+    """Coerce la réponse JSON vers les 4 quadrants : listes/objets APLATIS en
+    puces via `_coerce_bullets`, jamais jetés — le prompt SWOT (« chacun en
+    quelques puces ») élicite des listes qu'il ne faut pas perdre (correctif du
+    2026-07-21). Différence avec `_clean_global`, qui applique la même règle
+    depuis le 2026-07-28 : ici une CHAÎNE passe aussi par l'aplatissement (une
+    suite de puces), là elle reste intacte (des sous-thèmes nommés suivis de
+    puces, que l'aplatissement écraserait)."""
     if not isinstance(data, dict):
         data = {}
     return {key: _coerce_bullets(data.get(key)) for key in SWOT_KEYS}

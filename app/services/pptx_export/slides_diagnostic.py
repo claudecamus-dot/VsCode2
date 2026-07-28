@@ -4,6 +4,9 @@ Extrait de pptx_export.py (découpage du gros module, finding audit
 2026-07-24) — code déplacé tel quel."""
 from __future__ import annotations
 
+import hashlib
+import re
+
 from pptx import Presentation
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 
@@ -21,8 +24,10 @@ from .base import (
 from .images import _FRAMED_OK, _image_dans_zone
 
 # Enrichissement synthèse (ask design 2026-07-22) : pattern claim + visuel + encart
-# des decks OCTO réels (VSCode4). Scène/requête photo par catégorie (repli procédural
-# offline, comme les têtes de chapitre) — clé = libellé exact passé par build_presentation.
+# des decks OCTO réels (VSCode4). Scène/requête photo par axe d'étude (repli procédural
+# offline, comme les têtes de chapitre) — clé = la `key` de l'axe, JAMAIS son libellé :
+# depuis que les axes sont configurables (2026-07-27), le libellé est renommable et
+# seule la key est stable (même invariant que le stockage du contenu).
 # Scènes NATURE (comme les têtes de chapitre) : rendu procédural fiable hors ligne
 # ET vraie photo Openverse en prod — cohérent avec l'imagerie de marque du deck.
 # (scène, requête photo, seed distinct pour varier des intercalaires).
@@ -30,16 +35,59 @@ _SYNTHESE_VISUEL = {
     # « photography » dans la requête : Openverse mélange photos et illustrations —
     # sans ce biais, une requête générique peut renvoyer un clipart (constat
     # pptx-verify 2026-07-22 : « mountains landscape » → illustration Fuji).
-    "Contexte": ("mountains", "mountain landscape photography", 11),
-    "Culture & ADN": ("forest", "forest sunlight nature photography", 12),
-    "Forces & succès": ("sunset", "sunset sky photography", 13),
-    "Points d'amélioration": ("ocean", "ocean waves photography", 14),
-    "Aspirations (baguette magique)": ("sunset", "sunrise horizon photography", 15),
+    "contexte": ("mountains", "mountain landscape photography", 11),
+    "culture_adn": ("forest", "forest sunlight nature photography", 12),
+    "forces_succes": ("sunset", "sunset sky photography", 13),
+    "points_amelioration": ("ocean", "ocean waves photography", 14),
+    "aspirations": ("sunset", "sunrise horizon photography", 15),
 }
+# Scènes disponibles pour un axe SUR MESURE (nature_images.SCENES) — l'ordre fixe
+# tient l'invariant de reproductibilité : même axe, même image d'un export à l'autre.
+_SCENES_AU_CHOIX = ("mountains", "forest", "sunset", "ocean", "tropical", "meadow")
 
 
-def _slide_synthese_categorie(prs: Presentation, label: str, content: str) -> None:
-    """Slide de catégorie de synthèse, ENRICHIE (claim + visuel + encart) : puces à
+def _visuel_axe(key: str) -> tuple:
+    """(scène, requête, seed) pour un axe. Un axe SUR MESURE n'est pas dans la table :
+    il tire une scène et un seed DÉRIVÉS de sa key, plutôt que de retomber sur une
+    constante partagée.
+
+    Avant le 2026-07-28, la table était indexée par libellé et le repli valait
+    `("mountains", "mountains landscape", 11)` pour tout le monde : renommer un axe
+    (ce que la fonctionnalité autorise explicitement) ou en ajouter deux donnait
+    autant de slides de synthèse portant LA MÊME photo — une imagerie répétée à
+    l'identique se lit comme décorative, alors que la charte veut du sens
+    (deck-design-library, principes transversaux).
+
+    Portée exacte de la garantie : scène, seed ET requête varient avec la key, donc
+    deux axes sur mesure ne reçoivent pas la même image. La SCÈNE seule peut se
+    répéter — il n'y en a que six — mais la requête photo porte alors un mot tiré de
+    la key, donc une page de résultats différente. Un repli reste un repli : une image
+    vraiment porteuse de sens passe par `_SYNTHESE_VISUEL`."""
+    connu = _SYNTHESE_VISUEL.get(key)
+    if connu:
+        return connu
+    # Empreinte stable entre processus (`hash()` d'une str est randomisé par PYTHONHASHSEED).
+    # Scène et seed sont tirés de TRANCHES DISTINCTES : avec une seule empreinte et
+    # `6 | 900`, la scène était entièrement déterminée par le seed — l'espace des
+    # signatures tombait à 900 au lieu de 6×900, avec des collisions dès quelques axes.
+    empreinte = hashlib.md5((key or "").encode("utf-8")).hexdigest()
+    scene = _SCENES_AU_CHOIX[int(empreinte[:8], 16) % len(_SCENES_AU_CHOIX)]
+    seed = 20 + int(empreinte[8:16], 16) % 997
+    # Le mot-clé issu de la key varie AUSSI la requête photo : sans lui, les six scènes
+    # ne donnaient que six requêtes, donc deux axes de même scène tapaient la même page
+    # de résultats et pouvaient recevoir le même cliché.
+    mot = re.sub(r"[^a-z]+", " ", (key or "").lower()).split()
+    qualifiant = f"{mot[0]} " if mot else ""
+    return scene, f"{scene} {qualifiant}nature photography".replace("  ", " "), seed
+
+
+def _slide_synthese_categorie(prs: Presentation, label: str, content: str, key: str) -> None:
+    """Slide de catégorie de synthèse pour l'axe `key` (dont `label` est le libellé
+    courant, renommable — d'où le paramètre SANS valeur par défaut : un appel à trois
+    arguments, comme avant le 2026-07-28, doit échouer bruyamment plutôt que de faire
+    silencieusement retomber toutes les slides sur le même visuel de repli).
+
+    ENRICHIE (claim + visuel + encart) : puces à
     gauche dans une carte, photo métier à droite, 1re puce promue en encart « à
     retenir » cyan en bas — au lieu d'un titre + puces sur fond vide. Repli propre
     (carte pleine largeur, pas d'encart) si l'infra image manque ou si la catégorie
@@ -76,7 +124,7 @@ def _slide_synthese_categorie(prs: Presentation, label: str, content: str) -> No
     )
 
     if has_vis:
-        scene, requete, seed = _SYNTHESE_VISUEL.get(label, ("mountains", "mountains landscape", 11))
+        scene, requete, seed = _visuel_axe(key)
         if not _image_dans_zone(slide, vis_l, top, vis_w, avail, scene, requete, seed=seed):
             D.add_rect(slide, vis_l, top, vis_w, avail, fill=accent, rounded=True, radius=0.06)
 

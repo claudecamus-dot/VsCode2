@@ -595,3 +595,141 @@ def test_design_cache_image_proc_ne_bloque_pas_la_photo(tmp_path, monkeypatch) -
     assert not list(tmp_path.glob("*_photo.png")), (
         "le repli procédural a écrit dans le slot photo — il le monopoliserait à vie"
     )
+
+
+def test_design_visuel_de_synthese_suit_la_key_pas_le_libelle() -> None:
+    """Invariant R4 du défaut trouvé par le diagnostic superviseur du 2026-07-28.
+
+    Depuis que les axes d'étude sont configurables (2026-07-27), le libellé est
+    RENOMMABLE et seule la `key` est stable — mais le visuel de la slide de synthèse
+    restait indexé par libellé, avec un repli constant. Deux conséquences visibles au
+    rendu : un axe renommé perdait son image métier, et plusieurs axes sur mesure
+    recevaient LA MÊME photo (même scène, même seed), ce qui se lit comme un
+    décor et non comme du sens."""
+    from app.services.pptx_export.slides_diagnostic import _SYNTHESE_VISUEL, _visuel_axe
+
+    # 1. Un axe RENOMMÉ garde le visuel de sa key (le libellé ne compte plus).
+    assert _visuel_axe("contexte") == _SYNTHESE_VISUEL["contexte"]
+
+    # 2. Deux axes SUR MESURE ne partagent ni (scène, seed) ni requête photo. La scène
+    #    seule peut se répéter (il n'y en a que six), mais la requête porte alors un mot
+    #    tiré de la key — sinon deux axes de même scène tapent la même page de résultats
+    #    et peuvent recevoir le MÊME cliché (`search_photo` indexe `seed % len(results)`).
+    sur_mesure = ["outillage_donnees", "gouvernance", "relation_client", "delais",
+                  "securite", "formation"]
+    visuels = [_visuel_axe(k) for k in sur_mesure]
+    assert len({(v[0], v[2]) for v in visuels}) == len(sur_mesure), (
+        f"axes sur mesure au visuel identique : {visuels}"
+    )
+    assert len({v[1] for v in visuels}) == len(sur_mesure), (
+        f"axes sur mesure à la même requête photo : {[v[1] for v in visuels]}"
+    )
+
+    # 3. Sur un large échantillon, la scène n'est PAS déterminée par le seed (tranches
+    #    de hash distinctes). Quand elle l'était (une seule empreinte, `6 | 900`),
+    #    l'espace des signatures s'effondrait à 900 et 3000 clés ne donnaient que
+    #    853 visuels distincts ; l'espace réel est désormais 6×997, dont ~2350
+    #    signatures distinctes attendues sur 3000 tirages (paradoxe des anniversaires).
+    larges = [_visuel_axe(f"axe_{i}") for i in range(3000)]
+    assert len({(v[0], v[2]) for v in larges}) >= 2000
+
+    # 4. Reproductible d'un export à l'autre (pas de hash randomisé par processus).
+    assert visuels == [_visuel_axe(k) for k in sur_mesure]
+
+
+def test_design_deck_a_axes_sur_mesure_ne_repete_pas_la_meme_image() -> None:
+    """Le couplage COMPLET, de `build_presentation` à l'image posée — l'invariant
+    précédent n'exerce que `_visuel_axe` en isolation, si bien qu'un retour à l'appel
+    à trois arguments (le bug d'origine) le laisserait vert. C'est aussi la seule
+    couverture du paramètre `axes_etude`, jusqu'ici exercé par aucun test.
+
+    On rend une mission à axes SUR MESURE et on compare les images réellement
+    embarquées : avant le correctif, toutes les slides de synthèse partageaient le
+    même repli, donc le même blob."""
+    from app.services.pptx_export import build_presentation
+
+    class _Axe:
+        def __init__(self, key, label):
+            self.key, self.label, self.hint = key, label, ""
+
+    axes = [
+        _Axe("contexte", "Contexte & historique"),      # renommé, key stable
+        _Axe("outillage_donnees", "Outillage & données"),  # sur mesure
+        _Axe("relation_client", "Relation client"),        # sur mesure
+    ]
+    db = SessionLocal()
+    mission = db.query(Mission).first()
+    gs = db.query(GlobalSynthesis).filter_by(mission_id=mission.id).first()
+    for axe in axes:
+        gs.set_contenu(axe.key, f"{axe.label}\n- Un constat.\n- Un autre constat.")
+    db.flush()  # visible pour le build, jamais commité : la base du module reste intacte
+
+    prs = build_presentation(
+        mission, include_sommaire=False, include_executive_summary=False,
+        include_synthese=True, include_difficultes=False, include_swot=False,
+        include_verbatims=False, include_axes_overview=False, include_matrix=False,
+        include_axis_ids=set(), axes_etude=axes,
+    )
+    db.rollback()
+    db.close()
+
+    # Les slides de synthèse SEULES (le deck émet aussi couverture et intercalaire,
+    # qui portent leurs propres images).
+    synthese = [
+        slide for slide in prs.slides
+        if any(sh.has_text_frame and sh.text_frame.text.startswith("Synthèse globale —")
+               for sh in slide.shapes)
+    ]
+    assert len(synthese) == len(axes), f"{len(synthese)} slide(s) pour {len(axes)} axes"
+    images = [
+        pic.image.blob
+        for slide in synthese
+        for pic in slide.shapes
+        if pic.shape_type == 13  # MSO_SHAPE_TYPE.PICTURE
+    ]
+    import app.services.pptx_export.images as px
+
+    if not px._FRAMED_OK:  # infra image absente : rien à vérifier ici
+        return
+    assert len(images) == len(axes), f"{len(images)} image(s) pour {len(axes)} axes"
+    assert len(set(images)) == len(images), (
+        "deux slides de synthèse portent la MÊME image — le visuel est retombé "
+        "sur un repli commun (régression du couplage key → visuel)"
+    )
+
+
+def test_design_sommaire_ne_promet_pas_une_synthese_sans_slide() -> None:
+    """Parité sommaire/PPT (trouvée en revue adversariale) : `gs.has_content` répond sur
+    `valeurs` ET les 5 colonnes historiques, donc reste vrai pour un axe SUPPRIMÉ depuis.
+    Le sommaire annonçait alors « Synthèse globale » et l'intercalaire « Le diagnostic »
+    s'ouvrait sur zéro slide — même classe de défaut que celui corrigé le 2026-07-22 sur
+    les difficultés."""
+    from app.services.pptx_export import build_presentation
+
+    class _Axe:
+        def __init__(self, key, label):
+            self.key, self.label, self.hint = key, label, ""
+
+    db = SessionLocal()
+    mission = db.query(Mission).first()
+    gs = db.query(GlobalSynthesis).filter_by(mission_id=mission.id).first()
+    gs.set_contenu("contexte", "Du contenu sur un axe que la mission n'étudie plus.")
+    db.flush()
+    # La mission n'étudie plus QUE cet axe-là : sa matière est hors périmètre.
+    prs = build_presentation(
+        mission, include_sommaire=True, include_executive_summary=False,
+        include_synthese=True, include_difficultes=False, include_swot=False,
+        include_verbatims=False, include_axes_overview=False, include_matrix=False,
+        include_axis_ids=set(), axes_etude=[_Axe("axe_neuf", "Axe neuf")],
+    )
+    db.rollback()
+    db.close()
+
+    textes = [
+        sh.text_frame.text for slide in prs.slides for sh in slide.shapes
+        if sh.has_text_frame
+    ]
+    assert not any(t.startswith("Synthèse globale —") for t in textes)  # aucune slide…
+    assert not any("Synthèse globale" in t for t in textes), (  # …donc pas au sommaire
+        "le sommaire annonce une section sans la moindre slide"
+    )

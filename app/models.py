@@ -234,10 +234,10 @@ class Interview(Base):
     # à la création, jamais exposé en modification ensuite (verrou serveur —
     # aucune route de mise à jour n'accepte ce champ).
     mode: Mapped[str] = mapped_column(String(20), default="parametre")
-    # Répartition IA (mode libre uniquement) dans les 5 catégories de
-    # `GlobalSynthesis` — mêmes clés que `synthese_ai.GLOBAL_SCHEMA`, éditée
+    # Répartition IA (mode libre uniquement) dans les axes d'étude de la mission
+    # — mêmes clés que le schéma construit par `synthese_ai.global_schema`, éditée
     # par le consultant avant enregistrement. Consommée par
-    # `_build_global_prompt` comme matière supplémentaire (canal
+    # `synthese_ai._global_material_blocks` comme matière supplémentaire (canal
     # `material_libre`, à côté de `material_by_theme`).
     repartition: Mapped[dict] = mapped_column(JSON, default=dict)
     # Résumé court (1-3 phrases, mode libre) produit par la même extraction

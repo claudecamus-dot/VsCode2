@@ -74,15 +74,38 @@ résolutions ad hoc récurrentes) et les stats plan-vs-réel par playbook.
 avec le constat), l'humain *arbitre*, l'orchestrateur *applique* la version validée —
 jamais d'auto-modification, même « évidente ».
 
+### 3 ter. Re-challenger un arbitrage (`re_challenge`, 2026-07-28)
+
+Un arbitrage enregistré ferme les constats futurs de sa `cible` **dans les catégories
+qu'il déclare** (`categories` dans `arbitrages.json`). C'est voulu pour une redite, faux
+pour un fait NOUVEAU : deux constats différents sur la même cible partagent souvent la
+même catégorie. Avant d'écrire, **lire `.claude/supervision/arbitrages.json`** ; si un
+arbitrage couvre le constat que les données imposent malgré tout :
+
+- poser `"re_challenge": true` (exige une `cible`) — le constat s'affiche au tableau de
+  bord au lieu d'être écarté ;
+- n'en user que si la `preuve` est **postérieure** à l'arbitrage et le contredit
+  vraiment ; le dire explicitement dans la `preuve` (« arbitré le …, or depuis … »).
+
+Portée : un re-challenge rouvre l'**affichage**, jamais le **routage** — la cible reste
+hors de `prudence` tant que l'humain n'a pas re-arbitré. Sans quoi le superviseur
+écraserait de lui-même une décision humaine, contre la gouvernance ci-dessus.
+
+Les constats bel et bien écartés ne disparaissent plus : le tableau de bord affiche leur
+nombre et leur titre (barrés), et le scan le dit sur sa sortie.
+
 ### 4. Écrire le diagnostic, puis propager
 
 ```bash
 py .claude/supervision/write_diagnostic.py '{"findings": [{"categorie": "ko-repete", "cible": "pptx-verify", "priorite": 3, "titre": "…", "preuve": "…", "recommandation": "…"}]}'
 ```
 
-(JSON aussi accepté sur stdin. `cible` sur `ko-repete`/`inefficacite` alimente la liste
-`prudence` de routing-hints — l'orchestrateur route avec prudence explicite sur ces
-cibles.) Puis relancer le scan pour propager wiki + hints :
+(JSON aussi accepté sur stdin. Champs : `categorie`, `titre`, `preuve` requis ;
+`cible`, `priorite` 1-5, `recommandation`, `proposition`, `re_challenge` optionnels —
+**5 constats maximum**, le script refuse au-delà plutôt que de laisser le scan tronquer
+en silence. `cible` sur `ko-repete`/`inefficacite` alimente la liste `prudence` de
+routing-hints — l'orchestrateur route avec prudence explicite sur ces cibles.) Puis
+relancer le scan pour propager wiki + hints :
 
 ```bash
 py .claude/supervision/scan_transcripts.py

@@ -9,18 +9,18 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-28T10:22:09+02:00 · **46 sessions** (transcripts) · **114** invocations de skills · **65** lancements de sous-agents.
+Dernier scan : 2026-07-28T11:49:09+02:00 · **46 sessions** (transcripts) · **119** invocations de skills · **67** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
 | `run-dev-server` | projet | 25 | 2026-07-03 | 2026-07-27 |
-| `agent-orchestrator` | projet | 23 | 2026-07-17 | 2026-07-23 |
+| `agent-orchestrator` | projet | 24 | 2026-07-17 | 2026-07-28 |
 | `agent-supervisor` | projet | 18 | 2026-07-18 | 2026-07-28 |
 | `bmad-code-review` | BMAD | 9 | 2026-07-20 | 2026-07-27 |
+| `pptx-verify` | global | 8 | 2026-07-03 | 2026-07-28 |
 | `revue-increment` | projet | 8 | 2026-07-18 | 2026-07-27 |
-| `pptx-verify` | global | 7 | 2026-07-03 | 2026-07-23 |
 | `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
 | `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
@@ -29,25 +29,24 @@ Dernier scan : 2026-07-28T10:22:09+02:00 · **46 sessions** (transcripts) · **1
 | `slide-text-polish` | projet | 2 | 2026-07-22 | 2026-07-22 |
 | `bmad-sprint-status` | BMAD | 1 | 2026-07-22 | 2026-07-22 |
 | `claude-api` | (builtin/session) | 1 | 2026-06-29 | 2026-06-29 |
+| `deck-design-library` | projet | 1 | 2026-07-28 | 2026-07-28 |
 | `deck-design-review` | projet | 1 | 2026-07-22 | 2026-07-22 |
 | `init` | (builtin/session) | 1 | 2026-07-03 | 2026-07-03 |
+| `priority-matrix` | projet | 1 | 2026-07-28 | 2026-07-28 |
 | `restitution-deck-design` | global | 1 | 2026-07-22 | 2026-07-22 |
+| `swot-matrix` | projet | 1 | 2026-07-28 | 2026-07-28 |
 
 ## Sous-agents
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 33 | 2026-07-15 | 2026-07-27 |
+| `general-purpose` | 35 | 2026-07-15 | 2026-07-28 |
 | `Explore` | 24 | 2026-06-30 | 2026-07-23 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
 | `claude-code-guide` | 1 | 2026-07-03 | 2026-07-03 |
 
 ## Jamais utilisés
-
-**projet** — 3/10 jamais invoqués :
-
-`deck-design-library`, `priority-matrix`, `swot-matrix`
 
 **BMAD** — 37/39 jamais invoqués :
 
@@ -65,12 +64,17 @@ _Consommés en lisant/exécutant leurs `scripts/`, ou via un sous-agent qui les 
 
 ## TODO agents (constats automatiques)
 
-1. **Skills projet sans usage** : `deck-design-library`, `priority-matrix`, `swot-matrix` — vérifier pertinence et déclencheurs.
+_(aucun constat — rien à signaler sur les données actuelles)_
 
 ## Arbitrages enregistrés
 
 _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) — l'usage réel reste mesuré ci-dessus._
 
+- **`arbitrages.json`** (2026-07-28) : Constat superviseur du 2026-07-28 (prio 5, un arbitrage rendait sa cible definitivement sourde — 29/29 sans `categories`, 3 constats sur 4 masques le jour meme) applique : les 29 arbitrages portent desormais les categories qu'ils ferment reellement ; `_couvre` traite `[]` comme « ne ferme rien » et ignore un champ mal forme (un `in` sur une chaine matchait par sous-chaine) ; `categories_inconnues` signale une categorie hors vocabulaire, qui rendrait l'arbitrage silencieusement inoperant ; un constat peut porter `re_challenge: true` pour rouvrir l'AFFICHAGE avec des donnees nouvelles — jamais le ROUTAGE (`prudence` reste ce que l'humain a decide), et un arbitrage pris depuis le diagnostic le referme ; les constats ecartes sont affiches (wiki md + HTML, sortie du scan) au lieu de disparaitre. `write_diagnostic` refuse au-dela de 5 constats (le scan tronquait en silence) et type `re_challenge` en booleen. Tests : test_agent_supervision (22).
+- **`export-ppt-verifie`** (2026-07-28) : Constat superviseur du 2026-07-28 (prio 5, re-challenge : le deck a change de contenu — une slide par axe d'etude — sans aucun rendu depuis le 2026-07-23) applique : le declencheur de rendu devient un SEUIL OBJECTIF SUR LE CHEMIN DU DIFF (`app/services/pptx_export/**`), dans le playbook dev-verifie, la table des verifications obligatoires de l'orchestrateur et revue-increment §2 ; un changement rendant une cardinalite ou un libelle VARIABLES se rend sur un cas NON par defaut. Defaut de fond corrige : `_SYNTHESE_VISUEL` etait indexe par LIBELLE (renommable) au lieu de la `key` (stable), avec un repli constant — un axe renomme perdait son image et deux axes sur mesure recevaient la meme. Verifie au rendu reel sur une mission a 7 axes (2 renommes, 2 ajoutes).
+- **`revue-increment`** (2026-07-28) : Constats superviseur du 2026-07-28 (prio 4 et 3, re-challenges) appliques. (a) Cloture : `git status --short` doit etre VIDE en fin de run, ou chaque reliquat NOMME a l'utilisateur avec sa raison — generalise la regle du 2026-07-20 (limitee aux docs generees) apres une seance close sur 9 fichiers modifies, dont l'application des arbitrages de la veille et du code produit ; portee aussi par l'etape commit-et-journal du playbook dev-verifie. (b) Un defaut PRODUIT trouve en verification reelle ne se clot pas par un xfail : trace hors-test obligatoire + decision nommee a l'utilisateur, et on cherche la cause avant de le ranger — le gap « synthese amputee » range en xfail le 2026-07-27 etait en fait une valeur JSON de type liste jetee par une garde `str`, trouvee en une sonde.
+- **`deck-design-library`** (2026-07-28) : Vaut aussi pour `swot-matrix` et `priority-matrix`. Demande utilisateur du 2026-07-28 (« pour 5 fait en sorte que les skills soient invoques et declenches ») appliquee sur les deux plans. Mecanisme : les conditions AUTO-JUGEES (« SI le SWOT n'est pas au RDV ») deviennent des seuils objectifs sur le chemin du diff — `slides_diagnostic.py` declenche `swot-matrix`, `slides_trajectoire.py` declenche `priority-matrix`, toute slide dessinee ou retouchee declenche `deck-design-library` — dans le playbook export-ppt-verifie et la table des verifications obligatoires de l'orchestrateur ; la forme auto-jugee avait deja ete constatee inoperante le 2026-07-22 (restitution-deck-design, 0 invocation malgre 6 runs deck). Usage reel : les trois skills ont ete invoquees pendant ce run et leurs contrats verifies au rendu — le TODO « skills projet sans usage » est tombe a 0.
+- **`synthese_ai.py`** (2026-07-28) : Revue adversariale du 2026-07-28 (2 chasseurs, 24 findings, sur le code NON commite — gate R3 respecte cette fois) : correctifs retenus au-dela du diagnostic. `_clean_global` aplatit les valeurs non-`str` au lieu de les jeter (cause racine de la rubrique vide, memoire feedback-apply-the-lesson-to-sibling-paths) ; `_global_material_blocks` parcourt les AXES DE LA MISSION au lieu des 5 cles historiques — la matiere d'entretien libre d'un axe sur mesure n'atteignait jamais le prompt, second producteur independant du meme symptome — et n'emet plus de bloc reduit a son en-tete ; `_build_global_prompt` (fonction morte) supprimee ; parite sommaire/slides de synthese retablie quand un axe est supprime ; `cle_libre` ne recycle plus la cle d'un axe supprime qui porte encore du contenu (le test qui portait ce nom ne l'exercait pas).
 - **`dev-verifie`** (2026-07-27) : Constat superviseur du 2026-07-27 (prio 4, gate de revue adversariale sauté — 12 fichiers produit du commit 38a040d poussés PUIS revus) appliqué : le playbook gagne deux étapes. « revue-adversariale » (bmad-code-review, parallèle, fan_out_max 3) s'insère AVANT « revue-increment » avec un checkpoint BLOQUANT — aucun commit de code produit tant que le triage n'est pas clos, et le triage n'est clos qu'après la fin de flux de CHAQUE chasseur. « autorisation-sous-agents » passe en tête : l'accord de lancer des sous-agents se demande une fois pour tout le run, au début — au moment du gate le code est écrit et la question ne se pose plus, c'est là que la revue saute. Invariant de test précisé (test_playbooks_de_dev_se_terminent_par_revue_increment : rien d'autre qu'un commit ne passe après la DoD) + nouveau test_dev_verifie_revoit_avant_de_committer.
 - **`agent-orchestrator`** (2026-07-27) : Constat superviseur du 2026-07-27 (prio 2, séance de 4 commits et 3 demandes multi-étapes sans aucune ligne de journal — runs.jsonl s'arrêtait au 2026-07-25) appliqué : la section « Journaliser » de la skill accroche log_run.py AU MOMENT DU COMMIT et non « à la fin du run ». Une séance longue enchaîne les demandes et ne se termine presque jamais par une action de clôture ; le commit est un point de passage obligé et daté. Corollaire assumé : plusieurs commits = plusieurs lignes, une par unité livrée plutôt qu'une par conversation. Le playbook dev-verifie porte l'étape « commit-et-journal » correspondante.
 - **`agent-orchestrator`** (2026-07-23) : Constat superviseur du 2026-07-23 (prio 5, « en-attente-validation » jamais utilisé en 47 runs) appliqué, commit e638ccc : le garde-fou est devenu exécutable dans log_run.py — un run « succes » dont la demande/notes portent un livrable utilisateur (deck/slide/écran/export) sans mention « validé par l'utilisateur » imprime un AVERTISSEMENT non bloquant rappelant le statut attendu ; UTF-8 forcé sur stdin/stdout (mojibake cp1252). Test : test_log_run_avertit_succes_sur_livrable_utilisateur_sans_validation.
@@ -103,10 +107,15 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic à jour._
+_Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés._
 
-1. **Un arbitrage rend sa cible DÉFINITIVEMENT sourde : 3 des 4 constats de ce diagnostic ont été masqués avant d'atteindre le tableau de bord** — Renseigner `categories` sur les arbitrages existants (chacun ne ferme en réalité qu'une ou deux catégories) et rendre le filtrage visible plutôt que silencieux. · **Proposition** : Trois changements, du plus mécanique au plus structurant. (1) Backfill : ajouter `categories` aux 29 arbitrages (fichier humain — à faire par l'utilisateur ou sur sa validation), en partant de la catégorie du constat qu'ils ont clos ; un arbitrage sans `categories` devient l'exception explicite, pas le défaut. (2) Faire basculer le défaut dans scan_transcripts.py : un arbitrage sans `categories` ne ferme que la catégorie du constat d'origine si elle est retrouvable, sinon il n'est plus catch-all — le silence ne doit pas valoir blanc-seing perpétuel. (3) Rendre le filtrage AUDITABLE : le scan écrit le nombre de constats masqués et leurs titres dans une ligne du tableau de bord (« n constat(s) clos par arbitrage »), pour qu'un constat filtré reste lisible par l'humain qui arbitre — sans quoi le superviseur peut écrire cinq constats justes et n'en afficher aucun.
-2. **Trois skills deck créées le 2026-07-22 n'ont jamais été invoquées, sous la forme conditionnelle auto-jugée déjà démontrée inopérante** — Décider explicitement pour chacune : seuil objectif de déclenchement, ou statut de bibliothèque de référence, ou retrait. · **Proposition** : Deux changements distincts. (1) Déclarer deck-design-library comme bibliothèque de référence (même mécanisme que pptx-framed-image dans le scan) : elle se consulte, elle ne s'invoque pas — elle sort alors du décompte des skills mortes et cesse de diluer le signal. (2) Convertir les conditions auto-jugées de swot-matrix et priority-matrix en seuil objectif sur chemin de diff, aligné sur la proposition du constat sur le rendu : si le diff touche le fichier qui porte la slide concernée (slides_diagnostic.py / slides_trajectoire.py depuis le découpage a3ca545), la skill est jouée — sans quoi la décision de la jouer revient à celui qui vient d'écrire le code, c'est-à-dire jamais.
+_5 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un `re_challenge` avec des données nouvelles :_
+
+- ~~Un arbitrage rend sa cible DÉFINITIVEMENT sourde : 3 des 4 constats de ce diagnostic ont été masqués avant d'atteindre le tableau de bord~~ (`arbitrages.json`)
+- ~~Le deck a changé de contenu (une slide par axe d'étude) sans aucun rendu réel — et le couplage cassé est déjà visible dans le code~~ (`export-ppt-verifie`)
+- ~~Une séance se clôt sur un arbre sale — y compris l'application des arbitrages censés corriger le gate sauté la veille~~ (`revue-increment`)
+- ~~Un défaut produit trouvé en passage réel a été classé en xfail non strict dans un test auto-skippé — canal de remontée sans destinataire~~ (`revue-increment`)
+- ~~Trois skills deck créées le 2026-07-22 n'ont jamais été invoquées, sous la forme conditionnelle auto-jugée déjà démontrée inopérante~~ (`deck-design-library`)
 
 ---
 

@@ -115,29 +115,25 @@ class _Axe:
         self.key, self.label, self.hint = key, label, hint
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason=(
-        "GAP CONNU (revue d'incrément 2026-07-27, non corrigé) : le modèle défaut "
-        "ne remplit que la première rubrique demandée et rend les suivantes vides. "
-        "Marqué xfail pour rester VISIBLE sans rendre la suite rouge — il repassera "
-        "au vert de lui-même le jour où la cause est traitée (prompt par rubrique, "
-        "ou modèle plus capable). Décision produit à l'utilisateur."
-    ),
-)
 def test_synthese_globale_remplit_toutes_les_rubriques() -> None:
     """Chaque rubrique demandée doit revenir REMPLIE quand la matière la
     concerne explicitement.
 
-    Trou trouvé par la revue d'incrément du 2026-07-27 : les 426 tests de la
-    suite monkeypatchent `call_ai_json`, donc aucun ne voyait que le modèle
-    défaut ne remplit en pratique que la PREMIÈRE rubrique et rend les
-    suivantes VIDES (0 caractère) — reproduit 2 fois, y compris sur des axes
-    par défaut, avec une matière explicite sur chacune. Résultat côté produit :
-    l'onglet « IA intégrée » livre une synthèse amputée sans que rien ne le
-    signale. Ce test est le garde-fou exécutable de ce comportement ; il
-    ÉCHOUERA tant que la cause (prompt par rubrique, ou modèle plus capable)
-    n'est pas traitée — c'est voulu, un gap connu doit rester visible."""
+    Trou trouvé par la revue d'incrément du 2026-07-27 : les tests de la suite
+    monkeypatchent `call_ai_json`, donc aucun ne voyait que le modèle défaut ne
+    remplit en pratique que la ou les PREMIÈRES rubriques et rend les suivantes
+    VIDES (0 caractère) — reproduit 3 fois, y compris sur des axes par défaut,
+    avec une matière explicite sur chacune (dernière mesure du 2026-07-28 :
+    `contexte=54c, points_amelioration=0c`). Résultat côté produit : l'onglet
+    « IA intégrée » livrait une synthèse amputée sans que rien ne le signale.
+
+    Cause réelle trouvée le 2026-07-28 en sondant le modèle : il PRODUISAIT bien
+    la rubrique, mais sous forme de LISTE d'objets sous-thème/facteur, et la garde
+    `str`-sinon-`""` de `synthese_ai._clean_global` la jetait en silence. Corrigée
+    par l'aplatissement (`_coerce_bullets`) ; ce test en est la preuve RÉELLE
+    (`points_amelioration` : 0 → 164 caractères sur le même échantillon). Le
+    pendant mocké est `test_une_rubrique_rendue_en_liste_est_aplatie_et_non_jetee`,
+    qui ne peut pas, lui, voir ce que le vrai modèle renvoie."""
     axes = [
         _Axe("contexte", "Contexte", "faits marquants du contexte"),
         _Axe("points_amelioration", "Points d'amélioration",
