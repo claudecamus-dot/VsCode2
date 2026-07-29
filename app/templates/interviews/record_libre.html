@@ -203,6 +203,12 @@
   var SEGMENT_RETRY_DELAYS_MS = [2000, 6000, 15000];
   var lostSegments = [];        // { id, blob, reason } — audio en attente de relance
   var nextLostSegmentId = 1;
+  // Vrai pendant `retryLostSegments()` : la file est vidée en tête de fonction
+  // (pattern « optimiste », les échecs se réinjectent dans lostSegments) donc
+  // lostSegments.length peut retomber à 0 alors que des blobs sont encore en
+  // vol vers le serveur — sans ce drapeau, le gate ci-dessous se lèverait
+  // pendant cette fenêtre (revue adversariale 2026-07-29).
+  var lostSegmentsRetrying = false;
   // Uploads de sauvegarde audio (tranches) encore en vol — gate la soumission
   // pour que `audio_segments` soit complet avant de quitter l'écran (sinon une
   // tranche uploadée mais dont le `.then()` n'a pas encore tourné manque dans
@@ -349,7 +355,14 @@
   function updateSubmitState() {
     var hasTranscript = !!transcriptSoFar.trim();
     var busy = pendingSegments > 0 || pendingSegmentJobSubmits > 0 || pendingBackups > 0 || finalizing;
-    submitBtn.disabled = recordingActive || busy || !hasTranscript;
+    // Revue adversariale 2026-07-29 : un segment perdu (`lostSegments`) n'est
+    // gardé qu'en mémoire de l'onglet — rien ne bloquait « Enregistrer
+    // l'entretien » pendant que le bandeau prévenait « ne ferme pas cet
+    // onglet », donc le clic de sauvegarde lui-même (redirection 303) perdait
+    // définitivement cet audio. Le blocage se lève dès la relance résolue
+    // (`refreshLostBanner` rappelle `updateSubmitState` — cf. son appelant).
+    var lost = lostSegments.length > 0 || lostSegmentsRetrying;
+    submitBtn.disabled = recordingActive || busy || lost || !hasTranscript;
     // L'export PDF de la transcription est disponible dès que l'enregistrement
     // est arrêté et qu'il y a du texte — indépendamment de l'extraction IA (il
     // n'utilise que le texte) et sans attendre les uploads audio en cours.
@@ -390,6 +403,10 @@
     var n = lostSegments.length;
     lostBannerEl.hidden = n === 0;
     lostRetryBtn.disabled = n === 0;
+    // Chaque appel (perte, résolution, fin de relance) recale aussi le gate
+    // de soumission : c'est la SEULE façon dont `lostSegments`/`lostSegmentsRetrying`
+    // se répercutent sur le bouton « Enregistrer » (revue adversariale 2026-07-29).
+    updateSubmitState();
     if (!n) return;
     lostTextEl.textContent = n + ' segment' + (n > 1 ? 's' : '') + ' de transcription non abouti'
       + (n > 1 ? 's' : '') + ' (' + lostSegments[n - 1].reason + '). L’audio est gardé en mémoire : '
@@ -450,6 +467,7 @@
     if (!lostSegments.length) return;
     var queue = lostSegments.slice();
     lostSegments = [];
+    lostSegmentsRetrying = true;  // couvre le gate pendant que la file se vide (cf. déclaration)
     refreshLostBanner();
     statusEl.textContent = 'Relance de ' + queue.length + ' segment' + (queue.length > 1 ? 's' : '') + '…';
     // EN SÉQUENCE, pas en rafale (revue adversariale 2026-07-29) : le scénario
@@ -459,7 +477,11 @@
     // le verrou du modèle Whisper.
     (function next() {
       var seg = queue.shift();
-      if (!seg) return;
+      if (!seg) {
+        lostSegmentsRetrying = false;
+        refreshLostBanner();  // rien de neuf à annoncer, mais relève le gate si tout a réussi
+        return;
+      }
       uploadSegment(seg.blob, 0, seg.id, undefined, next);
     })();
   }

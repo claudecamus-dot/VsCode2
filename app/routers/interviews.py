@@ -657,6 +657,18 @@ def _extraire_tours_libre(
             extracted = extract_turns_from_text(transcript)
         except InterviewLibreExtractAIError as exc:
             return None, _libre_turns_error(request, mission, identity, str(exc))
+        if not extracted["turns"]:
+            # Revue adversariale 2026-07-29 : l'IA peut répondre sans lever
+            # d'exception mais sans détecter aucun tour (silence, transcription
+            # trop courte, échec silencieux malgré les relances internes de
+            # `extract_turns_from_text`). Sans ce garde-fou, l'enregistrement
+            # direct créait un entretien `status="done"` SANS AUCUN CONTENU et
+            # sans erreur affichée — l'écran de revue qui filtrait ce cas dans
+            # l'ancien wizard n'existe plus sur ce chemin.
+            return None, _libre_turns_error(
+                request, mission, identity,
+                "Aucun tour de parole détecté dans la transcription.",
+            )
     else:
         recover_stalled_or_failed_jobs(db, status["jobs"])
         try:

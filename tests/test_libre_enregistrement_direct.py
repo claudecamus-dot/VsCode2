@@ -133,6 +133,24 @@ def test_ecran_transcription_enregistre_directement(client: TestClient) -> None:
     assert 'name="interview_date"' in html
 
 
+def test_ecran_transcription_gate_enregistrement_sur_segments_perdus(
+    client: TestClient,
+) -> None:
+    """Régression bmad-code-review 2026-07-29 : pas de harnais JS dans ce
+    projet pour exécuter `updateSubmitState()` en conditions réelles — ce test
+    verrouille au moins la PRÉSENCE du gate dans le HTML rendu (le lire
+    disparaître silencieusement d'un futur refactor serait sinon invisible en
+    pytest). Le comportement runtime (bouton "Enregistrer" désactivé tant que
+    `lostSegments`/`lostSegmentsRetrying` ne sont pas vides) est vérifié par
+    lecture de code, pas exécuté ici."""
+    mission_id = _mission_brouillon(client)
+    html = client.get(f"/missions/{mission_id}/interviews/record-libre").text
+
+    assert "lostSegmentsRetrying" in html
+    assert "lostSegments.length > 0 || lostSegmentsRetrying" in html
+    assert "updateSubmitState();" in html
+
+
 # --------------------------------------------------------------------------- #
 # Chemin nominal — aucun job de tranche (entretien court)
 # --------------------------------------------------------------------------- #
@@ -219,6 +237,32 @@ def test_enregistrement_direct_refuse_une_transcription_vide(
 
     assert response.status_code == 200
     assert "Aucun texte transcrit" in response.text
+    assert _entretiens(mission_id) == []
+
+
+def test_enregistrement_direct_zero_tour_naboutit_pas_a_un_entretien_vide(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Régression bmad-code-review 2026-07-29 : sur le chemin synchrone (aucun
+    job de tranche), `extract_turns_from_text` peut répondre SANS lever
+    d'exception mais sans détecter aucun tour (silence, transcription trop
+    courte, échec silencieux malgré les relances internes). Avant ce
+    correctif, `_enregistrer_libre_direct` créait quand même l'entretien
+    (`status="done"`, 0 tour) et redirigeait comme un succès — l'écran de
+    revue qui filtrait ce cas dans l'ancien wizard n'existe plus sur ce
+    chemin direct."""
+    mission_id = _mission_brouillon(client)
+    _patch_extract(monkeypatch, _payload(turns=[]))
+
+    response = client.post(
+        f"/missions/{mission_id}/interviews/record-libre/enregistrer",
+        data={"transcript": "un souffle, rien d'autre"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 200
+    assert "Aucun tour de parole détecté" in response.text
+    assert "un souffle, rien d&#39;autre" in response.text or "un souffle, rien d'autre" in response.text
     assert _entretiens(mission_id) == []
 
 
