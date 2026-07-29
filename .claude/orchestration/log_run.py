@@ -114,6 +114,7 @@ def main(argv) -> int:
         fh.write(json.dumps(run, ensure_ascii=False) + "\n")
     print(f"log_run : run journalise ({run['qualification']}, {len(run.get('plan', []))} etape(s))")
     avertir_validation_utilisateur(run)
+    avertir_revue_increment(run)
     return 0
 
 
@@ -124,6 +125,28 @@ def main(argv) -> int:
 LIVRABLE_UTILISATEUR = ("deck", "slide", "pptx", "ecran", "écran", "export")
 VALIDATION_UTILISATEUR = ("valide par l'utilisateur", "validé par l'utilisateur",
                           "valide par utilisateur", "ok utilisateur")
+
+
+def avertir_revue_increment(run: dict) -> None:
+    """Avertissement NON bloquant (finding playbook:evolution-flotte 2026-07-29) :
+    un run orchestré journalisé `succes` doit porter une étape terminale
+    revue-increment dans son plan (ou sa trace dans les notes — cas d'une revue
+    de campagne couvrant plusieurs runs de la même séance). On mesure d'abord
+    combien de runs déclenchent l'avertissement avant tout garde-fou dur."""
+    if run.get("resultat") != "succes" or run.get("qualification") != "orchestre":
+        return
+    plan = run.get("plan") or []
+    etapes = " ".join(str(e.get("etape", "")) + " " + str(e.get("agent", ""))
+                      for e in plan if isinstance(e, dict)).lower()
+    notes = str(run.get("notes", "")).lower()
+    if "revue-increment" not in etapes and "revue-increment" not in notes:
+        print(
+            "log_run AVERTISSEMENT : run 'succes' sans etape terminale "
+            "revue-increment au plan (ni trace dans notes) — la boucle de revue "
+            "de fin d'increment est une etape obligatoire des playbooks depuis "
+            "le 2026-07-29 (une revue de campagne en fin de seance suffit : la "
+            "mentionner dans notes)."
+        )
 
 
 def avertir_validation_utilisateur(run: dict) -> None:
