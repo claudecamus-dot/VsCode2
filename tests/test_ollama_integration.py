@@ -107,6 +107,47 @@ def test_repartition_real_ollama_is_nonempty() -> None:
     assert dt < 120
 
 
+def test_extract_turns_real_ollama_keeps_content_on_unlabeled_monologue() -> None:
+    """Régression 2026-07-28 : contrairement à `_REALISTIC_TRANSCRIPT` ci-dessus
+    (qui porte déjà des étiquettes explicites « Consultant : » / « Marc Dubois : »),
+    un vrai transcript Whisper n'a JAMAIS d'étiquette de locuteur — c'est
+    exactement ce qui a fait échouer le pipeline en conditions réelles : sur un
+    extrait audio réel (monologue de présentation, `tests/exemple/split_02_petit_30s.weba`
+    transcrit par Whisper), le modèle défaut inventait une question de
+    consultant absente du texte et perdait le propos réel dans 2 essais réels
+    sur 3. Ce test fige ce texte réel (sans étiquette) en dur pour ne pas
+    dépendre de Whisper ici, et vérifie que le contenu réel survit."""
+    transcript = (
+        "Michel Nakache, je fais partie de l'équipe COCO, Conseil Comex, et "
+        "ma majeure, c'est les dynamiques humaines et interactionnelles, "
+        "relationnelles. Donc, sur tout ce qui est transformation digitale, "
+        "plutôt la dimension humaine, voilà. Et je vous parlerai de quelques "
+        "utilisations de l'IA à ma petite échelle. Super, merci Michel."
+    )
+    t0 = time.time()
+    result = extract_turns_from_text(transcript)
+    dt = time.time() - t0
+    captured = " ".join(
+        (t.get("question") or "") + " " + (t.get("remarque") or "")
+        for t in result["turns"]
+    )
+    print(f"\n[integration] monologue non étiqueté : {dt:.1f}s, {len(result['turns'])} tours, "
+          f"identité={result['identity'].get('interviewee_name')!r}, "
+          f"nom capté={'Nakache' in captured or result['identity'].get('interviewee_name') == 'Michel Nakache'}")
+    # Le nom n'est PAS asserté ici : l'extraction d'identité reste best-effort
+    # (déjà le cas avant ce correctif) et l'humain la corrige de toute façon à
+    # l'écran de revue — la régression réelle du 2026-07-28 portait sur la
+    # PERTE DU PROPOS, pas sur la fidélité de l'identité. Voir le print
+    # ci-dessus pour un signal de dérive si le nom disparaît systématiquement.
+    #
+    # Le cœur du propos réel (dynamiques humaines / transformation digitale /
+    # IA) doit survivre quelque part dans les tours — pas juste une question
+    # de consultant inventée avec le contenu réel jeté.
+    assert "humain" in captured.lower() or "digital" in captured.lower() or "IA" in captured, (
+        f"Le propos réel de l'interviewé a disparu du résultat capté : {captured!r}"
+    )
+
+
 class _Axe:
     """Axe d'étude minimal — `generate_global_synthesis` n'a besoin que de
     key/label/hint, pas d'une ligne en base (ce test ne touche aucune DB)."""

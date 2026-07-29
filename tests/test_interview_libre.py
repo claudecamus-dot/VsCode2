@@ -229,7 +229,12 @@ def test_extract_turns_chunks_long_transcript_and_merges_results(
         index = len(calls)
         return {
             "turns": [
-                {"interlocuteur": f"Personne{index}", "question": "", "remarque": f"Propos {index}", "section_title": ""},
+                # Remarque proportionnée au tronçon source (pas juste "Propos N") :
+                # sinon le garde-fou anti-hallucination (contenu capté trop
+                # faible face au tronçon, cf. `_is_low_coverage`) déclenche une
+                # relance ici, ce que ce test ne veut pas exercer.
+                {"interlocuteur": f"Personne{index}", "question": "",
+                 "remarque": f"Propos {index} " + ("mot " * 30), "section_title": ""},
             ],
             "identite": (
                 {"interviewee_name": "Trouvé au 2e tronçon", "interviewee_role": "", "interviewee_entity": ""}
@@ -274,6 +279,120 @@ def test_extract_turns_retries_once_when_chunk_returns_empty(
     result = interview_libre_extract_ai.extract_turns_from_text("Un court échange.")
     assert len(calls) == 2, "un tronçon vide doit être relancé une fois"
     assert [t["interlocuteur"] for t in result["turns"]] == ["Marc"]
+
+
+def test_extract_turns_retries_once_when_chunk_content_barely_captured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Régression 2026-07-28 : sur un vrai monologue de présentation (sans
+    réplique explicite du consultant dans la transcription), le modèle défaut
+    a inventé une question de consultant absente du texte et rendu
+    `remarque=None` — perdant tout le propos réel de l'interviewé·e dans 2
+    essais réels sur 3 (constat fait en vérifiant le pipeline audio en
+    conditions réelles, pas via cette suite mockée). `extract_turns_from_text`
+    doit relancer le tronçon une fois quand le contenu capté est très
+    inférieur au texte source, comme il le fait déjà pour 0 tour."""
+    transcript = (
+        "Michel Nakache, je fais partie de l'équipe COCO, Conseil Comex, et "
+        "ma majeure c'est les dynamiques humaines et interactionnelles."
+    )
+    calls = []
+
+    def fake(system, prompt, schema, json_hint, **kwargs):
+        calls.append(prompt)
+        if len(calls) == 1:
+            # 1er appel : question de consultant inventée (absente du texte),
+            # contenu réel perdu (remarque vide) — contenu capté quasi nul.
+            rows = [_turn(interlocuteur="Consultant·e", question="Et donc ?",
+                          remarque="")]
+        else:
+            # 2e appel (retry) : le propos réel est bien restitué.
+            rows = [_turn(interlocuteur="Michel Nakache", question="",
+                          remarque=transcript)]
+        return {"turns": rows, "identite": _empty_identity()}
+
+    monkeypatch.setattr(interview_libre_extract_ai, "call_ai_json", fake)
+    result = interview_libre_extract_ai.extract_turns_from_text(transcript)
+
+    assert len(calls) == 2, "un tronçon à faible contenu capté doit être relancé une fois"
+    assert result["turns"][0]["interlocuteur"] == "Michel Nakache"
+    assert result["turns"][0]["remarque"] == transcript
+
+
+def test_extract_turns_retries_up_to_two_times_before_giving_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mesuré en réel le 2026-07-28 : une seule relance ne suffit pas toujours
+    (encore ~1 échec sur 3 après une seule relance sur un vrai monologue non
+    étiqueté) — jusqu'à 2 relances (3 tentatives). Mais la relance est bornée :
+    si les 3 tentatives rendent un contenu à faible couverture, on accepte la
+    dernière plutôt que de boucler indéfiniment (le tronçon a au moins un
+    tour, l'humain corrige à l'écran de revue)."""
+    calls = []
+
+    def fake(system, prompt, schema, json_hint, **kwargs):
+        calls.append(prompt)
+        # 1er et 2e appels : contenu capté quasi nul. 3e : bon contenu.
+        remarque = "" if len(calls) < 3 else "Un vrai propos substantiel et détaillé."
+        rows = [_turn(interlocuteur="Consultant·e", question="Et donc ?", remarque=remarque)]
+        return {"turns": rows, "identite": _empty_identity()}
+
+    monkeypatch.setattr(interview_libre_extract_ai, "call_ai_json", fake)
+    transcript = "Un texte source substantiel, bien plus long que la question inventée par le modèle."
+    result = interview_libre_extract_ai.extract_turns_from_text(transcript)
+
+    assert len(calls) == 3, "jusqu'à 2 relances (3 tentatives au total)"
+    assert result["turns"][0]["remarque"] == "Un vrai propos substantiel et détaillé."
+
+
+def test_extract_turns_stops_after_three_attempts_even_if_still_low_coverage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La relance est bornée : si les 3 tentatives rendent toutes un contenu à
+    faible couverture, on n'insiste pas indéfiniment — on accepte la dernière
+    réponse (mieux qu'une erreur bloquante ; l'humain corrige à l'écran de
+    revue) plutôt que de multiplier les appels IA sans fin."""
+    calls = []
+
+    def fake(system, prompt, schema, json_hint, **kwargs):
+        calls.append(prompt)
+        rows = [_turn(interlocuteur="Consultant·e", question="Et donc ?", remarque="")]
+        return {"turns": rows, "identite": _empty_identity()}
+
+    monkeypatch.setattr(interview_libre_extract_ai, "call_ai_json", fake)
+    transcript = "Un texte source substantiel, bien plus long que la question inventée par le modèle."
+    result = interview_libre_extract_ai.extract_turns_from_text(transcript)
+
+    assert len(calls) == 3, "jamais plus de 3 tentatives, même si toutes en faible couverture"
+    assert result["turns"], "la dernière tentative (même faible) est acceptée, pas droppée"
+
+
+def test_extract_turns_keeps_best_attempt_not_last_when_retry_returns_less(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Une relance déclenchée par la faible couverture peut rendre MOINS que la
+    tentative qui l'a déclenchée (jusqu'à 0 tour) : on garde la meilleure
+    tentative (contenu capté), jamais la dernière — sinon la relance, censée
+    protéger le contenu, le perdrait intégralement."""
+    calls = []
+
+    def fake(system, prompt, schema, json_hint, **kwargs):
+        calls.append(prompt)
+        if len(calls) == 1:
+            # 1re tentative : partielle (faible couverture) mais non vide.
+            rows = [_turn(interlocuteur="Personne", question="", remarque="Un début.")]
+        else:
+            # Relances : 0 tour — strictement pires.
+            rows = []
+        return {"turns": rows, "identite": _empty_identity()}
+
+    monkeypatch.setattr(interview_libre_extract_ai, "call_ai_json", fake)
+    transcript = "Un texte source substantiel, bien plus long que le fragment capté à la première tentative."
+    result = interview_libre_extract_ai.extract_turns_from_text(transcript)
+
+    assert len(calls) == 3, "les relances ont bien eu lieu"
+    assert result["turns"], "la tentative partielle doit survivre aux relances vides"
+    assert result["turns"][0]["remarque"] == "Un début."
 
 
 def test_extract_turns_keeps_content_when_interlocuteur_missing(

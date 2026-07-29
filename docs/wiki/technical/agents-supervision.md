@@ -1,5 +1,5 @@
 ---
-updated: 2026-07-28
+updated: 2026-07-29
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -9,28 +9,28 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-28T12:15:03+02:00 · **46 sessions** (transcripts) · **120** invocations de skills · **67** lancements de sous-agents.
+Dernier scan : 2026-07-29T10:18:33+02:00 · **49 sessions** (transcripts) · **125** invocations de skills · **67** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `run-dev-server` | projet | 26 | 2026-07-03 | 2026-07-28 |
+| `run-dev-server` | projet | 27 | 2026-07-03 | 2026-07-28 |
 | `agent-orchestrator` | projet | 24 | 2026-07-17 | 2026-07-28 |
-| `agent-supervisor` | projet | 18 | 2026-07-18 | 2026-07-28 |
+| `agent-supervisor` | projet | 19 | 2026-07-18 | 2026-07-29 |
 | `bmad-code-review` | BMAD | 9 | 2026-07-20 | 2026-07-27 |
-| `pptx-verify` | global | 8 | 2026-07-03 | 2026-07-28 |
-| `revue-increment` | projet | 8 | 2026-07-18 | 2026-07-27 |
+| `pptx-verify` | global | 9 | 2026-07-03 | 2026-07-28 |
+| `revue-increment` | projet | 9 | 2026-07-18 | 2026-07-29 |
 | `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
 | `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
+| `deck-design-review` | projet | 2 | 2026-07-22 | 2026-07-28 |
 | `pptx-deck` | global | 2 | 2026-07-02 | 2026-07-03 |
 | `skill-creator` | global | 2 | 2026-07-03 | 2026-07-03 |
 | `slide-text-polish` | projet | 2 | 2026-07-22 | 2026-07-22 |
 | `bmad-sprint-status` | BMAD | 1 | 2026-07-22 | 2026-07-22 |
 | `claude-api` | (builtin/session) | 1 | 2026-06-29 | 2026-06-29 |
 | `deck-design-library` | projet | 1 | 2026-07-28 | 2026-07-28 |
-| `deck-design-review` | projet | 1 | 2026-07-22 | 2026-07-22 |
 | `init` | (builtin/session) | 1 | 2026-07-03 | 2026-07-03 |
 | `priority-matrix` | projet | 1 | 2026-07-28 | 2026-07-28 |
 | `restitution-deck-design` | global | 1 | 2026-07-22 | 2026-07-22 |
@@ -107,15 +107,11 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés._
+_Diagnostic à jour._
 
-_5 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un `re_challenge` avec des données nouvelles :_
-
-- ~~Un arbitrage rend sa cible DÉFINITIVEMENT sourde : 3 des 4 constats de ce diagnostic ont été masqués avant d'atteindre le tableau de bord~~ (`arbitrages.json`)
-- ~~Le deck a changé de contenu (une slide par axe d'étude) sans aucun rendu réel — et le couplage cassé est déjà visible dans le code~~ (`export-ppt-verifie`)
-- ~~Une séance se clôt sur un arbre sale — y compris l'application des arbitrages censés corriger le gate sauté la veille~~ (`revue-increment`)
-- ~~Un défaut produit trouvé en passage réel a été classé en xfail non strict dans un test auto-skippé — canal de remontée sans destinataire~~ (`revue-increment`)
-- ~~Trois skills deck créées le 2026-07-22 n'ont jamais été invoquées, sous la forme conditionnelle auto-jugée déjà démontrée inopérante~~ (`deck-design-library`)
+1. **Un commit de sync canon (5eb121b) a shippé sans test ni suite — et a cassé un test existant** — Les commits de propagation du canon du hub (log_run.py, scan_transcripts.py, hooks) passent aujourd'hui hors playbook dev-verifie — il leur faut un gate minimal exécutable. · **Proposition** : Exiger avant tout commit touchant .claude/orchestration/** ou .claude/supervision/** : pytest tests/test_agent_orchestration.py tests/test_agent_supervision.py -q (les deux fichiers-contrat du dispositif, ~1 min). L'inscrire dans la checklist de sync du canon côté hub. Correctif immédiat déjà appliqué à cette revue : assertions ciblées sur le message précis + test dédié du nouvel avertissement.
+2. **Récidive post-arbitrage : séance du 2026-07-28 close sur du code produit non commité ni journalisé** — La règle vit dans revue-increment, qui doit être INVOQUÉE pour agir : quand une séance s'arrête sans passer par la clôture, rien ne la rattrape. Il manque un filet déterministe côté hook. · **Proposition** : Le hook SessionStart (scan déjà en place, 0 token LLM) affiche un bandeau quand l'arbre est sale au démarrage : « reliquat de la séance précédente : N fichiers modifiés (liste) — à committer/nommer avant toute nouvelle demande ». Re-challenge d'affichage seulement : la preuve est postérieure à l'arbitrage et le contredit.
+3. **2 runs en-attente-validation sans mécanisme de relance (4 j et 1 j d'âge)** — Les validations en attente doivent être visibles sans que l'utilisateur pense à les demander — sinon elles pourrissent et le statut perd son sens. · **Proposition** : scan_transcripts ajoute au tableau de bord (wiki + stdout de session) la liste déterministe des runs en-attente-validation avec leur âge ; log_run --solde existe déjà pour les clore une fois l'utilisateur prononcé.
 
 ---
 

@@ -835,12 +835,12 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-28T12:15:03+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-29T10:18:33+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>46 sessions</strong> couvertes · <strong>120</strong> invocations de skills · <strong>67</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>49 sessions</strong> couvertes · <strong>125</strong> invocations de skills · <strong>67</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-07-28 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
+        <div class="tag-source">scan_transcripts.py · 2026-07-29 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
 
       <h3>Skills — usage réel</h3>
@@ -848,22 +848,22 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Skill</th><th>Famille</th><th>Invocations</th><th>Première</th><th>Dernière</th></tr></thead>
           <tbody>
-            <tr><td><code>run-dev-server</code></td><td>projet</td><td>26</td><td>2026-07-03</td><td>2026-07-28</td></tr>
+            <tr><td><code>run-dev-server</code></td><td>projet</td><td>27</td><td>2026-07-03</td><td>2026-07-28</td></tr>
             <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>24</td><td>2026-07-17</td><td>2026-07-28</td></tr>
-            <tr><td><code>agent-supervisor</code></td><td>projet</td><td>18</td><td>2026-07-18</td><td>2026-07-28</td></tr>
+            <tr><td><code>agent-supervisor</code></td><td>projet</td><td>19</td><td>2026-07-18</td><td>2026-07-29</td></tr>
             <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>9</td><td>2026-07-20</td><td>2026-07-27</td></tr>
-            <tr><td><code>pptx-verify</code></td><td>global</td><td>8</td><td>2026-07-03</td><td>2026-07-28</td></tr>
-            <tr><td><code>revue-increment</code></td><td>projet</td><td>8</td><td>2026-07-18</td><td>2026-07-27</td></tr>
+            <tr><td><code>pptx-verify</code></td><td>global</td><td>9</td><td>2026-07-03</td><td>2026-07-28</td></tr>
+            <tr><td><code>revue-increment</code></td><td>projet</td><td>9</td><td>2026-07-18</td><td>2026-07-29</td></tr>
             <tr><td><code>update-config</code></td><td>(builtin/session)</td><td>6</td><td>2026-07-03</td><td>2026-07-16</td></tr>
             <tr><td><code>roadmap-keeper</code></td><td>global</td><td>4</td><td>2026-06-29</td><td>2026-07-15</td></tr>
             <tr><td><code>run</code></td><td>(builtin/session)</td><td>3</td><td>2026-06-29</td><td>2026-07-03</td></tr>
+            <tr><td><code>deck-design-review</code></td><td>projet</td><td>2</td><td>2026-07-22</td><td>2026-07-28</td></tr>
             <tr><td><code>pptx-deck</code></td><td>global</td><td>2</td><td>2026-07-02</td><td>2026-07-03</td></tr>
             <tr><td><code>skill-creator</code></td><td>global</td><td>2</td><td>2026-07-03</td><td>2026-07-03</td></tr>
             <tr><td><code>slide-text-polish</code></td><td>projet</td><td>2</td><td>2026-07-22</td><td>2026-07-22</td></tr>
             <tr><td><code>bmad-sprint-status</code></td><td>BMAD</td><td>1</td><td>2026-07-22</td><td>2026-07-22</td></tr>
             <tr><td><code>claude-api</code></td><td>(builtin/session)</td><td>1</td><td>2026-06-29</td><td>2026-06-29</td></tr>
             <tr><td><code>deck-design-library</code></td><td>projet</td><td>1</td><td>2026-07-28</td><td>2026-07-28</td></tr>
-            <tr><td><code>deck-design-review</code></td><td>projet</td><td>1</td><td>2026-07-22</td><td>2026-07-22</td></tr>
             <tr><td><code>init</code></td><td>(builtin/session)</td><td>1</td><td>2026-07-03</td><td>2026-07-03</td></tr>
             <tr><td><code>priority-matrix</code></td><td>projet</td><td>1</td><td>2026-07-28</td><td>2026-07-28</td></tr>
             <tr><td><code>restitution-deck-design</code></td><td>global</td><td>1</td><td>2026-07-22</td><td>2026-07-22</td></tr>
@@ -933,9 +933,22 @@ pytest -k "pptx or export"                                                     #
         <li><strong><code>export-ppt-verifie</code></strong> (2026-07-22) : Constat superviseur du 2026-07-22 (prio 1) arbitré : NE PAS rouvrir les arbitrages PPT — la prémisse du playbook (les 3 skills conditionnelles gagnent leur place via export-ppt-verifie) sera exercée lors de la GÉNÉRATION du deck PPT complet à venir, à laquelle ce constat est relié. Une slide isolée ajoutée au générateur existant (ex. Executive Summary, commit 2e43358) se vérifie par pptx-verify seul et ne déclenche pas le playbook, qui vise un livrable = deck de restitution complet.</li>
       </ul>
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
-      <p><em>Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés.</em></p>
-      <p><em>5 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un <code>re_challenge</code> avec des données nouvelles :</em></p>
-      <ul><li><s>Un arbitrage rend sa cible DÉFINITIVEMENT sourde : 3 des 4 constats de ce diagnostic ont été masqués avant d'atteindre le tableau de bord</s> (<code>arbitrages.json</code>)</li><li><s>Le deck a changé de contenu (une slide par axe d'étude) sans aucun rendu réel — et le couplage cassé est déjà visible dans le code</s> (<code>export-ppt-verifie</code>)</li><li><s>Une séance se clôt sur un arbre sale — y compris l'application des arbitrages censés corriger le gate sauté la veille</s> (<code>revue-increment</code>)</li><li><s>Un défaut produit trouvé en passage réel a été classé en xfail non strict dans un test auto-skippé — canal de remontée sans destinataire</s> (<code>revue-increment</code>)</li><li><s>Trois skills deck créées le 2026-07-22 n'ont jamais été invoquées, sous la forme conditionnelle auto-jugée déjà démontrée inopérante</s> (<code>deck-design-library</code>)</li></ul>
+      <p><em>Diagnostic à jour.</em></p>
+      <div class="critical">
+        <p><strong>Un commit de sync canon (5eb121b) a shippé sans test ni suite — et a cassé un test existant</strong> — Les commits de propagation du canon du hub (log_run.py, scan_transcripts.py, hooks) passent aujourd'hui hors playbook dev-verifie — il leur faut un gate minimal exécutable. · <strong>Proposition</strong> : Exiger avant tout commit touchant .claude/orchestration/<strong> ou .claude/supervision/</strong> : pytest tests/test_agent_orchestration.py tests/test_agent_supervision.py -q (les deux fichiers-contrat du dispositif, ~1 min). L'inscrire dans la checklist de sync du canon côté hub. Correctif immédiat déjà appliqué à cette revue : assertions ciblées sur le message précis + test dédié du nouvel avertissement.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">agent-supervisor · étage 2</div>
+      </div>
+      <div class="critical">
+        <p><strong>Récidive post-arbitrage : séance du 2026-07-28 close sur du code produit non commité ni journalisé</strong> — La règle vit dans revue-increment, qui doit être INVOQUÉE pour agir : quand une séance s'arrête sans passer par la clôture, rien ne la rattrape. Il manque un filet déterministe côté hook. · <strong>Proposition</strong> : Le hook SessionStart (scan déjà en place, 0 token LLM) affiche un bandeau quand l'arbre est sale au démarrage : « reliquat de la séance précédente : N fichiers modifiés (liste) — à committer/nommer avant toute nouvelle demande ». Re-challenge d'affichage seulement : la preuve est postérieure à l'arbitrage et le contredit.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">agent-supervisor · étage 2</div>
+      </div>
+      <div class="critical">
+        <p><strong>2 runs en-attente-validation sans mécanisme de relance (4 j et 1 j d'âge)</strong> — Les validations en attente doivent être visibles sans que l'utilisateur pense à les demander — sinon elles pourrissent et le statut perd son sens. · <strong>Proposition</strong> : scan_transcripts ajoute au tableau de bord (wiki + stdout de session) la liste déterministe des runs en-attente-validation avec leur âge ; log_run --solde existe déjà pour les clore une fois l'utilisateur prononcé.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">agent-supervisor · étage 2</div>
+      </div>
     </section>
 <!-- TODO-AGENTS-HTML:END -->
 

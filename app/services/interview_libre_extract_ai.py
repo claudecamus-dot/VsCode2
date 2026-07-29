@@ -83,18 +83,29 @@ def _safe_dict(value) -> dict:
 # --------------------------------------------------------------------------- #
 _TURNS_SYSTEM = (
     "Tu es consultant·e senior. On te donne la transcription brute d'un "
-    "entretien libre (pas de questionnaire prédéfini). Fais deux choses à "
-    "partir de ce seul texte, fidèlement, sans rien inventer :\n"
+    "entretien libre (pas de questionnaire prédéfini) — un texte continu, "
+    "SANS aucune étiquette de locuteur (la transcription audio ne distingue "
+    "pas qui parle). Fais deux choses à partir de ce seul texte, fidèlement, "
+    "sans rien inventer :\n"
     "1. turns : découpe la conversation en tours de parole successifs. Pour "
     "chaque tour, indique l'interlocuteur (qui parle — nom, rôle ou "
-    "« Consultant·e » si identifiable, sinon une étiquette générique), et "
-    "selon la nature du propos, question (une question posée) et/ou "
-    "remarque (une déclaration, un constat, une réponse). Un tour peut "
-    "n'avoir qu'un des deux. Regroupe aussi la conversation en sections "
-    "thématiques : quand un tour ouvre un nouveau sujet, donne-lui un "
-    "section_title court (ex. « Recueillir et transcrire l'information ») ; "
-    "les tours suivants qui continuent le même sujet laissent section_title "
-    "vide (ils héritent de la dernière section ouverte).\n"
+    "« Consultant·e » UNIQUEMENT si une question ou relance du consultant "
+    "est EXPLICITEMENT présente dans le texte ; sinon une étiquette "
+    "générique), et selon la nature du propos, question (une question "
+    "posée) et/ou remarque (une déclaration, un constat, une réponse). Un "
+    "tour peut n'avoir qu'un des deux. N'invente JAMAIS une question du "
+    "consultant qui n'apparaît pas mot pour mot dans le texte — si le "
+    "texte est un monologue continu sans réplique du consultant, ne crée "
+    "AUCUN tour « Consultant·e » : restitue tout le propos en tour(s) de "
+    "type remarque attribués à la personne qui parle réellement. Chaque "
+    "mot du texte source doit se retrouver dans le contenu (question ou "
+    "remarque) d'un tour — ne résume jamais, ne raccourcis jamais, ne "
+    "laisse aucun passage de côté. Regroupe aussi la conversation en "
+    "sections thématiques : quand un tour ouvre un nouveau sujet, donne-lui "
+    "un section_title court (ex. « Recueillir et transcrire "
+    "l'information ») ; les tours suivants qui continuent le même sujet "
+    "laissent section_title vide (ils héritent de la dernière section "
+    "ouverte).\n"
     "2. identite : si la personne interviewée donne son nom/prénom, son "
     "rôle/fonction, et/ou son équipe ou département (typiquement en se "
     "présentant en début d'entretien), relève-les. Laisse un champ vide "
@@ -195,6 +206,35 @@ def _extract_turns_chunk(chunk: str) -> dict:
     return {"turns": turns, "identity": identity}
 
 
+# Sous ce ratio (contenu capté / longueur du tronçon source), on considère que
+# le modèle a perdu ou substitué l'essentiel du propos réel (cf. garde-fou
+# ci-dessous) plutôt que simplement reformulé légèrement.
+_MIN_COVERAGE_RATIO = 0.35
+# En dessous de cette taille de tronçon, le ratio est trop bruité (un tour très
+# court peut légitimement être condensé en quelques mots) pour être un signal fiable.
+_MIN_CHUNK_LEN_FOR_COVERAGE_CHECK = 60
+
+
+def _captured_chars(turns: list[dict]) -> int:
+    return sum(len(t.get("question") or "") + len(t.get("remarque") or "") for t in turns)
+
+
+def _is_low_coverage(chunk: str, turns: list[dict]) -> bool:
+    """Détecte un tronçon dont le contenu capté (question+remarque de tous les
+    tours) est très inférieur au texte source — signe que le modèle a
+    substitué le propos réel par une question de consultant inventée (le
+    contenu réel dit par l'interviewé·e disparaît alors du résultat), plutôt
+    que de simplement reformuler. Trouvé en réel le 2026-07-28 : sur un
+    monologue de présentation sans réplique du consultant, `qwen2.5:3b`
+    invente une question absente du texte et rend `remarque=null` — 2 essais
+    réels sur 3 perdaient ainsi tout le propos. Même retry ciblé que le cas
+    « 0 tour » ci-dessous : un ré-échantillonnage suffit presque toujours."""
+    chunk = chunk.strip()
+    if len(chunk) < _MIN_CHUNK_LEN_FOR_COVERAGE_CHECK:
+        return False
+    return _captured_chars(turns) < _MIN_COVERAGE_RATIO * len(chunk)
+
+
 def extract_turns_from_text(text: str) -> dict:
     """Retourne `{"turns": [{"interlocuteur", "question", "remarque",
     "section_title"}, ...], "identity": {interviewee_name, interviewee_role,
@@ -214,14 +254,34 @@ def extract_turns_from_text(text: str) -> dict:
 
     for chunk in chunks:
         result = _extract_turns_chunk(chunk)
-        # Retry ciblé : un modèle local rend PAR INTERMITTENCE 0 tour sur un
-        # tronçon qui en contient (non-déterminisme observé le 2026-07-22, attrapé
-        # par tests/test_ollama_integration.py). Une seule relance suffit presque
-        # toujours (échantillonnage différent). Sans elle, un mono-tronçon malchanceux
-        # faisait remonter « aucun tour détecté » sur tout l'entretien.
-        if not result["turns"] and chunk.strip():
+        # Retry ciblé (jusqu'à 2 relances, 3 tentatives au total) : un modèle
+        # local rend PAR INTERMITTENCE 0 tour sur un tronçon qui en contient
+        # (non-déterminisme observé le 2026-07-22, attrapé par
+        # tests/test_ollama_integration.py), OU rend un contenu capté très
+        # inférieur au texte source (2026-07-28, cf. `_is_low_coverage` — le
+        # modèle invente une question de consultant absente du texte et perd
+        # le propos réel). Une seule relance ne suffisait PAS toujours en
+        # conditions réelles (mesuré : encore ~1 échec sur 3 après une seule
+        # relance sur un vrai monologue non étiqueté) — 2 relances plutôt
+        # qu'une. Sans elles, un tronçon malchanceux faisait soit remonter
+        # « aucun tour détecté » sur tout l'entretien, soit perdre
+        # silencieusement le contenu réel de l'interviewé·e.
+        attempts = 1
+        best = result
+        while (
+            chunk.strip()
+            and (not result["turns"] or _is_low_coverage(chunk, result["turns"]))
+            and attempts < 3
+        ):
             result = _extract_turns_chunk(chunk)
-        all_turns.extend(result["turns"])
+            attempts += 1
+            # Garder la MEILLEURE tentative (contenu capté), pas la dernière :
+            # une relance peut rendre 0 tour après une 1re tentative partielle —
+            # sans ce garde, on finirait avec MOINS que ce qu'on avait déjà.
+            if _captured_chars(result["turns"]) > _captured_chars(best["turns"]):
+                best = result
+        all_turns.extend(best["turns"])
+        result = best
         if not any(identity.values()) and any(result["identity"].values()):
             identity = result["identity"]
 
