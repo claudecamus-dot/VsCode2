@@ -93,7 +93,7 @@ ci-dessus plutôt que d'en dupliquer la logique.
 - [ ] `pytest -q` passe, et le compte de tests a **augmenté** si du comportement
       a été ajouté (sinon : pourquoi ?).
 - [ ] **Verdict lu sur la ligne de synthèse *réelle* de `pytest`** (`N passed`,
-      `0 failed`, aucune `error`) — jamais un résumé filtré du proxy `rtk`, ni un
+      `0 failed`, aucune `error`) — jamais un résumé filtré, ni un
       `[100%]` de sortie tronquée, ni l'exit code seul (bruit de teardown Windows,
       désormais neutralisé dans `tests/conftest.py`). En cas de doute, rediriger
       toute la sortie dans un fichier et la lire.
@@ -287,7 +287,7 @@ Les war-stories datées qui justifient les règles ci-dessus vivent dans les mé
 recopie pas (constat superviseur 2026-07-21 : SKILL.md accumulait les anecdotes) :
 
 - [[feedback-pytest-windows-teardown-noise]] — exit 1 = bruit de teardown, compter les points.
-- [[feedback-rtk-pytest-false-no-tests-collected]] — le proxy rtk a déjà mal reporté un run.
+- [[feedback-rtk-pytest-false-no-tests-collected]] — un proxy filtrant (rtk, retiré de la flotte le 2026-07-29) avait mal reporté un run : ne jamais lire un résumé filtré.
 - [[feedback-ai-timeout-fix-verify-at-configured-scale]] — vérifier un correctif perf IA à la taille réellement configurée.
 - [[feedback-adversarial-review-then-reself-review-fixes]] — relire le correctif issu d'une revue externe.
 - [[feedback-pptx-tests-need-real-render-check]] — python-pptx est un parseur tolérant.

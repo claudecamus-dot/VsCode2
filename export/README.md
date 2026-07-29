@@ -46,7 +46,6 @@ export/
 | **Ollama** | <https://ollama.com> — puis `ollama pull llama3.1` (défaut). Modèles tirés sur le poste de dev : `llama3.1`, `qwen2.5:3b-instruct`, `qwen2.5:1.5b-instruct` | Fournisseur IA **local par défaut** (`AI_PROVIDER=ollama`) : synthèse, recommandations, extraction trame/entretien — aucune donnée envoyée à l'extérieur |
 | **faster-whisper** | Dans `requirements.txt` ; modèle **`medium`** téléchargé au 1er usage (relevé de `small` le 2026-07-15 pour les noms propres) | Transcription audio locale (entretien libre + structuré) |
 | **BMAD-METHOD v6.10.0** | Installé dans `_bmad/` (config `_bmad/_config/`) — via l'installeur du projet BMAD-METHOD | ~39 skills `bmad-*` (routeur `bmad-help`, cycle produit, revues adversariales) |
-| **rtk** (optionnel) | Proxy CLI token-optimisé (hook de réécriture) | Économie de tokens sur les commandes de dev — non requis |
 
 ### Dépendances Python
 

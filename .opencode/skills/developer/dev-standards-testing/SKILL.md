@@ -129,50 +129,6 @@ Les spécificités syntaxiques (vi.mock, jest.mock, unittest.mock, etc.) sont d�
 
 ---
 
-## Exécution Optimisée des Tests (RTK)
-
-**Pour économiser 60-80% de tokens sur les sorties de tests**, utilise TOUJOURS RTK pour exécuter les commandes de test :
-
-### JavaScript/TypeScript
-
-```bash
-rtk jest --coverage          # Au lieu de: jest --coverage
-rtk vitest run               # Au lieu de: vitest run
-rtk playwright test          # Au lieu de: playwright test
-```
-
-### Python
-
-```bash
-rtk pytest -v                # Au lieu de: pytest -v
-rtk pytest --cov             # Au lieu de: pytest --cov
-```
-
-### Go
-
-```bash
-rtk go test ./...            # Au lieu de: go test ./...
-```
-
-### Ruby/Rails
-
-```bash
-rtk rspec spec/              # Au lieu de: rspec spec/
-rtk rake test                # Au lieu de: rake test
-```
-
-**Pourquoi RTK ?**
-- Filtre automatiquement la sortie verbeuse des tests
-- Conserve uniquement les erreurs et le résumé
-- Économise 60-80% de tokens sur les outputs longs
-- Le plugin OpenCode réécrit automatiquement les commandes
-
-**Note :** Tu n'as pas besoin de préfixer manuellement avec `rtk` dans tes commandes — le plugin OpenCode le fait automatiquement. Mais connaître ces commandes aide à déboguer et à comprendre le fonctionnement.
-
-Voir `skills/shared/rtk-usage.md` pour plus de détails.
-
----
-
 ## TDD — Développement piloté par les tests
 
 ### Quand appliquer le TDD

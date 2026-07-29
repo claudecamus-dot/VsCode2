@@ -44,21 +44,12 @@ bd search "[mot-clé]"
 bd list --label [label-pertinent]
 
 # Structure projet (si pertinent)
-rtk ls src/                     # Liste compacte optimisée
-rtk ls app/
-
-# Inspecter config JSON (RTK 0.42.0+)
-rtk json package.json --keys-only     # Structure uniquement
-rtk json tsconfig.json --depth 2      # Profondeur limitée
+ls src/
+ls app/
 
 # Historique récent (si pertinent)
-rtk git log --oneline -20 --grep="[mot-clé]"
+git log --oneline -20 --grep="[mot-clé]"
 ```
-
-**Optimisation RTK :**
-- Les commandes `rtk ls`, `rtk git log`, `rtk json` économisent 60-75% de tokens
-- `rtk json --keys-only` te permet de voir la structure d'un JSON sans lire toutes les valeurs
-- Le plugin OpenCode réécrit automatiquement les commandes, mais connaître ces optimisations aide
 
 **Ce que tu cherches :**
 - Fichiers/modules clés à modifier

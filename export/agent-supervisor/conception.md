@@ -74,7 +74,7 @@ de l'approche — et la preuve que la couche « mesure » est faisable en pur d�
    erreur d'outil, chaque message utilisateur (donc les corrections « toujours KO », les
    re-demandes), horodatage, usage tokens. Volumineux (jusqu'à 17 Mo/session) →
    **parsing Python obligatoire, jamais de lecture brute par le LLM**.
-2. **`rtk gain --history`** — économies de tokens par commande, déjà outillé.
+2. ~~`rtk gain --history`~~ — retiré avec le proxy rtk (2026-07-29), plus de mesure du poste outils.
 3. **Historique git** — reverts, séries de fix sur le même fichier, commits « post-revue » :
    signaux de reprises d'actions KO.
 4. **`.roadmap/roadmap.json`** — statut des incréments, à croiser avec le réel (dérive connue).
@@ -122,8 +122,7 @@ agent cloud) :
 3 tours suivant une action — heuristique lexicale FR : « non », « toujours pas », « KO »,
 « encore », « refais ») — c'est la métrique « les fois où je dois revenir sur des actions
 toujours KO ».
-**Efficacité** : tokens et durée par invocation ; ratio sous-agent vs inline ; croisement
-avec `rtk gain`.
+**Efficacité** : tokens et durée par invocation ; ratio sous-agent vs inline.
 **Qualité / résultats** : verdicts `code-review` archivés, pytest vert *plus* vérification
 réelle (la mémoire projet documente déjà que pytest vert ≠ correct pour le PPT) ; pour
 OpenHub : contenu de `AgentResult` (réponse réelle vs fallback simulé).

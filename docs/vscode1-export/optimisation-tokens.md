@@ -26,7 +26,7 @@ côté tokens :
 | Poste | Ce qui coûte | Levier |
 | --- | --- | --- |
 | **Lecture de contexte** | Relire de gros fichiers (`server.js` 929 l.), transcripts | Outils dédiés (Grep/Glob ciblés) plutôt que `cat` ; lire les portions utiles ; s'appuyer sur le **wiki** et les **mémoires** au lieu de re-dériver |
-| **Commandes shell verbeuses** | Sorties `git`, `npm`, `ls` massives | **RTK** (proxy déjà branché en hook `PreToolUse`) filtre et compacte — 60-90 % d'économie sur les ops dev. `rtk gain` pour mesurer |
+| **Commandes shell verbeuses** | Sorties `git`, `npm`, `ls` massives | Demander des sorties compactes aux outils eux-mêmes (`--porcelain`, `-q`, Grep/Glob ciblés) — le proxy RTK a été retiré de la flotte le 2026-07-29 |
 | **Sous-agents** | Chaque agent démarre à froid et re-dérive le contexte | Ne lancer un sous-agent que si demandé/justifié ; préférer le travail inline quand le contexte est déjà chargé |
 | **Boucle de vérification** | Rendus, captures, re-lectures | Vérifier une fois, au bon moment (rendu réel avant de conclure), pas en boucle ; sur le PPT, filtrer d'abord avec `render_diff.py` (§6bis) |
 | **Ré-explication** | Re-cadrer des décisions déjà prises | **Documenter les décisions** (wiki, `export/*.md`, mémoires) pour ne pas les rejouer |
@@ -34,9 +34,8 @@ côté tokens :
 
 ## 3. Ce qui est déjà en place
 
-- **RTK** (Rust Token Killer) : hook global réécrivant les commandes
-  (`git status` → `rtk git status`), transparent. Vérifier : `rtk gain`,
-  `rtk discover` (repère les opportunités manquées dans l'historique).
+- ~~RTK (Rust Token Killer)~~ : **retiré de la flotte le 2026-07-29** — la
+  mesure historique de son gain reste documentée en §6.
 - **Wiki vivant** (`docs/wiki.html` + `docs/wiki/`) et **mémoires projet** :
   réduisent la re-exploration à chaque session.
 - **Pipeline d'export déterministe** : aucune dépendance LLM au runtime.
@@ -109,7 +108,7 @@ sortie, mode dossier, crop, erreur de taille, effet du seuil) — tous verts.
 - Mesurer sur le chantier PPT en cours le gain réel de `render_diff.py`
   (nombre de slides évitées à l'eye-check sur les prochaines itérations).
 - Installer `codeburn` (§8, Recette 5) pour un monitoring coût **modèle**, en
-  complément de `rtk gain` (qui ne couvre que le coût **outils**).
+  remplacement du suivi outils, disparu avec le retrait de RTK (2026-07-29).
 
 ## 8. Recoupement — OCTO Playbook Agentique (2026-07-16)
 
@@ -125,6 +124,6 @@ document et actions prises sur les 4 projets VSCode outillés (VSCode/1/2/3) :
 | 4 | Hiérarchie de modèles (top-tier planification, mid-tier construction, léger pour les sous-agents mécaniques) | Non couvert avant aujourd'hui | **Appliqué** : `model: haiku` ajouté à `auditor-subagent` (`.claude/agents/`, VSCode1) — sous-agent lecture-seule à rapport templaté, profil « exploration » du playbook. **Volontairement pas appliqué** à `developer*`, `qa-engineer`, `documentarian`, `debugger`, `onboarder`, `ui/ux-designer` (VSCode1) ni `ppt-designer` (VSCode3) : ce sont des rôles de jugement (diagnostic, tests, refactor sans casser la logique, design) où un modèle plus léger risquerait de dégrader le résultat — pas de bascule automatique là où la qualité prime sur le coût. `orchestrator*`/`pathfinder`/`planner` (déjà `sonnet`) et `reviewer` (déjà `opus`) étaient déjà bien réglés. Pas de mécanisme équivalent trouvé côté VSCode/VSCode2/VSCode4 (pas de `.claude/agents/` custom) ni côté `.opencode/` (pas de fichier de config `opencode.json` existant à étendre — le playbook montre un exemple pour un outil tiers, `opencode`, non vérifiable ici sans ce fichier). |
 | 5 | Monitoring des coûts (`codeburn` sur les logs d'agent) | Non couvert — `rtk gain` ne mesure que le poste outils, pas le poste modèle | Pas installé cette passe — ajouté à la liste « à explorer » ci-dessus |
 
-*Lié : `~/.claude/RTK.md` (référence RTK), [`../docs/wiki.html`](../docs/wiki.html),
+*Lié : [`../docs/wiki.html`](../docs/wiki.html),
 [`points-amelioration-ppt.md`](points-amelioration-ppt.md),
 `docs/wiki/todo.md` (rubrique « Dispositif Claude Code »).*
