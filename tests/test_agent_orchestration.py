@@ -91,21 +91,47 @@ def test_log_run_avertit_succes_sur_livrable_utilisateur_sans_validation(tmp_pat
     assert "AVERTISSEMENT" in r.stdout and "en-attente-validation" in r.stdout
     assert len((tmp_path / "runs.jsonl").read_text(encoding="utf-8").strip().splitlines()) == 1
 
-    # Avec validation notée -> silencieux.
+    # Avec validation notée -> l'avertissement VALIDATION se tait (celui sur
+    # l'étape revue-increment, orthogonal, est testé séparément ci-dessous —
+    # d'où l'assertion sur le message précis, pas sur « AVERTISSEMENT »).
     ok = dict(base, notes="rendu final validé par l'utilisateur sur l'artefact exact")
     r2 = _log_run(tmp_path, ok)
-    assert r2.returncode == 0 and "AVERTISSEMENT" not in r2.stdout
+    assert r2.returncode == 0 and "sans mention de validation" not in r2.stdout
 
     # en-attente-validation -> pas d'avertissement (c'est le statut attendu).
     att = dict(base, resultat="en-attente-validation")
     r3 = _log_run(tmp_path, att)
     assert r3.returncode == 0 and "AVERTISSEMENT" not in r3.stdout
 
-    # succes sans livrable utilisateur (outillage) -> silencieux.
+    # succes sans livrable utilisateur (outillage) -> silencieux côté validation.
     outil = {"demande": "refactor du journal d'orchestration", "qualification": "orchestre",
              "resultat": "succes"}
     r4 = _log_run(tmp_path, outil)
-    assert r4.returncode == 0 and "AVERTISSEMENT" not in r4.stdout
+    assert r4.returncode == 0 and "sans mention de validation" not in r4.stdout
+
+
+def test_log_run_avertit_succes_sans_etape_revue_increment(tmp_path):
+    """Garde-fou « revue-increment » (sync canon 2026-07-29, commit 5eb121b —
+    arrivé sans test et en cassant le test ci-dessus, d'où celui-ci) : un run
+    orchestré journalisé `succes` sans étape revue-increment au plan ni trace
+    dans les notes imprime un AVERTISSEMENT non bloquant."""
+    base = {"demande": "refactor du journal d'orchestration", "qualification": "orchestre",
+            "resultat": "succes", "plan": [{"etape": "implementation", "agent": "claude"}]}
+    r = _log_run(tmp_path, base)
+    assert r.returncode == 0, r.stderr  # non bloquant
+    assert "sans etape terminale" in r.stdout
+
+    # Étape revue-increment au plan -> silencieux.
+    au_plan = dict(base, plan=base["plan"] + [{"etape": "revue-increment", "agent": "revue-increment"}])
+    assert "sans etape terminale" not in _log_run(tmp_path, au_plan).stdout
+
+    # Trace dans les notes (revue de campagne en fin de séance) -> silencieux.
+    en_notes = dict(base, notes="couvert par la revue-increment de fin de seance")
+    assert "sans etape terminale" not in _log_run(tmp_path, en_notes).stdout
+
+    # Pas un succes -> silencieux (on n'exige pas la revue d'un run avorté).
+    partiel = dict(base, resultat="partiel")
+    assert "sans etape terminale" not in _log_run(tmp_path, partiel).stdout
 
 
 def test_log_run_stdin_tolere_le_bom_powershell(tmp_path):
