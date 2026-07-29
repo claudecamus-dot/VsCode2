@@ -1187,6 +1187,12 @@ def runs_a_solder(runs, maintenant=None):
     `log_run.py --solde`, seule la VISIBILITÉ est automatisée."""
     maintenant = maintenant or dt.datetime.now().astimezone()
     ouverts = []
+    def _ascii(texte):
+        # `demande` est du texte libre : le journal porte déjà des caractères hors
+        # cp1252 (U+FFFD hérité d'un mojibake). Les rendre inoffensifs AVANT le
+        # print — sinon la ligne relance l'incident qu'elle documente.
+        return str(texte).encode("ascii", "replace").decode("ascii")
+
     for run in runs:
         if run.get("resultat") != "en-attente-validation":
             continue
@@ -1199,7 +1205,7 @@ def runs_a_solder(runs, maintenant=None):
         heures = (maintenant - ts).total_seconds() / 3600
         if heures >= RUN_A_SOLDER_H:
             ouverts.append({"ts": run.get("ts"), "heures": int(heures),
-                            "demande": str(run.get("demande", ""))[:70]})
+                            "demande": _ascii(run.get("demande", ""))[:70]})
     return sorted(ouverts, key=lambda r: -r["heures"])
 
 
@@ -1223,7 +1229,9 @@ def arbre_sale():
     for ligne in res.stdout.splitlines():
         chemin = ligne[3:].strip().replace("\\", "/")
         if chemin and not chemin.startswith(ignores):
-            fichiers.append(chemin)
+            # Même contrainte que runs_a_solder : un nom de fichier accentué ne
+            # doit pas casser stdout capturé en cp1252 par les tests des cibles.
+            fichiers.append(chemin.encode("ascii", "replace").decode("ascii"))
     return fichiers
 
 
