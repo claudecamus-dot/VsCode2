@@ -6,8 +6,9 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from ..db import get_session
+from ..db import RECORDINGS_DIR, get_session
 from ..models import Interview, Mission, Trame
+from ..services import mission_backups
 from ..services.mode import est_mode_demo
 from ..templating import templates
 
@@ -201,7 +202,14 @@ def mission_detail(
 ):
     mission = _get_mission(db, mission_id)
     resp = templates.TemplateResponse(
-        request, "missions/detail.html", {"mission": mission}
+        request,
+        "missions/detail.html",
+        {
+            "mission": mission,
+            # Onglet « Backup » : les enregistrements audio vivent sur disque,
+            # la base n'en porte que des références (cf. mission_backups).
+            "backups": mission_backups.lister_backups(mission, RECORDINGS_DIR),
+        },
     )
     # Mémorise la dernière mission consultée (défer revue UX 2026-07-23, item 18) :
     # l'écran « Démarrer » propose de la reprendre — un clic réflexe sur la nav n'y

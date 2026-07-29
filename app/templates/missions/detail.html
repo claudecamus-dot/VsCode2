@@ -45,6 +45,14 @@
 </div>
 {% endif %}
 
+<div data-tabs>
+<div class="tab-strip">
+  <button type="button" class="tab" data-tab="entretiens">Entretiens</button>
+  <button type="button" class="tab" data-tab="synthese">Synthèse transverse</button>
+  <button type="button" class="tab" data-tab="backup">Backup ({{ (backups.rattaches | length) + (backups.orphelins | length) }})</button>
+</div>
+
+<div class="tab-panel" data-panel="entretiens">
 <div class="card">
   <div class="card-head">
     <h2>Entretiens</h2>
@@ -96,7 +104,9 @@
     <p class="muted">Aucun entretien pour le moment — commence par en créer un.</p>
   {% endif %}
 </div>
+</div>
 
+<div class="tab-panel" data-panel="synthese">
 <div class="card">
   <div class="card-head">
     <h2>Synthèse transverse</h2>
@@ -116,5 +126,109 @@
   {% else %}
     <p class="muted">Saisis des entretiens avant de synthétiser.</p>
   {% endif %}
+</div>
+</div>
+
+{# Onglet Backup : les fichiers audio vivent sur disque (data/recordings/), la
+   base n'en porte que des références. Les « orphelins » — même mission, plus
+   aucun entretien qui les référence — sont ce qui s'accumule (enregistrement
+   abandonné avant confirmation, entretien supprimé) : c'est la matière du
+   nettoyage, on ne peut pas se contenter des fichiers rattachés. #}
+<div class="tab-panel" data-panel="backup" id="backup">
+<div class="card">
+  <div class="card-head">
+    <h2>Enregistrements audio</h2>
+    {% if backups.taille_totale %}
+    <p class="muted">{{ (backups.taille_totale / 1048576) | round(1) }} Mo au total sur ce poste</p>
+    {% endif %}
+  </div>
+  <p class="muted">
+    Les enregistrements sont conservés sur ce poste, hors base de données. Ils
+    servent de filet de sécurité (réécoute, ré-import) et ne sont pas
+    nécessaires une fois l'entretien relu et sa synthèse validée.
+    <strong>La suppression est définitive.</strong>
+  </p>
+
+  {% if backups.rattaches %}
+  <h3>Rattachés à un entretien</h3>
+  <p class="muted">Du plus ancien au plus récent.</p>
+  <table class="table">
+    <thead>
+      <tr><th>Date</th><th>Entretien</th><th>Tranche</th><th>Taille</th><th>Écoute</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for b in backups.rattaches %}
+      <tr>
+        <td>{% if b.horodatage %}{{ b.horodatage }}{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td><a href="/interviews/{{ b.interview.id }}">{{ b.interview.interviewee_name }}</a></td>
+        <td>{% if b.position is not none and b.nb_tranches > 1 %}{{ b.position + 1 }}/{{ b.nb_tranches }}{% else %}—{% endif %}</td>
+        <td>{% if b.existe %}{{ (b.taille / 1048576) | round(1) }} Mo{% else %}<span class="muted">fichier absent</span>{% endif %}</td>
+        <td>
+          {% if b.existe %}
+          <audio controls preload="none" class="record-audio-player"
+                 src="/missions/{{ mission.id }}/interviews/record/backup/{{ b.filename | urlencode }}"></audio>
+          {% endif %}
+        </td>
+        <td class="row-actions">
+          {% if b.existe %}
+          <a class="btn-link" href="/missions/{{ mission.id }}/interviews/record/backup/{{ b.filename | urlencode }}" download>Télécharger</a>
+          {% endif %}
+          <form method="post" action="/missions/{{ mission.id }}/interviews/record/backup/{{ b.filename | urlencode }}/delete"
+                onsubmit="return confirm('Supprimer définitivement cet enregistrement ? La transcription et les tours de parole de l’entretien ne sont pas touchés.');">
+            <button class="btn btn-danger btn-sm" type="submit">Supprimer</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if backups.orphelins %}
+  <h3>Non rattachés</h3>
+  <p class="muted">
+    Enregistrements de cette mission que plus aucun entretien ne référence —
+    typiquement un enregistrement abandonné avant l'écran de confirmation, ou
+    l'audio d'un entretien supprimé depuis. Rien ne les lit plus : ce sont
+    ceux à nettoyer en priorité. Du plus ancien au plus récent.
+  </p>
+  <table class="table">
+    <thead>
+      <tr><th>Date</th><th>Fichier</th><th>Taille</th><th>Écoute</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for b in backups.orphelins %}
+      <tr>
+        <td>{% if b.horodatage %}{{ b.horodatage }}{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td><span class="muted">{{ b.filename }}</span>
+          {%- if b.recent %}
+          {# Pendant le wizard, les tranches ne sont référencées qu'à la
+             confirmation : un orphelin récent peut être un enregistrement EN
+             COURS dans un autre onglet — le supprimer le détruirait. #}
+          <br><span class="muted">⚠ récent — peut appartenir à un enregistrement en cours, ne supprimer que si aucun entretien n'est en cours de saisie</span>
+          {%- endif %}</td>
+        <td>{{ (b.taille / 1048576) | round(1) }} Mo</td>
+        <td>
+          <audio controls preload="none" class="record-audio-player"
+                 src="/missions/{{ mission.id }}/interviews/record/backup/{{ b.filename | urlencode }}"></audio>
+        </td>
+        <td class="row-actions">
+          <a class="btn-link" href="/missions/{{ mission.id }}/interviews/record/backup/{{ b.filename | urlencode }}" download>Télécharger</a>
+          <form method="post" action="/missions/{{ mission.id }}/interviews/record/backup/{{ b.filename | urlencode }}/delete"
+                onsubmit="return confirm('Supprimer définitivement cet enregistrement ?{% if b.recent %}\n\n⚠ Fichier récent : il peut appartenir à un enregistrement encore en cours dans un autre onglet.{% endif %}');">
+            <button class="btn btn-danger btn-sm" type="submit">Supprimer</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if not backups.rattaches and not backups.orphelins %}
+  <p class="muted">Aucun enregistrement audio pour cette mission.</p>
+  {% endif %}
+</div>
+</div>
 </div>
 {% endblock %}

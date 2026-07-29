@@ -9,17 +9,17 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-29T11:21:49+02:00 · **49 sessions** (transcripts) · **127** invocations de skills · **67** lancements de sous-agents.
+Dernier scan : 2026-07-29T23:11:15+02:00 · **56 sessions** (transcripts) · **135** invocations de skills · **71** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `run-dev-server` | projet | 28 | 2026-07-03 | 2026-07-29 |
-| `agent-orchestrator` | projet | 24 | 2026-07-17 | 2026-07-28 |
+| `run-dev-server` | projet | 32 | 2026-07-03 | 2026-07-29 |
+| `agent-orchestrator` | projet | 27 | 2026-07-17 | 2026-07-29 |
 | `agent-supervisor` | projet | 19 | 2026-07-18 | 2026-07-29 |
+| `bmad-code-review` | BMAD | 10 | 2026-07-20 | 2026-07-29 |
 | `pptx-verify` | global | 10 | 2026-07-03 | 2026-07-29 |
-| `bmad-code-review` | BMAD | 9 | 2026-07-20 | 2026-07-27 |
 | `revue-increment` | projet | 9 | 2026-07-18 | 2026-07-29 |
 | `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
 | `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
@@ -40,8 +40,8 @@ Dernier scan : 2026-07-29T11:21:49+02:00 · **49 sessions** (transcripts) · **1
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 35 | 2026-07-15 | 2026-07-28 |
-| `Explore` | 24 | 2026-06-30 | 2026-07-23 |
+| `general-purpose` | 37 | 2026-07-15 | 2026-07-29 |
+| `Explore` | 26 | 2026-06-30 | 2026-07-29 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
 | `claude-code-guide` | 1 | 2026-07-03 | 2026-07-03 |
