@@ -3,6 +3,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -243,12 +244,24 @@ def test_skill_invocation_from_agents_page(client: TestClient) -> None:
         follow_redirects=False,
     )
     assert response.status_code == 200
-    assert "Skill OpenHub" in response.text
+    # Les DEUX chemins sont supportés et documentés (`openhub_agents.invoke_skill`) :
+    # runtime réel quand `opencode` est sur le PATH, repli simulé sinon. Asserter le
+    # seul en-tête « Skill OpenHub » liait ce test à la machine de dev — il passait en
+    # local (opencode installé) et échouait sur la CI Linux, où opencode est absent :
+    # 6 runs rouges d'affilée sans rapport avec le code testé (2026-07-24 → 2026-07-29).
+    # Ce que le test doit prouver, c'est que la page rend le résultat de l'invocation.
+    assert "Skill OpenHub" in response.text or "Skill simulé" in response.text
     assert "beads-dev" in response.text
 
 
 def test_dynamic_skill_execution_uses_opencode_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    python_path = tmp_path / "opencode.py"
+    """Le chemin runtime réel : un faux `opencode` sur le PATH doit être exécuté.
+
+    Le shim dépend de la plateforme — un `.cmd` n'est exécutable que sous Windows
+    (`shutil.which` ne le voit même pas ailleurs), d'où l'échec systématique de ce
+    test sur la CI Linux. On pose donc le shim natif de la plateforme courante.
+    """
+    python_path = tmp_path / "opencode_shim.py"
     python_path.write_text(
         "import sys\n"
         "print('skill-ok')\n"
@@ -256,12 +269,21 @@ def test_dynamic_skill_execution_uses_opencode_runtime(tmp_path: Path, monkeypat
         encoding="utf-8",
     )
 
-    wrapper_path = tmp_path / "opencode.cmd"
-    wrapper_path.write_text(
-        "@echo off\n"
-        f"python \"{python_path}\" %*\n",
-        encoding="utf-8",
-    )
+    if os.name == "nt":
+        wrapper_path = tmp_path / "opencode.cmd"
+        wrapper_path.write_text(
+            "@echo off\n"
+            f"python \"{python_path}\" %*\n",
+            encoding="utf-8",
+        )
+    else:
+        wrapper_path = tmp_path / "opencode"
+        wrapper_path.write_text(
+            "#!/bin/sh\n"
+            f'exec "{sys.executable}" "{python_path}" "$@"\n',
+            encoding="utf-8",
+        )
+        wrapper_path.chmod(0o755)
 
     monkeypatch.setenv("PATH", f"{tmp_path}{os.pathsep}{os.environ.get('PATH', '')}")
 

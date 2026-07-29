@@ -9,7 +9,7 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-29T10:43:52+02:00 · **49 sessions** (transcripts) · **125** invocations de skills · **67** lancements de sous-agents.
+Dernier scan : 2026-07-29T11:00:09+02:00 · **49 sessions** (transcripts) · **125** invocations de skills · **67** lancements de sous-agents.
 
 ## Skills — usage réel
 
