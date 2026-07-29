@@ -131,6 +131,13 @@ ci-dessus plutôt que d'en dupliquer la logique.
       que le cas nominal. Déclencheur : le générateur de deck a été modifié deux fois
       (a3ca545, 38a040d) sans aucun rendu, et l'une de ces modifications a laissé un
       visuel indexé par libellé alors que le libellé était devenu renommable.
+- [ ] **Après un `push`, vérifier le run CI — « pytest vert en local » ne prouve rien
+      de la CI.** Le poste de dev a un environnement plus riche que le runner Linux
+      (binaires installés, Windows) : la CI est restée rouge **6 runs d'affilée**
+      (2026-07-24 → 2026-07-29) sur deux tests dépendant de la CLI `opencode`, pendant
+      que la suite locale passait. Pas de `gh` sur cette machine — token via
+      `git credential fill`, puis `api.github.com/repos/<owner>/<repo>/actions/runs`.
+      cf. [[feedback-green-local-suite-hides-red-ci]].
 - [ ] **Le diff touche `.claude/orchestration/**`, `.claude/supervision/**` ou
       `.claude/hooks/**` → passer les fichiers-contrat du dispositif avant commit**
       (`pytest tests/test_agent_orchestration.py tests/test_agent_supervision.py
