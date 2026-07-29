@@ -143,7 +143,9 @@ def test_forms_extraction_ia_portent_busy_label(client: TestClient) -> None:
     attendus = [
         ("interviews/import.html", "/interviews/import\""),
         ("interviews/record.html", "/interviews/record\""),
-        ("interviews/record_libre.html", "/interviews/record-libre\""),
+        # Depuis le 2026-07-29 l'écran libre poste vers `.../record-libre/enregistrer`
+        # (enregistrement direct) : même extraction IA, donc même exigence busy.
+        ("interviews/record_libre.html", "/interviews/record-libre/enregistrer\""),
         ("interviews/libre_turns_review.html", "/record-libre/synthese\""),
         ("interviews/capture.html", "/notes/dispatch\""),
         ("trames/import.html", "/trame/import\""),

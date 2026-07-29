@@ -7,15 +7,13 @@
 </div>
 
 <div class="page-head"><h1>Traitement des tranches en cours…</h1></div>
-{% set step_num = 1 %}{% set active = 'transcription' %}
-{% include "interviews/_libre_wizard.html" %}
 
 <section class="card">
   <p class="muted">
-    Cet entretien est assez long pour avoir été découpé en tranches de 30min,
-    traitées au fil de l'enregistrement. On attend ici que les dernières
-    tranches finissent d'être structurées en tours de parole — puis l'écran de
-    revue s'affiche automatiquement. Inutile de recharger la page.
+    Cet entretien est assez long pour avoir été découpé en tranches, traitées au
+    fil de l'enregistrement. On attend ici que les dernières tranches finissent
+    d'être structurées en tours de parole — puis l'{{ suite_label }} se fait
+    automatiquement. Inutile de recharger la page.
   </p>
   <p id="seg-progress" class="seg-progress" aria-live="polite">
     Traitement des tranches… {{ status.done }}/{{ status.total }} terminées.
@@ -23,9 +21,10 @@
   <progress id="seg-bar" value="{{ status.done }}" max="{{ status.total }}"></progress>
 </section>
 
-<!-- Champs portés vers la finalisation une fois toutes les tranches traitées. -->
-<form id="finalize-form" method="post"
-      action="/missions/{{ mission.id }}/interviews/record-libre/from-jobs">
+<!-- Champs portés vers la finalisation une fois toutes les tranches traitées.
+     `finalize_action` décide de la suite (revue des tours du wizard historique,
+     ou enregistrement direct de l'entretien) : l'attente est la même. -->
+<form id="finalize-form" method="post" action="{{ finalize_action }}">
   <input type="hidden" name="session_token" value="{{ session_token }}">
   <input type="hidden" name="segment_tail" value="{{ segment_tail or '' }}">
   <input type="hidden" name="transcript" value="{{ transcript or '' }}">
@@ -49,7 +48,9 @@
   function finalize() {
     if (submitted) return;
     submitted = true;
-    progressEl.textContent = 'Traitement terminé — affichage des tours de parole…';
+    // `tojson` et pas une interpolation directe : « enregistrement de
+    // l'entretien » porte une apostrophe, qui couperait la chaîne JS en deux.
+    progressEl.textContent = 'Traitement terminé — ' + {{ suite_label | tojson }} + '…';
     form.submit();
   }
 

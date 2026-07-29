@@ -56,9 +56,12 @@ def client() -> TestClient:
 
 def _fake_blocks(*textes: str):
     """Remplace la transcription Whisper par des blocs prédéfinis, rendus dans
-    l'ordre comme le fait `iter_transcribe_blocks`."""
-    def _iter(content: bytes, block_s: int | None = None):
+    l'ordre comme le fait `iter_transcribe_blocks` — `start_index` honoré
+    comme dans le vrai générateur (contrat de reprise, 2026-07-29)."""
+    def _iter(content: bytes, block_s: int | None = None, start_index: int = 0):
         for index, texte in enumerate(textes):
+            if index < start_index:
+                continue
             yield index, len(textes), texte
     return _iter
 
@@ -212,7 +215,7 @@ def test_chaque_bloc_est_persiste_des_qu_il_est_pret(client, monkeypatch):
     les états intermédiaires seraient vides."""
     vus: list[list[str]] = []
 
-    def _iter(content: bytes, block_s: int | None = None):
+    def _iter(content: bytes, block_s: int | None = None, start_index: int = 0):
         for index, texte in enumerate(("A", "B", "C")):
             yield index, 3, texte
             # Ce que verrait un poll juste après ce bloc (session distincte,
@@ -235,7 +238,7 @@ def test_chaque_bloc_est_persiste_des_qu_il_est_pret(client, monkeypatch):
 def test_echec_de_transcription_remonte_un_message_utilisable(client, monkeypatch):
     """Un échec ne laisse pas le job « running » (l'écran polle indéfiniment) :
     statut `failed` + message destiné à l'UI."""
-    def _iter(content: bytes, block_s: int | None = None):
+    def _iter(content: bytes, block_s: int | None = None, start_index: int = 0):
         raise audio_transcribe.TranscriptionError("Fichier audio illisible : test.")
         yield  # pragma: no cover - rend la fonction génératrice
 
@@ -265,6 +268,249 @@ def test_fichier_audio_supprime_apres_traitement(client, monkeypatch):
 
 def test_statut_d_un_import_inconnu_est_un_404(client):
     assert _status(client, 999999).status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# Relance d'un import échoué AU BLOC fautif (2026-07-29)
+# --------------------------------------------------------------------------- #
+def _retry(client: TestClient, job_id: int, token: str = _TOKEN):
+    return client.post(
+        "/audio/transcribe-file/retry",
+        data={"job_id": job_id, "session_token": token},
+    )
+
+
+def test_la_relance_reprend_au_bloc_echoue_sans_re_transcrire(client, monkeypatch):
+    """Régression du chantier reprise : sur le code d'avant, l'échec d'un bloc
+    supprimait le fichier importé et la route retry n'existait pas — la seule
+    issue était de tout ré-importer et re-transcrire depuis le début."""
+    starts: list[int] = []
+    etat = {"echoue": True}
+    textes = ["Bloc un.", "Bloc deux.", "Bloc trois."]
+
+    def _iter(content: bytes, block_s: int | None = None, start_index: int = 0):
+        starts.append(start_index)
+        for index in range(start_index, len(textes)):
+            if etat["echoue"] and index == 1:
+                raise audio_transcribe.TranscriptionError("worker mort au bloc 2")
+            yield index, len(textes), textes[index]
+
+    monkeypatch.setattr(audio_transcribe, "iter_transcribe_blocks", _iter)
+    job_id = _upload(client)["job_id"]
+
+    db = SessionLocal()
+    try:
+        job = db.get(AudioFileJob, job_id)
+        assert job.status == "failed"
+        assert job.blocks == ["Bloc un."]  # le bloc déjà obtenu est conservé
+        # Le fichier survit à l'échec : c'est lui qui rend la reprise possible.
+        assert (RECORDINGS_DIR / job.filename).exists()
+        filename = job.filename
+    finally:
+        db.close()
+
+    etat["echoue"] = False
+    reponse = _retry(client, job_id)
+    assert reponse.status_code == 200, reponse.text
+    assert reponse.json()["reprise_au_bloc"] == 1
+
+    data = _status(client, job_id).json()
+    assert data["status"] == "done"
+    assert data["blocks"] == textes
+    # La 2e passe est repartie DU bloc échoué, pas du début.
+    assert starts == [0, 1]
+    # Et le fichier est nettoyé une fois le job abouti, comme un import direct.
+    assert not (RECORDINGS_DIR / filename).exists()
+
+
+def test_la_relance_exige_le_jeton_de_session(client, monkeypatch):
+    """Même exigence que `/status` : les `job_id` sont séquentiels, sans le
+    jeton n'importe qui relancerait (et ferait tourner Whisper sur) l'import
+    d'autrui."""
+    def _iter(content: bytes, block_s: int | None = None, start_index: int = 0):
+        raise audio_transcribe.TranscriptionError("échec")
+        yield  # pragma: no cover - rend la fonction génératrice
+
+    monkeypatch.setattr(audio_transcribe, "iter_transcribe_blocks", _iter)
+    job_id = _upload(client, token="sess-proprietaire")["job_id"]
+    assert _retry(client, job_id, token="sess-intrus").status_code == 404
+    assert _retry(client, job_id, token="  ").status_code == 404
+
+
+def test_la_relance_refuse_un_job_qui_n_est_pas_en_echec(client, monkeypatch):
+    """Double-clic ou onglet resté ouvert : un job `done` n'a plus son fichier,
+    un job en cours finira tout seul — dans les deux cas on ne relance pas."""
+    monkeypatch.setattr(
+        audio_transcribe, "iter_transcribe_blocks", _fake_blocks("Fini."),
+    )
+    job_id = _upload(client)["job_id"]
+    reponse = _retry(client, job_id)
+    assert reponse.status_code == 409
+    assert reponse.json()["status"] == "done"
+
+
+def test_la_relance_sans_fichier_conserve_est_un_410(client):
+    """Fichier purgé entre-temps (7 jours) ou jamais écrit : la reprise est
+    impossible, le message doit orienter vers un ré-import."""
+    db = SessionLocal()
+    try:
+        job = AudioFileJob(
+            session_token=_TOKEN, filename="import_disparu.weba",
+            status="failed", blocks=["déjà transcrit"], error="worker mort",
+        )
+        db.add(job)
+        db.commit()
+        job_id = job.id
+    finally:
+        db.close()
+    reponse = _retry(client, job_id)
+    assert reponse.status_code == 410
+    assert "ré-importe" in reponse.json()["error"]
+
+
+def test_le_statut_conserve_un_job_echoue_pour_la_reprise(client, monkeypatch):
+    """Régression CRITIQUE (revue adversariale 2026-07-29) : `/status` supprimait
+    le job dès `since >= len(blocks)` sur `failed` aussi — or c'est le cas
+    NOMINAL d'un échec (il survient en transcrivant le bloc SUIVANT, donc sans
+    nouveau bloc à livrer). Le client affichait le bandeau de reprise, et le
+    clic répondait 404 « Import introuvable » : la relance était inatteignable
+    sur le chemin réel, et le fichier restait orphelin sur disque à vie (la
+    purge n'itère que les lignes de job)."""
+    etat = {"echoue": True}
+
+    def _iter(content: bytes, block_s: int | None = None, start_index: int = 0):
+        if start_index == 0:
+            yield 0, 2, "Bloc un."
+        if etat["echoue"]:
+            raise audio_transcribe.TranscriptionError("worker mort au bloc 2")
+        yield 1, 2, "Bloc deux."
+
+    monkeypatch.setattr(audio_transcribe, "iter_transcribe_blocks", _iter)
+    job_id = _upload(client)["job_id"]
+
+    # Le poll RÉEL du client : il a déjà consommé le bloc 1 quand l'échec
+    # tombe — `since == len(blocks)`, précisément la condition qui déclenchait
+    # la suppression.
+    data = _status(client, job_id, since=1).json()
+    assert data["status"] == "failed"
+
+    db = SessionLocal()
+    try:
+        assert db.get(AudioFileJob, job_id) is not None, (
+            "le job échoué doit survivre au poll : c'est lui qui porte la reprise"
+        )
+    finally:
+        db.close()
+
+    etat["echoue"] = False
+    assert _retry(client, job_id).status_code == 200
+    assert _status(client, job_id).json()["status"] == "done"
+
+
+def test_la_relance_accepte_un_job_perime_encore_marque_running(client, monkeypatch):
+    """Serveur redémarré en cours de transcription : le statut EN BASE reste
+    `running`, mais `/status` le rapporte `failed` (stale) et propose la
+    reprise. La garde `status != "failed"` refusait alors la relance du cas
+    même pour lequel la détection de blocage existe (revue adversariale
+    2026-07-29)."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.routers import interviews as interviews_router
+
+    fichier = RECORDINGS_DIR / "import_test_stale_retry.weba"
+    fichier.write_bytes(b"audio")
+    db = SessionLocal()
+    try:
+        job = AudioFileJob(
+            session_token=_TOKEN, filename=fichier.name,
+            status="running", blocks=["Bloc un."],
+        )
+        job.created_at = (
+            datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=1)
+        )
+        db.add(job)
+        db.commit()
+        job_id = job.id
+    finally:
+        db.close()
+
+    monkeypatch.setattr(interviews_router, "run_audio_file_job", lambda job_id: None)
+    try:
+        # Le poll voit bien un échec (stale) et propose la reprise…
+        assert _status(client, job_id).json()["status"] == "failed"
+        # …que la route de relance doit accepter, pas refuser en 409.
+        reponse = _retry(client, job_id)
+        assert reponse.status_code == 200, reponse.text
+        assert reponse.json()["reprise_au_bloc"] == 1
+    finally:
+        fichier.unlink(missing_ok=True)
+
+
+def test_la_relance_refuse_un_echec_sans_bloc_a_reprendre(client):
+    """Fichier muet : tous les blocs sont transcrits (vides), l'échec ne vient
+    pas d'un bloc interrompu. Relancer ne rejouerait RIEN et re-échouerait à
+    l'identique, indéfiniment, en gardant le fichier à vie (revue adversariale
+    2026-07-29) : on répond 409 et on libère le fichier."""
+    fichier = RECORDINGS_DIR / "import_test_muet.weba"
+    fichier.write_bytes(b"audio")
+    db = SessionLocal()
+    try:
+        job = AudioFileJob(
+            session_token=_TOKEN, filename=fichier.name,
+            status="failed", blocks=["", "   "], total_blocks=2,
+            error="Aucune parole détectée dans l'enregistrement.",
+        )
+        db.add(job)
+        db.commit()
+        job_id = job.id
+    finally:
+        db.close()
+
+    try:
+        reponse = _retry(client, job_id)
+        assert reponse.status_code == 409
+        assert "déjà été transcrit" in reponse.json()["error"]
+        assert not fichier.exists(), "plus aucune reprise possible : le fichier est libéré"
+    finally:
+        fichier.unlink(missing_ok=True)
+
+
+def test_la_relance_rearme_l_horloge_de_detection_de_blocage(client, monkeypatch):
+    """`is_audio_file_job_stale` se base sur `created_at` : sans réarmement à
+    la relance, un job relancé plus de 3 h après l'import initial serait
+    déclaré « ne répond plus » au premier poll, alors que la reprise vient de
+    démarrer."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.routers import interviews as interviews_router
+
+    fichier = RECORDINGS_DIR / "import_test_rearme.weba"
+    fichier.write_bytes(b"audio")
+    db = SessionLocal()
+    try:
+        job = AudioFileJob(
+            session_token=_TOKEN, filename=fichier.name,
+            status="failed", blocks=["Bloc un."], error="worker mort",
+        )
+        job.created_at = (
+            datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=2)
+        )
+        db.add(job)
+        db.commit()
+        job_id = job.id
+    finally:
+        db.close()
+
+    # La tâche de fond ne tourne pas : le job reste `pending`, exactement
+    # l'état dans lequel le poll le verrait pendant une vraie reprise.
+    monkeypatch.setattr(interviews_router, "run_audio_file_job", lambda job_id: None)
+    try:
+        assert _retry(client, job_id).status_code == 200
+        data = _status(client, job_id).json()
+        assert data["status"] == "pending"  # et non « failed » (stale)
+        assert data["error"] == ""
+    finally:
+        fichier.unlink(missing_ok=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -439,3 +685,43 @@ def test_les_deux_ecrans_importent_par_blocs(client, chemin, monkeypatch):
     assert "pollFileImport" in html
     # Le bloc transcrit est immédiatement soumis à l'extraction en tâche de fond.
     assert "submitSegmentJob();" in html
+    # Reprise au bloc échoué (2026-07-29) : bandeau + route retry sur les DEUX
+    # écrans — l'échec d'un bloc ne doit plus coûter un ré-import complet.
+    assert "rec-file-retry-banner" in html
+    assert "/audio/transcribe-file/retry" in html
+    # Segments micro perdus (« Failed to fetch ») : relance auto puis manuelle.
+    assert "rec-lost-banner" in html
+    assert "retryLostSegments" in html
+    assert "SEGMENT_RETRY_DELAYS_MS" in html
+    # Correctifs concurrence JS (revue adversariale 2026-07-29) — marqueurs de
+    # régression template (pytest ne peut pas exécuter ce JS, cf. mémoire
+    # feedback-frontend-render-check-plus-template-regression-test) :
+    # 1. une RELANCE différée hérite de la génération de la tentative initiale
+    #    (sinon un « Recommencer » pendant la fenêtre de retry ressuscitait le
+    #    texte de la session abandonnée) ;
+    assert "genArg" in html
+    assert "uploadSegment(blob, attempt + 1, lostId, gen, onSettle)" in html
+    # 2. les segments perdus se relancent EN SÉQUENCE, pas en rafale ;
+    assert "uploadSegment(seg.blob, 0, seg.id, undefined, next)" in html
+    # 3. un submit en vol se recale du texte récupéré inséré avant son curseur ;
+    assert "coverShift" in html
+    # 4. la position de job est minée d'avance (jamais deux jobs à égalité) ;
+    assert "segmentJobPosition++" in html
+    # 5. un POST de relance d'import ne cohabite pas avec un nouvel import ;
+    assert "fileRetryInFlight" in html
+    # 6. fermer l'onglet avec des segments perdus en mémoire se confirme.
+    assert "beforeunload" in html
+
+
+def test_record_structure_recupere_les_segments_dans_la_bonne_nature(client, monkeypatch):
+    """Régression (revue adversariale 2026-07-29) : `postRecoveredJob` de
+    `record.html` n'envoyait ni `kind` ni `mission_id` — le serveur retombait
+    sur son défaut `libre_turns`, la tranche récupérée partait en extraction de
+    tours de parole que `merge_segment_answers` ne fusionne jamais : un appel
+    IA payé pour un texte qui n'atteignait jamais la répartition Q/R. L'écran
+    structuré doit poster `kind=answers` sur SES DEUX chemins de création de
+    job (tick périodique ET récupération)."""
+    monkeypatch.setattr(audio_transcribe, "is_available", lambda: True)
+    mission_id = _mission_id()
+    html = client.get(f"/missions/{mission_id}/interviews/record").text
+    assert html.count("formData.append('kind', 'answers');") == 2

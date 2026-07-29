@@ -33,8 +33,13 @@ logger = logging.getLogger(__name__)
 def _remove_audio(job: AudioFileJob) -> None:
     """Supprime le fichier importé du disque. L'audio d'un entretien ne doit
     pas s'entasser une fois son texte obtenu (même exigence que
-    `purge_stale_segment_jobs` pour le texte des tranches) — et le job ne
-    re-transcrit jamais : en cas d'échec, l'utilisateur ré-importe."""
+    `purge_stale_segment_jobs` pour le texte des tranches).
+
+    Uniquement sur SUCCÈS depuis 2026-07-29 : un job `failed` garde son fichier
+    pour que l'utilisateur puisse relancer la transcription au bloc qui a
+    échoué (route `/audio/transcribe-file/retry`) au lieu de tout ré-importer. La purge
+    périodique (`purge_stale_audio_file_jobs`, 7 j) reste le filet qui finit
+    par l'enlever si la relance n'a jamais lieu."""
     if not job.filename:
         return
     try:
@@ -43,24 +48,41 @@ def _remove_audio(job: AudioFileJob) -> None:
         logger.warning("Fichier audio importé non supprimé : %s", job.filename)
 
 
+def release_audio_file(job: AudioFileJob) -> None:
+    """Libère le fichier importé d'un job qui n'a plus de raison de le garder.
+
+    Nom public de `_remove_audio` pour les appelants hors de ce module : depuis
+    2026-07-29 le fichier survit à un échec pour rendre la reprise possible, et
+    la route de relance doit pouvoir le libérer quand elle constate qu'aucune
+    reprise n'est possible (tous les blocs déjà transcrits)."""
+    _remove_audio(job)
+
+
 def run_audio_file_job(job_id: int) -> None:
     """Tâche de fond : transcrit le fichier du job bloc par bloc, en
     commitant après chaque bloc pour que le poll de l'UI le voie tout de
     suite. Ouvre sa PROPRE session (celle de la requête est fermée dès la
     réponse renvoyée) et ne lève jamais — un échec est consigné en
-    `status="failed"` avec un message destiné à l'UI."""
+    `status="failed"` avec un message destiné à l'UI.
+
+    REPREND là où le job s'était arrêté : les blocs déjà persistés ne sont
+    jamais re-transcrits (une relance après échec ne repaie pas les dizaines de
+    minutes déjà passées, et n'aboutirait de toute façon pas au même découpage
+    si on repartait de zéro)."""
     db = SessionLocal()
     try:
         job = db.get(AudioFileJob, job_id)
         if job is None:
             return
         path = RECORDINGS_DIR / job.filename
+        depart = len(job.blocks or [])
         job.status = "running"
+        job.error = None
         db.commit()
         try:
             content = path.read_bytes()
             for index, total, text in audio_transcribe.iter_transcribe_blocks(
-                content, job.block_seconds
+                content, job.block_seconds, start_index=depart
             ):
                 # Réassignation (pas .append) : SQLAlchemy ne détecte pas la
                 # mutation en place d'une colonne JSON.
@@ -102,7 +124,9 @@ def run_audio_file_job(job_id: int) -> None:
     finally:
         try:
             job = db.get(AudioFileJob, job_id)
-            if job is not None and job.status in ("done", "failed"):
+            # Sur ÉCHEC on garde le fichier : c'est lui qui rend la relance au
+            # bloc échoué possible (cf. `_remove_audio`).
+            if job is not None and job.status == "done":
                 _remove_audio(job)
         except Exception:
             pass

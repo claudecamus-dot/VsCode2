@@ -39,15 +39,32 @@ seul, pas de GPU dédié) plutôt qu'un réglage logiciel manquant. En dessous
 du seuil (cas du direct au fil de l'eau, segments ~1 min), le chemin
 séquentiel reste inchangé : démarrer des sous-processus coûterait plus cher
 que le gain sur un si petit segment.
+
+Repli quand le pool casse (2026-07-29) : un worker tué brutalement (« A child
+process terminated abruptly, the process pool is not usable anymore »)
+faisait échouer TOUT l'import — l'utilisateur ne récupérait rien, pas même
+les blocs déjà transcrits, alors que la cause est de la pression mémoire, pas
+un fichier invalide (chaque worker charge son propre modèle : ~1,5 Go en
+`medium` int8, soit ~12 Go à 8 workers, sur une machine où Ollama garde en
+plus le sien chargé). La transcription dégrade désormais son parallélisme au
+lieu d'abandonner : palier à `MAX_PARALLEL_WORKERS`, puis à la moitié
+(`_paliers_workers`), puis séquentiel dans le processus courant — en
+reprenant au bloc où le pool est mort, sans jamais re-transcrire ni perdre
+ce qui a déjà été rendu. Baisser `WHISPER_MAX_WORKERS` évite d'en arriver là
+sur une machine à mémoire serrée.
 """
 from __future__ import annotations
 
 import io
+import logging
 import os
 import threading
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 
 from .ai_common import AIError
+
+logger = logging.getLogger(__name__)
 
 MODEL_SIZE = os.environ.get("WHISPER_MODEL", "medium")
 BEAM_SIZE = int(os.environ.get("WHISPER_BEAM_SIZE", "2"))
@@ -185,7 +202,9 @@ def _transcribe_pcm_chunk(args: tuple) -> str:
 def _transcribe_parallel(content: bytes, duration_s: float) -> str:
     """Découpe l'audio en tronçons d'environ 30s (map), les transcrit en
     parallèle sur plusieurs cœurs CPU, puis concatène les textes dans
-    l'ordre (reduce) — voir docstring du module pour la mesure de gain."""
+    l'ordre (reduce) — voir docstring du module pour la mesure de gain.
+
+    Repli séquentiel si le pool de processus casse (cf. `_pool_casse`)."""
     pcm = _decode_to_pcm16k(content)
     if pcm.size == 0:
         return ""
@@ -196,11 +215,34 @@ def _transcribe_parallel(content: bytes, duration_s: float) -> str:
         pcm[i * chunk_len:] if i == n_workers - 1 else pcm[i * chunk_len:(i + 1) * chunk_len]
         for i in range(n_workers)
     ]
-    with ProcessPoolExecutor(max_workers=n_workers) as executor:
-        parts = list(
-            executor.map(_transcribe_pcm_chunk, [(c, CPU_THREADS_PER_WORKER) for c in chunks])
-        )
-    return " ".join(p for p in parts if p).strip()
+    # Même mécanique de reprise que `iter_transcribe_blocks` (revue
+    # adversariale 2026-07-29) : l'ancien repli `except BrokenProcessPool:
+    # return _transcribe_pcm_sequential(pcm)` jetait les tronçons DÉJÀ
+    # transcrits par le pool et recommençait TOUT l'audio en séquentiel —
+    # précisément sur les fichiers longs que ce chemin cible. On reprend au
+    # tronçon fautif, par paliers de workers, puis en séquentiel tronçon par
+    # tronçon en dernier recours.
+    total = len(chunks)
+    parts: dict[int, str] = {}
+    index = 0
+    for workers in _paliers_workers(n_workers):
+        try:
+            for i, text in _drain_parallel(chunks, index, total, workers):
+                parts[i] = text
+                index = i + 1
+            break
+        except BrokenProcessPool:
+            logger.warning(
+                "Pool de transcription cassé au tronçon %d/%d (%d workers, %.0fs d'audio) — palier suivant.",
+                index + 1,
+                total,
+                workers,
+                duration_s,
+            )
+    while index < total:
+        parts[index] = _transcribe_pcm_sequential(chunks[index])
+        index += 1
+    return " ".join(p for p in (parts[i] for i in range(total)) if p).strip()
 
 
 def _transcribe_pcm_sequential(pcm) -> str:
@@ -226,7 +268,52 @@ def split_pcm_blocks(pcm, block_s: int) -> list:
     return [pcm[i:i + per_block] for i in range(0, len(pcm), per_block)]
 
 
-def iter_transcribe_blocks(content: bytes, block_s: int | None = None):
+def _paliers_workers(n_workers: int) -> list[int]:
+    """Paliers de parallélisme à tenter, du plus rapide au plus prudent.
+
+    Un pool qui casse est presque toujours un worker tué faute de mémoire :
+    chaque worker charge SON PROPRE modèle Whisper (~1,5 Go en `medium`
+    int8), donc 8 workers réclament ~12 Go — que la machine n'a pas
+    forcément quand Ollama garde par ailleurs son modèle chargé
+    (`OLLAMA_KEEP_ALIVE`). Retenter à la moitié des workers coûte deux fois
+    moins de mémoire et reste bien plus rapide que le séquentiel ; ce n'est
+    qu'après ce palier qu'on retombe dans le processus courant."""
+    paliers = [max(1, n_workers)]
+    if paliers[0] > 2:
+        paliers.append(max(2, paliers[0] // 2))
+    return paliers
+
+
+def _drain_parallel(blocks: list, start: int, total: int, n_workers: int):
+    """Génère `(index, texte)` pour les blocs `[start, total)` via un pool de
+    `n_workers` processus, dans l'ordre et par fenêtre glissante bornée.
+
+    Laisse remonter `BrokenProcessPool` : c'est l'appelant qui décide du repli
+    (palier suivant, puis séquentiel). Ne touche jamais aux blocs déjà rendus,
+    donc une reprise à `start` ne re-transcrit rien."""
+    window = n_workers * 2  # assez pour ne jamais affamer les workers
+    futures: dict[int, object] = {}
+    with ProcessPoolExecutor(max_workers=n_workers) as executor:
+        def _submit(i: int) -> None:
+            futures[i] = executor.submit(
+                _transcribe_pcm_chunk, (blocks[i], CPU_THREADS_PER_WORKER)
+            )
+
+        submitted = start
+        while submitted < min(start + window, total):
+            _submit(submitted)
+            submitted += 1
+        for index in range(start, total):
+            text = futures.pop(index).result()
+            if submitted < total:
+                _submit(submitted)
+                submitted += 1
+            yield index, text
+
+
+def iter_transcribe_blocks(
+    content: bytes, block_s: int | None = None, start_index: int = 0
+):
     """Génère `(index, total, texte)` bloc par bloc pour un fichier audio
     importé — équivalent serveur de la rotation de segments du direct.
 
@@ -238,17 +325,26 @@ def iter_transcribe_blocks(content: bytes, block_s: int | None = None):
     soumet son extraction en tâche de fond pendant que les blocs suivants se
     transcrivent.
 
+    `start_index` reprend au bloc demandé sans re-transcrire les précédents —
+    ce qui permet de relancer un import échoué au bloc fautif plutôt que de
+    tout recommencer (le découpage étant déterministe pour un même fichier et
+    un même `block_s`, l'index désigne bien le même audio d'un appel à l'autre).
+
     Les blocs sont transcrits en parallèle (mêmes workers/mesures que
     `_transcribe_parallel`), mais rendus DANS L'ORDRE et par une fenêtre
     glissante bornée : soumettre les N blocs d'un coup enverrait tout le PCM
-    d'un entretien de 3h (~690 Mo) aux processus workers en une fois.
+    d'un entretien de 3h (~690 Mo) aux processus workers en une fois. Si le
+    pool casse, le parallélisme se dégrade par paliers sans rien perdre (cf.
+    « Repli quand le pool casse » dans la docstring du module).
 
     Coût mémoire assumé (revue adversariale 2026-07-27) : le PCM décodé reste
     entier en mémoire pendant tout le job (les blocs en sont des VUES numpy,
     pas des copies — les libérer un à un ne libère rien), soit ~690 Mo pour
     3h, plus une copie par bloc en vol. C'est le coût que paie déjà
     `_transcribe_parallel` sur le même volume ; le supprimer demanderait un
-    décodage en flux, hors périmètre ici.
+    décodage en flux, hors périmètre ici. Les vues sont conservées jusqu'au
+    bout (elles ne coûtent rien) pour que le repli puisse reprendre les blocs
+    non encore rendus.
     """
     if not content:
         raise TranscriptionError("Aucun enregistrement reçu.")
@@ -268,6 +364,13 @@ def iter_transcribe_blocks(content: bytes, block_s: int | None = None):
     blocks = split_pcm_blocks(pcm, block_s)
     total = len(blocks)
 
+    # Reprise : les blocs déjà obtenus par un passage précédent ne sont pas
+    # re-transcrits (le découpage est déterministe, `blocks[i]` désigne donc
+    # bien le même audio d'un appel à l'autre).
+    start_index = max(0, min(start_index, total))
+    if start_index >= total:
+        return
+
     if total == 1:
         try:
             yield 0, 1, _transcribe_pcm_sequential(blocks[0])
@@ -275,33 +378,37 @@ def iter_transcribe_blocks(content: bytes, block_s: int | None = None):
             raise TranscriptionError(f"Échec de la transcription : {exc}") from exc
         return
 
-    n_workers = max(1, min(MAX_PARALLEL_WORKERS, total))
-    window = n_workers * 2  # assez pour ne jamais affamer les workers
-    futures: dict[int, object] = {}
-    try:
-        with ProcessPoolExecutor(max_workers=n_workers) as executor:
-            def _submit(i: int) -> None:
-                futures[i] = executor.submit(
-                    _transcribe_pcm_chunk, (blocks[i], CPU_THREADS_PER_WORKER)
-                )
-                # Lâche la VUE (pas le PCM sous-jacent, cf. docstring) : évite
-                # au moins de retenir la liste de vues jusqu'à la fin du job.
-                blocks[i] = None
+    index = start_index
+    for workers in _paliers_workers(min(MAX_PARALLEL_WORKERS, total)):
+        try:
+            for i, text in _drain_parallel(blocks, index, total, workers):
+                yield i, total, text
+                index = i + 1
+            break
+        except BrokenProcessPool:
+            # Un worker est mort brutalement (cf. « Repli quand le pool casse »
+            # dans la docstring du module). On ne perd NI les blocs déjà rendus,
+            # NI ceux qui restent : on reprend à `index` au palier suivant, et
+            # en dernier recours en séquentiel ci-dessous.
+            logger.warning(
+                "Pool de transcription cassé au bloc %d/%d (%d workers) — palier suivant.",
+                index + 1,
+                total,
+                workers,
+            )
+        except TranscriptionError:
+            raise
+        except Exception as exc:  # garde-fou : ne jamais propager une 500 brute
+            raise TranscriptionError(f"Échec de la transcription : {exc}") from exc
 
-            submitted = 0
-            while submitted < min(window, total):
-                _submit(submitted)
-                submitted += 1
-            for index in range(total):
-                text = futures.pop(index).result()
-                if submitted < total:
-                    _submit(submitted)
-                    submitted += 1
-                yield index, total, text
-    except TranscriptionError:
-        raise
-    except Exception as exc:  # garde-fou : ne jamais propager une 500 brute
-        raise TranscriptionError(f"Échec de la transcription : {exc}") from exc
+    # Repli séquentiel : aucun tour si un palier parallèle est allé au bout.
+    while index < total:
+        try:
+            text = _transcribe_pcm_sequential(blocks[index])
+        except Exception as exc:
+            raise TranscriptionError(f"Échec de la transcription : {exc}") from exc
+        yield index, total, text
+        index += 1
 
 
 def transcribe_audio(content: bytes) -> str:

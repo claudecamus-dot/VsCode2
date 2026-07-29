@@ -71,6 +71,24 @@
     <a class="btn-link" id="rec-audio-download" download>Télécharger l'enregistrement</a>
   </div>
 
+  <!-- Segments de transcription non aboutis : l'audio correspondant est gardé
+       en mémoire, une relance manuelle reste possible tant que la page est
+       ouverte (cf. uploadSegment/retryLostSegments). -->
+  <div class="ai-error rec-lost-banner" id="rec-lost-banner" hidden>
+    <span id="rec-lost-text"></span>
+    <button class="btn btn-sm" type="button" id="rec-lost-retry">↻ Relancer les segments perdus</button>
+  </div>
+
+  <!-- Échec de transcription d'un bloc d'import : le fichier est conservé côté
+       serveur tant que le job est en échec, la reprise repart du bloc fautif
+       (cf. /audio/transcribe-file/retry) sans refaire les blocs déjà obtenus.
+       Même dispositif que record_libre.html — parité libre/structuré. -->
+  <div class="ai-error rec-lost-banner" id="rec-file-retry-banner" hidden>
+    <span id="rec-file-retry-text"></span>
+    <button class="btn btn-sm" type="button" id="rec-file-retry"
+            title="Reprend la transcription au bloc qui a échoué, sans refaire les blocs déjà transcrits">↻ Relancer la transcription</button>
+  </div>
+
   <div class="rec-tabs" role="tablist">
     <button type="button" role="tab" aria-selected="true" class="rec-tab active" data-tab="transcription">Transcription</button>
     <button type="button" role="tab" aria-selected="false" class="rec-tab" data-tab="repartition">Répartition (Q/R)</button>
@@ -159,6 +177,9 @@
   var audioDownloadEl = document.getElementById('rec-audio-download');
   var transcriptEl = document.getElementById('rec-transcript');
   var transcriptHidden = document.getElementById('rec-transcript-hidden');
+  var lostBannerEl = document.getElementById('rec-lost-banner');
+  var lostTextEl = document.getElementById('rec-lost-text');
+  var lostRetryBtn = document.getElementById('rec-lost-retry');
   var backupPathHidden = document.getElementById('rec-backup-path');
   var sessionTokenHidden = document.getElementById('rec-session-token');
   var segmentTailHidden = document.getElementById('rec-segment-tail');
@@ -174,6 +195,15 @@
   var backupRecorder, backupChunks;
   var recordingActive = false;
   var pendingSegments = 0;
+  // Reprise d'un segment de transcription non transmis (2026-07-29) — même
+  // correctif que record_libre.html : un fetch qui échoue AVANT toute réponse
+  // HTTP (« Failed to fetch » : redémarrage du serveur, coupure réseau, veille)
+  // faisait disparaître définitivement la minute de parole concernée. On
+  // retente automatiquement selon ces délais, puis on garde le blob pour une
+  // relance manuelle (bouton du bandeau).
+  var SEGMENT_RETRY_DELAYS_MS = [2000, 6000, 15000];
+  var lostSegments = [];        // { id, blob, reason } — audio en attente de relance
+  var nextLostSegmentId = 1;
   // Upload de la sauvegarde audio en vol : gate la soumission pour ne pas poster
   // `audio_backup_path` vide (l'upload complet est plus lent que le dernier
   // segment de transcription -> submit s'activait avant sa fin). `finalizing`
@@ -199,6 +229,13 @@
   var sessionToken = {{ (identity.session_token if identity else '') | default('', true) | tojson }};
   var segmentJobPosition = 0;
   var coveredLen = 0;
+  // Somme des décalages appliqués à coveredLen par replaceLostMarker (texte
+  // récupéré inséré AVANT le curseur) : un submitSegmentJob en vol a figé son
+  // sliceEnd AVANT l'insertion — à la résolution il doit se recaler du delta
+  // accumulé entre-temps, sinon son texte (déjà parti en job) resterait dans
+  // le reliquat et serait extrait une seconde fois (revue adversariale
+  // 2026-07-29).
+  var coverShift = 0;
   // Compteur des POST /interviews/segment-jobs en vol — gate le bouton
   // « Envoyer » le temps de la requête. Sans ce gate, un submit pendant
   // qu'une création de job est en vol soumettrait un `segment_tail` qui
@@ -233,8 +270,14 @@
     if (pendingSegmentJobSubmits > 0) return;
     var slice = transcriptSoFar.slice(coveredLen);
     if (!slice.trim()) return;  // rien de neuf à traiter sur cette tranche
-    var pos = segmentJobPosition;
+    // Position minée D'AVANCE (revue adversariale 2026-07-29) : la réserver au
+    // moment de la résolution laissait postRecoveredJob miner la MÊME position
+    // qu'un submit en vol — deux jobs à égalité fusionnaient dans un ordre
+    // arbitraire. Une position sautée sur échec est sans effet (la fusion trie,
+    // les trous sont permis).
+    var pos = segmentJobPosition++;
     var sliceEnd = coveredLen + slice.length;
+    var shiftAtSend = coverShift;  // recalage si une récupération insère avant le curseur
     var gen = recGeneration;  // session courante : garde anti-poison inter-session
     var formData = new FormData();
     formData.append('session_token', sessionToken);
@@ -253,10 +296,11 @@
         // seraient ni dans un job ni dans segment_tail : perte silencieuse.
         if (gen !== recGeneration) return;
         // Job bien créé : on avance le curseur, ce texte est pris en charge
-        // en tâche de fond.
-        if (sliceEnd > coveredLen) {
-          coveredLen = sliceEnd;
-          segmentJobPosition = pos + 1;
+        // en tâche de fond. `sliceEnd` est recalé du décalage accumulé par les
+        // récupérations résolues pendant que ce POST était en vol.
+        var sliceEndNow = sliceEnd + (coverShift - shiftAtSend);
+        if (sliceEndNow > coveredLen) {
+          coveredLen = sliceEndNow;
           refreshSegmentTail();
         }
       })
@@ -332,35 +376,171 @@
     segmentRecorder.start();
   }
 
-  function uploadSegment(blob) {
+  function lostMarker(id) {
+    return '⚠ [segment ' + id + ' non transcrit — relance possible]';
+  }
+
+  function refreshLostBanner() {
+    var n = lostSegments.length;
+    lostBannerEl.hidden = n === 0;
+    lostRetryBtn.disabled = n === 0;
+    if (!n) return;
+    lostTextEl.textContent = n + ' segment' + (n > 1 ? 's' : '') + ' de transcription non abouti'
+      + (n > 1 ? 's' : '') + ' (' + lostSegments[n - 1].reason + '). L’audio est gardé en mémoire : '
+      + 'relance la transcription — le texte se remettra à sa place dans la transcription. '
+      + 'Ne ferme pas cet onglet avant, l’audio de ces segments ne survivrait pas.';
+  }
+
+  // Remet le texte récupéré À SA PLACE (là où le marqueur avait été posé), et
+  // non en fin de transcription : une relance peut arriver plusieurs minutes
+  // après, la parole serait sinon restituée dans le désordre.
+  function replaceLostMarker(id, text) {
+    var marker = lostMarker(id);
+    var pos = transcriptSoFar.indexOf(marker);
+    if (pos < 0) { appendTranscript(text); return; }  // marqueur introuvable : ne jamais perdre le texte
+    transcriptSoFar = transcriptSoFar.slice(0, pos) + text + transcriptSoFar.slice(pos + marker.length);
+    transcriptEl.value = transcriptSoFar;
+    transcriptEl.scrollTop = transcriptEl.scrollHeight;
+    transcriptHidden.value = transcriptSoFar;
+    if (pos < coveredLen) {
+      // Trou situé dans une zone déjà soumise en job d'extraction : on décale
+      // le curseur du même delta (sinon la fin déjà couverte repasserait dans
+      // le reliquat -> réponses dupliquées à la fusion) et on soumet ce texte
+      // comme un job à part, sinon il ne serait extrait par personne.
+      coveredLen += text.length - marker.length;
+      coverShift += text.length - marker.length;  // recale les submits en vol (cf. coverShift)
+      postRecoveredJob(text);
+    }
+    refreshSegmentTail();
+  }
+
+  function postRecoveredJob(text) {
+    if (!sessionToken) return;  // aucune session de jobs ouverte : traitement synchrone à l'arrêt
+    var pos = segmentJobPosition++;
+    var gen = recGeneration;
+    var formData = new FormData();
+    formData.append('session_token', sessionToken);
+    formData.append('position', pos);
+    formData.append('text', text);
+    // MÊME nature que submitSegmentJob : cet écran est le mode STRUCTURÉ, sa
+    // matière se répartit sur les questions de la trame. Sans ces deux champs
+    // le serveur retombait sur son défaut `libre_turns` (revue adversariale
+    // 2026-07-29) : la tranche récupérée partait en extraction de tours de
+    // parole, que `merge_segment_answers` ne fusionne jamais — un appel IA
+    // complet payé pour un texte qui n'atteignait jamais la répartition Q/R.
+    formData.append('kind', 'answers');
+    formData.append('mission_id', '{{ mission.id }}');
+    pendingSegmentJobSubmits++;
+    updateSubmitState();
+    fetch('/interviews/segment-jobs', { method: 'POST', body: formData })
+      .catch(function () {
+        // KO : le texte reste dans la transcription, simplement pas pré-extrait.
+      })
+      .finally(function () {
+        if (gen !== recGeneration) return;
+        pendingSegmentJobSubmits = Math.max(0, pendingSegmentJobSubmits - 1);
+        updateSubmitState();
+      });
+  }
+
+  function retryLostSegments() {
+    if (!lostSegments.length) return;
+    var queue = lostSegments.slice();
+    lostSegments = [];
+    refreshLostBanner();
+    statusEl.textContent = 'Relance de ' + queue.length + ' segment' + (queue.length > 1 ? 's' : '') + '…';
+    // EN SÉQUENCE, pas en rafale (revue adversariale 2026-07-29) : le scénario
+    // nominal (serveur coupé 10-30 min) peut accumuler des dizaines de
+    // segments — les POSTer tous d'un coup sature le pool de threads du
+    // serveur pour rien, la transcription étant de toute façon sérialisée par
+    // le verrou du modèle Whisper.
+    (function next() {
+      var seg = queue.shift();
+      if (!seg) return;
+      uploadSegment(seg.blob, 0, seg.id, undefined, next);
+    })();
+  }
+
+  lostRetryBtn.addEventListener('click', retryLostSegments);
+
+  // Le bandeau prévient « ne ferme pas cet onglet » mais rien ne l'empêchait
+  // (revue adversariale 2026-07-29) : les blobs des segments perdus ne vivent
+  // qu'en mémoire de l'onglet — fermer pendant qu'il en reste (ou en cours
+  // d'enregistrement) détruit la seule copie de ces minutes de parole. Le
+  // navigateur affiche sa confirmation générique de sortie.
+  window.addEventListener('beforeunload', function (e) {
+    if (!lostSegments.length && !recordingActive) return;
+    e.preventDefault();
+    e.returnValue = '';
+  });
+
+  function uploadSegment(blob, attempt, lostId, genArg, onSettle) {
     // Garde de génération : un segment de transcription encore en vol au moment
     // d'un « Recommencer » ne doit pas ressusciter le texte d'une session
     // abandonnée dans la nouvelle (même correctif que record_libre.html).
-    var gen = recGeneration;
-    pendingSegments++;
-    updateSubmitState();
+    // Une RELANCE (attempt > 0) hérite de la génération de la tentative
+    // initiale via genArg : relire recGeneration ici recapturerait la
+    // génération COURANTE — un « Recommencer » pendant la fenêtre de retry
+    // (2-15 s) ferait passer le texte de la session abandonnée pour du texte
+    // de la nouvelle, exactement ce que la garde doit empêcher (revue
+    // adversariale 2026-07-29).
+    var gen = (genArg !== undefined) ? genArg : recGeneration;
+    attempt = attempt || 0;
+    // Le gate de soumission couvre TOUTE la chaîne de reprise, pas la seule
+    // tentative en cours : sans ça, « Extraire » se rouvrirait entre deux
+    // tentatives et partirait sans le texte que la reprise va rendre.
+    if (!attempt) { pendingSegments++; updateSubmitState(); }
+
+    function settle() {
+      pendingSegments--;
+      updateSubmitState();
+      maybeSubmitFinalJob();  // transcription stabilisée -> job final si un reliquat reste
+      if (onSettle) onSettle();  // relance séquentielle : le segment perdu suivant
+    }
+
+    // Échec transitoire (« Failed to fetch » : serveur redémarré, Wi-Fi coupé,
+    // machine en veille — ou 5xx passager). Le blob est CONSERVÉ : c'est la
+    // seule copie de cette minute de parole côté transcription, la jeter
+    // faisait un trou définitif (signalement utilisateur 2026-07-29).
+    function retryOrGiveUp(reason) {
+      if (gen !== recGeneration) { settle(); return; }
+      if (attempt + 1 < SEGMENT_RETRY_DELAYS_MS.length) {
+        statusEl.textContent = 'Segment non transmis (' + reason + ') — nouvelle tentative…';
+        setTimeout(function () { uploadSegment(blob, attempt + 1, lostId, gen, onSettle); }, SEGMENT_RETRY_DELAYS_MS[attempt]);
+        return;  // pendingSegments reste tenu par la tentative initiale
+      }
+      var id = lostId || nextLostSegmentId++;
+      lostSegments.push({ id: id, blob: blob, reason: reason });
+      if (!lostId) appendTranscript(lostMarker(id));  // marque la place du trou
+      refreshLostBanner();
+      settle();
+    }
+
     var formData = new FormData();
     formData.append('file', new File([blob], 'segment.webm', { type: blob.type }));
     fetch('/audio/transcribe-segment', { method: 'POST', body: formData })
       .then(function (res) {
-        return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+        return res.json().then(function (data) { return { ok: res.ok, status: res.status, data: data }; });
       })
       .then(function (result) {
-        if (gen !== recGeneration) return;  // session abandonnée : ne pas ressusciter
+        if (gen !== recGeneration) { settle(); return; }  // session abandonnée : ne pas ressusciter
         if (result.ok && result.data.text) {
-          appendTranscript(result.data.text);
-        } else if (!result.ok) {
-          console.error('segment de transcription perdu', result.data);
-          appendTranscript('⚠ [segment perdu : ' + (result.data.error || result.data.detail || 'erreur inconnue') + ']');
+          if (lostId) replaceLostMarker(lostId, result.data.text);
+          else appendTranscript(result.data.text);
+          settle();
+          return;
         }
+        var detail = result.data.error || result.data.detail || 'erreur inconnue';
+        if (result.status >= 500) { retryOrGiveUp(detail); return; }
+        // 422 : Whisper n'a pas su décoder CET audio (silence, flux tronqué) —
+        // une relance rendrait la même chose, on ne la propose pas.
+        console.error('segment de transcription perdu', result.data);
+        if (lostId) replaceLostMarker(lostId, '⚠ [segment perdu : ' + detail + ']');
+        else appendTranscript('⚠ [segment perdu : ' + detail + ']');
+        settle();
       })
       .catch(function (err) {
-        appendTranscript('⚠ [segment perdu : ' + err.message + ']');
-      })
-      .finally(function () {
-        pendingSegments--;
-        updateSubmitState();
-        maybeSubmitFinalJob();  // transcription stabilisée -> job final si un reliquat reste
+        retryOrGiveUp(err.message);
       });
   }
 
@@ -420,6 +600,79 @@
   var fileUploadBtn = document.getElementById('rec-file-upload-btn');
   var fileImportTimer = null;   // poll en cours (null = aucun import actif)
   var fileImportDone = true;    // garde : un seul décrément de pendingSegments par import
+  var fileRetryBannerEl = document.getElementById('rec-file-retry-banner');
+  var fileRetryTextEl = document.getElementById('rec-file-retry-text');
+  var fileRetryBtn = document.getElementById('rec-file-retry');
+  // Import échoué en attente de reprise : { jobId, consumed }. Le fichier reste
+  // sur le serveur tant que le job est `failed` — même dispositif que
+  // record_libre.html, la reprise n'est proposée que tant que l'onglet est
+  // ouvert (le jeton de session vit en mémoire).
+  var failedFileImport = null;
+
+  function showFileRetry(message, consumed) {
+    failedFileImport = null;  // renseigné par l'appelant, qui connaît le jobId
+    fileRetryTextEl.textContent = 'Bloc ' + (consumed + 1) + ' non transcrit : '
+      + (message || 'échec de la transcription') + '. '
+      + (consumed > 0
+          ? 'Les ' + consumed + ' bloc' + (consumed > 1 ? 's' : '') + ' déjà transcrit'
+            + (consumed > 1 ? 's sont conservés' : ' est conservé') + ' — la reprise repart de là.'
+          : 'La reprise recommencera au premier bloc.');
+    fileRetryBannerEl.hidden = false;
+    fileRetryBtn.disabled = false;
+  }
+
+  function hideFileRetry() {
+    failedFileImport = null;
+    fileRetryBannerEl.hidden = true;
+  }
+
+  // Verrou : un POST de relance en vol ne doit pas cohabiter avec un nouvel
+  // import (revue adversariale 2026-07-29) — sans lui, le `.then` de la
+  // relance ré-armait `fileImportDone`/`pendingSegments` PAR-DESSUS l'import
+  // frais : deux polls sur le même timer, un seul décrément pour deux
+  // incréments, « Envoyer » désactivé à vie.
+  var fileRetryInFlight = false;
+
+  fileRetryBtn.addEventListener('click', function () {
+    if (!failedFileImport || fileRetryInFlight) return;
+    var info = failedFileImport;
+    var gen = recGeneration;
+    fileRetryInFlight = true;
+    fileRetryBtn.disabled = true;
+    statusEl.textContent = 'Reprise de la transcription au bloc ' + (info.consumed + 1) + '…';
+    var formData = new FormData();
+    formData.append('job_id', info.jobId);
+    formData.append('session_token', sessionToken);
+    fetch('/audio/transcribe-file/retry', { method: 'POST', body: formData })
+      .then(function (res) {
+        return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+      })
+      .then(function (result) {
+        if (!result.ok) throw new Error(result.data.error || 'relance refusée');
+        // Session abandonnée ou nouvel import démarré pendant le POST : ne pas
+        // ré-armer l'état par-dessus — le job relancé tourne côté serveur, la
+        // purge périodique le nettoiera si personne ne vient le consommer.
+        if (gen !== recGeneration || !fileImportDone) return;
+        hideFileRetry();
+        // Ré-arme exactement l'état d'un import en cours (même gate que le
+        // premier envoi), puis reprend le poll au curseur déjà consommé.
+        fileImportDone = false;
+        pendingSegments++;
+        fileUploadBtn.disabled = true;
+        updateSubmitState();
+        statusEl.textContent = 'Reprise de la transcription au bloc ' + (info.consumed + 1) + '…';
+        pollFileImport(info.jobId, gen, info.consumed, 0);
+      })
+      .catch(function (err) {
+        if (gen !== recGeneration) return;
+        fileRetryBtn.disabled = false;
+        failedFileImport = info;  // la reprise reste proposée
+        statusEl.textContent = 'Relance impossible : ' + err.message;
+      })
+      .finally(function () {
+        fileRetryInFlight = false;
+      });
+  });
 
   // `gen` : toutes les fins d'import (succès, échec, abandon) passent ici et
   // vérifient la génération — un import abandonné (« Recommencer », nouvel
@@ -473,7 +726,15 @@
           }
           consumed = (typeof data.done === 'number') ? data.done : consumed + fresh.length;
           if (data.status === 'failed') {
-            finishFileImport('⚠ [fichier : ' + (data.error || 'échec de la transcription') + ']', gen);
+            // Le message va dans le bandeau de reprise, PAS dans la
+            // transcription : une fois la reprise réussie, le texte doit être
+            // propre (il part ensuite à l'extraction IA et au PDF).
+            finishFileImport(null, gen);
+            if (gen === recGeneration) {
+              showFileRetry(data.error, consumed);
+              failedFileImport = { jobId: jobId, consumed: consumed };
+              statusEl.textContent = 'Transcription interrompue au bloc ' + (consumed + 1) + '.';
+            }
             return;
           }
           if (data.status === 'done') {
@@ -505,6 +766,10 @@
       statusEl.textContent = 'Un import est déjà en cours — attends sa fin.';
       return;
     }
+    if (fileRetryInFlight) {
+      statusEl.textContent = 'Une reprise est en cours — attends sa confirmation.';
+      return;
+    }
     if (!fileUploadInput.files.length) {
       statusEl.textContent = 'Choisis d\'abord un fichier audio.';
       return;
@@ -521,6 +786,7 @@
       sessionTokenHidden.value = sessionToken;
     }
     var gen = recGeneration;
+    hideFileRetry();  // nouvel import : l'échec précédent n'est plus reprenable
     fileImportDone = false;
     pendingSegments++;
     fileUploadBtn.disabled = true;
@@ -592,6 +858,9 @@
       segmentTailHidden.value = '';
       backupStatusEl.textContent = '';
       audioPlaybackEl.hidden = true;
+      lostSegments = [];
+      refreshLostBanner();
+      hideFileRetry();
 
       startSegment();
       startBackupRecorder();
@@ -660,6 +929,11 @@
     segmentTailHidden.value = '';
     backupStatusEl.textContent = '';
     audioPlaybackEl.hidden = true;
+    // L'audio des segments non aboutis n'a plus de place où revenir
+    // (transcription remise à zéro) : on l'abandonne avec elle.
+    lostSegments = [];
+    refreshLostBanner();
+    hideFileRetry();
     resetBtn.hidden = true;
     statusEl.textContent = '';
     timerEl.textContent = '00:00';

@@ -1420,8 +1420,10 @@ def test_record_libre_form_renders_tabs_with_dedicated_panel_class(
     # Les 2 boutons pilotent la bascule via `data-tab` (câblage JS testé à part).
     assert 'data-tab="transcription"' in html
     assert 'data-tab="repartition"' in html
-    # Bouton de soumission relibellé, cohérent avec le stepper 3 étapes.
-    assert "Continuer vers les tours de parole" in html
+    # Depuis le 2026-07-29 l'écran enregistre l'entretien directement : les
+    # étapes « Tours de parole » et « Synthèse » sont retirées de l'UI (contrat
+    # détaillé dans `test_libre_enregistrement_direct.py`).
+    assert "Continuer vers les tours de parole" not in html
 
 
 def test_libre_turns_review_erreur_repartition_propose_export_pdf_transcript(
