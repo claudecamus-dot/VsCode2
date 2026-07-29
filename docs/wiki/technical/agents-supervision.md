@@ -9,7 +9,7 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-29T11:07:59+02:00 · **49 sessions** (transcripts) · **126** invocations de skills · **67** lancements de sous-agents.
+Dernier scan : 2026-07-29T11:21:49+02:00 · **49 sessions** (transcripts) · **127** invocations de skills · **67** lancements de sous-agents.
 
 ## Skills — usage réel
 
@@ -18,8 +18,8 @@ Dernier scan : 2026-07-29T11:07:59+02:00 · **49 sessions** (transcripts) · **1
 | `run-dev-server` | projet | 28 | 2026-07-03 | 2026-07-29 |
 | `agent-orchestrator` | projet | 24 | 2026-07-17 | 2026-07-28 |
 | `agent-supervisor` | projet | 19 | 2026-07-18 | 2026-07-29 |
+| `pptx-verify` | global | 10 | 2026-07-03 | 2026-07-29 |
 | `bmad-code-review` | BMAD | 9 | 2026-07-20 | 2026-07-27 |
-| `pptx-verify` | global | 9 | 2026-07-03 | 2026-07-28 |
 | `revue-increment` | projet | 9 | 2026-07-18 | 2026-07-29 |
 | `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
 | `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
@@ -110,13 +110,9 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés._
+_Diagnostic à jour._
 
-_3 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un `re_challenge` avec des données nouvelles :_
-
-- ~~Un commit de sync canon (5eb121b) a shippé sans test ni suite — et a cassé un test existant~~ (`sync-canon`)
-- ~~Récidive post-arbitrage : séance du 2026-07-28 close sur du code produit non commité ni journalisé~~ (`revue-increment`)
-- ~~2 runs en-attente-validation sans mécanisme de relance (4 j et 1 j d'âge)~~ (`agent-orchestrator`)
+1. **Angle mort CI : 6 runs rouges d'affilée pendant que la suite locale était verte** — Le vert local ne prouve rien de la CI : le poste de dev a un environnement plus riche que le runner (binaires installés, Windows). Sans lecture du statut après push, la CI cesse d'être un gate et devient du rouge permanent que plus personne ne regarde. · **Proposition** : Traité le jour même sur les deux plans : règle ajoutée à `revue-increment` §2 (vérifier le run CI après un push, avec la commande adaptée — pas de `gh` sur cette machine, token via `git credential fill` puis l'API `actions/runs`) et mémoire `feedback-green-local-suite-hides-red-ci`. À arbitrer : faut-il en plus un garde-fou exécutable (hook post-push ou étape `commit-et-journal` du playbook `dev-verifie` qui lit le dernier run) plutôt qu'une règle de checklist ?
 
 ---
 
