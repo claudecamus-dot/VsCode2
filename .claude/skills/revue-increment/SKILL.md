@@ -131,6 +131,13 @@ ci-dessus plutôt que d'en dupliquer la logique.
       que le cas nominal. Déclencheur : le générateur de deck a été modifié deux fois
       (a3ca545, 38a040d) sans aucun rendu, et l'une de ces modifications a laissé un
       visuel indexé par libellé alors que le libellé était devenu renommable.
+- [ ] **Le diff touche `.claude/orchestration/**`, `.claude/supervision/**` ou
+      `.claude/hooks/**` → passer les fichiers-contrat du dispositif avant commit**
+      (`pytest tests/test_agent_orchestration.py tests/test_agent_supervision.py
+      tests/test_hooks_discipline.py -q`, ~1 min — le hook `warn_verif_before_commit`
+      le rappelle au moment du commit). Un commit de « sync canon » n'est PAS exempt :
+      5eb121b (+23 lignes, 0 test) a cassé un test-contrat, découvert seulement à la
+      revue suivante. cf. [[feedback-sync-canon-commits-need-contract-tests]].
 - [ ] **Un défaut PRODUIT découvert en vérification réelle ne se clôt pas par un
       `xfail`.** L'`xfail` est la preuve exécutable du gap, jamais son canal de
       remontée : dans un fichier opt-in auto-skippé (`test_ollama_integration.py`,

@@ -50,6 +50,15 @@ except Exception:  # pragma: no cover - fail-open
 # PAS docs/wiki/ (généré par le scan) pour garder le signal haut.
 _WATCHED_PREFIXES = ("app/",)
 
+# Zone dispositif (constat superviseur `sync-canon` du 2026-07-29, arbitré) : le
+# commit 5eb121b — propagation du canon, +23 lignes dans log_run.py, 0 test — a
+# cassé un test-contrat existant, découvert seulement à la revue suivante. Les
+# commits touchant ces chemins passent hors playbook dev-verifie (« c'est juste
+# une sync ») : ce hook rappelle le gate minimal, les deux fichiers-contrat.
+_DISPOSITIF_PREFIXES = (".claude/orchestration/", ".claude/supervision/", ".claude/hooks/")
+_DISPOSITIF_TESTS = ("tests/test_agent_orchestration.py", "tests/test_agent_supervision.py",
+                     "tests/test_hooks_discipline.py")
+
 # Signaux d'une vraie exécution de vérif dans la session (commandes Bash / skills).
 # Adapté à VSCode2 (pytest) — porté de VSCode1 le 2026-07-23 (finding pratique-revue).
 _VERIF_BASH = ("pytest", "-m pytest", "python -m pytest", "ruff check")
@@ -90,7 +99,8 @@ def _git_commit_flags(segment):
 
 
 def _staged_watched(cwd, commit_flags):
-    """Fichiers surveillés (app/**) qui seront réellement commités, ou None si indéterminable."""
+    """Tous les fichiers qui seront réellement commités (le filtrage par zone se
+    fait chez l'appelant), ou None si indéterminable."""
     def _run(args):
         try:
             r = subprocess.run(
@@ -112,7 +122,7 @@ def _staged_watched(cwd, commit_flags):
         unstaged = _run(["diff", "--name-only"])
         if unstaged:
             files = list(dict.fromkeys(files + unstaged))
-    return [f for f in files if f.startswith(_WATCHED_PREFIXES)]
+    return files
 
 
 def _iter_tool_uses(obj):
@@ -127,10 +137,11 @@ def _iter_tool_uses(obj):
             yield blk
 
 
-def _verif_ran(transcript_path):
-    """True si une vraie exécution de vérif est présente dans le transcript de session."""
+def _session_tool_uses(transcript_path):
+    """Générateur (name, input) des tool_use du transcript de session — mutualisé
+    entre les deux détections de vérif ; itérable vide sur toute erreur (fail-open)."""
     if not transcript_path or not os.path.isfile(transcript_path):
-        return False
+        return
     try:
         with open(transcript_path, encoding="utf-8", errors="ignore") as fh:
             for line in fh:
@@ -141,26 +152,56 @@ def _verif_ran(transcript_path):
                 except ValueError:
                     continue
                 for blk in _iter_tool_uses(obj):
-                    name = blk.get("name")
-                    inp = blk.get("input") or {}
-                    if name == "Bash":
-                        cmd = (inp.get("command") or "").lower()
-                        if any(k in cmd for k in _VERIF_BASH):
-                            return True
-                    elif name == "Skill":
-                        if (inp.get("skill") or "").lower() in _VERIF_SKILL:
-                            return True
+                    yield blk.get("name"), blk.get("input") or {}
     except Exception:
-        return False
+        return
+
+
+def _verif_ran(transcript_path):
+    """True si une vraie exécution de vérif est présente dans le transcript de session."""
+    for name, inp in _session_tool_uses(transcript_path):
+        if name == "Bash":
+            cmd = (inp.get("command") or "").lower()
+            if any(k in cmd for k in _VERIF_BASH):
+                return True
+        elif name == "Skill":
+            if (inp.get("skill") or "").lower() in _VERIF_SKILL:
+                return True
+    return False
+
+
+def _dispositif_verif_ran(transcript_path):
+    """True si les fichiers-contrat du dispositif ont tourné cette session : un
+    pytest ciblant `tests/test_agent_*`, ou une suite complète (pytest sans chemin
+    `tests/...`, qui les inclut de fait)."""
+    for name, inp in _session_tool_uses(transcript_path):
+        if name != "Bash":
+            continue
+        cmd = (inp.get("command") or "").lower().replace("\\", "/")
+        if "pytest" not in cmd:
+            continue
+        if any(t in cmd for t in ("test_agent_orchestration", "test_agent_supervision",
+                                  "test_hooks_discipline")):
+            return True
+        if "tests/" not in cmd:  # suite complète (`pytest -q`) : les inclut
+            return True
     return False
 
 
 _WARNING = (
     "⚠️ Vérif de fin d'incrément non détectée dans cette session : des fichiers "
-    "app/ sont sur le point d'être commités sans trace de `npm test` ni de rendu "
+    "app/ sont sur le point d'être commités sans trace de `pytest` ni de rendu "
     "réel (`/revue-increment` ou `pptx-verify`). Lancer la vérif RÉELLE avant de "
     "committer le code applicatif, ou confirmer que c'est volontaire. "
     "(Garde-fou projet non bloquant — constat superviseur #1.)"
+)
+
+_WARNING_DISPOSITIF = (
+    "⚠️ Commit touchant le dispositif (.claude/orchestration|supervision|hooks) sans "
+    "trace des fichiers-contrat cette session : lancer `pytest "
+    + " ".join(_DISPOSITIF_TESTS) + " -q` (~1 min) avant de committer — un commit de "
+    "sync canon sans test a déjà cassé la suite (5eb121b, constat superviseur "
+    "sync-canon du 2026-07-29). Garde-fou non bloquant."
 )
 
 
@@ -186,18 +227,29 @@ def main() -> None:
     if commit_flags is None:
         return  # pas un git commit
 
-    watched = _staged_watched(data.get("cwd"), commit_flags)
-    if not watched:
-        return  # rien sous app/ dans ce commit (ou git indéterminable) — silence
+    files = _staged_watched(data.get("cwd"), commit_flags)
+    if not files:
+        return  # rien à committer (ou git indéterminable) — silence
+    watched_app = [f for f in files if f.startswith(_WATCHED_PREFIXES)]
+    watched_disp = [f for f in files if f.startswith(_DISPOSITIF_PREFIXES)]
+    if not watched_app and not watched_disp:
+        return
 
-    if _verif_ran(data.get("transcript_path")):
-        return  # une vérif réelle a tourné cette session — pas de rappel
+    transcript = data.get("transcript_path")
+    warnings = []
+    if watched_app and not _verif_ran(transcript):
+        warnings.append(_WARNING)
+    if watched_disp and not _dispositif_verif_ran(transcript):
+        warnings.append(_WARNING_DISPOSITIF)
+    if not warnings:
+        return  # les vérifs attendues ont tourné cette session — pas de rappel
 
+    message = "\n\n".join(warnings)
     print(json.dumps({
-        "systemMessage": _WARNING,
+        "systemMessage": message,
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
-            "additionalContext": _WARNING,
+            "additionalContext": message,
         },
     }))
 

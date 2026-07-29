@@ -2,6 +2,33 @@
   "_doc": "Décisions humaines qui closent un constat automatique du superviseur (fichier VERSIONNÉ, édité à la main — le scan le lit, ne l'écrit jamais). cible : nom de skill, ou famille:<Nom> pour une famille entière. categories : les catégories de constat que cet arbitrage ferme (ko-repete | inefficacite | agent-mort | interaction | verification-manquante | non-convergence | autre) — un arbitrage de ROUTAGE ne doit pas masquer un constat de VÉRIFICATION sur la même cible ; champ absent = ferme TOUT (rétro-compatible, mais à éviter). Un constat arbitré disparaît des TODO auto mais reste visible dans la section « Arbitrages enregistrés » du tableau de bord, et le nombre de constats ainsi écartés y est affiché. L'usage réel reste mesuré (un arbitrage n'est pas une preuve d'utilité) : le superviseur étage 2 peut re-challenger un arbitrage avec des données nouvelles en posant `re_challenge: true` sur son constat.",
   "arbitrages": [
     {
+      "cible": "sync-canon",
+      "decision": "Constat superviseur du 2026-07-29 (prio 4 : 5eb121b, +23 lignes log_run.py sans test, un test-contrat casse decouvert seulement a la revue suivante) applique sur demande (« traite ces 3 sujets ») : gate executable dans warn_verif_before_commit.py — un commit touchant .claude/orchestration/**, .claude/supervision/** ou .claude/hooks/** sans trace des fichiers-contrat cette session (pytest test_agent_orchestration/test_agent_supervision/test_hooks_discipline, ou suite complete) declenche un avertissement non bloquant les nommant ; regle miroir dans revue-increment §2 ; au passage le message app/ citait encore « npm test » (portage VSCode1), corrige en pytest. Les hooks gagnent leurs premiers tests-contrat (tests/test_hooks_discipline.py, 10). RESTE COTE HUB : porter la meme exigence dans la checklist de sync du canon VScode5 (log_run.py/scan_transcripts.py y sont generes). Memoire feedback-sync-canon-commits-need-contract-tests.",
+      "date": "2026-07-29",
+      "source": "utilisateur",
+      "categories": [
+        "verification-manquante"
+      ]
+    },
+    {
+      "cible": "revue-increment",
+      "decision": "Constat superviseur du 2026-07-29 (prio 4, re-challenge : recidive posterieure a l'arbitrage du 2026-07-28 — le garde anti-hallucination du 28, acheve avec ses tests, retrouve non commite ni journalise le 29, aucune ligne runs.jsonl apres 2026-07-28T12:14) applique DANS LE CANON DU HUB, synchronise le jour meme : scan_transcripts.py::arbre_sale() — arbre git sale au demarrage de session → ligne « reliquat de la seance precedente » listant les fichiers (hors churn genere docs/wiki + donnees du scan), a committer ou nommer avant toute nouvelle demande. Une premiere implementation locale dans remind_revue_increment.py, ecrite en parallele de la sync, a ete RETIREE le jour meme pour ne pas dupliquer le canon en divergeant. La regle de cloture (§4) reste inchangee ; le canon la rattrape quand la seance s'est arretee sans cloture. Le reliquat declencheur a ete commite (c461c66) apres verification reelle x2.",
+      "date": "2026-07-29",
+      "source": "utilisateur",
+      "categories": [
+        "ko-repete"
+      ]
+    },
+    {
+      "cible": "agent-orchestrator",
+      "decision": "Constat superviseur du 2026-07-29 (prio 2 : 2 runs en-attente-validation de 1 et 4 jours sans mecanisme de relance ; le lot du 2026-07-23 n'avait ete solde que sur demande explicite de l'utilisateur) applique DANS LE CANON DU HUB, synchronise le jour meme : scan_transcripts.py::runs_a_solder() — chaque demarrage de session liste les runs en-attente-validation de plus de 24 h (seuil RUN_A_SOLDER_H : un run frais attend sa validation dans la conversation en cours) avec la commande log_run --solde prete a copier. Test local ajoute (test_runs_a_solder_signale_les_attentes_de_plus_de_24h). Les 2 runs en attente (repartition Q/R au fil de l'eau du 2026-07-25, bulles matrice du 2026-07-28) restent a trancher par l'utilisateur dans l'app.",
+      "date": "2026-07-29",
+      "source": "utilisateur",
+      "categories": [
+        "interaction"
+      ]
+    },
+    {
       "cible": "arbitrages.json",
       "decision": "Constat superviseur du 2026-07-28 (prio 5, un arbitrage rendait sa cible definitivement sourde — 29/29 sans `categories`, 3 constats sur 4 masques le jour meme) applique : les 29 arbitrages portent desormais les categories qu'ils ferment reellement ; `_couvre` traite `[]` comme « ne ferme rien » et ignore un champ mal forme (un `in` sur une chaine matchait par sous-chaine) ; `categories_inconnues` signale une categorie hors vocabulaire, qui rendrait l'arbitrage silencieusement inoperant ; un constat peut porter `re_challenge: true` pour rouvrir l'AFFICHAGE avec des donnees nouvelles — jamais le ROUTAGE (`prudence` reste ce que l'humain a decide), et un arbitrage pris depuis le diagnostic le referme ; les constats ecartes sont affiches (wiki md + HTML, sortie du scan) au lieu de disparaitre. `write_diagnostic` refuse au-dela de 5 constats (le scan tronquait en silence) et type `re_challenge` en booleen. Tests : test_agent_supervision (22).",
       "date": "2026-07-28",

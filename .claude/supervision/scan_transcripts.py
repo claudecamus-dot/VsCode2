@@ -49,6 +49,7 @@ import glob
 import json
 import os
 import re
+import subprocess
 import sys
 
 SUP_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1174,6 +1175,58 @@ def update_index(todos: list) -> None:
         fh.write(txt)
 
 
+# Seuil au-delà duquel un run en-attente-validation est signalé au démarrage.
+RUN_A_SOLDER_H = 24
+
+
+def runs_a_solder(runs, maintenant=None):
+    """Runs `en-attente-validation` avec leur âge en heures, du plus vieux au
+    plus récent (constat interaction VSCode2 2026-07-29 : 2 runs oubliés 4 j et
+    1 j, le lot précédent n'ayant été soldé que sur relance explicite de
+    l'utilisateur). Déterministe, 0 token — le solde reste manuel via
+    `log_run.py --solde`, seule la VISIBILITÉ est automatisée."""
+    maintenant = maintenant or dt.datetime.now().astimezone()
+    ouverts = []
+    for run in runs:
+        if run.get("resultat") != "en-attente-validation":
+            continue
+        try:
+            ts = dt.datetime.fromisoformat(str(run.get("ts", "")))
+        except ValueError:
+            continue
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=maintenant.tzinfo)
+        heures = (maintenant - ts).total_seconds() / 3600
+        if heures >= RUN_A_SOLDER_H:
+            ouverts.append({"ts": run.get("ts"), "heures": int(heures),
+                            "demande": str(run.get("demande", ""))[:70]})
+    return sorted(ouverts, key=lambda r: -r["heures"])
+
+
+def arbre_sale():
+    """Fichiers modifiés/non suivis du dépôt (hors données générées du scan).
+
+    Constat ko-repete VSCode2 2026-07-29 : une séance a été close sur du code
+    produit jamais commité ni journalisé — invisible de l'historique comme de la
+    supervision. Le signal se pose donc au DÉMARRAGE de la séance suivante.
+    Fail-open : git indisponible -> aucune ligne, jamais d'erreur."""
+    ignores = ("docs/wiki", ".claude/supervision/", ".claude/orchestration/routing-hints.json",
+               ".claude/orchestration/runs.jsonl")
+    try:
+        res = subprocess.run(["git", "status", "--porcelain"], cwd=REPO,
+                             capture_output=True, text=True, timeout=8)
+    except Exception:
+        return []
+    if res.returncode != 0:
+        return []
+    fichiers = []
+    for ligne in res.stdout.splitlines():
+        chemin = ligne[3:].strip().replace("\\", "/")
+        if chemin and not chemin.startswith(ignores):
+            fichiers.append(chemin)
+    return fichiers
+
+
 def main(argv) -> int:
     state = {} if "--full" in argv else load_state()
     new_events = scan(state)
@@ -1225,6 +1278,17 @@ def main(argv) -> int:
         f"{len(todos)} TODO, {len(runs)} run(s) orchestrateur -> agents-supervision.md, index.md"
         f"{' et wiki.html' if html_ok is True else ''}, routing-hints.json a jour.{detail}"
     )
+    # stdout du scan : ASCII strict. Les tests du dispositif capturent ce flux en
+    # subprocess (console cp1252 sur Windows) — un caractere hors cp1252 y leve
+    # UnicodeDecodeError et rend stdout None (incident verifie le 2026-07-29).
+    for run in runs_a_solder(runs):
+        print(f"  run a solder (il y a {run['heures']} h) : {run['demande']} "
+              f"-> py .claude/orchestration/log_run.py --solde {run['ts'][:13]} succes \"note\"")
+    reliquat = arbre_sale()
+    if reliquat:
+        apercu = ", ".join(reliquat[:5]) + ("..." if len(reliquat) > 5 else "")
+        print(f"  reliquat de la seance precedente : {len(reliquat)} fichier(s) "
+              f"non commite(s) ({apercu}) - committer ou nommer avant toute nouvelle demande.")
     return 0
 
 

@@ -642,3 +642,31 @@ def test_arbitrages_closent_les_todos_et_restent_affiches(tmp_path):
     hints = json.loads((tmp_path / "routing-hints.json").read_text(encoding="utf-8"))
     assert [a["cible"] for a in hints["arbitrages"]] == ["famille:BMAD", "priority-matrix"]
     assert "priority-matrix" in hints["jamais_utilises"]
+
+
+def test_runs_a_solder_signale_les_attentes_de_plus_de_24h():
+    """Canon synchronisé le 2026-07-29 (constat interaction VSCode2 : 2 runs
+    en-attente-validation oubliés 4 j et 1 j, le lot précédent soldé seulement
+    sur relance explicite) : seuls les runs en attente depuis plus de
+    RUN_A_SOLDER_H heures sont signalés au démarrage, du plus vieux au plus
+    récent — un run frais attend sa validation dans la conversation en cours,
+    le signaler ne ferait que du bruit. Un ts illisible n'échoue jamais."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("scan_canon", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    maintenant = dt.datetime(2026, 7, 29, 12, 0, tzinfo=dt.timezone.utc)
+    runs = [
+        {"resultat": "en-attente-validation", "ts": "2026-07-29T10:00:00+00:00",
+         "demande": "frais (2 h) : pas encore un oubli"},
+        {"resultat": "en-attente-validation", "ts": "2026-07-25T12:00:00+00:00",
+         "demande": "vieux run"},
+        {"resultat": "en-attente-validation", "ts": "2026-07-28T12:00:00+00:00",
+         "demande": "un jour"},
+        {"resultat": "succes", "ts": "2026-07-20T12:00:00+00:00", "demande": "termine"},
+        {"resultat": "en-attente-validation", "ts": "pas-une-date", "demande": "invalide"},
+    ]
+    ouverts = mod.runs_a_solder(runs, maintenant=maintenant)
+    assert [r["demande"] for r in ouverts] == ["vieux run", "un jour"]
+    assert ouverts[0]["heures"] == 96  # tri du plus vieux au plus récent, âge exact
