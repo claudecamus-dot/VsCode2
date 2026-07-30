@@ -835,12 +835,12 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-29T23:11:15+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-30T13:46:59+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>56 sessions</strong> couvertes · <strong>135</strong> invocations de skills · <strong>71</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>58 sessions</strong> couvertes · <strong>140</strong> invocations de skills · <strong>73</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-07-29 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
+        <div class="tag-source">scan_transcripts.py · 2026-07-30 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
 
       <h3>Skills — usage réel</h3>
@@ -848,12 +848,12 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Skill</th><th>Famille</th><th>Invocations</th><th>Première</th><th>Dernière</th></tr></thead>
           <tbody>
-            <tr><td><code>run-dev-server</code></td><td>projet</td><td>32</td><td>2026-07-03</td><td>2026-07-29</td></tr>
+            <tr><td><code>run-dev-server</code></td><td>projet</td><td>34</td><td>2026-07-03</td><td>2026-07-30</td></tr>
             <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>27</td><td>2026-07-17</td><td>2026-07-29</td></tr>
             <tr><td><code>agent-supervisor</code></td><td>projet</td><td>19</td><td>2026-07-18</td><td>2026-07-29</td></tr>
-            <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>10</td><td>2026-07-20</td><td>2026-07-29</td></tr>
+            <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>12</td><td>2026-07-20</td><td>2026-07-30</td></tr>
             <tr><td><code>pptx-verify</code></td><td>global</td><td>10</td><td>2026-07-03</td><td>2026-07-29</td></tr>
-            <tr><td><code>revue-increment</code></td><td>projet</td><td>9</td><td>2026-07-18</td><td>2026-07-29</td></tr>
+            <tr><td><code>revue-increment</code></td><td>projet</td><td>10</td><td>2026-07-18</td><td>2026-07-29</td></tr>
             <tr><td><code>update-config</code></td><td>(builtin/session)</td><td>6</td><td>2026-07-03</td><td>2026-07-16</td></tr>
             <tr><td><code>roadmap-keeper</code></td><td>global</td><td>4</td><td>2026-06-29</td><td>2026-07-15</td></tr>
             <tr><td><code>run</code></td><td>(builtin/session)</td><td>3</td><td>2026-06-29</td><td>2026-07-03</td></tr>
@@ -877,7 +877,7 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Sous-agent</th><th>Lancements</th><th>Premier</th><th>Dernier</th></tr></thead>
           <tbody>
-            <tr><td><code>general-purpose</code></td><td>37</td><td>2026-07-15</td><td>2026-07-29</td></tr>
+            <tr><td><code>general-purpose</code></td><td>39</td><td>2026-07-15</td><td>2026-07-29</td></tr>
             <tr><td><code>Explore</code></td><td>26</td><td>2026-06-30</td><td>2026-07-29</td></tr>
             <tr><td><code>claude</code></td><td>4</td><td>2026-07-16</td><td>2026-07-16</td></tr>
             <tr><td><code>Plan</code></td><td>3</td><td>2026-07-06</td><td>2026-07-17</td></tr>
@@ -892,7 +892,11 @@ pytest -k "pptx or export"                                                     #
 
 
       <h3>TODO agents — chantiers à lancer (constats automatiques)</h3>
-      <p><em>(aucun constat — rien à signaler sur les données actuelles)</em></p>
+      <div class="critical">
+        <p><strong>Skills en sommeil (&gt;30 j sans usage)</strong> : <code>claude-api</code>.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">scan_transcripts.py · 2026-07-30 · transcripts de session</div>
+      </div>
 
       <h3>Arbitrages enregistrés</h3>
       <p><em>Constats clos par décision humaine (<code>.claude/supervision/arbitrages.json</code>) — l'usage réel reste mesuré ci-dessus.</em></p>
@@ -966,15 +970,103 @@ pytest -k "pptx or export"                                                     #
           <thead><tr><th>Item</th><th>État</th><th>Contexte / prochaine action</th></tr></thead>
           <tbody id="todo-session-rows">
             <tr>
-              <td colspan="3" style="color:var(--ink-faint);">
-                Aucun item ouvert. Dernier résolu le 2026-07-20 : <strong>Enregistrement segmenté 30min — Paliers 1 &amp; 2</strong>
-                (segmentation + téléchargement, puis traitement asynchrone par tranche via <code>InterviewSegmentJob</code> +
-                <code>BackgroundTasks</code> + écran d'attente), puis 3 correctifs le jour même suite à une revue adversariale
-                (race de duplication, job bloqué sans issue, fallback qui redevenait le mur synchrone multi-heures — voir
-                CLAUDE.md « Palier 2 — 3 correctifs suite à revue adversariale »). Voir aussi CLAUDE.md « Enregistrement segmenté
-                30min — Palier 1 / Palier 2 » et <code>docs/reflexions/enregistrement-segmente-30min.md</code>. Suite éventuelle
-                (non planifiée) : matériel/modèle plus rapide pour viser réellement 3h, cf.
-                <code>docs/reflexions/extraction-longue-duree.md</code> §A.
+              <td>Correction du bug de transcription par segment qui échoue (RÉGRESSION signalée)</td>
+              <td>RÉSOLU (2026-07-30) — diagnostic réel + 3 correctifs livrés</td>
+              <td>
+                <strong>Diagnostic RÉEL terminé (2026-07-30, sur les données de la mission 16)</strong> — la cause n'est PAS
+                un bug applicatif : le navigateur capte le micro physique (<code>getUserMedia({'{'} audio: true {'}'})</code>),
+                qui n'entend que la voix de l'utilisateur — <strong>jamais le son du casque</strong> où sort la voix des
+                participants distants du Meet. Preuves mesurées : profil d'énergie de la tranche backup 1 (minutes 0-1 et 19 =
+                signal fort quand l'utilisateur parle, minutes 2-18 = silence rms ~0.001) ; 119 segments sur la session, 29 OK
+                (utilisateur qui parle) / 90 en 422 « aucune parole » (interlocutrice distante) / 0 erreur serveur ; Whisper
+                sur la minute 1 = transcription parfaite de la voix utilisateur, sur les minutes faibles = fragments
+                inexploitables (fuite de casque). <strong>L'hypothèse « deux chemins de décodage » est RÉFUTÉE par la
+                mesure</strong> : <code>_decode_to_pcm16k</code> et <code>faster_whisper.decode_audio</code> produisent un PCM
+                strictement identique (rms 0.01201 les deux) — le correctif d'unification envisagé n'aurait rien changé, il
+                n'a pas été appliqué. Les 422 étaient un comportement CORRECT. L'impression de régression : premier entretien
+                À DISTANCE (les précédents étaient en présentiel, où un seul micro entend tout le monde).
+                <br><br>
+                <strong>3 correctifs réels livrés</strong> (ceux qui auraient sauvé la session) :
+                (1) <code>NoSpeechError</code> (<code>audio_transcribe.py</code>) + <code>code: "no_speech"</code> structuré
+                dans le 422 de <code>/audio/transcribe-segment</code> — le client n'a plus à matcher le message français ;
+                (2) <strong>bannière d'alerte</strong> sur les DEUX écrans d'enregistrement (<code>rec-nospeech-banner</code>,
+                <code>record_libre.html</code> + <code>record.html</code>) dès 2 segments consécutifs sans parole — « vérifiez
+                la source audio : pour un entretien à distance, le micro ne capte pas le son du casque » — au lieu de laisser
+                ~100 min s'enregistrer en silence sans alerte visible ;
+                (3) <strong><code>ai_common.strip_segment_markers()</code></strong> : les marqueurs « ⚠ [segment perdu…] »
+                sont retirés AVANT toute extraction IA (libre + structurée) — constaté en réel sur l'entretien 13 : passés au
+                modèle, ils devenaient de FAUX tours (« Intervenant : Aucune parole détectée dans l'enregistrement. » ×5) qui
+                polluaient le tour de table et la répartition Q/R (le lien de cascade signalé par l'utilisateur) ; une
+                transcription 100 % marqueurs lève désormais une erreur explicite au lieu d'un entretien vide/halluciné.
+                Tests : <code>tests/test_no_speech_et_marqueurs.py</code> (13, dont le R1 qui échoue sur le code d'avant).
+                Vérifié en réel : bannière servie par le serveur en marche sur les 2 écrans, empreinte python
+                servie == disque.
+                <br><br>
+                <strong>Question produit OUVERTE</strong> (à arbitrer, non implémentée) : pour capturer un entretien à
+                distance il faudrait soit documenter un périphérique loopback (Stereo Mix/VB-Cable), soit proposer la capture
+                de l'audio de l'onglet (<code>getDisplayMedia({'{'} audio: true {'}'})</code>) en plus du micro — évolution de
+                paradigme de capture, décision utilisateur requise.
+              </td>
+            </tr>
+            <tr>
+              <td>Permettre de rejouer la transcription (et la répartition Q/R) sur un bloc ou une tranche en échec — pendant l'enregistrement ET en consultation d'entretien</td>
+              <td>À faire — conception à arbitrer (éclairée par le diagnostic du 2026-07-30)</td>
+              <td>
+                Demande utilisateur du 2026-07-30 (complétée en cours de session). Vérifié dans le code
+                (<code>record_libre.html</code>, <code>uploadSegment()</code>) : un échec <strong>transitoire</strong>
+                (réseau/5xx, « Failed to fetch ») garde déjà le blob et propose un rejeu — mécanisme
+                <code>lostSegments</code> + bannière + relance (auto puis manuelle) + <code>replaceLostMarker(lostId, …)</code>
+                qui remplace le marqueur EN PLACE dans le texte. Un échec <strong>422</strong> (Whisper : « aucune parole
+                détectée », le cas rencontré ici) suit un chemin différent qui <strong>jette le blob immédiatement</strong> —
+                aucune conservation, aucun rejeu possible actuellement. <strong>Éclairage du diagnostic (2026-07-30)</strong> :
+                pour le cas no-speech réel (source silencieuse, cf. item précédent), rejouer le MÊME audio rend le même
+                résultat — le rejeu n'a de valeur qu'après correction de la source en cours de session (que la nouvelle
+                bannière no-speech rend enfin possible) ou pour un échec transitoire ; calibrer l'effort en conséquence.
+                <strong>Périmètre à couvrir</strong> : (1) conserver aussi le blob sur échec 422 (même mécanisme
+                <code>lostSegments</code> que pour le transitoire, au lieu de le jeter) ; (2) bouton de rejeu manuel affiché
+                au niveau du marqueur « ⚠ segment perdu », pas seulement dans la bannière globale — « en bout de ligne »
+                comme demandé ; (3) même traitement sur <code>record.html</code> (mode structuré, code de segment identique) ;
+                <strong>(4) exigence ajoutée le 2026-07-30 : les actions de relance (transcription + répartition Q/R)
+                doivent AUSSI être disponibles en CONSULTATION d'un entretien enregistré</strong> — pas seulement pendant
+                l'enregistrement. Concrètement : depuis la fiche entretien (<code>libre_detail.html</code>) / l'aperçu, un
+                bouton relance la transcription depuis les tranches audio DÉJÀ persistées (<code>Interview.audio_segments</code>,
+                servies par l'onglet Backup — l'entretien 13 réel référence ses 6 tranches), en réutilisant le pipeline
+                bloc-par-bloc de <code>/audio/transcribe-file</code> (robuste, reprise au bloc échoué comprise), puis
+                enchaîne la re-extraction des tours et la répartition Q/R — la brique tours→répartition existe déjà
+                (« Régénérer l'analyse », <code>POST /interviews/{'{'}id{'}'}/analyse/regenerer</code>, écran de revue avant
+                écrasement) ; la brique manquante est audio-persisté→transcription→tours sur un entretien DÉJÀ enregistré.
+                <br><br>
+                <strong>Deux pistes de conception à arbitrer</strong> (pas forcément exclusives) : <strong>(a) manuelle sur
+                le bloc en échec</strong> — conserver le blob 60s en mémoire navigateur et rejouer inline à l'endroit du
+                marqueur, continuité du mécanisme <code>lostSegments</code> (ne couvre que la session en cours) ;
+                <strong>(b) relance sur une TRANCHE persistée</strong> — s'appuyer sur les tranches <code>backupRecorder</code>
+                (20 min, sur disque) : robuste au rechargement de page, et c'est la SEULE piste qui couvre l'exigence (4)
+                consultation — les blobs 60s ne survivent pas à la fermeture de l'onglet. L'exigence (4) pousse donc vers
+                (b) comme socle, (a) restant un confort de session. À faire avec revue adversariale
+                <code>bmad-code-review</code> obligatoire (JS de concurrence de <code>record*.html</code>) + tests R1/R2.
+              </td>
+            </tr>
+            <tr>
+              <td>Mission 16 (entretien Google Meet du 2026-07-30) : données RÉELLES utilisées comme cas pour les tests fonctionnels/techniques</td>
+              <td>Conservée en local, suppression manuelle laissée à l'utilisateur</td>
+              <td>
+                Précision utilisateur du 2026-07-30 : <strong>la mission 16 n'est PAS une mission de test</strong> — c'est
+                une donnée réelle de l'utilisateur, qui se réserve le droit de la supprimer plus tard via une action manuelle
+                dans l'app — ne pas la supprimer soi-même. <strong>État analysé (2026-07-30, lecture seule)</strong> :
+                entretien 13 (<code>status done</code>, « Sans nom »), <code>raw_transcript</code> de 10 637 caractères avec
+                90 marqueurs « segment perdu », 45 tours dont 5 FAUX tours fabriqués depuis les marqueurs (« Intervenant :
+                Aucune parole détectée… » — le défaut corrigé par <code>strip_segment_markers</code>, cf. item résolu
+                ci-dessus), résumé/répartition vides ; 6 tranches backup référencées (<code>audio_segments</code>, ~1h40,
+                <code>data/recordings/16_*.webm</code>). <strong>Contenu audio : une seule face</strong> — le micro n'a capté
+                que la voix de l'utilisateur (intervieweur) ; la voix de l'interlocutrice distante n'existe qu'en fuite de
+                casque inexploitable (mesuré : « S'il-vous plaît. » récupéré sur 2 min de période faible) — <strong>les
+                réponses de l'entretien ne sont PAS récupérables depuis ces enregistrements</strong>, quelle que soit la
+                relance. Valeur restante de la donnée : cas réel de repro no-speech (bannière, assainisseur de marqueurs,
+                futures évolutions de rejeu — l'entretien 13 et ses 6 tranches exercent exactement le chemin
+                audio-persisté→transcription de la piste (b) ci-dessus). <strong>Décidé (2026-07-30)</strong> : garder cette
+                donnée exclusivement en local (DB dev + <code>data/recordings/</code>, déjà gitignorés) — <strong>ne JAMAIS
+                la pousser sur GIT</strong>, contenu confidentiel d'un vrai Google Meet client/métier ; ne pas la copier dans
+                <code>tests/exemple/</code> (fixtures versionnées) ni dans aucun autre chemin suivi par git.
               </td>
             </tr>
           </tbody>

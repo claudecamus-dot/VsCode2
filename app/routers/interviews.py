@@ -1408,6 +1408,12 @@ async def transcribe_segment(file: UploadFile = File(...)):
         # autres requêtes pendant plusieurs minutes).
         contenu = await file.read()
         text = await asyncio.to_thread(audio_transcribe.transcribe_audio, contenu)
+    except audio_transcribe.NoSpeechError as exc:
+        # `code` structuré : l'écran d'enregistrement compte les segments
+        # consécutifs sans parole pour alerter sur la source audio (entretien
+        # à distance dont le micro n'entend pas le casque, mauvais périphérique)
+        # — un matching sur le message français serait fragile.
+        return JSONResponse({"error": str(exc), "code": "no_speech"}, status_code=422)
     except audio_transcribe.TranscriptionError as exc:
         return JSONResponse({"error": str(exc)}, status_code=422)
     except Exception as exc:

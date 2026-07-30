@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 
@@ -157,6 +158,30 @@ def ollama_chunk_max_words() -> int:
         return int(os.environ.get("OLLAMA_CHUNK_MAX_WORDS", "400"))
     except ValueError:
         return 400
+
+
+# Marqueurs insérés dans la transcription par les écrans d'enregistrement
+# (record.html / record_libre.html) quand un segment échoue :
+#   « ⚠ [segment perdu : <raison>] » (échec 422 définitif) et
+#   « ⚠ [segment <N> non transcrit — relance possible] » (en attente de relance).
+_SEGMENT_MARKER_RE = re.compile(r"⚠ ?\[segment[^\]\n]*\]")
+
+
+def strip_segment_markers(text: str) -> str:
+    """Retire les marqueurs d'échec de segment de la transcription avant toute
+    extraction IA. Constaté en réel (mission 16, 2026-07-30) : passés tels
+    quels au modèle, ces marqueurs deviennent de FAUX tours de parole
+    (« Intervenant : Aucune parole détectée dans l'enregistrement. » répété)
+    qui polluent le tour de table et la répartition Q/R. Les lignes vidées par
+    le retrait sont repliées pour ne pas fabriquer de paragraphes creux — la
+    structure de paragraphes (frontières de `chunk_text_by_paragraph`) est
+    préservée pour le reste."""
+    if not text or "⚠" not in text:
+        return text
+    cleaned = _SEGMENT_MARKER_RE.sub("", text)
+    cleaned = re.sub(r"[ \t]+(\r?\n)", r"\1", cleaned)
+    cleaned = re.sub(r"(\r?\n)\s*(?:\r?\n\s*)+", "\n\n", cleaned)
+    return cleaned.strip()
 
 
 def chunk_text_by_paragraph(text: str, max_words: int) -> list[str]:

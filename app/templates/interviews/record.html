@@ -89,6 +89,15 @@
             title="Reprend la transcription au bloc qui a échoué, sans refaire les blocs déjà transcrits">↻ Relancer la transcription</button>
   </div>
 
+  <!-- Alerte source audio : plusieurs segments consécutifs sans parole détectée
+       (code no_speech du serveur) — même dispositif que record_libre.html, cas
+       réel mission 16 (2026-07-30) : entretien à distance dont le micro
+       n'entend pas le son du casque, ~100 min captées en quasi-silence sans
+       alerte visible. -->
+  <div class="ai-error rec-lost-banner" id="rec-nospeech-banner" hidden>
+    <span id="rec-nospeech-text"></span>
+  </div>
+
   <div class="rec-tabs" role="tablist">
     <button type="button" role="tab" aria-selected="true" class="rec-tab active" data-tab="transcription">Transcription</button>
     <button type="button" role="tab" aria-selected="false" class="rec-tab" data-tab="repartition">Répartition (Q/R)</button>
@@ -180,6 +189,8 @@
   var lostBannerEl = document.getElementById('rec-lost-banner');
   var lostTextEl = document.getElementById('rec-lost-text');
   var lostRetryBtn = document.getElementById('rec-lost-retry');
+  var noSpeechBannerEl = document.getElementById('rec-nospeech-banner');
+  var noSpeechTextEl = document.getElementById('rec-nospeech-text');
   var backupPathHidden = document.getElementById('rec-backup-path');
   var sessionTokenHidden = document.getElementById('rec-session-token');
   var segmentTailHidden = document.getElementById('rec-segment-tail');
@@ -380,6 +391,27 @@
     return '⚠ [segment ' + id + ' non transcrit — relance possible]';
   }
 
+  // Segments consécutifs rejetés « aucune parole détectée » (code no_speech du
+  // serveur) — même dispositif que record_libre.html : informatif, jamais
+  // bloquant, alerte tant qu'un segment n'a pas de nouveau porté de la parole.
+  var noSpeechStreak = 0;
+  var NOSPEECH_ALERT_AFTER = 2;
+
+  function noteNoSpeech() {
+    noSpeechStreak++;
+    if (noSpeechStreak < NOSPEECH_ALERT_AFTER) return;
+    noSpeechTextEl.textContent = '⚠ Aucune parole détectée sur les ' + noSpeechStreak +
+      ' derniers segments (~' + noSpeechStreak + ' min). Vérifiez la source audio : ' +
+      'pour un entretien à distance (Meet/Teams), le micro ne capte PAS le son du casque — ' +
+      'la voix des autres participants n’est alors pas enregistrée.';
+    noSpeechBannerEl.hidden = false;
+  }
+
+  function resetNoSpeech() {
+    noSpeechStreak = 0;
+    noSpeechBannerEl.hidden = true;
+  }
+
   function refreshLostBanner() {
     var n = lostSegments.length;
     lostBannerEl.hidden = n === 0;
@@ -527,6 +559,7 @@
         if (result.ok && result.data.text) {
           if (lostId) replaceLostMarker(lostId, result.data.text);
           else appendTranscript(result.data.text);
+          resetNoSpeech();  // de la parole est repassée : la source audio vit
           settle();
           return;
         }
@@ -534,6 +567,7 @@
         if (result.status >= 500) { retryOrGiveUp(detail); return; }
         // 422 : Whisper n'a pas su décoder CET audio (silence, flux tronqué) —
         // une relance rendrait la même chose, on ne la propose pas.
+        if (result.data.code === 'no_speech') noteNoSpeech();
         console.error('segment de transcription perdu', result.data);
         if (lostId) replaceLostMarker(lostId, '⚠ [segment perdu : ' + detail + ']');
         else appendTranscript('⚠ [segment perdu : ' + detail + ']');
@@ -860,6 +894,7 @@
       audioPlaybackEl.hidden = true;
       lostSegments = [];
       refreshLostBanner();
+      resetNoSpeech();
       hideFileRetry();
 
       startSegment();
@@ -933,6 +968,7 @@
     // (transcription remise à zéro) : on l'abandonne avec elle.
     lostSegments = [];
     refreshLostBanner();
+    resetNoSpeech();
     hideFileRetry();
     resetBtn.hidden = true;
     statusEl.textContent = '';

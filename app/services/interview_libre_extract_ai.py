@@ -39,7 +39,13 @@ Même plomberie que `interview_extract_ai.py`/`synthese_ai.py`
 """
 from __future__ import annotations
 
-from .ai_common import AIError, call_ai_json, chunk_text_by_paragraph, ollama_chunk_max_words
+from .ai_common import (
+    AIError,
+    call_ai_json,
+    chunk_text_by_paragraph,
+    ollama_chunk_max_words,
+    strip_segment_markers,
+)
 
 MAX_TOKENS = 4000
 
@@ -246,6 +252,16 @@ def extract_turns_from_text(text: str) -> dict:
     toujours en tout début d'entretien). Lève `InterviewLibreExtractAIError`."""
     if not text.strip():
         raise InterviewLibreExtractAIError("Aucun texte transcrit.")
+
+    # Les marqueurs « ⚠ [segment perdu…] » ne sont pas de la matière : passés
+    # au modèle, ils deviennent de faux tours (constaté en réel, mission 16).
+    cleaned = strip_segment_markers(text)
+    if not cleaned.strip():
+        raise InterviewLibreExtractAIError(
+            "La transcription ne contient que des marqueurs de segments en échec "
+            "(« ⚠ [segment perdu…] ») — aucun contenu exploitable."
+        )
+    text = cleaned
 
     chunks = chunk_text_by_paragraph(text, ollama_chunk_max_words())
 

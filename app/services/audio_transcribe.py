@@ -112,6 +112,16 @@ class TranscriptionError(AIError):
     """Erreur fonctionnelle de transcription — le message est destiné à l'UI."""
 
 
+class NoSpeechError(TranscriptionError):
+    """Aucune parole détectée dans l'audio — cas distinct d'un échec technique :
+    l'audio s'est décodé correctement mais le VAD n'y trouve pas de voix.
+    `/audio/transcribe-segment` le signale par `code: "no_speech"` pour que
+    l'écran d'enregistrement puisse alerter sur la SOURCE audio (constaté en
+    réel le 2026-07-30, mission 16 : ~100 min d'un entretien Google Meet
+    capturées en quasi-silence — le micro physique n'entend pas le son du
+    casque — sans aucune alerte visible, 90 segments perdus en silence)."""
+
+
 def _faster_whisper():
     try:
         import faster_whisper
@@ -359,7 +369,7 @@ def iter_transcribe_blocks(
     except Exception as exc:
         raise TranscriptionError(f"Fichier audio illisible : {exc}") from exc
     if pcm.size == 0:
-        raise TranscriptionError("Aucune parole détectée dans l'enregistrement.")
+        raise NoSpeechError("Aucune parole détectée dans l'enregistrement.")
 
     blocks = split_pcm_blocks(pcm, block_s)
     total = len(blocks)
@@ -449,5 +459,5 @@ def transcribe_audio(content: bytes) -> str:
         raise TranscriptionError(f"Échec de la transcription : {exc}") from exc
 
     if not text:
-        raise TranscriptionError("Aucune parole détectée dans l'enregistrement.")
+        raise NoSpeechError("Aucune parole détectée dans l'enregistrement.")
     return text

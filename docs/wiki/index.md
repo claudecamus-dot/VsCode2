@@ -69,7 +69,7 @@ BMAD-METHOD installé (39 skills `bmad-*` après tri, routage sur demande explic
 
 Constats automatiques du superviseur d'agents (usage mesuré dans les transcripts de session) :
 
-- _(aucun constat automatique)_
+- **Skills en sommeil (>30 j sans usage)** : `claude-api`.
 
 Tableau de bord complet : [technical/agents-supervision.md](technical/agents-supervision.md) — régénéré à chaque session.
 <!-- TODO-AGENTS:END -->

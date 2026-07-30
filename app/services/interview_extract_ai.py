@@ -20,7 +20,13 @@ répartition qui couvre tout l'entretien).
 """
 from __future__ import annotations
 
-from .ai_common import AIError, call_ai_json, chunk_text_by_paragraph, ollama_chunk_max_words
+from .ai_common import (
+    AIError,
+    call_ai_json,
+    chunk_text_by_paragraph,
+    ollama_chunk_max_words,
+    strip_segment_markers,
+)
 
 MAX_TOKENS = 3000
 
@@ -184,6 +190,17 @@ def extract_answers_from_text(questions, text: str) -> dict[int, dict]:
         raise InterviewExtractAIError("Document vide — rien à extraire.")
     if not questions:
         raise InterviewExtractAIError("La trame ne contient aucune question.")
+
+    # Même assainissement que l'extraction libre : les marqueurs
+    # « ⚠ [segment perdu…] » d'un enregistrement au fil de l'eau ne doivent
+    # jamais être traités comme de la matière d'entretien.
+    cleaned = strip_segment_markers(text)
+    if not cleaned.strip():
+        raise InterviewExtractAIError(
+            "La transcription ne contient que des marqueurs de segments en échec "
+            "(« ⚠ [segment perdu…] ») — aucun contenu exploitable."
+        )
+    text = cleaned
 
     chunks = chunk_text_by_paragraph(text, ollama_chunk_max_words())
     if len(chunks) == 1:
