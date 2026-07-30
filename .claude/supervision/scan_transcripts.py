@@ -1209,6 +1209,33 @@ def runs_a_solder(runs, maintenant=None):
     return sorted(ouverts, key=lambda r: -r["heures"])
 
 
+def agents_apparus(state) -> list:
+    """Sous-agents (`.claude/agents/*.md`) apparus depuis le passage précédent du hook.
+
+    Finding `agents:types-non-charges-en-session` (diagnostic 2026-07-30, arbitré le
+    jour même) : le registre des types d'agents est chargé au DÉMARRAGE de session — un
+    sous-agent écrit en cours de séance n'est pas adressable par l'outil Agent tout de
+    suite, et rien ne disait QUAND il le devenait. Constaté en vrai : `subagent_type:
+    agent-supervisor` refusé dans la session qui venait d'écrire le fichier. Ce hook,
+    lui, tourne au démarrage : ce qu'il annonce ici est adressable dans la séance qui
+    s'ouvre.
+
+    Premier passage : la liste est enregistrée SANS rien annoncer — sinon tous les
+    agents déjà en place seraient signalés comme neufs. Fail-open : dossier absent ou
+    illisible -> aucune annonce, jamais d'erreur (ce script ne bloque jamais un
+    démarrage de session)."""
+    try:
+        presents = sorted(f[:-3] for f in os.listdir(os.path.join(REPO, ".claude", "agents"))
+                          if f.endswith(".md"))
+    except OSError:
+        presents = []
+    connus = state.get("agents_connus")
+    state["agents_connus"] = presents
+    if connus is None:
+        return []
+    return [a for a in presents if a not in connus]
+
+
 def arbre_sale():
     """Fichiers modifiés/non suivis du dépôt (hors données générées du scan).
 
@@ -1238,6 +1265,7 @@ def arbre_sale():
 def main(argv) -> int:
     state = {} if "--full" in argv else load_state()
     new_events = scan(state)
+    apparus = agents_apparus(state)   # avant save_state : la liste connue s'y enregistre
     save_state(state)
     fam = installed_skills()
     runs = load_jsonl(RUNS_PATH)
@@ -1292,6 +1320,10 @@ def main(argv) -> int:
     for run in runs_a_solder(runs):
         print(f"  run a solder (il y a {run['heures']} h) : {run['demande']} "
               f"-> py .claude/orchestration/log_run.py --solde {run['ts'][:13]} succes \"note\"")
+    if apparus:
+        print(f"  sous-agent(s) desormais adressable(s) par l'outil Agent : "
+              f"{', '.join(apparus)} - ecrit(s) hors de cette session, donc utilisable(s) "
+              f"a partir de ce demarrage.")
     reliquat = arbre_sale()
     if reliquat:
         apercu = ", ".join(reliquat[:5]) + ("..." if len(reliquat) > 5 else "")
