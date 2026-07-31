@@ -60,6 +60,17 @@
             "statusMessage": "Journal usage agents..."
           }
         ]
+      },
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py .claude/hooks/check_ci_after_push.py",
+            "timeout": 10,
+            "statusMessage": "Verification du dernier run CI apres push..."
+          }
+        ]
       }
     ]
   },
