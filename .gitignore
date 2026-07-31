@@ -38,3 +38,10 @@ tests/exemple/
 # python de l'extension VS Code) ; .vscode/tasks.json, lui, reste versionne —
 # il porte le lancement du serveur de dev partage par l'equipe.
 .vscode/settings.json
+
+# uv.lock (2026-07-31) : apparu sur le poste sans etre lie a un travail du
+# projet, qui n'utilise que pip/venv (requirements.txt, cf. CLAUDE.md). Pas de
+# pyproject.toml [project]/dependances a verrouiller ici ; probablement genere
+# par un outil d'environnement local. Ignore plutot que commite tant qu'aucun
+# usage reel de uv n'existe dans ce depot.
+uv.lock
