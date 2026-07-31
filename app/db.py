@@ -85,6 +85,15 @@ def _add_missing_columns() -> None:
             "kind": "TEXT DEFAULT 'libre_turns'",
             "mission_id": "INTEGER",
         },
+        # Retranscription d'un entretien enregistré (2026-07-30) : plusieurs
+        # tranches persistées à enchaîner. Pas de clause REFERENCES sur
+        # `interview_id` ajoutée après coup (même compromis que ci-dessus).
+        "audio_file_jobs": {
+            "filenames": "JSON",
+            "interview_id": "INTEGER",
+            "files_done": "INTEGER DEFAULT 0",
+            "blocks_before_file": "INTEGER DEFAULT 0",
+        },
     }
     with engine.begin() as conn:
         for table, cols in additions.items():

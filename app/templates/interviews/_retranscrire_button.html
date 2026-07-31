@@ -1,0 +1,22 @@
+{# Relance de la transcription depuis l'audio PERSISTÉ (demande utilisateur du
+   2026-07-30, exigence « rejouer aussi en consultation ») — affiché seulement
+   s'il reste un enregistrement d'où repartir. Rien n'est écrasé au clic : la
+   transcription tourne en tâche de fond, puis un écran de revue propose le
+   remplacement.
+
+   Ce bouton vit DANS le formulaire d'édition de l'entretien : d'où
+   `formaction`/`formnovalidate`, comme les boutons d'export des autres écrans —
+   un <form> imbriqué serait ignoré par le navigateur.
+
+   Contexte attendu : `interview`. #}
+{% if interview.audio_segments or interview.audio_backup_path %}
+<button class="btn btn-sm" type="submit" formnovalidate
+        formaction="/interviews/{{ interview.id }}/retranscrire"
+        {# Le clic poste vers `/retranscrire`, qui ignore le corps du formulaire
+           et redirige : les modifications NON ENREGISTRÉES de cet écran (tours,
+           identité) sont donc perdues. Le confirm() le disait pas — il promettait
+           même l'inverse (« rien ne sera remplacé ») en parlant d'un autre sujet,
+           le contenu déjà en base (revue adversariale 2026-07-30). #}
+        onclick="return confirm('Relancer la transcription depuis l’audio enregistré ?\n\nLes modifications non enregistrées de cet écran seront perdues — enregistre d’abord si besoin.\n\nLe traitement peut durer plusieurs minutes. Le contenu déjà enregistré, lui, ne sera remplacé qu’après ta validation sur l’écran de revue.');"
+        title="Retranscrit l'audio enregistré, puis propose de remplacer la transcription et le tour de table (après revue)">↻ Relancer la transcription (audio)</button>
+{% endif %}

@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% block title %}Retranscription — {{ interview.interviewee_name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> /
+  <a href="/interviews/{{ interview.id }}">{{ interview.interviewee_name }}</a> / Retranscription
+</div>
+
+<div class="page-head"><h1>Retranscription en cours…</h1></div>
+
+<section class="card">
+  <p class="muted">
+    La transcription est relancée depuis {% if nb_tranches > 1 %}les {{ nb_tranches }}
+    tranches audio enregistrées{% else %}l'enregistrement audio{% endif %} de cet
+    entretien, bloc par bloc — puis les tours de parole sont ré-extraits tranche
+    par tranche. Le traitement se poursuit côté serveur : tu peux quitter cette
+    page et y revenir depuis l'entretien, rien n'est perdu.
+  </p>
+  <p class="muted">
+    <strong>Rien ne sera écrasé sans ton accord</strong> : le résultat s'affiche
+    d'abord pour revue, en regard du contenu actuel.
+  </p>
+  {# Une tranche référencée mais absente du disque (supprimée depuis l'onglet
+     Backup) produit une transcription trouée : le dire ICI, pas seulement au
+     moment de la revue. #}
+  {% if tranches_absentes %}
+  <p class="ai-error">
+    ⚠ {{ tranches_absentes }} tranche(s) audio de cet entretien sont introuvables
+    sur le disque : la transcription relancée sera incomplète.
+  </p>
+  {% endif %}
+  <p id="retr-progress" class="seg-progress" aria-live="polite">Démarrage…</p>
+  <progress id="retr-bar" value="0" max="1"></progress>
+  <div class="form-actions">
+    <a class="btn" href="/interviews/{{ interview.id }}">← Revenir à l'entretien</a>
+    {# Reprise AU BLOC échoué (jamais depuis le début) : c'est la route de
+       relance de l'import de fichier, qui repart de `len(job.blocks)`. Affichée
+       seulement sur échec. #}
+    {# `data-busy-label` (busy.js) : sans lui, deux clics rapides postaient deux
+       fois la relance. Le second passait pendant que le premier n'avait pas
+       encore remis le job en `pending`, donc la garde « déjà en cours » de
+       `retranscrire_start` ne le voyait pas — deux tâches de fond écrivaient
+       alors les mêmes `job.blocks` (constat 2026-07-30, non traité par la
+       première passe). #}
+    <form method="post" action="/interviews/{{ interview.id }}/retranscrire"
+          id="retr-relancer-form" data-busy-label="Relance en cours…" hidden>
+      <button class="btn" type="submit"
+              title="Reprend la transcription là où elle s'est arrêtée, sans refaire les blocs déjà transcrits">↻ Relancer la retranscription</button>
+    </form>
+    <form method="post" action="/interviews/{{ interview.id }}/retranscrire/appliquer"
+          id="retr-suite-form" data-busy-label="Assemblage du résultat en cours…" hidden>
+      <button class="btn btn-primary" type="submit">Voir le résultat</button>
+    </form>
+    {# Sortie explicite : depuis que « Retranscrire » ramène ici au lieu de
+       détruire un résultat abouti non revu, c'est le seul moyen de repartir
+       d'un passage neuf. #}
+    <form method="post" action="/interviews/{{ interview.id }}/retranscrire/abandonner"
+          id="retr-abandon-form"
+          onsubmit="return confirm('Abandonner ce résultat de retranscription ? Le calcul déjà fait sera perdu ; l’entretien, lui, reste intact.');"
+          hidden>
+      <button class="btn" type="submit">Abandonner ce résultat</button>
+    </form>
+  </div>
+</section>
+
+<script>
+(function () {
+  var progressEl = document.getElementById('retr-progress');
+  var barEl = document.getElementById('retr-bar');
+  var suiteForm = document.getElementById('retr-suite-form');
+  var relancerForm = document.getElementById('retr-relancer-form');
+  var abandonForm = document.getElementById('retr-abandon-form');
+  var statutUrl = '/interviews/{{ interview.id }}/retranscrire/statut';
+  var echecs = 0;
+  var termine = false;
+
+  // Les trois formulaires de cet écran agissent sur le MÊME job : « Voir le
+  // résultat » est synchrone et peut durer longtemps (jusqu'à
+  // RECUP_TRANCHES_MAX récupérations Ollama), pendant quoi « Abandonner »
+  // supprimait le job et ses tranches sous les pieds de la requête en cours →
+  // 500 sur l'assemblage (revue adversariale 2026-07-30). `busy.js` ne gèle
+  // que le formulaire soumis ; on gèle ici ses frères.
+  var formsExclusifs = [suiteForm, relancerForm, abandonForm];
+  formsExclusifs.forEach(function (form) {
+    form.addEventListener('submit', function (e) {
+      // « Abandonner » porte un confirm() en attribut `onsubmit` : cet
+      // écouteur-là s'exécute AVANT le nôtre, donc un refus a déjà annulé
+      // l'évènement — sans ce test, refuser la confirmation gèlerait quand même
+      // les deux autres boutons.
+      if (e.defaultPrevented) return;
+      formsExclusifs.forEach(function (autre) {
+        if (autre === form) return;
+        autre.querySelectorAll('button').forEach(function (b) { b.disabled = true; });
+      });
+    });
+  });
+
+  function poll() {
+    fetch(statutUrl)
+      .then(function (res) {
+        // 404 = le job n'existe plus (résultat confirmé ou abandonné depuis un
+        // autre onglet). C'est TERMINAL : sans ce cas, le `.catch` le traitait
+        // comme un aléa réseau et repollait toutes les 5 s indéfiniment sous
+        // « Le suivi ne répond plus » (revue adversariale 2026-07-30).
+        if (res.status === 404) {
+          termine = true;
+          window.location.href = '/interviews/{{ interview.id }}';
+          return null;
+        }
+        if (!res.ok) throw new Error('http ' + res.status);
+        return res.json();
+      })
+      .then(function (s) {
+        if (!s) return;  // 404 traité ci-dessus : navigation en cours
+        echecs = 0;
+        progressEl.classList.remove('error');
+        if (s.status === 'failed') {
+          termine = true;
+          progressEl.classList.add('error');
+          progressEl.textContent = '⚠ ' + (s.error || 'La retranscription a échoué.')
+            + ' Les blocs déjà transcrits sont conservés : la relance repart du bloc interrompu.';
+          relancerForm.hidden = false;
+          // Une transcription partielle reste exploitable — MAIS seulement si
+          // l'extraction a produit au moins une tranche : les tours de parole
+          // ne sont extraits qu'après la transcription, donc un échec en phase 1
+          // ne laisse RIEN à appliquer et « Voir le résultat » ne pouvait
+          // qu'aboutir à « aucun tour détecté » (revue adversariale 2026-07-30).
+          // Dans ce cas la relance — qui reprend au bloc interrompu — est la
+          // seule suite utile.
+          if (s.blocs > 0 && s.ia_faites > 0) suiteForm.hidden = false;
+          abandonForm.hidden = false;
+          return;
+        }
+        if (s.status === 'done') {
+          termine = true;
+          progressEl.textContent = 'Terminé — ' + s.blocs + ' bloc(s) transcrit(s), '
+            + s.ia_faites + '/' + s.ia_total + ' tranche(s) structurée(s).'
+            + (s.ia_total > s.ia_faites
+                ? ' ⚠ Certaines tranches n’ont pas abouti : relance pour les rattraper '
+                  + 'avant de remplacer le tour de table.'
+                : '');
+          barEl.max = 1;
+          barEl.value = 1;
+          suiteForm.hidden = false;
+          if (s.ia_total > s.ia_faites) relancerForm.hidden = false;
+          abandonForm.hidden = false;
+          return;
+        }
+        // En cours : deux phases, la seconde ne démarre qu'après la première.
+        if (s.ia_total > 0) {
+          barEl.max = s.ia_total;
+          barEl.value = s.ia_faites;
+          progressEl.textContent = 'Extraction des tours de parole… '
+            + s.ia_faites + '/' + s.ia_total + ' tranche(s).';
+        } else {
+          barEl.max = s.blocs_total || 1;
+          barEl.value = s.blocs;
+          progressEl.textContent = 'Transcription de l’audio… ' + s.blocs
+            + (s.blocs_total ? '/' + s.blocs_total : '') + ' bloc(s)'
+            + (s.tranches_total > 1
+                ? ' — tranche ' + Math.min(s.tranches_faites + 1, s.tranches_total)
+                  + '/' + s.tranches_total
+                : '') + '.';
+        }
+        setTimeout(poll, 5000);
+      })
+      .catch(function () {
+        // Aléa réseau ou serveur : on réessaie sans casser le suivi, mais on le
+        // dit (même parti pris que l'écran d'attente des tranches).
+        echecs += 1;
+        if (echecs >= 2) {
+          progressEl.classList.add('error');
+          progressEl.textContent = 'Le suivi ne répond plus — nouvelle tentative dans 5 s… '
+            + '(le traitement continue côté serveur, ne recharge pas la page)';
+        }
+        if (!termine) setTimeout(poll, 5000);
+      });
+  }
+
+  poll();
+})();
+</script>
+{% endblock %}

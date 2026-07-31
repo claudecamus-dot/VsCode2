@@ -97,10 +97,14 @@
                 aria-label="Transcription de l'entretien (lecture seule)">{{ transcript }}</textarea>
       <div class="tab-panel-actions">
         <a class="btn btn-sm" href="/interviews/{{ interview.id }}/export/transcription/pdf">Télécharger la transcription (PDF)</a>
+        {% include "interviews/_retranscrire_button.html" %}
       </div>
       {% else %}
       <p class="muted">Pas de transcription pour cet entretien : ni texte brut
         conservé, ni tour de parole d'où la reconstituer.</p>
+      <div class="tab-panel-actions">
+        {% include "interviews/_retranscrire_button.html" %}
+      </div>
       {% endif %}
     </section>
   </div>

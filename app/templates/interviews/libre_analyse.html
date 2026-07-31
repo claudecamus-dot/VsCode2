@@ -28,6 +28,21 @@
 </div>
 
 {% if error %}<p class="ai-error no-print">⚠ {{ error }}</p>{% endif %}
+{# Retranscription aboutie mais extraction des tours en échec : le texte
+   transcrit est alors l'artefact le plus précieux (il vient de coûter de
+   longues minutes d'audio) et n'est enregistré nulle part à ce stade — même
+   issue de secours que les écrans d'enregistrement, plutôt que de le perdre
+   avec la page. #}
+{% if retranscription_transcript %}
+<form method="post" action="/interviews/transcript/export-pdf" class="card form no-print">
+  <input type="hidden" name="transcript" value="{{ retranscription_transcript }}">
+  <input type="hidden" name="interviewee_name" value="{{ interview.interviewee_name }}">
+  <p class="muted">La transcription relancée ({{ retranscription_transcript | length }} caractères)
+    n'a pas pu être structurée en tours de parole, mais elle n'est pas perdue —
+    exporte-la avant de réessayer.</p>
+  <button class="btn" type="submit">⬇️ Télécharger la transcription (PDF)</button>
+</form>
+{% endif %}
 
 <article class="preview-doc">
   <header class="preview-doc-head">

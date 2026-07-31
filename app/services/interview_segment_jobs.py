@@ -27,6 +27,7 @@ au lieu d'un unique appel synchrone sur la transcription complète à l'arrêt.
 """
 from __future__ import annotations
 
+import logging
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -52,6 +53,8 @@ _EMPTY_IDENTITY = {
 
 # Les deux erreurs fonctionnelles d'extraction (libre / structuré) — un job ne
 # lève jamais, il consigne le message dans `error` pour l'UI.
+logger = logging.getLogger(__name__)
+
 _EXTRACT_ERRORS = (InterviewLibreExtractAIError, InterviewExtractAIError)
 
 
@@ -215,6 +218,16 @@ def recover_stalled_or_failed_jobs(db: Session, jobs: list[InterviewSegmentJob])
         except _EXTRACT_ERRORS as exc:
             job.status = "failed"
             job.error = str(exc)
+        except Exception as exc:  # noqa: BLE001
+            # Même garde-fou large que `run_segment_job` (revue adversariale
+            # 2026-07-30) : cette récupération tourne DANS une requête HTTP,
+            # donc une erreur inattendue y remontait en 500 — l'écran de revue
+            # devenait inatteignable alors que les autres tranches, elles,
+            # avaient abouti. Une tranche perdue doit dégrader en « non aboutie »
+            # (signalée à l'écran), jamais faire tomber la page.
+            logger.exception("Échec inattendu de la récupération d'une tranche")
+            job.status = "failed"
+            job.error = f"{type(exc).__name__}: {exc}"
         db.commit()
 
 

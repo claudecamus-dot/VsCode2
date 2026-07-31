@@ -11,6 +11,7 @@ automatique du résultat rempli en dehors de la plateforme.
 """
 from __future__ import annotations
 
+import unicodedata
 from datetime import datetime, timezone
 
 from ..models import Mission
@@ -23,7 +24,19 @@ def _format_answer(row: dict) -> str:
 
 
 def slugify(name: str) -> str:
-    keep = [c.lower() if c.isalnum() else "_" for c in name.strip()]
+    """Nom de fichier sûr, **ASCII strict**.
+
+    L'ASCII n'est pas cosmétique : ces slugs partent dans l'en-tête
+    `Content-Disposition`, que Starlette encode en latin-1 — un nom cyrillique
+    ou CJK levait un `UnicodeEncodeError` APRÈS construction du document, donc
+    un 500 sur des exports dont certains sont justement l'issue de secours
+    quand tout le reste a échoué (revue adversariale 2026-07-30). `isalnum()`
+    est vrai pour ces alphabets, ils traversaient donc le filtre intact ;
+    la décomposition NFKD conserve au passage les accents français en les
+    réduisant à leur lettre de base (« José » → « jose »)."""
+    plat = unicodedata.normalize("NFKD", name.strip())
+    plat = plat.encode("ascii", "ignore").decode("ascii")
+    keep = [c.lower() if c.isalnum() else "_" for c in plat]
     slug = "".join(keep).strip("_")
     while "__" in slug:
         slug = slug.replace("__", "_")

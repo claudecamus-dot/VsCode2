@@ -1,5 +1,5 @@
 ---
-updated: 2026-07-30
+updated: 2026-07-31
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -9,18 +9,18 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-30T13:46:59+02:00 · **58 sessions** (transcripts) · **140** invocations de skills · **73** lancements de sous-agents.
+Dernier scan : 2026-07-31T15:34:33+02:00 · **63 sessions** (transcripts) · **149** invocations de skills · **82** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `run-dev-server` | projet | 34 | 2026-07-03 | 2026-07-30 |
-| `agent-orchestrator` | projet | 27 | 2026-07-17 | 2026-07-29 |
+| `run-dev-server` | projet | 37 | 2026-07-03 | 2026-07-31 |
+| `agent-orchestrator` | projet | 30 | 2026-07-17 | 2026-07-31 |
 | `agent-supervisor` | projet | 19 | 2026-07-18 | 2026-07-29 |
-| `bmad-code-review` | BMAD | 12 | 2026-07-20 | 2026-07-30 |
+| `bmad-code-review` | BMAD | 13 | 2026-07-20 | 2026-07-31 |
+| `revue-increment` | projet | 11 | 2026-07-18 | 2026-07-30 |
 | `pptx-verify` | global | 10 | 2026-07-03 | 2026-07-29 |
-| `revue-increment` | projet | 10 | 2026-07-18 | 2026-07-29 |
 | `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
 | `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
@@ -28,6 +28,7 @@ Dernier scan : 2026-07-30T13:46:59+02:00 · **58 sessions** (transcripts) · **1
 | `pptx-deck` | global | 2 | 2026-07-02 | 2026-07-03 |
 | `skill-creator` | global | 2 | 2026-07-03 | 2026-07-03 |
 | `slide-text-polish` | projet | 2 | 2026-07-22 | 2026-07-22 |
+| `bmad-party-mode` | BMAD | 1 | 2026-07-31 | 2026-07-31 |
 | `bmad-sprint-status` | BMAD | 1 | 2026-07-22 | 2026-07-22 |
 | `claude-api` | (builtin/session) | 1 | 2026-06-29 | 2026-06-29 |
 | `deck-design-library` | projet | 1 | 2026-07-28 | 2026-07-28 |
@@ -40,19 +41,19 @@ Dernier scan : 2026-07-30T13:46:59+02:00 · **58 sessions** (transcripts) · **1
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 39 | 2026-07-15 | 2026-07-29 |
-| `Explore` | 26 | 2026-06-30 | 2026-07-29 |
+| `general-purpose` | 47 | 2026-07-15 | 2026-07-31 |
+| `Explore` | 27 | 2026-06-30 | 2026-07-30 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
 | `claude-code-guide` | 1 | 2026-07-03 | 2026-07-03 |
 
 ## Jamais utilisés
 
-**BMAD** — 37/39 jamais invoqués :
+**BMAD** — 36/39 jamais invoqués :
 
 <details><summary>Voir la liste</summary>
 
-`bmad-advanced-elicitation`, `bmad-agent-analyst`, `bmad-agent-architect`, `bmad-agent-dev`, `bmad-agent-pm`, `bmad-agent-tech-writer`, `bmad-agent-ux-designer`, `bmad-architecture`, `bmad-brainstorming`, `bmad-check-implementation-readiness`, `bmad-checkpoint-preview`, `bmad-correct-course`, `bmad-create-epics-and-stories`, `bmad-create-story`, `bmad-customize`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-forge-idea`, `bmad-generate-project-context`, `bmad-help`, `bmad-index-docs`, `bmad-market-research`, `bmad-party-mode`, `bmad-prd`, `bmad-prfaq`, `bmad-product-brief`, `bmad-retrospective`, `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-shard-doc`, `bmad-sprint-planning`, `bmad-technical-research`, `bmad-ux`
+`bmad-advanced-elicitation`, `bmad-agent-analyst`, `bmad-agent-architect`, `bmad-agent-dev`, `bmad-agent-pm`, `bmad-agent-tech-writer`, `bmad-agent-ux-designer`, `bmad-architecture`, `bmad-brainstorming`, `bmad-check-implementation-readiness`, `bmad-checkpoint-preview`, `bmad-correct-course`, `bmad-create-epics-and-stories`, `bmad-create-story`, `bmad-customize`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-forge-idea`, `bmad-generate-project-context`, `bmad-help`, `bmad-index-docs`, `bmad-market-research`, `bmad-prd`, `bmad-prfaq`, `bmad-product-brief`, `bmad-retrospective`, `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-shard-doc`, `bmad-sprint-planning`, `bmad-technical-research`, `bmad-ux`
 
 </details>
 

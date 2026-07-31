@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}Retranscription proposée — {{ interview.interviewee_name }}{% endblock %}
+{% block content %}
+<div class="breadcrumb">
+  <a href="/missions">Missions</a> /
+  <a href="/missions/{{ mission.id }}">{{ mission.name }}</a> /
+  <a href="/interviews/{{ interview.id }}">{{ interview.interviewee_name }}</a> /
+  Retranscription
+</div>
+
+<div class="page-head"><h1>Retranscription proposée</h1></div>
+<p class="muted">
+  Transcription relancée depuis l'audio enregistré, puis restructurée en tours de
+  parole. <strong>Rien n'est encore enregistré</strong> : corrige ce qui doit
+  l'être, puis valide pour remplacer la transcription et le tour de table
+  actuels — ou annule pour tout conserver en l'état. Le résumé et la répartition
+  ne sont pas touchés ici (ils se régénèrent depuis les tours par
+  « Régénérer l'analyse », qui a son propre écran de revue).
+</p>
+
+{# Ce qui MANQUE au résultat proposé, AVANT le bouton qui écrase : une tranche
+   d'extraction jamais aboutie ou une tranche audio illisible retire du contenu
+   sans que rien ne le montre — et le remplacement, lui, est total. #}
+{% if avertissements %}
+<div class="ai-error">
+  <strong>⚠ Ce résultat est incomplet :</strong>
+  <ul>
+    {% for a in avertissements %}<li>{{ a }}</li>{% endfor %}
+  </ul>
+  <p class="muted">Tu peux tout de même remplacer — mais le contenu manquant ne
+    sera pas récupérable ensuite, le tour de table actuel étant remplacé.</p>
+</div>
+{% endif %}
+
+<form method="post" action="/interviews/{{ interview.id }}/retranscrire/confirmer" class="card form">
+  {# Nom de l'interlocuteur porté par le formulaire pour le SEUL bouton d'export
+     PDF (`/interviews/turns/export-pdf`, qui le lit en `Form`) : sans lui le PDF
+     de secours sortait anonyme, titre et nom de fichier compris (« brute.pdf »)
+     — alors que l'entretien, lui, est identifié (constat 2026-07-30, non traité
+     par la première passe de correctifs). La route de confirmation ci-dessus
+     ignore ce champ : elle relit l'entretien en base. #}
+  <input type="hidden" name="interviewee_name" value="{{ interview.interviewee_name or '' }}">
+  <input type="hidden" name="transcript" value="{{ transcript }}">
+
+  <section class="card">
+    <h2>Transcription</h2>
+    <p class="muted">{{ transcript | length }} caractères transcrits — lecture seule ici,
+      corrigeable après enregistrement depuis le tour de table.</p>
+    <textarea class="record-transcript" rows="10" readonly
+              aria-label="Transcription relancée (lecture seule)">{{ transcript }}</textarea>
+    {% if ancien_transcript %}
+    <details>
+      <summary class="muted">Voir la transcription actuelle ({{ ancien_transcript | length }} caractères{% if ancien_reconstitue %}, reconstituée depuis les tours{% endif %}) — sera remplacée</summary>
+      <textarea class="record-transcript" rows="8" readonly>{{ ancien_transcript }}</textarea>
+    </details>
+    {% endif %}
+  </section>
+
+  <section class="card">
+    <h2>Tour de table (questions &amp; réponses)</h2>
+    <p class="muted">
+      {{ turns | length }} tour(s) proposé(s), contre {{ nb_tours_actuels }} actuellement.
+      Survole un tour pour compléter ce qui manque (titre de section, question, réponse).
+    </p>
+    <div class="turns-list">
+    {% for turn in turns %}
+    {% set turn_index = loop.index %}
+    {% set with_id = false %}
+    {% set same_speaker = (not loop.first)
+           and (turn.interlocuteur or '') | trim
+           and (turn.interlocuteur or '') | trim | lower
+               == (loop.previtem.interlocuteur or '') | trim | lower %}
+    {% include "interviews/_turn_block.html" %}
+    {% endfor %}
+    </div>
+  </section>
+
+  <div class="form-actions">
+    <a class="btn" href="/interviews/{{ interview.id }}">Annuler (conserver le contenu actuel)</a>
+    {# Même pattern que les autres écrans du parcours : un bouton du MÊME
+       formulaire qui poste ailleurs, pour repartir avec le PDF sans rien
+       enregistrer si la suite tourne mal. #}
+    <button class="btn" type="submit" formnovalidate
+            formaction="/interviews/turns/export-pdf"
+            title="Exporte les tours proposés en PDF, sans rien enregistrer">Télécharger (PDF)</button>
+    {# Pas de confirm() en plus : cet écran EST la revue (ancien et nouveau
+       contenu en regard), le doubler d'une popup serait le travers inverse de
+       celui corrigé le 2026-07-19 sur les régénérations sans garde-fou. #}
+    <button class="btn btn-primary" type="submit">Remplacer la transcription et le tour de table</button>
+  </div>
+</form>
+
+{# Liens « + … » des champs masqués et report du nom d'interlocuteur sur un
+   groupe de tours consécutifs — même comportement que les autres écrans qui
+   incluent `_turn_block.html`. #}
+{% include "interviews/_turns_script.html" %}
+{% endblock %}

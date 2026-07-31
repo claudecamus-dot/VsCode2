@@ -810,6 +810,25 @@ class AudioFileJob(Base):
     # dès la transcription terminée : l'audio d'un entretien ne doit pas
     # s'entasser sur le disque une fois son texte obtenu.
     filename: Mapped[str] = mapped_column(String(255), default="")
+    # Retranscription d'un entretien DÉJÀ enregistré (2026-07-30) : plusieurs
+    # tranches de sauvegarde à enchaîner, dans l'ordre, au lieu d'un fichier
+    # importé unique. Vide pour un import classique — `filename` reste alors la
+    # seule source, chemin inchangé.
+    #
+    # DIFFÉRENCE CAPITALE avec `filename` : ces fichiers appartiennent à
+    # l'entretien (ils sont servis par l'onglet Backup de la mission) et NE
+    # DOIVENT JAMAIS être supprimés à la fin du job — cf. la garde de
+    # `audio_file_jobs._remove_audio`, sans laquelle une retranscription
+    # détruirait les enregistrements de l'utilisateur.
+    filenames: Mapped[list] = mapped_column(JSON, default=list)
+    interview_id: Mapped[int | None] = mapped_column(
+        ForeignKey("interviews.id", ondelete="CASCADE"), default=None, index=True
+    )
+    # Reprise à travers plusieurs fichiers : nombre de tranches entièrement
+    # transcrites, et nombre de blocs persistés avant le début de la tranche en
+    # cours (`start_index` dans cette tranche = len(blocks) - blocks_before_file).
+    files_done: Mapped[int] = mapped_column(Integer, default=0)
+    blocks_before_file: Mapped[int] = mapped_column(Integer, default=0)
     status: Mapped[str] = mapped_column(String(20), default="pending")
     # Défaut aligné sur `audio_transcribe.FILE_BLOCK_S` (60 s, la rotation du
     # direct). Un défaut divergent (300) redeviendrait vivant pour tout job
