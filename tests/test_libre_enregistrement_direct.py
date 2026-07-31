@@ -141,13 +141,21 @@ def test_ecran_transcription_gate_enregistrement_sur_segments_perdus(
     verrouille au moins la PRÉSENCE du gate dans le HTML rendu (le lire
     disparaître silencieusement d'un futur refactor serait sinon invisible en
     pytest). Le comportement runtime (bouton "Enregistrer" désactivé tant que
-    `lostSegments`/`lostSegmentsRetrying` ne sont pas vides) est vérifié par
+    `lostSegments`/`lostRetryBlocking` ne sont pas vides) est vérifié par
     lecture de code, pas exécuté ici."""
     mission_id = _mission_brouillon(client)
     html = client.get(f"/missions/{mission_id}/interviews/record-libre").text
 
-    assert "lostSegmentsRetrying" in html
-    assert "lostSegments.length > 0 || lostSegmentsRetrying" in html
+    # `lostRetryBlocking` (compteur, pas booléen) a remplacé `lostSegmentsRetrying`
+    # le 2026-07-30 : un drain concurrent (relance ciblée + « Relancer tous »)
+    # pouvait sinon remettre à zéro le compte d'un autre drain encore en vol.
+    assert "lostRetryBlocking" in html
+    # Depuis le 2026-07-30, le gate ne compte que les segments BLOQUANTS (audio
+    # jamais transmis) : un 422 « aucune parole » est désormais conservé pour
+    # rejeu lui aussi, et un entretien à distance en accumule des dizaines —
+    # les compter dans le gate rendrait l'enregistrement impossible.
+    assert "lostSegments.some(function (s) { return s.blocking; })" in html
+    assert "|| lostRetryBlocking > 0" in html
     assert "updateSubmitState();" in html
 
 

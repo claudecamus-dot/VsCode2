@@ -169,6 +169,35 @@ def _probe_duration_s(content: bytes) -> float | None:
         return None
 
 
+def _exiger_piste_audio(content: bytes) -> None:
+    """Lève un message lisible si le contenu N'A AUCUNE piste audio.
+
+    Atteignable depuis 2026-07-31 : l'import accepte désormais les vidéos (le
+    `.mp4` produit par Meet/Teams). Sans cette garde, une vidéo muette remonte à
+    l'utilisateur en « tuple index out of range » — les DEUX décodeurs font
+    `streams.audio[0]` : le nôtre (`_decode_to_pcm16k`) et celui de
+    faster-whisper, sur le chemin court de `transcribe_audio`.
+
+    Volontairement tolérante : elle ne se prononce QUE si le conteneur s'ouvre
+    et ne contient aucune piste audio. Un fichier illisible pour d'autres raisons
+    garde le message d'erreur du décodeur, qui en dit plus."""
+    try:
+        import av
+
+        container = av.open(io.BytesIO(content))
+    except Exception:
+        return
+    try:
+        sans_audio = not container.streams.audio
+    finally:
+        container.close()
+    if sans_audio:
+        raise TranscriptionError(
+            "Ce fichier ne contient aucune piste audio (vidéo muette ?) — "
+            "vérifie l'enregistrement exporté depuis Meet/Teams."
+        )
+
+
 def _decode_to_pcm16k(content: bytes):
     """Décode le contenu audio en PCM mono 16kHz (format attendu par
     Whisper) — pré-décodage explicite plutôt que de laisser faster-whisper
@@ -179,6 +208,19 @@ def _decode_to_pcm16k(content: bytes):
     import numpy as np
 
     container = av.open(io.BytesIO(content))
+    if not container.streams.audio:
+        container.close()
+        _exiger_piste_audio(content)   # message unique, défini au même endroit
+        # `_exiger_piste_audio` est volontairement tolérante (elle ne lève QUE
+        # si elle a pu ré-ouvrir le contenu et confirmer l'absence de piste —
+        # cf. sa docstring) : si elle rend la main sans lever, ne PAS retomber
+        # sur `streams.audio[0]` sur un conteneur déjà fermé (`ValueError`
+        # cryptique) — contrat explicite plutôt qu'implicite (revue
+        # adversariale 2026-07-31).
+        raise TranscriptionError(
+            "Ce fichier ne contient aucune piste audio (vidéo muette ?) — "
+            "vérifie l'enregistrement exporté depuis Meet/Teams."
+        )
     stream = container.streams.audio[0]
     resampler = av.AudioResampler(format="s16", layout="mono", rate=16000)
     frames = []
@@ -366,6 +408,8 @@ def iter_transcribe_blocks(
 
     try:
         pcm = _decode_to_pcm16k(content)
+    except TranscriptionError:
+        raise          # message déjà explicite (vidéo sans piste audio) — ne pas le noyer
     except Exception as exc:
         raise TranscriptionError(f"Fichier audio illisible : {exc}") from exc
     if pcm.size == 0:
@@ -434,6 +478,10 @@ def transcribe_audio(content: bytes) -> str:
             "faster-whisper n'est pas installé : pip install faster-whisper."
         )
 
+    # Avant de choisir la branche : les deux décodeurs en aval (le nôtre et celui
+    # de faster-whisper sur le chemin court) échouent sur un « tuple index out of
+    # range » incompréhensible quand le fichier n'a pas de piste audio.
+    _exiger_piste_audio(content)
     duration_s = _probe_duration_s(content)
 
     try:

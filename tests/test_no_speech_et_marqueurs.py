@@ -251,3 +251,113 @@ def test_ecran_enregistrement_porte_la_banniere_no_speech(
     assert "noteNoSpeech" in html
     assert "resetNoSpeech" in html
     assert "no_speech" in html
+
+
+@pytest.mark.parametrize("path_suffix", ["record", "record-libre"])
+def test_un_segment_refuse_en_422_garde_son_audio_et_son_bouton_de_relance(
+    client: TestClient, path_suffix: str
+) -> None:
+    """R1 (2026-07-30) — avant ce correctif, la branche 422 de `uploadSegment`
+    JETAIT le blob et posait un marqueur définitif « ⚠ [segment perdu : … ] » :
+    aucun rejeu possible, même après avoir corrigé une source audio muette (cas
+    réel mission 16). Elle doit désormais conserver l'audio comme la branche
+    transitoire.
+
+    MISE À JOUR (revue adversariale du même jour) : la première version posait
+    `blocking:false` pour TOUT 422. Or `/audio/transcribe-segment` répond 422
+    pour tout `TranscriptionError` — donc aussi « Aucun enregistrement reçu. »
+    ou un worker Whisper tué par la pression mémoire, où l'audio est INTACT et
+    la relance a de vraies chances d'aboutir. Ces segments-là doivent rester
+    bloquants (leur blob est la seule copie de cette minute de parole) ; seul
+    `code === 'no_speech'` est non bloquant. La distinction se fait sur le champ
+    `code`, pas sur le statut HTTP.
+
+    Même limite que ci-dessus : présence dans le HTML rendu, faute de harnais JS
+    dans ce projet. Les marqueurs choisis sont ceux dont la disparition
+    signalerait un retour au comportement d'avant."""
+    mission_id = _mission_id(client)
+    html = client.get(f"/missions/{mission_id}/interviews/{path_suffix}").text
+
+    # 1. la branche 422 conserve l'audio (et ne fabrique plus un marqueur figé) ;
+    assert "keepLostSegment(blob, detail, lostId, !muet)" in html
+    assert "appendTranscript('⚠ [segment perdu : '" not in html
+    # 1 bis. …et le caractère bloquant se décide sur `code`, PAS sur le statut :
+    #        `false` en dur ici serait le retour exact du défaut corrigé.
+    assert "keepLostSegment(blob, detail, lostId, false)" not in html
+    assert "var muet = result.data.code === 'no_speech';" in html
+    # 2. un segment non abouti a son propre bouton de relance « en bout de ligne » ;
+    assert 'id="rec-lost-list"' in html
+    assert "retryLostSegments([seg.id])" in html
+    # 3. seuls les segments bloquants gèlent la soumission et l'alerte de sortie ;
+    assert "keepLostSegment(blob, reason, lostId, true)" in html
+    assert html.count("lostSegments.some(function (s) { return s.blocking; })") >= 2
+    # 4. une RELANCE ne compte pas dans la série de segments muets consécutifs
+    #    (sinon relancer N vieux segments annonce « aucune parole depuis ~N min »).
+    assert "if (muet && !lostId) noteNoSpeech();" in html
+    # 5. le compteur de relance est remis à zéro par « Recommencer », pas
+    #    seulement la file (état incohérent si une relance était en vol au moment
+    #    du reset). COMPTEUR depuis le 2026-07-30 (`lostRetryBlocking`), pas
+    #    booléen (`lostSegmentsRetrying`) : deux drains peuvent coexister (une
+    #    relance ciblée en vol, puis un clic sur « Relancer tous »), et une
+    #    affectation booléenne laissait le second ÉCRASER l'état du premier — le
+    #    drapeau retombait à false alors que le blob d'un segment bloquant était
+    #    encore en vol. `>= 3` : la déclaration (`= 0`) et les deux points de reset
+    #    (« Recommencer », nouvelle session) partagent la même forme littérale.
+    assert html.count("lostRetryBlocking = 0;") >= 3
+    # 6. R1 (relecture du 2026-07-30, après la revue adversariale) — l'alerte de
+    #    sortie doit couvrir la relance EN VOL, pas seulement la file en attente :
+    #    `retryLostSegments` vide `lostSegments` en tête, donc pendant toute la
+    #    relance d'un segment bloquant la file est vide alors que le blob n'existe
+    #    qu'en mémoire de l'onglet — la version d'avant se taisait exactement dans
+    #    la fenêtre où fermer l'onglet détruit l'audio. Le gate de soumission,
+    #    lui, tenait déjà compte du compteur : c'était l'incohérence.
+    assert (
+        "if (!lostSegments.some(function (s) { return s.blocking; }) && !lostRetryBlocking"
+        in html
+    )
+
+
+@pytest.mark.parametrize("path_suffix", ["record", "record-libre"])
+def test_les_relances_sont_gelees_pendant_l_enregistrement_et_la_liste_plafonnee(
+    client: TestClient, path_suffix: str
+) -> None:
+    """R1 (2026-07-30) — deux constats de revue adversariale restés non traités
+    par la première passe de correctifs.
+
+    #20 : `/audio/transcribe-segment` sérialise tout derrière le verrou du modèle
+    Whisper. Relancer d'anciens segments PENDANT l'entretien retardait donc la
+    transcription des segments en cours — jusqu'à décrocher sur un entretien à
+    distance qui en accumule un par minute (cas réel mission 16 : 90 échecs). Les
+    boutons de relance (global et par segment) sont gelés tant que
+    `recordingActive`, et rouverts par le handler d'arrêt — sans ce dernier
+    appel, ils resteraient désactivés jusqu'au prochain échec de segment.
+
+    #19 : la liste des segments non aboutis n'avait aucun plafond — 90 lignes
+    reconstruites à chaque échec chassaient le reste de l'écran hors de vue.
+
+    Même limite que les autres tests JS de ce fichier : présence dans le HTML
+    rendu, faute de harnais JS dans ce projet."""
+    mission_id = _mission_id(client)
+    html = client.get(f"/missions/{mission_id}/interviews/{path_suffix}").text
+
+    # #20 — gel pendant l'enregistrement, des deux niveaux de relance…
+    assert "lostRetryBtn.disabled = n === 0 || recordingActive;" in html
+    assert "btn.disabled = recordingActive;" in html
+    # …et réouverture à l'arrêt (sinon le gel ne se lève jamais).
+    assert html.count("refreshLostBanner();") >= 2
+    # Marqueur du seul appel qui rouvre les boutons à l'arrêt. Assertion sur le
+    # commentaire seul, sans la ligne qui le précède : une assertion à cheval sur
+    # un saut de ligne dépendrait de la fin de ligne du fichier (LF/CRLF), donc
+    # de la plateforme — un vert local masquerait un rouge en CI.
+    assert "// Rouvre les boutons de relance" in html
+
+    # #19 — liste plafonnée, avec le compte des plus anciens repliés. La coupe a
+    # évolué depuis la version initialement testée ici (revue adversariale
+    # 2026-07-30) : garder simplement les 8 derniers masquait le seul segment
+    # BLOQUANT d'un profil réel (un échec technique isolé en minute 7, puis 90
+    # « aucune parole » ensuite) — les bloquants sont désormais TOUS gardés, le
+    # plafond ne s'applique qu'aux muets.
+    assert "var LOST_LIST_MAX = 8;" in html
+    assert "var place = Math.max(0, LOST_LIST_MAX - bloquantsVisibles.length);" in html
+    assert "muets.slice(-place)" in html
+    assert "segment(s) sans parole détectée non affiché(s)" in html

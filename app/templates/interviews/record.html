@@ -49,6 +49,35 @@
   <input type="hidden" name="session_token" id="rec-session-token" value="{{ identity.session_token if identity else '' }}">
   <input type="hidden" name="segment_tail" id="rec-segment-tail" value="{{ identity.segment_tail if identity else '' }}">
 
+  <!-- Source audio — même dispositif que record_libre.html (module partagé
+       /static/rec_audio_source.js). Le navigateur ne capte que le micro
+       PHYSIQUE : pour une visio, la voix des participants sort dans le casque et
+       n'y entre jamais (mission 16, 2026-07-30). On la vérifie AVANT le premier
+       mot, seul moment où corriger coûte dix secondes. -->
+  <div class="rec-source" id="rec-source">
+    <label>
+      <input type="checkbox" id="rec-remote-mode">
+      Entretien à distance (Google Meet, Teams…) — capter aussi le son de la réunion
+    </label>
+    <div class="rec-source-panel" id="rec-remote-panel" hidden>
+      <div class="rec-meter-row" id="rec-meter-row-mic">
+        <span>🎤 Micro</span>
+        <div class="rec-meter"><i id="rec-meter-mic"></i></div>
+        <span class="rec-source-state" id="rec-mic-state"></span>
+      </div>
+      <div class="rec-meter-row" id="rec-meter-row-tab">
+        <span>🖥️ Son de la réunion</span>
+        <div class="rec-meter"><i id="rec-meter-tab"></i></div>
+        <span class="rec-source-state" id="rec-tab-state"></span>
+      </div>
+      <p class="rec-source-hint" id="rec-remote-hint"></p>
+      <div class="record-controls rec-source-actions">
+        <button class="btn btn-sm" type="button" id="rec-share-tab">⟳ Partager l'onglet de la réunion</button>
+        <button class="rec-source-bypass" type="button" id="rec-remote-bypass">démarrer quand même, au micro seul</button>
+      </div>
+    </div>
+  </div>
+
   <div class="record-controls">
     <button class="btn btn-primary" type="button" id="rec-start">● Démarrer l'enregistrement</button>
     <button class="btn" type="button" id="rec-stop" hidden>■ Arrêter</button>
@@ -60,9 +89,15 @@
        fichier par blocs d'~1 min (/audio/transcribe-file) et chaque bloc est
        affiché puis réparti sur la trame en tâche de fond dès qu'il est prêt. -->
   <div class="record-controls" style="border: 1px dashed #999; padding: 8px; margin-top: 8px;">
-    <span class="muted">Ou importer un fichier audio déjà enregistré :</span>
-    <label for="rec-file-upload" class="visually-hidden">Fichier audio à transcrire</label>
-    <input type="file" id="rec-file-upload" accept="audio/*">
+    <span class="muted">Ou importer un enregistrement déjà réalisé (audio, ou vidéo Meet/Teams) :</span>
+    <label for="rec-file-upload" class="visually-hidden">Fichier audio ou vidéo à transcrire</label>
+    <!-- `video/*` en plus d'`audio/*` : l'enregistrement produit par Meet ou
+         Teams est un .mp4. Rien d'autre ne s'y opposait — la route
+         /audio/transcribe-file ne filtre ni l'extension ni le content-type, et
+         `_decode_to_pcm16k` passe par PyAV, agnostique du conteneur (vérifié en
+         lisant les deux, 2026-07-31). Repli quand la capture d'onglet n'a pas pu
+         être mise en place le jour de l'entretien. -->
+    <input type="file" id="rec-file-upload" accept="audio/*,video/*,.mp4,.m4a,.weba,.webm">
     <button class="btn" type="button" id="rec-file-upload-btn">Transcrire ce fichier</button>
   </div>
   <div class="autosave-line"><span class="muted" id="rec-backup-status"></span></div>
@@ -76,7 +111,10 @@
        ouverte (cf. uploadSegment/retryLostSegments). -->
   <div class="ai-error rec-lost-banner" id="rec-lost-banner" hidden>
     <span id="rec-lost-text"></span>
-    <button class="btn btn-sm" type="button" id="rec-lost-retry">↻ Relancer les segments perdus</button>
+    <button class="btn btn-sm" type="button" id="rec-lost-retry">↻ Relancer tous les segments</button>
+    <!-- Une ligne par segment non abouti + son bouton de relance — même
+         dispositif que record_libre.html (demande utilisateur 2026-07-30). -->
+    <ul class="rec-lost-list" id="rec-lost-list"></ul>
   </div>
 
   <!-- Échec de transcription d'un bloc d'import : le fichier est conservé côté
@@ -93,9 +131,13 @@
        (code no_speech du serveur) — même dispositif que record_libre.html, cas
        réel mission 16 (2026-07-30) : entretien à distance dont le micro
        n'entend pas le son du casque, ~100 min captées en quasi-silence sans
-       alerte visible. -->
+       alerte visible. Le bandeau PORTE le geste de réparation (demande
+       utilisateur 2026-07-31) : décrire le problème au moment où l'utilisateur
+       est en entretien et ne peut rien faire revient à ne rien dire. -->
   <div class="ai-error rec-lost-banner" id="rec-nospeech-banner" hidden>
     <span id="rec-nospeech-text"></span>
+    <button class="btn btn-sm" type="button" id="rec-nospeech-fix" hidden
+            title="Ouvre le partage d'onglet et bascule la transcription SANS interrompre l'enregistrement">⟳ Capter le son de la réunion</button>
   </div>
 
   <div class="rec-tabs" role="tablist">
@@ -189,6 +231,7 @@
   var lostBannerEl = document.getElementById('rec-lost-banner');
   var lostTextEl = document.getElementById('rec-lost-text');
   var lostRetryBtn = document.getElementById('rec-lost-retry');
+  var lostListEl = document.getElementById('rec-lost-list');
   var noSpeechBannerEl = document.getElementById('rec-nospeech-banner');
   var noSpeechTextEl = document.getElementById('rec-nospeech-text');
   var backupPathHidden = document.getElementById('rec-backup-path');
@@ -213,8 +256,24 @@
   // retente automatiquement selon ces délais, puis on garde le blob pour une
   // relance manuelle (bouton du bandeau).
   var SEGMENT_RETRY_DELAYS_MS = [2000, 6000, 15000];
-  var lostSegments = [];        // { id, blob, reason } — audio en attente de relance
+  // Nombre maximum de lignes de segments non aboutis affichées (cf.
+  // `refreshLostBanner`, même plafond que record_libre.html).
+  var LOST_LIST_MAX = 8;
+  // { id, blob, reason, blocking, gen } — audio en attente de relance. Depuis
+  // 2026-07-30, l'audio d'un 422 est conservé lui aussi (avant : jeté, marqueur
+  // définitif, aucun recours) — cf. le commentaire détaillé de
+  // record_libre.html : `blocking` vaut true seulement quand le segment n'a
+  // jamais atteint le serveur, seul cas où quitter l'écran perd la parole.
+  var lostSegments = [];
   var nextLostSegmentId = 1;
+  // Couvre le gate de soumission pendant qu'une file de relance contenant au
+  // moins un segment bloquant se vide (la file est vidée en tête de
+  // `retryLostSegments`, donc `lostSegments.length` retombe à 0 alors que des
+  // blobs sont encore en vol).
+  // COMPTEUR et non booléen (revue adversariale 2026-07-30, cf.
+  // record_libre.html) : deux drains de relance peuvent coexister, et une
+  // affectation booléenne laissait le second écraser l'état du premier.
+  var lostRetryBlocking = 0;
   // Upload de la sauvegarde audio en vol : gate la soumission pour ne pas poster
   // `audio_backup_path` vide (l'upload complet est plus lent que le dernier
   // segment de transcription -> submit s'activait avant sa fin). `finalizing`
@@ -354,7 +413,13 @@
   function updateSubmitState() {
     var hasTranscript = !!transcriptSoFar.trim();
     var busy = pendingSegments > 0 || pendingSegmentJobSubmits > 0 || pendingBackups > 0 || finalizing;
-    submitBtn.disabled = recordingActive || busy || !hasTranscript;
+    // Segment BLOQUANT en attente (audio jamais transmis, gardé en mémoire de
+    // l'onglet) : « Extraire » navigue, donc perdrait définitivement cette
+    // parole. Le gate existait sur record_libre.html depuis le 2026-07-29 et
+    // manquait ici, alors que le mécanisme de segments perdus est le même
+    // (parité libre/structuré). Un 422 conservé pour rejeu ne bloque pas.
+    var lost = lostSegments.some(function (s) { return s.blocking; }) || lostRetryBlocking > 0;
+    submitBtn.disabled = recordingActive || busy || lost || !hasTranscript;
     // Export PDF de la transcription disponible dès l'arrêt de l'enregistrement
     // (n'utilise que le texte, pas l'extraction IA) — sans attendre la
     // sauvegarde audio en cours.
@@ -400,27 +465,262 @@
   function noteNoSpeech() {
     noSpeechStreak++;
     if (noSpeechStreak < NOSPEECH_ALERT_AFTER) return;
+    // Le message PORTE l'action (demande utilisateur 2026-07-31) : à la 2e minute
+    // l'utilisateur est en entretien, il n'ira pas chercher un réglage.
+    // `remoteModeEl.checked` d'ABORD : sans cette condition, un entretien
+    // PRÉSENTIEL silencieux (mauvais placement du micro, pause) proposait lui
+    // aussi de « partager l'onglet de la réunion » — mélangeant confusion (il
+    // n'y a pas de réunion) et un bouton qui ouvre un sélecteur d'onglet sans
+    // rapport (revue adversariale 2026-07-31).
+    var reparable = remoteModeEl.checked && i2dAudioSource.supported() && !i2dAudioSource.tabActive();
     noSpeechTextEl.textContent = '⚠ Aucune parole détectée sur les ' + noSpeechStreak +
-      ' derniers segments (~' + noSpeechStreak + ' min). Vérifiez la source audio : ' +
-      'pour un entretien à distance (Meet/Teams), le micro ne capte PAS le son du casque — ' +
-      'la voix des autres participants n’est alors pas enregistrée.';
+      ' derniers segments (~' + noSpeechStreak + ' min). ' +
+      (reparable
+        ? "Si l'entretien est à distance (Meet/Teams), le micro ne capte PAS le son du casque : " +
+          "clique ci-contre, choisis l'onglet de la réunion et coche « Partager aussi l'audio de " +
+          "l'onglet ». L'enregistrement continue pendant l'opération."
+        : "Vérifie le micro sélectionné et le volume de la salle.");
+    noSpeechFixBtn.hidden = !reparable;
     noSpeechBannerEl.hidden = false;
   }
 
   function resetNoSpeech() {
     noSpeechStreak = 0;
     noSpeechBannerEl.hidden = true;
+    noSpeechFixBtn.hidden = true;
+  }
+
+  // ---- Source audio : présentiel (micro seul) ou à distance (micro + onglet) --
+  // Module partagé avec record_libre.html : /static/rec_audio_source.js.
+  var remoteModeEl = document.getElementById('rec-remote-mode');
+  var remotePanelEl = document.getElementById('rec-remote-panel');
+  var remoteHintEl = document.getElementById('rec-remote-hint');
+  var shareTabBtn = document.getElementById('rec-share-tab');
+  var bypassBtn = document.getElementById('rec-remote-bypass');
+  var tabRowEl = document.getElementById('rec-meter-row-tab');
+  var micMeterEl = document.getElementById('rec-meter-mic');
+  var tabMeterEl = document.getElementById('rec-meter-tab');
+  var micStateEl = document.getElementById('rec-mic-state');
+  var tabStateEl = document.getElementById('rec-tab-state');
+  var noSpeechFixBtn = document.getElementById('rec-nospeech-fix');
+  var remoteBypass = false;
+
+  i2dAudioSource.on({
+    levels: function (mic, tab) {
+      micMeterEl.style.width = Math.round(mic * 100) + '%';
+      tabMeterEl.style.width = Math.round(tab * 100) + '%';
+    },
+    tabLost: function () {
+      refreshSource();
+      if (recordingActive) {
+        noSpeechTextEl.textContent = "⚠ Le partage du son de la réunion s'est arrêté — la voix " +
+          "des participants n'est plus enregistrée. Repartage l'onglet : l'enregistrement continue.";
+        noSpeechFixBtn.hidden = !i2dAudioSource.supported();
+        noSpeechBannerEl.hidden = false;
+      }
+    }
+  });
+
+  /* Condition de démarrage : la PRÉSENCE de la piste audio d'onglet, jamais un
+     niveau sonore — au moment du réglage personne n'a encore parlé dans la
+     réunion, un critère de vumètre bloquerait indéfiniment. La piste absente est
+     exactement le mode d'échec réel (case « partager l'audio » non cochée). */
+  function sourceReady() {
+    return !remoteModeEl.checked || remoteBypass || i2dAudioSource.tabActive();
+  }
+
+  function refreshSource() {
+    var wanted = remoteModeEl.checked;
+    remotePanelEl.hidden = !wanted;
+    if (wanted) {
+      var ok = i2dAudioSource.tabActive();
+      tabRowEl.classList.toggle('ko', !ok);
+      tabStateEl.textContent = ok ? '✓ capté' : '✗ non capté';
+      tabStateEl.className = 'rec-source-state ' + (ok ? 'ok' : 'ko');
+      if (!i2dAudioSource.supported()) {
+        remoteHintEl.textContent = "Ce navigateur ne sait pas capter le son d'un onglet " +
+          "(Chrome ou Edge requis). Repli : mène l'entretien, puis importe ci-dessous " +
+          "l'enregistrement produit par Meet/Teams.";
+      } else if (ok) {
+        remoteHintEl.textContent = "Les deux sources sont captées. Fais dire un mot à ton " +
+          "interlocuteur pour voir bouger le second vumètre avant de démarrer.";
+      } else if (remoteBypass) {
+        remoteHintEl.textContent = "Dérogation active : l'entretien sera enregistré AU MICRO SEUL. " +
+          "La voix des participants distants ne sera pas captée.";
+      } else {
+        remoteHintEl.textContent = "Partage l'onglet de la réunion et coche « Partager aussi " +
+          "l'audio de l'onglet » dans la fenêtre du navigateur — sans cette case, seule ta " +
+          "voix sera enregistrée.";
+      }
+    }
+    if (!recordingActive) {
+      startBtn.disabled = !sourceReady();
+      startBtn.title = sourceReady() ? ''
+        : "Le son de la réunion n'est pas encore capté — partage l'onglet, ou utilise la dérogation.";
+    }
+  }
+
+  /* Bascule de source EN COURS d'enregistrement.
+     Deux cas, et ils n'ont pas le même coût :
+     • démarré en mode à distance → les enregistreurs sont déjà branchés sur la
+       sortie du mélangeur ; greffer la nouvelle source d'onglet est une simple
+       reconnexion WebAudio, `nouveau` est le MÊME objet MediaStream. Rien à
+       redémarrer, aucune tranche coupée.
+     • démarré au micro seul (réparation) → il faut faire relire `stream` aux
+       enregistreurs. `segmentRecorder` se relance seul dans son handler `stop`
+       (comme à chaque rotation 60 s), donc l'arrêter suffit et ne perd rien.
+       `backupRecorder`, LUI, NE SE RELANCE PAS sur cet écran (voir
+       startBackupRecorder : « l'arrêt du backup est toujours final ») et le
+       formulaire ne porte qu'UN seul chemin de sauvegarde — le découper ici
+       laisserait un fichier orphelin sur le disque. On le laisse donc courir sur
+       le micro jusqu'à la fin : le fichier de sauvegarde reste continu et
+       complet de ce qu'il a toujours capté, et c'est dit à l'écran. La
+       transcription, elle, bascule immédiatement sur la source complète. */
+  function swapSource(nouveau) {
+    var inchange = (nouveau === stream);
+    stream = nouveau;
+    if (!recordingActive || inchange) return false;
+    if (segmentRecorder && segmentRecorder.state === 'recording') segmentRecorder.stop();
+    return true;   // vrai = la sauvegarde audio, elle, n'a pas basculé
+  }
+
+  function demanderPartage(btn) {
+    var libelle = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = 'Partage en cours…';
+    return i2dAudioSource.shareTab().then(function (flux) {
+      var sauvegardeInchangee = swapSource(flux);
+      resetNoSpeech();
+      if (recordingActive) {
+        statusEl.textContent = sauvegardeInchangee
+          ? 'Enregistrement en cours — son de la réunion capté dans la transcription ' +
+            '(le fichier de sauvegarde audio de cette session reste sur le micro seul).'
+          : 'Enregistrement en cours — son de la réunion capté.';
+      }
+      remoteModeEl.checked = true;
+      remoteBypass = false;
+      refreshSource();
+    }).catch(function (err) {
+      remotePanelEl.hidden = false;
+      remoteHintEl.textContent = '⚠ ' + err.message;
+      if (recordingActive) noSpeechTextEl.textContent = '⚠ ' + err.message;
+      refreshSource();
+    }).finally(function () {
+      btn.disabled = false;
+      btn.textContent = libelle;
+    });
+  }
+
+  remoteModeEl.addEventListener('change', function () {
+    remoteBypass = false;
+    refreshSource();
+    if (!remoteModeEl.checked) return;
+    // `preflightMic`, pas `acquire(false)` qui n'appelle jamais `buildMix()`
+    // donc ne démarre aucun vumètre (revue adversariale 2026-07-31).
+    i2dAudioSource.preflightMic().then(function () {
+      micStateEl.textContent = '✓ capté';
+      micStateEl.className = 'rec-source-state ok';
+    }).catch(function (err) {
+      micStateEl.textContent = '✗ ' + err.message;
+      micStateEl.className = 'rec-source-state ko';
+    });
+  });
+
+  shareTabBtn.addEventListener('click', function () { demanderPartage(shareTabBtn); });
+  noSpeechFixBtn.addEventListener('click', function () { demanderPartage(noSpeechFixBtn); });
+
+  bypassBtn.addEventListener('click', function () {
+    if (!confirm("Démarrer au micro seul ?\n\nLa voix des participants distants ne sera PAS " +
+                 "enregistrée : la transcription ne contiendra que ce que dit le micro de ce poste.")) return;
+    remoteBypass = true;
+    refreshSource();
+  });
+
+  refreshSource();   // état initial déterministe
+
+  // Conserve l'audio d'un segment non abouti pour un rejeu manuel (même
+  // dispositif que record_libre.html). `gen` fige la session à laquelle cette
+  // parole appartient : une relance après « Recommencer » doit être rejetée par
+  // la garde de génération d'uploadSegment plutôt que de coller le texte d'une
+  // session abandonnée dans la nouvelle.
+  function keepLostSegment(blob, reason, lostId, blocking) {
+    var id = lostId || nextLostSegmentId++;
+    lostSegments.push({
+      id: id, blob: blob, reason: reason, blocking: !!blocking, gen: recGeneration,
+    });
+    if (!lostId) appendTranscript(lostMarker(id));  // marque la place du trou
+    refreshLostBanner();
   }
 
   function refreshLostBanner() {
     var n = lostSegments.length;
     lostBannerEl.hidden = n === 0;
-    lostRetryBtn.disabled = n === 0;
+    // Aucune relance PENDANT l'enregistrement (cf. record_libre.html) :
+    // `/audio/transcribe-segment` sérialise tout derrière le verrou du modèle
+    // Whisper, rejouer d'anciens segments retarderait la transcription en cours.
+    lostRetryBtn.disabled = n === 0 || recordingActive;
+    lostRetryBtn.title = recordingActive
+      ? 'À relancer une fois l’enregistrement arrêté : une relance pendant '
+        + 'l’entretien retarderait la transcription en direct.'
+      : '';
+    // Seule voie par laquelle l'état des segments perdus atteint le bouton
+    // « Extraire » (cf. le gate de updateSubmitState).
+    updateSubmitState();
+    lostListEl.textContent = '';
     if (!n) return;
+    var bloquants = lostSegments.filter(function (s) { return s.blocking; }).length;
     lostTextEl.textContent = n + ' segment' + (n > 1 ? 's' : '') + ' de transcription non abouti'
-      + (n > 1 ? 's' : '') + ' (' + lostSegments[n - 1].reason + '). L’audio est gardé en mémoire : '
-      + 'relance la transcription — le texte se remettra à sa place dans la transcription. '
-      + 'Ne ferme pas cet onglet avant, l’audio de ces segments ne survivrait pas.';
+      + (n > 1 ? 's' : '') + ' — relance ci-dessous, le texte se remettra à sa place dans la '
+      + 'transcription (là où figure son marqueur). '
+      + (bloquants
+          ? 'Ne ferme pas cet onglet avant : l’audio de ' + (bloquants > 1 ? 'ces ' + bloquants + ' segments' : 'ce segment')
+            + ' n’existe qu’ici.'
+          : 'Ces segments ont bien atteint le serveur, qui n’y a pas détecté de parole : '
+            + 'les rejouer rendra le même résultat tant que la transcription n’est pas '
+            + 'reconfigurée. Leur audio reste gardé ici au cas où.');
+    // Liste PLAFONNÉE (cf. record_libre.html) : jusqu'à un segment non abouti
+    // par minute sur un entretien à distance, la liste entière chassait le reste
+    // de l'écran. « Relancer tous les segments » couvre les plus anciens.
+    // Les BLOQUANTS d'abord, tous, puis les plus récents des autres (revue
+    // adversariale 2026-07-30) : garder simplement les 8 derniers masquait le
+    // seul segment dont la relance sert à quelque chose. Sur le profil réel
+    // (un échec technique isolé en minute 7, puis 90 « aucune parole » ensuite),
+    // l'unique ligne actionnable était invisible et la seule issue proposée
+    // relançait 90 segments qui rendront le même résultat par construction.
+    var bloquantsVisibles = lostSegments.filter(function (s) { return s.blocking; });
+    var muets = lostSegments.filter(function (s) { return !s.blocking; });
+    var place = Math.max(0, LOST_LIST_MAX - bloquantsVisibles.length);
+    // `place` PEUT valoir 0 (≥ LOST_LIST_MAX segments bloquants à eux seuls —
+    // le pire cas que ce plafond existe pour couvrir). `slice(-0)` n'est PAS
+    // "les 0 derniers éléments" : en JS, -0 === 0, donc `slice(-0)` équivaut à
+    // `slice(0)` et renvoie le tableau ENTIER — le plafond se désactivait tout
+    // seul exactement quand il devait le plus servir (revue adversariale
+    // 2026-07-31, trouvé indépendamment par les 2 chasseurs).
+    var visibles = bloquantsVisibles.concat(place > 0 ? muets.slice(-place) : []);
+    if (lostSegments.length > visibles.length) {
+      var info = document.createElement('li');
+      info.className = 'muted';
+      info.textContent = '… ' + (lostSegments.length - visibles.length)
+        + ' segment(s) sans parole détectée non affiché(s) — '
+        + (recordingActive
+            ? 'utilise « Relancer tous les segments » une fois l’enregistrement arrêté.'
+            : 'utilise « Relancer tous les segments ».');
+      lostListEl.appendChild(info);
+    }
+    visibles.forEach(function (seg) {
+      var li = document.createElement('li');
+      var label = document.createElement('span');
+      label.textContent = 'Segment ' + seg.id + ' — ' + seg.reason;
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-sm';
+      btn.textContent = '↻ Relancer le segment ' + seg.id;
+      btn.disabled = recordingActive;  // même verrou Whisper que la relance globale
+      btn.addEventListener('click', function () { retryLostSegments([seg.id]); });
+      li.appendChild(label);
+      li.appendChild(btn);
+      lostListEl.appendChild(li);
+    });
   }
 
   // Remet le texte récupéré À SA PLACE (là où le marqueur avait été posé), et
@@ -475,10 +775,20 @@
       });
   }
 
-  function retryLostSegments() {
+  // `onlyIds` : relance ciblée depuis le bouton d'une ligne. Sans argument,
+  // relance tout (bouton du bandeau).
+  function retryLostSegments(onlyIds) {
     if (!lostSegments.length) return;
-    var queue = lostSegments.slice();
-    lostSegments = [];
+    var queue, reste = [];
+    if (onlyIds && onlyIds.length) {
+      queue = lostSegments.filter(function (s) { return onlyIds.indexOf(s.id) >= 0; });
+      reste = lostSegments.filter(function (s) { return onlyIds.indexOf(s.id) < 0; });
+    } else {
+      queue = lostSegments.slice();
+    }
+    if (!queue.length) return;
+    lostSegments = reste;
+    lostRetryBlocking += queue.filter(function (s) { return s.blocking; }).length;
     refreshLostBanner();
     statusEl.textContent = 'Relance de ' + queue.length + ' segment' + (queue.length > 1 ? 's' : '') + '…';
     // EN SÉQUENCE, pas en rafale (revue adversariale 2026-07-29) : le scénario
@@ -488,20 +798,35 @@
     // le verrou du modèle Whisper.
     (function next() {
       var seg = queue.shift();
-      if (!seg) return;
-      uploadSegment(seg.blob, 0, seg.id, undefined, next);
+      if (!seg) {
+        refreshLostBanner();  // relève le gate si tout a abouti
+        return;
+      }
+      uploadSegment(seg.blob, 0, seg.id, seg.gen, function () {
+        // Décompté à l'aboutissement de CE segment, jamais à la fin de la file.
+        if (seg.blocking) lostRetryBlocking = Math.max(0, lostRetryBlocking - 1);
+        next();
+      });
     })();
   }
 
-  lostRetryBtn.addEventListener('click', retryLostSegments);
+  // Fonction anonyme : l'écouteur passerait sinon le MouseEvent en `onlyIds`.
+  lostRetryBtn.addEventListener('click', function () { retryLostSegments(); });
 
   // Le bandeau prévient « ne ferme pas cet onglet » mais rien ne l'empêchait
   // (revue adversariale 2026-07-29) : les blobs des segments perdus ne vivent
   // qu'en mémoire de l'onglet — fermer pendant qu'il en reste (ou en cours
   // d'enregistrement) détruit la seule copie de ces minutes de parole. Le
   // navigateur affiche sa confirmation générique de sortie.
+  // Uniquement pour les segments BLOQUANTS : un 422 conservé pour rejeu a déjà
+  // été transcrit côté serveur, avertir à chaque sortie (y compris au clic
+  // « Extraire ») rendrait l'alerte insupportable donc ignorée.
+  // `lostRetryBlocking` compte AUTANT que la file (cf. record_libre.html) :
+  // `retryLostSegments` vide `lostSegments` en tête, donc pendant la relance
+  // d'un segment bloquant le blob n'existe qu'en vol et la file est déjà vide.
   window.addEventListener('beforeunload', function (e) {
-    if (!lostSegments.length && !recordingActive) return;
+    if (!lostSegments.some(function (s) { return s.blocking; }) && !lostRetryBlocking
+        && !recordingActive) return;
     e.preventDefault();
     e.returnValue = '';
   });
@@ -538,13 +863,28 @@
       if (gen !== recGeneration) { settle(); return; }
       if (attempt + 1 < SEGMENT_RETRY_DELAYS_MS.length) {
         statusEl.textContent = 'Segment non transmis (' + reason + ') — nouvelle tentative…';
-        setTimeout(function () { uploadSegment(blob, attempt + 1, lostId, gen, onSettle); }, SEGMENT_RETRY_DELAYS_MS[attempt]);
+        // Garde de génération RE-TESTÉE au réveil, pas seulement à la
+        // programmation (revue adversariale 2026-07-30) : un échec survenu juste
+        // avant un « Recommencer » ou un nouveau démarrage envoyait sinon 1 à 2
+        // POST pendant le NOUVEL enregistrement, en concurrence avec les segments
+        // en direct sur le verrou du modèle Whisper — pour un résultat de toute
+        // façon jeté par la garde de génération à la réception.
+        setTimeout(function () {
+          // `recGeneration`, pas `backupGeneration` : CET écran n'a pas de
+          // sauvegarde par tranches (cf. le commentaire de swapSource plus haut),
+          // donc pas de compteur de génération séparé pour elle — une seule
+          // génération couvre tout, comme partout ailleurs dans ce fichier.
+          // `backupGeneration` n'existe nulle part ici ; l'appeler levait
+          // ReferenceError à CHAQUE retry transitoire — la relance n'avait
+          // jamais lieu, et `settle()` n'étant pas atteint non plus,
+          // `pendingSegments` restait bloqué et « Envoyer » gelé pour de bon
+          // (trouvé en triage 2026-07-31, avant tout commit).
+          if (gen !== recGeneration) { settle(); return; }
+          uploadSegment(blob, attempt + 1, lostId, gen, onSettle);
+        }, SEGMENT_RETRY_DELAYS_MS[attempt]);
         return;  // pendingSegments reste tenu par la tentative initiale
       }
-      var id = lostId || nextLostSegmentId++;
-      lostSegments.push({ id: id, blob: blob, reason: reason });
-      if (!lostId) appendTranscript(lostMarker(id));  // marque la place du trou
-      refreshLostBanner();
+      keepLostSegment(blob, reason, lostId, true);  // bloquant : seule copie de cette parole
       settle();
     }
 
@@ -565,12 +905,20 @@
         }
         var detail = result.data.error || result.data.detail || 'erreur inconnue';
         if (result.status >= 500) { retryOrGiveUp(detail); return; }
-        // 422 : Whisper n'a pas su décoder CET audio (silence, flux tronqué) —
-        // une relance rendrait la même chose, on ne la propose pas.
-        if (result.data.code === 'no_speech') noteNoSpeech();
-        console.error('segment de transcription perdu', result.data);
-        if (lostId) replaceLostMarker(lostId, '⚠ [segment perdu : ' + detail + ']');
-        else appendTranscript('⚠ [segment perdu : ' + detail + ']');
+        // 422 : le serveur a reçu l'audio mais n'a rendu aucun texte. DEUX
+        // natures (le serveur répond 422 pour TOUT `TranscriptionError`, cf. le
+        // commentaire détaillé de record_libre.html) : 'no_speech' = analysé,
+        // aucune parole -> rejeu inutile tant que la source ne change pas, NON
+        // bloquant ; tout autre 422 = le traitement a échoué sur un audio
+        // intact (worker Whisper tué, flux vide) -> relance utile, et ce blob
+        // est la seule copie de cette parole, donc BLOQUANT.
+        // `!lostId` : une relance ne compte pas dans la série de segments muets
+        // consécutifs (sinon relancer N vieux segments annonce « aucune parole
+        // depuis ~N min » sur du passé rejoué).
+        var muet = result.data.code === 'no_speech';
+        if (muet && !lostId) noteNoSpeech();
+        console.error('segment de transcription non abouti', result.data);
+        keepLostSegment(blob, detail, lostId, !muet);
         settle();
       })
       .catch(function (err) {
@@ -873,8 +1221,18 @@
         !confirm('Un texte transcrit est déjà présent — le remplacer par un nouvel enregistrement ?')) {
       return;
     }
+    // Garde de fond : le bouton est déjà désactivé tant que la source n'est pas
+    // prête, mais on ne démarre JAMAIS un entretien à distance sans son d'onglet
+    // par un autre chemin (rappel programmatique, restauration de page).
+    if (!sourceReady()) {
+      refreshSource();
+      statusEl.textContent = "Le son de la réunion n'est pas encore capté.";
+      return;
+    }
     startBtn.disabled = true;
-    navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
+    // Mode à distance : rend le MÉLANGE micro + onglet ; sinon le micro brut,
+    // exactement comme avant (le présentiel ne paie rien pour cette nouveauté).
+    i2dAudioSource.acquire(remoteModeEl.checked && !remoteBypass).then(function (s) {
       stream = s;
       recordingActive = true;
       finalizing = false;
@@ -893,6 +1251,9 @@
       backupStatusEl.textContent = '';
       audioPlaybackEl.hidden = true;
       lostSegments = [];
+      // Le drapeau aussi (cf. record_libre.html) : une relance en vol au moment
+      // du reset le laissait à `true` sur un état par ailleurs remis à zéro.
+      lostRetryBlocking = 0;
       refreshLostBanner();
       resetNoSpeech();
       hideFileRetry();
@@ -915,6 +1276,13 @@
       startBtn.hidden = true;
       stopBtn.hidden = false;
       resetBtn.hidden = true;
+      // Verrouillée pendant l'enregistrement : décocher ne coupait rien (le
+      // flux réellement enregistré reste le mélange en cours), cocher ouvre
+      // un panneau dont le seul effet utile pendant l'enregistrement — le
+      // bouton « Partager l'onglet » — existe déjà, identique, dans le
+      // bandeau no-speech. Cocher/décocher ici ne ferait donc que désynchroniser
+      // l'écran de ce qui est réellement capté (revue adversariale 2026-07-31).
+      remoteModeEl.disabled = true;
       statusEl.textContent = 'Enregistrement en cours…';
       updateSubmitState();
     }).catch(function (err) {
@@ -939,12 +1307,23 @@
     if (segmentRecorder && segmentRecorder.state === 'recording') segmentRecorder.stop();
     if (backupRecorder && backupRecorder.state === 'recording') backupRecorder.stop();
     stream.getTracks().forEach(function (t) { t.stop(); });
+    // Libère AUSSI le micro et le partage d'onglet : en mode à distance `stream`
+    // est la sortie du mélangeur, arrêter ses pistes ne coupe ni le micro ni le
+    // partage — le navigateur afficherait « cet onglet est partagé » pour rien.
+    i2dAudioSource.release();
     stopBtn.hidden = true;
     startBtn.hidden = false;
-    startBtn.disabled = false;
     resetBtn.hidden = false;
+    remoteModeEl.disabled = false;
+    // Rouvre le bouton en respectant la garde de source (et non `disabled = false`
+    // en dur : une reprise en mode à distance doit repartager l'onglet, le
+    // précédent ayant été libéré ci-dessus).
+    refreshSource();
     statusEl.textContent = 'Enregistrement terminé — transcription du dernier segment en cours…';
     updateSubmitState();
+    // Rouvre les boutons de relance, gelés pendant l'enregistrement (cf.
+    // record_libre.html).
+    refreshLostBanner();
   });
 
   resetBtn.addEventListener('click', function () {
@@ -967,6 +1346,7 @@
     // L'audio des segments non aboutis n'a plus de place où revenir
     // (transcription remise à zéro) : on l'abandonne avec elle.
     lostSegments = [];
+    lostRetryBlocking = 0;
     refreshLostBanner();
     resetNoSpeech();
     hideFileRetry();

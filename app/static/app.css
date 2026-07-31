@@ -553,11 +553,49 @@ input[type=text].turn-section-input:placeholder-shown {
 
 .record-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 14px; }
 .rec-timer { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text); }
+
+/* Choix de la source audio (présentiel = micro seul / à distance = micro + son
+   de l'onglet Meet-Teams). Les vumètres ne servent qu'à CONFIRMER à l'œil que
+   les deux sources vivent : le blocage du démarrage, lui, repose sur la
+   présence réelle de la piste audio d'onglet, pas sur un niveau — au moment du
+   réglage personne n'a encore parlé dans la réunion. */
+.rec-source { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+.rec-source-panel { margin-top: 10px; }
+.rec-source-actions { margin-bottom: 0; }
+.rec-meter-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; font-size: .92rem; }
+.rec-meter-row > span:first-child { min-width: 116px; }
+.rec-meter { flex: 1; max-width: 220px; height: 9px; border-radius: 5px;
+  background: rgba(0, 0, 0, .1); overflow: hidden; }
+.rec-meter > i { display: block; height: 100%; width: 0; border-radius: 5px;
+  background: var(--accent); transition: width .1s linear; }
+.rec-meter-row.ko > span:first-child { color: var(--danger, #b3261e); font-weight: 600; }
+.rec-meter-row.ko .rec-meter > i { background: var(--danger, #b3261e); }
+.rec-source-state { font-size: .88rem; }
+.rec-source-state.ok { color: var(--accent-dark); }
+.rec-source-state.ko { color: var(--danger, #b3261e); font-weight: 600; }
+.rec-source-hint { font-size: .88rem; margin: 8px 0 0; }
+/* Dérogation : possible, mais il faut la vouloir — jamais un bouton de même
+   poids que « Démarrer », sinon on retombe sur le clic distrait qui a coûté
+   1h40 muettes (mission 16). */
+.rec-source-bypass { font-size: .85rem; background: none; border: none; padding: 0;
+  color: var(--muted); text-decoration: underline; cursor: pointer; font-family: inherit; }
+.rec-source-bypass:hover { color: var(--text); }
 .record-audio-player { max-width: 100%; vertical-align: middle; margin-right: 10px; }
 /* Une tranche audio (entretien > 20 min, plusieurs sauvegardes) : label +
    lecteur + lien de téléchargement sur une ligne, séparées verticalement. */
 .audio-segment { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 6px 0; }
 .audio-segment + .audio-segment { border-top: 1px solid var(--border, #e2e2e2); }
+
+/* Segments de transcription non aboutis : une ligne par segment, avec son
+   bouton de relance « en bout de ligne » (la transcription étant un textarea
+   en lecture seule, le bouton ne peut pas vivre à côté du marqueur dans le
+   texte lui-même). */
+.rec-lost-list { list-style: none; margin: 8px 0 0; padding: 0; }
+.rec-lost-list li {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: 8px; padding: 4px 0; font-size: .9rem;
+}
+.rec-lost-list li + li { border-top: 1px solid rgba(0, 0, 0, .08); }
 
 /* Onglets de l'écran d'enregistrement libre : Transcription | Répartition (Q/R) live. */
 .rec-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-top: 12px; }

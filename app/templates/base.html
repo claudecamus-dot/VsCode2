@@ -14,6 +14,23 @@
   <script src="/static/tabs.js" defer></script>
   <script src="/static/autosave.js" defer></script>
   <script src="/static/busy.js" defer></script>
+  {# Source audio des écrans d'enregistrement (micro seul, ou micro + son de
+     l'onglet pour un entretien à distance). Partagé entre record.html et
+     record_libre.html : dupliqué, il n'aurait été corrigé que d'un côté.
+     SANS `defer`, à la différence des scripts ci-dessus : `record*.html`
+     consomment `window.i2dAudioSource` de façon SYNCHRONE, au chargement de
+     leur propre <script> inline (non différé, lui aussi). Un script `defer`
+     ne s'exécute qu'une fois tout le document parsé — donc APRÈS un <script>
+     inline plus bas dans le <body> — `i2dAudioSource` y serait `undefined`
+     (`ReferenceError`, confirmé par une revue adversariale au rendu réel
+     2026-07-31 : l'exception coupait l'IIFE de configuration avant même
+     l'inscription des écouteurs Démarrer/Arrêter/Envoyer — écran entier
+     inerte, pas seulement la nouveauté). Chargé ici, tôt dans <head> et sans
+     `defer`, il s'exécute immédiatement à l'analyse — avant que le <body> (et
+     donc le <script> inline qui le consomme) ne soit même atteint. Ne
+     manipule aucun DOM à l'exécution (juste `window.i2dAudioSource = {...}`),
+     donc rien ne justifie d'attendre la fin du parsing comme les autres. #}
+  <script src="/static/rec_audio_source.js"></script>
 </head>
 <body>
   {% if est_mode_demo(request) %}

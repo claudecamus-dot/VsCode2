@@ -17,6 +17,7 @@ vrai Whisper, blocs multiples) a été faite séparément avec
 from __future__ import annotations
 
 import io
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -701,8 +702,17 @@ def test_les_deux_ecrans_importent_par_blocs(client, chemin, monkeypatch):
     #    texte de la session abandonnée) ;
     assert "genArg" in html
     assert "uploadSegment(blob, attempt + 1, lostId, gen, onSettle)" in html
-    # 2. les segments perdus se relancent EN SÉQUENCE, pas en rafale ;
-    assert "uploadSegment(seg.blob, 0, seg.id, undefined, next)" in html
+    # 2. les segments perdus se relancent EN SÉQUENCE, pas en rafale — et depuis
+    #    le 2026-07-30 en héritant de la génération FIGÉE sur l'entrée conservée
+    #    (`seg.gen`, non plus `undefined` qui relisait la génération courante :
+    #    une relance déclenchée après un « Recommencer » collait le texte de la
+    #    session abandonnée dans la nouvelle transcription). Le callback est
+    #    depuis devenu une fonction anonyme qui décompte `lostRetryBlocking` AVANT
+    #    de rappeler `next()` (revue adversariale 2026-07-30 : le décompte doit
+    #    arriver à l'aboutissement de CE segment, jamais à la fin de la file,
+    #    sinon un drain concurrent remet le compte d'un autre à zéro) ;
+    assert "uploadSegment(seg.blob, 0, seg.id, seg.gen, function () {" in html
+    assert "next();" in html
     # 3. un submit en vol se recale du texte récupéré inséré avant son curseur ;
     assert "coverShift" in html
     # 4. la position de job est minée d'avance (jamais deux jobs à égalité) ;
@@ -711,6 +721,55 @@ def test_les_deux_ecrans_importent_par_blocs(client, chemin, monkeypatch):
     assert "fileRetryInFlight" in html
     # 6. fermer l'onglet avec des segments perdus en mémoire se confirme.
     assert "beforeunload" in html
+
+
+@pytest.mark.parametrize("chemin", ["record-libre", "record"])
+def test_r1_toute_garde_de_generation_cite_une_variable_reellement_declaree(
+    client, chemin, monkeypatch
+) -> None:
+    """RÉGRESSION R1 — trouvé par triage superviseur le 2026-07-31, avant tout
+    commit (donc jamais servi en production), échoue sur le code d'avant.
+
+    `record.html` contenait `if (gen !== backupGeneration) { settle(); return; }`
+    dans le `setTimeout` de reprise de `retryOrGiveUp` (`uploadSegment`) — copié
+    de `record_libre.html` sans renommage. `backupGeneration` n'existe nulle
+    part dans `record.html` (cet écran n'a pas de sauvegarde par tranches, donc
+    pas de compteur de génération séparé pour elle) : `ReferenceError` à CHAQUE
+    retry transitoire (Wi-Fi coupé, machine en veille, 5xx passager sur
+    `/audio/transcribe-segment`). Deux effets, tous deux invisibles à l'écran :
+    la relance n'a jamais lieu (le texte transcrit de ce segment est
+    définitivement perdu, sans même le trou marqué qu'un échec normal laisse),
+    et `settle()` n'étant pas atteint sur cette branche non plus,
+    `pendingSegments` reste bloqué — le bouton d'envoi/extraction gèle
+    DÉFINITIVEMENT, seule issue « Recommencer » (qui jette tout le texte déjà
+    transcrit).
+
+    Généralisé plutôt que codé en dur sur ce seul couple de noms (les deux
+    écrans n'ont pas le même jeu — `record_libre.html` a EN PLUS
+    `backupGeneration`, pour sa sauvegarde par tranches que `record.html` n'a
+    pas) : extrait toute variable référencée dans une garde `gen !== X`\
+    `gen === X` du script rendu, et vérifie qu'elle est bien déclarée
+    (`var X = ...`) quelque part dans ce MÊME script. Attrape ce bug précis et
+    tout copier-coller futur du même genre entre les deux écrans."""
+    monkeypatch.setattr(audio_transcribe, "is_available", lambda: True)
+    mission_id = _mission_id()
+    html = client.get(f"/missions/{mission_id}/interviews/{chemin}").text
+    script = html[html.find("<script") :]
+
+    referencees = set(re.findall(r"gen\s*[!=]==\s*(\w+)", script))
+    # `gen` lui-même est la variable comparée, pas une variable de génération ;
+    # et `undefined`/`genArg` sont des cas légitimes déjà couverts ailleurs
+    # (paramètre de fonction, jamais une variable globale de session).
+    referencees -= {"gen", "undefined", "genArg"}
+    assert referencees, "aucune garde de génération trouvée — la regex a dérivé"
+
+    declarees = set(re.findall(r"var\s+(\w+)\s*=\s*0;", script))
+    manquantes = referencees - declarees
+    assert not manquantes, (
+        f"{chemin} compare `gen` à {sorted(manquantes)}, jamais déclarée(s) dans "
+        "ce script — ReferenceError garanti au premier appel de ce chemin "
+        "(variable probablement empruntée à l'autre écran par copier-coller)."
+    )
 
 
 def test_record_structure_recupere_les_segments_dans_la_bonne_nature(client, monkeypatch):
