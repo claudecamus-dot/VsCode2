@@ -91,6 +91,22 @@ def test_les_deux_ecrans_proposent_le_mode_entretien_a_distance(client: TestClie
         assert 'id="rec-share-tab"' in html, nom
 
 
+def test_les_deux_ecrans_rappellent_le_consentement_des_participants_distants(
+    client: TestClient,
+) -> None:
+    """Point §5 de docs/reflexions/enregistrement-visio-meet-teams.md resté sans
+    réponse à la livraison du mode à distance (2026-07-31, arbitré ensuite : simple
+    rappel non bloquant plutôt qu'une case à cocher bloquante). Affiché dans le
+    panneau qui apparaît quand l'utilisateur active ce mode — l'endroit naturel
+    identifié par la réflexion, pas une mention perdue ailleurs sur l'écran."""
+    # "participants distants" seul existe déjà ailleurs sur l'écran (messages
+    # d'erreur/dérogation JS) : l'assertion doit cibler le rappel lui-même, pas
+    # une occurrence incidente, sans quoi elle ne romprait pas sur le code d'avant.
+    for nom, html in _ecrans(client).items():
+        assert "Informe les participants distants" in html, nom
+        assert "obtiens leur accord avant de démarrer" in html, nom
+
+
 def test_les_deux_ecrans_affichent_un_vumetre_par_source(client: TestClient) -> None:
     """Les deux sources sont montrées séparément : c'est ce qui permet de voir,
     avant de démarrer, laquelle des deux est muette."""
