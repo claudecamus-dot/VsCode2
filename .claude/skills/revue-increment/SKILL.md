@@ -93,10 +93,15 @@ ci-dessus plutôt que d'en dupliquer la logique.
 - [ ] `pytest -q` passe, et le compte de tests a **augmenté** si du comportement
       a été ajouté (sinon : pourquoi ?).
 - [ ] **Verdict lu sur la ligne de synthèse *réelle* de `pytest`** (`N passed`,
-      `0 failed`, aucune `error`) — jamais un résumé filtré, ni un
+      `0 failed`, `0 skipped`, aucune `error`) — jamais un résumé filtré, ni un
       `[100%]` de sortie tronquée, ni l'exit code seul (bruit de teardown Windows,
       désormais neutralisé dans `tests/conftest.py`). En cas de doute, rediriger
       toute la sortie dans un fichier et la lire.
+- [ ] **Un `skipped` n'est pas un `passed`.** Sur une suite qui porte une
+      vérification réelle (rendu, ouverture COM, screenshot), un skip vaut
+      **vérification NON FAITE** : lever la cause et relancer, jamais conclure.
+      Le temps d'exécution est un signal secondaire fiable — une suite qui passe
+      de 18 s à 9 minutes a changé de comportement même si la ligne reste verte.
       cf. [[feedback-pytest-windows-teardown-noise]],
       [[feedback-rtk-pytest-false-no-tests-collected]], [[feedback-bash-tmp-path-and-encoding]].
 - [ ] **Une suite verte qui *mocke* l'intégration modifiée prouve la logique, pas

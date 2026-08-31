@@ -80,7 +80,7 @@ PPT complète (cadres photo, polish, passe design).
       "modele": "(session)",
       "contrat": {
         "type": "deterministe",
-        "critere": "verdict lu sur la ligne de synthèse RÉELLE de pytest (N passed / 0 failed / 0 error) — jamais sur un résumé filtré ni un [100%] de sortie tronquée ; compter les points, pas le code retour (bruit de teardown Windows connu) ; en cas de doute, rediriger toute la sortie dans un fichier",
+        "critere": "verdict lu sur la ligne de synthèse RÉELLE de pytest (N passed / 0 failed / 0 error / 0 skipped) — jamais sur un résumé filtré ni un [100%] de sortie tronquée ; compter les points, pas le code retour (bruit de teardown Windows connu) ; un `skipped` non nul sur une suite qui porte une vérification réelle (rendu, ouverture COM, screenshot) vaut VÉRIFICATION NON FAITE — lever la cause et relancer, jamais conclure ; le temps d'exécution est un signal secondaire fiable (une suite qui passe de 18 s à 9 min a changé de comportement, ligne verte ou non) ; en cas de doute, rediriger toute la sortie dans un fichier",
         "commande": "pytest -q"
       },
       "checkpoint": false
