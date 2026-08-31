@@ -28,6 +28,7 @@ de job traite le job avant de rendre la main.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from html import unescape
 
 import pytest
 from fastapi.testclient import TestClient
@@ -659,3 +660,163 @@ def test_record_libre_does_not_drop_a_fresh_running_sibling_job(
     assert "Tranche 0 déjà traitée" in resp.text
     assert "Tranche 1 récupérée malgré tout" in resp.text  # sinon : perdue
     assert "Tranche 2 récupérée" in resp.text
+
+
+# --------------------------------------------------------------------------- #
+# Revue du 2026-08-31 — le chemin NOMINAL du mode libre n'avait aucun des deux
+# garde-fous posés le 2026-07-31 (d36aef6) sur `retranscrire_appliquer` :
+# ni plafond de récupération, ni détection de perte partielle. Le mode
+# paramétré (`interviews.py`, chemin frère) bloquait déjà sur `still_ko`.
+# --------------------------------------------------------------------------- #
+
+
+def test_record_libre_bloque_quand_une_tranche_reste_en_echec(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Perte PARTIELLE signalée (revue du 2026-08-31). Avant : seul le cas
+    100 % vide était détecté ; avec 1 tranche sur 3 restée en échec, l'entretien
+    était créé `status="done"` amputé de ces 5 minutes, SANS message, sans log,
+    et le `delete_segment_jobs` de la fin détruisait le texte qui les portait.
+
+    Le test échoue sur le code d'avant : la réponse était une redirection 303
+    vers l'entretien créé, pas la page d'erreur."""
+    mission_id = _make_draft_mission()
+    db = SessionLocal()
+    db.add(InterviewSegmentJob(session_token="partiel-tok", position=0, status="done",
+                               text="tranche 0 réussie",
+                               turns_result=_turns_payload("Alice", "Q0")))
+    db.add(InterviewSegmentJob(session_token="partiel-tok", position=1, status="failed",
+                               text="tranche 1 irrécupérable", error="Ollama saturé"))
+    db.commit()
+    db.close()
+
+    def _boom(text):
+        raise interview_segment_jobs.InterviewLibreExtractAIError("Ollama saturé")
+
+    monkeypatch.setattr(interview_segment_jobs, "extract_turns_from_text", _boom)
+    monkeypatch.setattr(interviews_router, "extract_turns_from_text", _boom)
+
+    resp = client.post(
+        f"/missions/{mission_id}/interviews/record-libre",
+        data={"transcript": "un entretien", "session_token": "partiel-tok", "segment_tail": ""},
+    )
+    # Page d'erreur, PAS la création silencieuse d'un entretien amputé.
+    assert resp.status_code == 200
+    assert "MANQUERAIT" in resp.text
+    # Aucune tranche récupérée sur cet envoi : le message doit le dire, et non
+    # laisser croire à un progrès (revue adversariale 2026-08-31).
+    # Fragment sans apostrophe : Jinja échappe `'` en `&#39;` dans le rendu.
+    assert "récupérée sur cet envoi" in resp.text
+    assert "Ollama saturé" in resp.text  # l'erreur du job reste resurfacée
+
+    # Les jobs SURVIVENT : la tranche réussie n'est pas re-traitée à la relance,
+    # et le texte de la tranche en échec n'est pas détruit.
+    db = SessionLocal()
+    restants = db.scalars(
+        select(InterviewSegmentJob).where(InterviewSegmentJob.session_token == "partiel-tok")
+    ).all()
+    assert len(restants) == 2, "les jobs ne doivent pas être supprimés sur ce chemin"
+    assert any(j.text == "tranche 1 irrécupérable" for j in restants)
+    db.close()
+
+
+def test_record_libre_plafonne_la_recuperation_synchrone(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Récupération PLAFONNÉE (revue du 2026-08-31), parité avec
+    `retranscrire_appliquer`. Avant : `recover_stalled_or_failed_jobs(db,
+    status["jobs"])` retraitait TOUTES les tranches non abouties dans la requête
+    HTTP — sur un entretien de 2 h avec Ollama saturé, 24 × (timeout + relance)
+    dans un seul POST, soit des heures de requête bloquée avant une page
+    d'erreur, l'entretien n'existant pas encore en base.
+
+    Le test échoue sur le code d'avant : 6 appels au lieu de 3."""
+    from app.routers.interviews import RECUP_TRANCHES_MAX
+
+    mission_id = _make_draft_mission()
+    db = SessionLocal()
+    for pos in range(6):
+        db.add(InterviewSegmentJob(session_token="plafond-tok", position=pos,
+                                   status="failed", text=f"tranche {pos}",
+                                   error="Ollama saturé"))
+    db.commit()
+    db.close()
+
+    appels: list[str] = []
+
+    def _boom(text):
+        appels.append(text)
+        raise interview_segment_jobs.InterviewLibreExtractAIError("Ollama saturé")
+
+    monkeypatch.setattr(interview_segment_jobs, "extract_turns_from_text", _boom)
+    monkeypatch.setattr(interviews_router, "extract_turns_from_text", _boom)
+
+    resp = client.post(
+        f"/missions/{mission_id}/interviews/record-libre",
+        data={"transcript": "un entretien long", "session_token": "plafond-tok", "segment_tail": ""},
+    )
+    assert resp.status_code == 200
+    assert len(appels) <= RECUP_TRANCHES_MAX, (
+        f"{len(appels)} tranches retraitées dans un seul POST — le plafond "
+        f"({RECUP_TRANCHES_MAX}) ne s'applique pas au chemin libre direct"
+    )
+
+
+def test_record_libre_enregistre_quand_meme_sur_derogation_explicite(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Porte de sortie (arbitrage utilisateur 2026-08-31). Le blocage introduit
+    le même jour protège la matière, mais il coinçait la séance : avec un service
+    d'IA durablement indisponible ET au moins une tranche aboutie, l'entretien
+    devenait DÉFINITIVEMENT non enregistrable — seules issues « Recommencer »
+    (qui détruit la transcription) ou l'export PDF.
+
+    Le bouton « Enregistrer quand même » poste `ignorer_tranches_manquantes` ; la
+    dérogation ne vaut que sur ce geste, jamais par défaut. Ce qui a abouti est
+    conservé, et le texte des tranches perdues reste dans `raw_transcript`."""
+    from app.models import Interview
+
+    mission_id = _make_draft_mission()
+    db = SessionLocal()
+    db.add(InterviewSegmentJob(session_token="derog-tok", position=0, status="done",
+                               text="tranche 0 réussie",
+                               turns_result=_turns_payload("Alice", "Q0")))
+    db.add(InterviewSegmentJob(session_token="derog-tok", position=1, status="failed",
+                               text="tranche 1 irrécupérable", error="Ollama saturé"))
+    db.commit()
+    db.close()
+
+    def _boom(text):
+        raise interview_segment_jobs.InterviewLibreExtractAIError("Ollama saturé")
+
+    monkeypatch.setattr(interview_segment_jobs, "extract_turns_from_text", _boom)
+    monkeypatch.setattr(interviews_router, "extract_turns_from_text", _boom)
+
+    commun = {"transcript": "la transcription complète de l entretien",
+              "session_token": "derog-tok", "segment_tail": ""}
+
+    # Sans la dérogation : refus (le garde-fou tient).
+    refus = client.post(
+        f"/missions/{mission_id}/interviews/record-libre/enregistrer", data=commun
+    )
+    assert refus.status_code == 200 and "MANQUERAIT" in refus.text
+    # ... et la page propose bien la sortie, avec son décompte.
+    assert "ignorer_tranches_manquantes" in refus.text
+    assert "Enregistrer quand même (1 tranche manquante)" in unescape(refus.text)
+
+    # Avec la dérogation : l'entretien est créé.
+    ok = client.post(
+        f"/missions/{mission_id}/interviews/record-libre/enregistrer",
+        data={**commun, "ignorer_tranches_manquantes": "1"}, follow_redirects=False,
+    )
+    assert ok.status_code == 303, ok.text[:400]
+
+    db = SessionLocal()
+    interview = db.scalars(
+        select(Interview).where(Interview.mission_id == mission_id)
+    ).one()
+    # La tranche aboutie est conservée ; la perdue manque au tour de table mais
+    # son texte survit dans la transcription brute.
+    assert [t.question for t in interview.turns] == ["Q0"]
+    assert "la transcription complète" in interview.raw_transcript
+    db.close()

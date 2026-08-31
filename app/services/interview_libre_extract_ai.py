@@ -328,35 +328,13 @@ _SYNTHESE_SYSTEM = (
     "sujets abordés."
 )
 
-_SYNTHESE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "repartition": {
-            "type": "object",
-            "properties": {
-                "contexte": {"type": "string"},
-                "culture_adn": {"type": "string"},
-                "forces_succes": {"type": "string"},
-                "points_amelioration": {"type": "string"},
-                "aspirations": {"type": "string"},
-            },
-            "required": [
-                "contexte", "culture_adn", "forces_succes",
-                "points_amelioration", "aspirations",
-            ],
-            "additionalProperties": False,
-        },
-        "resume": {"type": "string"},
-    },
-    "required": ["repartition", "resume"],
-    "additionalProperties": False,
-}
-
-_SYNTHESE_JSON_HINT = (
-    '\nRéponds UNIQUEMENT par un objet JSON aux clés "repartition" (objet '
-    'aux 5 clés contexte/culture_adn/forces_succes/points_amelioration/'
-    'aspirations) et "resume" (chaîne, 1-3 phrases).'
-)
+# Le schéma et le hint de l'étape « synthèse » n'ont PAS de forme statique : ils
+# se construisent sur les axes de la mission (`_synthese_schema` / `_synthese_json_hint`
+# plus bas). Les deux constantes figées qui vivaient ici — copies des 5 rubriques
+# historiques — ont été retirées le 2026-08-31 : le *reduce* les utilisait encore et
+# demandait donc les anciennes clés pendant qu'on relisait sa réponse sur les axes,
+# ce qui vidait toute la répartition en silence. Ne pas les réintroduire : sur des
+# axes personnalisés, une constante figée est FAUSSE par construction.
 
 
 def repartition_keys(axes=None) -> tuple:
@@ -460,6 +438,24 @@ _REDUCE_SYSTEM = (
 )
 
 
+def _reduce_system(axes=None) -> str:
+    """Même adaptation aux axes que `_synthese_system` pour l'étape de fusion.
+
+    Sans elle, le *reduce* demandait les 5 rubriques historiques pendant que
+    `_reduce_partial_syntheses` relisait le résultat avec `repartition_keys(axes)` :
+    sur une mission aux axes renommés, TOUTES les valeurs sortaient vides, sans
+    erreur (revue du 2026-08-31, reproduit — 3 tronçons + axes personnalisés =
+    0 clé remplie sur 2). La migration vers les axes du 2026-07-27 avait été
+    posée sur le *map* seulement."""
+    keys = repartition_keys(axes)
+    if keys == REPARTITION_KEYS:
+        return _REDUCE_SYSTEM  # texte historique, mot pour mot
+    return _REDUCE_SYSTEM.replace(
+        "pour chacune des 5 catégories",
+        f"pour chacune des {len(keys)} catégories " + " / ".join(keys),
+    )
+
+
 def _reduce_partial_syntheses(partials: list[dict], axes=None) -> dict:
     """Fusionne plusieurs synthèses partielles (une par tronçon) en une
     seule — un appel IA dédié, pas une simple concaténation, pour que le
@@ -477,10 +473,10 @@ def _reduce_partial_syntheses(partials: list[dict], axes=None) -> dict:
     text = "\n".join(lines)
 
     data = call_ai_json(
-        _REDUCE_SYSTEM,
+        _reduce_system(axes),
         f"SYNTHÈSES PARTIELLES :\n{text}",
-        _SYNTHESE_SCHEMA,
-        _SYNTHESE_JSON_HINT,
+        _synthese_schema(axes),
+        _synthese_json_hint(axes),
         max_tokens=MAX_TOKENS,
         error_cls=InterviewLibreExtractAIError,
     )

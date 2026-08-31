@@ -616,9 +616,15 @@ def _ecran_attente_tranches(
     )
 
 
-def _libre_turns_error(request, mission, identity, message):
+def _libre_turns_error(request, mission, identity, message, tranches_manquantes=0):
     """Rend l'écran d'enregistrement avec un message d'erreur, en conservant le
-    travail déjà saisi (transcription, identité) — chemin d'échec d'extraction."""
+    travail déjà saisi (transcription, identité) — chemin d'échec d'extraction.
+
+    `tranches_manquantes` > 0 fait apparaître la porte de sortie : « Enregistrer
+    quand même ». Sans elle, un service d'IA durablement indisponible rendait
+    l'entretien DÉFINITIVEMENT non enregistrable dès qu'une tranche avait abouti
+    (revue adversariale 2026-08-31, arbitrage utilisateur du même jour) — le
+    blocage protégeait la matière mais coinçait la séance."""
     return templates.TemplateResponse(
         request,
         "interviews/record_libre.html",
@@ -627,12 +633,14 @@ def _libre_turns_error(request, mission, identity, message):
             "recording_available": audio_transcribe.is_available(),
             "error": message,
             "identity": identity,
+            "tranches_manquantes": tranches_manquantes,
         },
     )
 
 
 def _extraire_tours_libre(
-    db, request, mission, identity, transcript, session_token, segment_tail
+    db, request, mission, identity, transcript, session_token, segment_tail,
+    ignorer_manquantes=False,
 ):
     """Produit les tours de parole d'un entretien libre.
 
@@ -671,7 +679,52 @@ def _extraire_tours_libre(
                 "Aucun tour de parole détecté dans la transcription.",
             )
     else:
-        recover_stalled_or_failed_jobs(db, status["jobs"])
+        # Récupération PLAFONNÉE et perte partielle SIGNALÉE — les deux garde-fous
+        # posés le 2026-07-31 sur `retranscrire_appliquer` (d36aef6) manquaient ici,
+        # c'est-à-dire sur le chemin NOMINAL du mode libre (revue du 2026-08-31).
+        # Sans plafond, un Ollama saturé sur un entretien de 2 h faisait enchaîner
+        # 24 × (timeout + relance) dans un seul POST. Sans détection, les tranches
+        # restées en échec disparaissaient du tour de table SANS un mot, et le
+        # `delete_segment_jobs` de la fin détruisait le texte qui les portait :
+        # l'entretien était créé `status="done"`, amputé, sans trace.
+        a_recuperer = [j for j in status["jobs"] if not j.turns_result]
+        tentees = a_recuperer[:RECUP_TRANCHES_MAX]
+        recover_stalled_or_failed_jobs(db, tentees)
+        recuperees = sum(1 for j in tentees if j.turns_result)
+        # `not j.turns_result` : exactement ce que `merge_segment_turns` ignorera.
+        # `j.text.strip()` : une tranche sans matière n'est pas une perte (parité
+        # avec le mode paramétré, plus haut).
+        still_ko = [j for j in status["jobs"] if not j.turns_result and j.text.strip()]
+        # `ignorer_manquantes` : l'utilisateur a VU le décompte et a explicitement
+        # cliqué « Enregistrer quand même ». On passe outre — mais seulement sur
+        # ce geste, jamais par défaut : la perte silencieuse est le défaut qu'on
+        # corrige, pas le blocage.
+        if still_ko and not ignorer_manquantes:
+            # Le plafond n'attaque que `RECUP_TRANCHES_MAX` tranches par envoi,
+            # mais le blocage regarde TOUTES les tranches : avec N tranches à
+            # récupérer il faut donc ⌈N/RECUP_TRANCHES_MAX⌉ envois. Le message
+            # doit dire où on en est, sinon l'utilisateur voit une page d'erreur
+            # identique à chaque tentative et croit que rien n'avance — alors que
+            # le progrès est bien commité d'un envoi à l'autre (revue
+            # adversariale 2026-08-31). On distingue donc les deux situations :
+            # ça progresse (relancer aboutira), ou ça ne progresse pas du tout.
+            if recuperees:
+                etat = (f"{recuperees} tranche(s) viennent d'être récupérées, il en "
+                        f"reste {len(still_ko)} sur {status['total']}. Relance l'envoi : "
+                        f"chaque envoi en reprend jusqu'à {RECUP_TRANCHES_MAX}, et ce qui "
+                        "est déjà structuré est conservé.")
+            else:
+                job_error = next((j.error for j in still_ko if j.error), None)
+                etat = ((job_error + " " if job_error else "")
+                        + f"Aucune des {len(still_ko)} tranche(s) en échec n'a pu être "
+                        f"récupérée sur cet envoi (sur {status['total']} au total). "
+                        "Vérifie que le service d'IA répond, puis relance l'envoi.")
+            return None, _libre_turns_error(
+                request, mission, identity,
+                "Leur contenu MANQUERAIT du tour de table, l'entretien n'a donc pas "
+                "été enregistré. " + etat,
+                tranches_manquantes=len(still_ko),
+            )
         try:
             tail_result = None
             if segment_tail.strip():
@@ -711,13 +764,15 @@ def _identite_fusionnee(identity: dict, extracted: dict) -> dict:
 
 
 def _finalize_libre_turns(
-    db, request, mission, identity, transcript, session_token, segment_tail
+    db, request, mission, identity, transcript, session_token, segment_tail,
+    ignorer_manquantes=False,
 ):
     """Produit les tours de parole puis rend l'écran de revue (étape 2 du
     wizard historique — plus atteignable depuis l'écran d'enregistrement
     depuis le 2026-07-29, cf. `record_libre_enregistrer`, mais conservée)."""
     extracted, erreur = _extraire_tours_libre(
-        db, request, mission, identity, transcript, session_token, segment_tail
+        db, request, mission, identity, transcript, session_token, segment_tail,
+        ignorer_manquantes,
     )
     if erreur is not None:
         return erreur
@@ -749,6 +804,9 @@ def record_libre(
     audio_segments: str = Form("[]"),
     session_token: str = Form(""),
     segment_tail: str = Form(""),
+    # Porte de sortie explicite (arbitrage utilisateur 2026-08-31) : posté
+    # uniquement par le bouton « Enregistrer quand même » de la page d'erreur.
+    ignorer_tranches_manquantes: str = Form(""),
     db: Session = Depends(get_session),
 ):
     mission = _get_mission(db, mission_id)
@@ -779,7 +837,8 @@ def record_libre(
         )
 
     return _finalize_libre_turns(
-        db, request, mission, identity, transcript, session_token, segment_tail
+        db, request, mission, identity, transcript, session_token, segment_tail,
+        bool(ignorer_tranches_manquantes),
     )
 
 
@@ -905,6 +964,9 @@ def record_libre_from_jobs(
     audio_segments: str = Form("[]"),
     session_token: str = Form(""),
     segment_tail: str = Form(""),
+    # Porte de sortie explicite (arbitrage utilisateur 2026-08-31) : posté
+    # uniquement par le bouton « Enregistrer quand même » de la page d'erreur.
+    ignorer_tranches_manquantes: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Finalisation après l'écran d'attente : tous les jobs sont terminés (ou un
@@ -923,12 +985,14 @@ def record_libre_from_jobs(
         "segment_tail": segment_tail,
     }
     return _finalize_libre_turns(
-        db, request, mission, identity, transcript, session_token, segment_tail
+        db, request, mission, identity, transcript, session_token, segment_tail,
+        bool(ignorer_tranches_manquantes),
     )
 
 
 def _enregistrer_libre_direct(
-    db, request, mission, identity, transcript, session_token, segment_tail
+    db, request, mission, identity, transcript, session_token, segment_tail,
+    ignorer_manquantes=False,
 ):
     """Extrait les tours puis enregistre DÉFINITIVEMENT l'entretien, sans passer
     par les écrans de revue des tours ni de synthèse (désactivés de l'UI le
@@ -937,7 +1001,8 @@ def _enregistrer_libre_direct(
     qui retenait l'entretien en otage). Résumé et répartition restent vides —
     ils se génèrent plus tard depuis l'aperçu (« Régénérer l'analyse »)."""
     extracted, erreur = _extraire_tours_libre(
-        db, request, mission, identity, transcript, session_token, segment_tail
+        db, request, mission, identity, transcript, session_token, segment_tail,
+        ignorer_manquantes,
     )
     if erreur is not None:
         return erreur
@@ -967,6 +1032,9 @@ def record_libre_enregistrer(
     audio_segments: str = Form("[]"),
     session_token: str = Form(""),
     segment_tail: str = Form(""),
+    # Porte de sortie explicite (arbitrage utilisateur 2026-08-31) : posté
+    # uniquement par le bouton « Enregistrer quand même » de la page d'erreur.
+    ignorer_tranches_manquantes: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Enregistrement direct depuis l'écran de transcription (demande utilisateur
@@ -998,7 +1066,8 @@ def record_libre_enregistrer(
         )
 
     return _enregistrer_libre_direct(
-        db, request, mission, identity, transcript, session_token, segment_tail
+        db, request, mission, identity, transcript, session_token, segment_tail,
+        bool(ignorer_tranches_manquantes),
     )
 
 
@@ -1015,6 +1084,9 @@ def record_libre_enregistrer_from_jobs(
     audio_segments: str = Form("[]"),
     session_token: str = Form(""),
     segment_tail: str = Form(""),
+    # Porte de sortie explicite (arbitrage utilisateur 2026-08-31) : posté
+    # uniquement par le bouton « Enregistrer quand même » de la page d'erreur.
+    ignorer_tranches_manquantes: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Finalisation de l'enregistrement direct après l'écran d'attente — pendant
@@ -1034,7 +1106,8 @@ def record_libre_enregistrer_from_jobs(
     if not transcript.strip():
         return _libre_turns_error(request, mission, identity, "Aucun texte transcrit.")
     return _enregistrer_libre_direct(
-        db, request, mission, identity, transcript, session_token, segment_tail
+        db, request, mission, identity, transcript, session_token, segment_tail,
+        bool(ignorer_tranches_manquantes),
     )
 
 

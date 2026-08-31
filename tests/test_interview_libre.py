@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import re
+from types import SimpleNamespace
 from html import unescape
 
 import pytest
@@ -1579,3 +1580,58 @@ def test_libre_review_a_le_bouton_export_pdf_synthese_et_repartition_non_editabl
         assert interview.repartition["contexte"] == "- Contexte généré"
     finally:
         session.close()
+
+
+def test_reduce_demande_les_axes_de_la_mission_pas_les_5_rubriques(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Régression 2026-08-31 : l'étape *reduce* passait `_SYNTHESE_JSON_HINT` et
+    `_REDUCE_SYSTEM`, figés sur les 5 rubriques historiques, alors que
+    `_reduce_partial_syntheses` relit la réponse avec `repartition_keys(axes)`.
+    Sur une mission aux axes personnalisés ET plus d'un tronçon — donc tout
+    entretien réel de plus de 40 tours — TOUTES les valeurs sortaient vides,
+    sans erreur ; cette répartition vide alimentait ensuite la synthèse globale
+    de mission et le deck. La migration vers les axes du 2026-07-27 n'avait été
+    posée que sur le *map*.
+
+    Le faux modèle OBÉIT au hint qu'il reçoit : c'est ce qui rend le test
+    sensible au défaut. Un mock rendant des clés en dur passerait avant comme
+    après."""
+    monkeypatch.setattr(interview_libre_extract_ai, "_CHUNK_MAX_TURNS", 2)
+    axes = [SimpleNamespace(key="outillage_donnees"), SimpleNamespace(key="gouvernance")]
+    hints: list[str] = []
+    systems: list[str] = []
+
+    def fake_call_ai_json(system, prompt, schema, json_hint, **kwargs):
+        systems.append(system)
+        hints.append(json_hint)
+        cles = re.search(r"aux \d+ clés ([^)]+)\)", json_hint).group(1).split("/")
+        return {"repartition": {k: f"- contenu {k}" for k in cles}, "resume": "- Résumé."}
+
+    monkeypatch.setattr(interview_libre_extract_ai, "call_ai_json", fake_call_ai_json)
+    turns = [
+        {"interlocuteur": f"P{i}", "question": None, "remarque": f"Propos {i}", "section_title": None}
+        for i in range(5)  # tronçons de 2 -> 3 groupes -> le reduce est bien joué
+    ]
+
+    result = interview_libre_extract_ai.generate_repartition_from_turns(turns, axes=axes)
+
+    assert len(hints) == 4, "3 appels map + 1 appel reduce attendus"
+    # Le hint du REDUCE (le dernier) doit nommer les axes de la mission.
+    assert "outillage_donnees" in hints[-1] and "gouvernance" in hints[-1]
+    assert "culture_adn" not in hints[-1], "le reduce demande encore les 5 rubriques historiques"
+    # Le SYSTEM du reduce aussi : `_reduce_system` opère par substitution
+    # LITTÉRALE d'un libellé. Reformuler ce libellé rendrait le `.replace` muet
+    # et le modèle redemanderait « les 5 catégories » — soit la classe de bug que
+    # ce test existe pour empêcher, réintroduite sans bruit. Le module frère porte
+    # déjà ce garde-fou (test_synthese_ai_global.py:92).
+    assert "outillage_donnees / gouvernance" in systems[-1], (
+        "le system du reduce ne nomme pas les axes : la substitution littérale "
+        "de _reduce_system est devenue un no-op"
+    )
+    assert "des 5 catégories" not in systems[-1]
+    # Et surtout : le résultat relu n'est pas vide.
+    assert result["repartition"] == {
+        "outillage_donnees": "- contenu outillage_donnees",
+        "gouvernance": "- contenu gouvernance",
+    }

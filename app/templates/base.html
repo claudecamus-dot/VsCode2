@@ -31,6 +31,11 @@
      manipule aucun DOM à l'exécution (juste `window.i2dAudioSource = {...}`),
      donc rien ne justifie d'attendre la fin du parsing comme les autres. #}
   <script src="/static/rec_audio_source.js"></script>
+  {# Même règle de chargement, et pour la même raison : `window.recFetch` est
+     consommé par les <script> inline des écrans d'enregistrement au moment de
+     l'analyse du <body>. Avec `defer`, il serait encore indéfini à l'appel —
+     sans erreur au chargement, la page « marcherait » jusqu'au premier upload. #}
+  <script src="/static/rec_fetch.js"></script>
 </head>
 <body>
   {% if est_mode_demo(request) %}
