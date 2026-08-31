@@ -16,25 +16,31 @@ programmatiquement plutôt que de convertir du HTML.
 from __future__ import annotations
 
 import io
+import logging
+import os
+from pathlib import Path
 from types import SimpleNamespace
 from xml.sax.saxutils import escape
 
 from reportlab.lib.colors import HexColor
+from reportlab.lib.geomutils import normalizeTRBL
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     HRFlowable,
     KeepTogether,
     Paragraph,
     SimpleDocTemplate,
     Spacer,
-    Table,
-    TableStyle,
 )
 
 from ..models import Interview
 from .interview_export import group_turns_into_sections
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "build_interview_pdf",
@@ -51,23 +57,108 @@ _BODY = HexColor("#30383F")
 _MUTED = HexColor("#4B5D6B")
 _CALLOUT_BG = HexColor("#FFF7E3")
 _CALLOUT_BORDER = HexColor("#F3C969")
+_CALLOUT_RULE = 2.5        # épaisseur du filet gauche de l'encadré, en points
+_CALLOUT_PAD_V = 8         # respiration verticale du fond de l'encadré
+_CALLOUT_PAD_H = 10        # retrait du texte de l'encadré par rapport au fond
+
+# Grille — UNE seule marge gauche/droite pour tout ce qui se dessine sur la
+# page. `SimpleDocTemplate` pose son `Frame` avec 6 pt de padding qu'il ne
+# retranche d'aucune marge : le texte et les filets tombaient donc à 22,1 mm
+# quand l'en-tête et le pied de page, dessinés au canvas, tombaient à 20,0 mm
+# et l'encadré à 25,0 mm (trois bords gauche sur une même page, mesurés le
+# 2026-08-31). On retire ce padding des marges du document pour que le bord du
+# texte, celui des filets et celui des ornements coïncident tous sur `_MARGIN`.
+_FRAME_PAD = 6
+_MARGIN = 20 * mm
+_MARGIN_V = 18 * mm
+
+# Polices : les base-14 de PDF (Helvetica & co) ne savent coder que du
+# Latin-1. La matière première de ce produit étant du texte collé depuis Teams,
+# « Nguyễn Thị Mai » s'imprimait « NguyIn ThI Mai », « Иванов » « IIIIII »
+# et « Δημήτρης » « ∆ηµIτρης » (glyphes Symbol) — sans exception ni
+# avertissement (mesuré le 2026-08-31). On embarque donc une TrueType Unicode
+# du poste ; à défaut on retombe sur Helvetica, mais `_text()` signale alors
+# dans le log ce qui sera perdu, plutôt que de le perdre en silence.
+_FONT_DIRS = (
+    Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts",
+    Path.home() / "AppData" / "Local" / "Microsoft" / "Windows" / "Fonts",
+    Path("/usr/share/fonts/truetype/dejavu"),
+    Path("/Library/Fonts"),
+)
+# Familles candidates, par ordre de préférence : DejaVu couvre le latin étendu
+# (vietnamien), le cyrillique et le grec ; Arial, présente sur tout poste
+# Windows, sert de second choix. Chaque famille = (nom, (normal, gras,
+# italique, gras italique)) — les 4 fontes sont exigées pour que `<b>`/`<i>`
+# du mini-HTML de reportlab restent rendus dans la même famille.
+_FONT_FAMILIES = (
+    ("DejaVuSans", ("DejaVuSans.ttf", "DejaVuSans-Bold.ttf",
+                    "DejaVuSans-Oblique.ttf", "DejaVuSans-BoldOblique.ttf")),
+    ("Arial", ("arial.ttf", "arialbd.ttf", "ariali.ttf", "arialbi.ttf")),
+)
+
+
+def _register_unicode_family() -> str | None:
+    """Enregistre la première famille TrueType complète trouvée sur le poste et
+    retourne son nom, ou `None` si aucune n'est disponible (le rendu retombe
+    alors sur les base-14, limitées au Latin-1)."""
+    for family, filenames in _FONT_FAMILIES:
+        for directory in _FONT_DIRS:
+            paths = [directory / name for name in filenames]
+            if not all(path.is_file() for path in paths):
+                continue
+            faces = (family, f"{family}-Bold", f"{family}-Oblique", f"{family}-BoldOblique")
+            try:
+                for face, path in zip(faces, paths, strict=True):
+                    pdfmetrics.registerFont(TTFont(face, str(path)))
+            except Exception as exc:  # fonte illisible/corrompue : famille suivante
+                logger.warning("Police %s inutilisable (%s) — famille suivante", family, exc)
+                continue
+            # Sans la famille, reportlab ne sait pas quelle fonte servir pour un
+            # `<b>` à l'intérieur d'un paragraphe : il retomberait sur
+            # Helvetica-Bold, donc sur du Latin-1, au milieu du texte.
+            pdfmetrics.registerFontFamily(family, *faces)
+            return family
+    logger.warning(
+        "Aucune police Unicode trouvée (%s) — repli sur Helvetica : les caractères "
+        "hors Latin-1 ne seront pas rendus.",
+        ", ".join(name for name, _ in _FONT_FAMILIES),
+    )
+    return None
+
+
+_FAMILY = _register_unicode_family()
+if _FAMILY:
+    _FONT, _FONT_BOLD, _FONT_ITALIC = _FAMILY, f"{_FAMILY}-Bold", f"{_FAMILY}-Oblique"
+    _RENDERABLE = frozenset(pdfmetrics.getFont(_FAMILY).face.charToGlyph)
+else:
+    _FONT, _FONT_BOLD, _FONT_ITALIC = "Helvetica", "Helvetica-Bold", "Helvetica-Oblique"
+    _RENDERABLE = frozenset(range(0x100))  # Latin-1, la limite des base-14
 
 _STYLES = {
-    "title": ParagraphStyle("Title", fontName="Helvetica-Bold", fontSize=20, leading=24,
+    "title": ParagraphStyle("Title", fontName=_FONT_BOLD, fontSize=20, leading=24,
                              textColor=_NAVY, spaceAfter=4),
-    "subtitle": ParagraphStyle("Subtitle", fontName="Helvetica-Oblique", fontSize=11, leading=14,
+    "subtitle": ParagraphStyle("Subtitle", fontName=_FONT_ITALIC, fontSize=11, leading=14,
                                 textColor=_TEAL, spaceAfter=14),
-    "h1": ParagraphStyle("H1", fontName="Helvetica-Bold", fontSize=14, leading=18,
+    "h1": ParagraphStyle("H1", fontName=_FONT_BOLD, fontSize=14, leading=18,
                           textColor=_NAVY, spaceBefore=16, spaceAfter=2),
-    "h2": ParagraphStyle("H2", fontName="Helvetica-Bold", fontSize=11.5, leading=15,
+    "h2": ParagraphStyle("H2", fontName=_FONT_BOLD, fontSize=11.5, leading=15,
                           textColor=_TEAL, spaceBefore=10, spaceAfter=4),
-    "dialogue": ParagraphStyle("Dialogue", fontName="Helvetica", fontSize=10, leading=14,
+    "dialogue": ParagraphStyle("Dialogue", fontName=_FONT, fontSize=10, leading=14,
                                 textColor=_BODY, leftIndent=10, spaceAfter=7),
-    "body": ParagraphStyle("Body", fontName="Helvetica", fontSize=10, leading=14,
+    "body": ParagraphStyle("Body", fontName=_FONT, fontSize=10, leading=14,
                             textColor=_BODY, spaceAfter=8),
-    "callout": ParagraphStyle("Callout", fontName="Helvetica-Oblique", fontSize=9.5, leading=13,
-                               textColor=_BODY),
-    "muted": ParagraphStyle("Muted", fontName="Helvetica-Oblique", fontSize=9, leading=13,
+    # Le fond ambré est porté par le STYLE (et non plus par un tableau) : c'est
+    # ce qui rend l'encadré sécable entre deux pages. `borderPadding` en T-R-B-L
+    # compense exactement `leftIndent`/`rightIndent`, de sorte que le fond couvre
+    # toute la largeur utile — donc exactement le même bord gauche que le texte
+    # courant — pendant que le texte reste en retrait à l'intérieur.
+    "callout": ParagraphStyle("Callout", fontName=_FONT_ITALIC, fontSize=9.5, leading=13,
+                               textColor=_BODY, backColor=_CALLOUT_BG,
+                               leftIndent=_CALLOUT_PAD_H, rightIndent=_CALLOUT_PAD_H,
+                               borderPadding=(_CALLOUT_PAD_V, _CALLOUT_PAD_H,
+                                              _CALLOUT_PAD_V, _CALLOUT_PAD_H),
+                               spaceBefore=_CALLOUT_PAD_V + 2, spaceAfter=_CALLOUT_PAD_V + 2),
+    "muted": ParagraphStyle("Muted", fontName=_FONT_ITALIC, fontSize=9, leading=13,
                              textColor=_MUTED, spaceAfter=8),
 }
 
@@ -77,7 +168,20 @@ def _text(raw: str) -> str:
     convertit les retours à la ligne en `<br/>` — un `Paragraph` reportlab
     traite le texte comme du HTML et collapse les `\\n` bruts en simple
     espace, donc une réponse ou une note libre saisie sur plusieurs lignes
-    s'affichait comme un seul bloc continu dans le PDF sans cette conversion."""
+    s'affichait comme un seul bloc continu dans le PDF sans cette conversion.
+
+    Signale au passage les caractères que la police retenue ne sait pas
+    dessiner (emoji, symboles) : reportlab les rend en blanc SANS lever ni
+    avertir, et le consultant ne découvrait la perte qu'à la relecture du
+    PDF — quand il la découvrait (mesuré le 2026-08-31)."""
+    perdus = sorted({c for c in raw if ord(c) not in _RENDERABLE} - set("\n\r\t"))
+    if perdus:
+        logger.warning(
+            "Export PDF : %d caractère(s) non rendable(s) par la police %s, "
+            "absent(s) du document — %s",
+            len(perdus), _FONT,
+            ", ".join(f"{c!r} (U+{ord(c):04X})" for c in perdus),
+        )
     return escape(raw).replace("\n", "<br/>")
 
 
@@ -92,24 +196,47 @@ def _h1(text: str) -> list:
     ]
 
 
-def _callout(text: str, label: str = "") -> Table:
+class _CalloutParagraph(Paragraph):
+    """Encadré ambré SÉCABLE : un `Paragraph` — que reportlab coupe entre deux
+    pages, chaque fragment redessinant son fond — plutôt qu'un `Table` d'une
+    seule cellule, qui était insécable.
+
+    Ce tableau faisait lever un `LayoutError` dès qu'un verbatim dépassait la
+    hauteur d'une page — mesuré le 2026-08-31 : 5 016 caractères passaient,
+    12 690 cassaient l'export et la route rendait un 500 nu au consultant. Il
+    laissait aussi des pages à moitié vides (jusqu'à 249 mm de blanc) quand
+    l'encadré, trop haut pour la place restante, partait entier à la page
+    suivante. Le fond vient désormais du style ; seul le filet gauche — qui
+    n'a pas d'équivalent natif au `LINEBEFORE` d'un tableau — est redessiné
+    ici."""
+
+    def draw(self):
+        # Le fond et le texte d'abord (`Paragraph.drawPara`), le filet ensuite :
+        # il se pose sur le bord gauche du fond, dans la zone de padding, sans
+        # jamais mordre sur le texte.
+        super().draw()
+        top, _, bottom, left = normalizeTRBL(self.style.borderPadding)
+        canvas = self.canv
+        canvas.saveState()
+        canvas.setStrokeColor(_CALLOUT_BORDER)
+        canvas.setLineWidth(_CALLOUT_RULE)
+        x = self.style.leftIndent - left + _CALLOUT_RULE / 2
+        canvas.line(x, -bottom, x, self.height + top)
+        canvas.restoreState()
+
+
+def _callout(text: str, label: str = "") -> Paragraph:
     """Encadré ambré (fond + filet gauche) — repris du style "Callout" du
     document modèle, utilisé ici pour le résumé (message central à retenir,
     mis en avant plutôt que noyé dans le corps du texte). `label` optionnel :
     amorce en gras (« Message central — … »), comme les callouts du document
-    de synthèse modèle (`02_Synthese…docx`)."""
+    de synthèse modèle (`02_Synthese…docx`).
+
+    Aucune largeur codée en dur : le flowable prend la largeur utile du frame.
+    L'ancien `colWidths=[160 * mm]` posait l'encadré à 25,0 mm du bord quand le
+    texte courant tombait à 22,1 mm et le pied de page à 20,0 mm."""
     lead = f"<b>{_text(label)} — </b>" if label else ""
-    p = Paragraph(lead + _text(text), _STYLES["callout"])
-    table = Table([[p]], colWidths=[160 * mm])
-    table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), _CALLOUT_BG),
-        ("LINEBEFORE", (0, 0), (0, -1), 2.5, _CALLOUT_BORDER),
-        ("LEFTPADDING", (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 10),
-        ("TOPPADDING", (0, 0), (-1, -1), 8),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-    ]))
-    return table
+    return _CalloutParagraph(lead + _text(text), _STYLES["callout"])
 
 
 def _header_flowables(interview: Interview) -> list:
@@ -230,35 +357,72 @@ def _page_decorator(running_title: str):
         # En-tête courant, seulement à partir de la page 2 (la page 1 porte
         # déjà le grand titre de l'entretien).
         if doc.page > 1:
-            canvas.setFont("Helvetica-Bold", 8)
+            canvas.setFont(_FONT_BOLD, 8)
             canvas.setFillColor(_MUTED)
-            canvas.drawString(20 * mm, A4[1] - 12 * mm, running_title)
+            canvas.drawString(_MARGIN, A4[1] - 12 * mm, running_title)
             canvas.setStrokeColor(_CALLOUT_BORDER)
             canvas.setLineWidth(0.5)
-            canvas.line(20 * mm, A4[1] - 14 * mm, A4[0] - 20 * mm, A4[1] - 14 * mm)
+            canvas.line(_MARGIN, A4[1] - 14 * mm, A4[0] - _MARGIN, A4[1] - 14 * mm)
         # Pied de page sur toutes les pages.
-        canvas.setFont("Helvetica", 8)
+        canvas.setFont(_FONT, 8)
         canvas.setFillColor(_MUTED)
-        canvas.drawString(20 * mm, 10 * mm, "Export entretien — Interview-to-Deck")
-        canvas.drawRightString(A4[0] - 20 * mm, 10 * mm, f"Page {doc.page}")
+        canvas.drawString(_MARGIN, 10 * mm, "Export entretien — Interview-to-Deck")
+        canvas.drawRightString(A4[0] - _MARGIN, 10 * mm, f"Page {doc.page}")
         canvas.restoreState()
     return decorate
+
+
+_AUTHOR = "Interview-to-Deck"
+
+
+class _InterviewDoc(SimpleDocTemplate):
+    """`SimpleDocTemplate` + signets : chaque titre de niveau 1 devient une
+    entrée du panneau de navigation du lecteur PDF. Un export d'entretien
+    dépasse couramment la dizaine de pages et n'en proposait aucune (mesuré
+    le 2026-08-31 : ni signet, ni titre, ni auteur, ni langue de document)."""
+
+    def afterFlowable(self, flowable) -> None:
+        if isinstance(flowable, Paragraph) and flowable.style.name == "H1":
+            key = f"h1-{self.page}-{id(flowable)}"
+            self.canv.bookmarkPage(key)
+            self.canv.addOutlineEntry(flowable.getPlainText(), key, level=0)
+
+
+def _document(buffer: io.BytesIO, title: str) -> _InterviewDoc:
+    """Document A4 commun aux 4 exports — une seule définition de la grille
+    et des métadonnées, pour qu'elles ne divergent pas d'un builder à l'autre.
+
+    Les marges sont amputées du padding que `SimpleDocTemplate` impose à son
+    `Frame` : le texte et les filets retombent ainsi exactement sur `_MARGIN`,
+    où l'en-tête et le pied de page sont déjà dessinés au canvas."""
+    return _InterviewDoc(
+        buffer, pagesize=A4,
+        topMargin=_MARGIN_V - _FRAME_PAD, bottomMargin=_MARGIN_V - _FRAME_PAD,
+        leftMargin=_MARGIN - _FRAME_PAD, rightMargin=_MARGIN - _FRAME_PAD,
+        title=title, author=_AUTHOR, creator=_AUTHOR,
+        subject="Entretien qualitatif — restitution",
+        lang="fr-FR", displayDocTitle=True,
+        # Sans `initialFontName`, reportlab écrit un préambule « BT /F1 12 Tf »
+        # sur CHAQUE page : le PDF déclare alors Helvetica, police NON embarquée,
+        # alors qu'aucun caractère ne l'utilise — le rendu redevient dépendant de
+        # la machine du lecteur. Une TTF étant « dynamique » chez reportlab, le
+        # préambule disparaît dès qu'on la désigne ici.
+        initialFontName=_FONT, initialFontSize=10,
+    )
 
 
 def build_interview_pdf(interview: Interview) -> bytes:
     """Retourne les octets d'un PDF A4 restituant un entretien (même matière
     que `build_interview_markdown()`), typeset façon transcription éditée."""
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer, pagesize=A4,
-        topMargin=18 * mm, bottomMargin=18 * mm, leftMargin=20 * mm, rightMargin=20 * mm,
-    )
+    running_title = f"Entretien — {interview.interviewee_name}"
+    doc = _document(buffer, running_title)
     flowables = _header_flowables(interview)
     if interview.mode == "libre":
         flowables += _libre_body_flowables(interview)
     else:
         flowables += _parametre_body_flowables(interview)
-    decorate = _page_decorator(f"Entretien — {interview.interviewee_name}")
+    decorate = _page_decorator(running_title)
     doc.build(flowables, onFirstPage=decorate, onLaterPages=decorate)
     return buffer.getvalue()
 
@@ -287,10 +451,7 @@ def build_transcript_only_pdf(
     de l'interviewé·e si connu, sinon un libellé générique."""
     title = f"Transcription brute — {interviewee_name}" if interviewee_name.strip() else "Transcription brute"
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer, pagesize=A4,
-        topMargin=18 * mm, bottomMargin=18 * mm, leftMargin=20 * mm, rightMargin=20 * mm,
-    )
+    doc = _document(buffer, title)
     flowables = [
         Paragraph(_text(title), _STYLES["title"]),
         Paragraph(_text(subtitle), _STYLES["subtitle"]),
@@ -319,10 +480,7 @@ def build_turns_only_pdf(turns: list[dict], interviewee_name: str = "") -> bytes
     puisque rien n'est encore enregistré à ce stade."""
     title = f"Tours de parole — {interviewee_name}" if interviewee_name.strip() else "Tours de parole"
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer, pagesize=A4,
-        topMargin=18 * mm, bottomMargin=18 * mm, leftMargin=20 * mm, rightMargin=20 * mm,
-    )
+    doc = _document(buffer, title)
     flowables = [Paragraph(_text(title), _STYLES["title"])]
     flowables += _dialogue_flowables([SimpleNamespace(**t) for t in turns])
     decorate = _page_decorator(title)
@@ -343,10 +501,7 @@ def build_synthese_only_pdf(resume: str, repartition: dict | None = None, interv
     paramètre reste accepté pour ne pas casser les appelants."""
     title = f"Synthèse — {interviewee_name}" if interviewee_name.strip() else "Synthèse"
     buffer = io.BytesIO()
-    doc = SimpleDocTemplate(
-        buffer, pagesize=A4,
-        topMargin=18 * mm, bottomMargin=18 * mm, leftMargin=20 * mm, rightMargin=20 * mm,
-    )
+    doc = _document(buffer, title)
     flowables = [Paragraph(_text(title), _STYLES["title"])]
     flowables += _resume_flowables(resume)
     decorate = _page_decorator(title)

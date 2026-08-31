@@ -12,9 +12,12 @@ comme un bloc continu avant la conversion en `<br/>` (`_text()` dans
 """
 from __future__ import annotations
 
+import logging
+
 import fitz
 import pytest
 from fastapi.testclient import TestClient
+from reportlab.platypus.doctemplate import LayoutError
 
 from app.main import app
 from app.db import DB_PATH, SessionLocal, engine, init_db
@@ -461,3 +464,260 @@ def test_export_synthese_only_pdf_route(client: TestClient) -> None:
 def test_export_synthese_only_pdf_route_rejects_empty(client: TestClient) -> None:
     response = client.post("/interviews/synthese/export-pdf", data={})
     assert response.status_code == 400
+
+
+# --------------------------------------------------------------------------- #
+# GÉOMÉTRIE, UNICODE ET MÉTADONNÉES DU PDF PRODUIT (2026-08-31)
+#
+# Les tests ci-dessus passaient tous sur un PDF qui, mesuré sur 6 exports et
+# 22 pages rastérisées : plantait au-delà d'un verbatim d'une page (500 nu sur
+# la route), perdait tout caractère hors Latin-1 sans un mot, alignait trois
+# bords gauche différents sur une même page et ne portait ni titre, ni auteur,
+# ni langue. Aucune assertion ne regardait la mise en page RÉELLE : celles qui
+# suivent la mesurent sur le document produit (PyMuPDF), pas sur l'absence
+# d'exception.
+# --------------------------------------------------------------------------- #
+_MM = 72 / 25.4          # 1 mm en points PDF
+_MARGE_MM = 20.0         # la grille unique de la maquette
+_MARGE_BASSE_MM = 18.0   # bas du cadre de texte (le pied de page est dessous)
+
+# Un copier-coller Teams ordinaire. 5 016 caractères passaient, 12 690 faisaient
+# lever `LayoutError` : l'encadré était un `Table` d'une seule cellule, donc
+# insécable et plus haut que le cadre de la page.
+VERBATIM_12690 = (
+    "On a repris tout le processus depuis le début, sans jamais rien jeter. "
+) * 190
+VERBATIM_12690 = VERBATIM_12690[:12690]
+
+# Le seuil haut mesuré le 2026-08-31 : 5 016 caractères passaient encore. Trop
+# long pour la place restante en page 1, assez court pour que l'ancien tableau
+# insécable tienne, lui, sur une page entière — donc le cas exact qui laissait
+# derrière lui une page à 40 % de remplissage.
+VERBATIM_5016 = VERBATIM_12690[:5016]
+
+
+def _interview_avec_verbatim(quote: str) -> int:
+    """Entretien paramétré standard dont le verbatim (donc l'encadré ambré)
+    porte `quote`."""
+    interview_id = _build_parametre_interview(multiline=False)
+    session = SessionLocal()
+    try:
+        interview = session.get(Interview, interview_id)
+        interview.verbatims[0].quote = quote
+        session.commit()
+    finally:
+        session.close()
+    return interview_id
+
+
+def _pdf_de(interview_id: int) -> bytes:
+    session = SessionLocal()
+    try:
+        return build_interview_pdf(session.get(Interview, interview_id))
+    finally:
+        session.close()
+
+
+def _x_gauche_texte_mm(page, amorce: str) -> float:
+    """Bord gauche, en mm, du premier fragment de texte commençant par `amorce`."""
+    for bloc in page.get_text("dict")["blocks"]:
+        for ligne in bloc.get("lines", []):
+            for span in ligne["spans"]:
+                if span["text"].startswith(amorce):
+                    return round(span["bbox"][0] / _MM, 1)
+    raise AssertionError(f"texte introuvable sur la page : {amorce!r}")
+
+
+def _x_gauche_filet_mm(page) -> float:
+    """Bord gauche du filet pleine largeur (soulignement d'un titre H1, trait
+    d'en-tête) — posé par le frame reportlab, pas par le canvas."""
+    filets = [d["rect"].x0 for d in page.get_drawings()
+              if d["fill"] is None and d["rect"].width > 100]
+    assert filets, "aucun filet pleine largeur sur cette page"
+    return round(min(filets) / _MM, 1)
+
+
+def _x_gauche_encadre_mm(page) -> float:
+    """Bord gauche du fond ambré de l'encadré — le seul aplat de couleur du
+    document."""
+    fonds = [d["rect"].x0 for d in page.get_drawings() if d["fill"] is not None]
+    assert fonds, "aucun encadré dessiné sur cette page"
+    return round(min(fonds) / _MM, 1)
+
+
+def _blanc_en_pied_mm(page) -> float:
+    """Hauteur de blanc entre le bas du dernier contenu et le bas du cadre de
+    texte. Le pied de page, dessiné SOUS le cadre, est exclu du calcul."""
+    bas_cadre = page.rect.height - _MARGE_BASSE_MM * _MM
+    bas_contenu = 0.0
+    for bloc in page.get_text("blocks"):
+        if bloc[3] <= bas_cadre + 1:
+            bas_contenu = max(bas_contenu, bloc[3])
+    for dessin in page.get_drawings():
+        if dessin["rect"].y1 <= bas_cadre + 1:
+            bas_contenu = max(bas_contenu, dessin["rect"].y1)
+    return (bas_cadre - bas_contenu) / _MM
+
+
+@pytest.fixture
+def client_http() -> TestClient:
+    """Client qui n'escamote PAS l'erreur serveur en exception Python : c'est
+    la réponse reçue par le navigateur du consultant qu'on veut voir — avant
+    correctif, un 500 `text/plain` au corps « Internal Server Error »."""
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def test_build_interview_pdf_verbatim_plus_haut_qu_une_page_ne_leve_pas() -> None:
+    """Un verbatim de 12 690 caractères (copier-coller Teams ordinaire) faisait
+    lever `LayoutError: Flowable <Table 1 rows x 1 cols(tallest row 1589)> too
+    large on page 2` — l'encadré était un tableau d'une seule cellule, donc
+    insécable. Il doit désormais se répandre sur autant de pages qu'il faut."""
+    pdf_bytes = _pdf_de(_interview_avec_verbatim(VERBATIM_12690))
+    assert pdf_bytes[:4] == b"%PDF"
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    assert doc.page_count >= 3, "un verbatim de 12 690 caractères tient sur 3 pages au moins"
+    texte = " ".join(_pdf_text(pdf_bytes).split())
+    # Début ET fin du verbatim : un encadré tronqué au saut de page passerait
+    # la première assertion mais pas la seconde.
+    assert " ".join(VERBATIM_12690[:80].split()) in texte
+    assert " ".join(VERBATIM_12690[-80:].split()) in texte
+
+
+def test_export_pdf_route_verbatim_tres_long_ne_rend_pas_500(client_http: TestClient) -> None:
+    """La vraie route rendait `HTTP 500`, `content-type: text/plain`, corps
+    « Internal Server Error » sur ce même entretien (mesuré le 2026-08-31)."""
+    interview_id = _interview_avec_verbatim(VERBATIM_12690)
+    response = client_http.get(f"/interviews/{interview_id}/export/pdf")
+    assert response.status_code == 200, response.headers.get("content-type")
+    assert response.headers["content-type"] == "application/pdf"
+    assert response.content[:4] == b"%PDF"
+
+
+def test_export_pdf_route_replie_sur_le_secours_si_la_mise_en_page_echoue(
+    client_http: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Indépendamment de la cause corrigée : la mise en page reste le maillon
+    fragile de la chaîne. Quoi qu'il arrive, le consultant doit repartir avec
+    sa matière — en texte simple s'il le faut — et non avec un 500."""
+    interview_id = _build_parametre_interview(multiline=False)
+
+    def _echoue(_interview):
+        raise LayoutError("mise en page impossible")
+
+    monkeypatch.setattr("app.routers.interviews.build_interview_pdf", _echoue)
+    response = client_http.get(f"/interviews/{interview_id}/export/pdf")
+
+    assert response.status_code == 200, response.headers.get("content-type")
+    assert response.headers["content-type"] == "application/pdf"
+    texte = _pdf_text(response.content)
+    assert "Jean Dupont" in texte
+    assert "secours" in texte.lower()          # l'export dit qu'il est dégradé
+    assert "On adapte tout en continu." in texte  # ... et il porte bien la matière
+
+
+def test_build_interview_pdf_caracteres_hors_latin1_ne_sont_plus_perdus() -> None:
+    """La matière première de ce produit est du texte collé depuis Teams. Les
+    polices base-14 de PDF ne codent que du Latin-1 : « Nguyễn Thị Mai »
+    s'imprimait « NguyIn ThI Mai », « Иванов » « IIIIII » et « Δημήτρης »
+    « ∆ηµIτρης » (glyphes Symbol) — sans exception ni avertissement."""
+    interview_id = _build_parametre_interview(multiline=False)
+    session = SessionLocal()
+    try:
+        interview = session.get(Interview, interview_id)
+        interview.interviewee_name = "Nguyễn Thị Mai"
+        interview.free_notes = "Présents : Иванов (Moscou) et Δημήτρης (Athènes)."
+        session.commit()
+    finally:
+        session.close()
+
+    texte = _pdf_text(_pdf_de(interview_id))
+    for fragment in ("Nguyễn Thị Mai", "Иванов", "Δημήτρης"):
+        assert fragment in texte, f"{fragment!r} absent du texte extrait du PDF"
+    # Preuve négative : les substitutions Latin-1 observées avant correctif.
+    assert "NguyIn ThI Mai" not in texte
+    assert "IIIIII" not in texte
+
+
+def test_build_interview_pdf_caracteres_non_rendables_signales_dans_le_log(caplog) -> None:
+    """Aucune police candidate ne dessine d'emoji. Ce qui ne peut pas être rendu
+    doit au moins être DIT : c'est le seul défaut de la chaîne qu'aucun parseur
+    ne rendait visible (le PDF s'ouvrait sans erreur, le texte manquait)."""
+    interview_id = _build_parametre_interview(multiline=False)
+    session = SessionLocal()
+    try:
+        interview = session.get(Interview, interview_id)
+        interview.free_notes = "Décision actée ✅ objectif 🎯"
+        session.commit()
+    finally:
+        session.close()
+
+    with caplog.at_level(logging.WARNING, logger="app.services.interview_pdf_export"):
+        _pdf_de(interview_id)
+
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "non rendable" in messages
+    assert "U+2705" in messages and "U+1F3AF" in messages
+
+
+def test_build_interview_pdf_aucune_police_non_embarquee() -> None:
+    """Une police non embarquée, c'est un rendu qui dépend de la machine du
+    lecteur — et pour une base-14, un encodage Latin-1 qui reperdrait les
+    caractères récupérés plus haut. reportlab en réintroduit une par la porte
+    de service : sans `initialFontName`, il écrit un préambule « BT /F1 12 Tf »
+    (Helvetica) sur CHAQUE page même si aucun caractère ne l'utilise."""
+    doc = fitz.open(stream=_pdf_de(_build_parametre_interview(multiline=False)),
+                    filetype="pdf")
+    non_embarquees = sorted({
+        police[3] for numero in range(doc.page_count)
+        for police in doc[numero].get_fonts(full=False)
+        if police[1] == "n/a" or police[0] == 0
+    })
+    assert not non_embarquees, f"police(s) déclarée(s) mais non embarquée(s) : {non_embarquees}"
+
+
+def test_build_interview_pdf_un_seul_bord_gauche_par_page() -> None:
+    """Trois bords gauche coexistaient sur la page 1 d'`itw2_parametre.pdf` :
+    en-tête et pied de page à 20,0 mm (dessinés au canvas), texte et filets à
+    22,1 mm (les 6 pt de padding du `Frame` reportlab n'étaient compensés nulle
+    part), encadré à 25,0 mm (`colWidths=[160 * mm]` codé en dur)."""
+    doc = fitz.open(stream=_pdf_de(_build_parametre_interview(multiline=False)),
+                    filetype="pdf")
+    page = doc[0]
+    bords = {
+        "pied de page (canvas)": _x_gauche_texte_mm(page, "Export entretien"),
+        "titre du document (frame)": _x_gauche_texte_mm(page, "Entretien"),
+        "corps de texte (frame)": _x_gauche_texte_mm(page, "Note simple."),
+        "filet de titre (frame)": _x_gauche_filet_mm(page),
+        "encadré de verbatim (flowable)": _x_gauche_encadre_mm(page),
+    }
+    assert set(bords.values()) == {_MARGE_MM}, bords
+
+
+def test_build_interview_pdf_metadonnees_titre_auteur_langue_et_signets() -> None:
+    """`title` et `author` valaient « (anonymous) », le document n'annonçait
+    aucune langue et n'offrait aucun signet — sur un export qui dépasse
+    couramment la dizaine de pages."""
+    pdf_bytes = _pdf_de(_build_parametre_interview(multiline=False))
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+
+    assert doc.metadata["title"] == "Entretien — Jean Dupont"
+    assert doc.metadata["author"] not in ("", None, "(anonymous)")
+    assert doc.xref_get_key(doc.pdf_catalog(), "Lang") == ("string", "fr-FR")
+    # Un signet par titre de niveau 1 : la trame de l'entretien est navigable.
+    assert "Organisation" in [entree[1] for entree in doc.get_toc()]
+
+
+def test_build_interview_pdf_pages_non_finales_sont_remplies() -> None:
+    """Conséquence directe de l'encadré insécable : trop haut pour la place
+    restante, il partait ENTIER à la page suivante et laissait derrière lui une
+    page remplie à 40 % (154 mm de blanc), voire une page orpheline à 4 %
+    (249 mm de blanc). Seule la dernière page a le droit de finir tôt."""
+    doc = fitz.open(stream=_pdf_de(_interview_avec_verbatim(VERBATIM_5016)),
+                    filetype="pdf")
+    assert doc.page_count >= 2, "ce verbatim doit déborder sur une seconde page"
+    for numero, page in enumerate(doc, start=1):
+        if numero == doc.page_count:
+            continue
+        blanc = _blanc_en_pied_mm(page)
+        assert blanc < 40, f"page {numero}/{doc.page_count} : {blanc:.0f} mm de blanc en pied"

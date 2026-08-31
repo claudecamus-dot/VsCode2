@@ -2862,9 +2862,38 @@ def export_interview_markdown(interview_id: int, db: Session = Depends(get_sessi
 def export_interview_pdf(interview_id: int, db: Session = Depends(get_session)):
     """Même matière que l'export Markdown ci-dessus, mais typeset (US9.20) —
     voir `interview_pdf_export.py` pour la mise en forme (inspirée d'un
-    exemple de transcription éditée fourni par l'utilisateur)."""
+    exemple de transcription éditée fourni par l'utilisateur).
+
+    Un échec de mise en page ne doit jamais coûter sa matière au consultant :
+    jusqu'au 2026-08-31 un verbatim plus haut qu'une page faisait lever
+    reportlab et la route rendait un 500 nu (`text/plain`, corps
+    « Internal Server Error »), sans autre issue que de retourner recopier le
+    texte. La cause de fond est corrigée dans `interview_pdf_export.py`, mais
+    la mise en page reste le maillon fragile : on retombe donc sur l'export de
+    secours — même contenu, typographie minimale — plutôt que sur rien."""
     interview = _get_interview(db, interview_id)
-    content = build_interview_pdf(interview)
+    try:
+        content = build_interview_pdf(interview)
+    except Exception:
+        logger.exception(
+            "Mise en page PDF impossible pour l'entretien %s — repli sur l'export de secours",
+            interview_id,
+        )
+        try:
+            content = build_transcript_only_pdf(
+                build_interview_markdown(interview),
+                interview.interviewee_name,
+                subtitle=(
+                    "Export de secours — la mise en page complète a échoué sur cet "
+                    "entretien ; son contenu est restitué ici en texte simple."
+                ),
+            )
+        except Exception as exc:
+            logger.exception("Export de secours PDF impossible pour l'entretien %s", interview_id)
+            raise HTTPException(
+                status_code=500,
+                detail="Export PDF impossible pour cet entretien.",
+            ) from exc
     filename = f"entretien_{slugify(interview.interviewee_name)}.pdf"
     return Response(
         content=content,

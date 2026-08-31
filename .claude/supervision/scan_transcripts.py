@@ -1,10 +1,3 @@
-# +-- GÉNÉRÉ — NE PAS ÉDITER LOCALEMENT ---------------------------------------
-# | Source de vérité : hub de supervision VScode5, .claude/dispositif/canon/scan_transcripts.py
-# | Propagé par .claude/dispositif/sync_dispositif.py. Toute correction se fait
-# | DANS le canon du hub, puis « py .claude/dispositif/sync_dispositif.py »
-# | re-synchronise la flotte — sinon la modification locale sera écrasée.
-# +---------------------------------------------------------------------------
-
 """Superviseur d'agents — étage 1 (incrément A) : collecte déterministe, 0 token LLM.
 
 Scanne incrémentalement les transcripts JSONL du projet (~/.claude/projects/<slug>/*.jsonl),
@@ -128,8 +121,19 @@ def load_state() -> dict:
 
 
 def save_state(state: dict) -> None:
-    with open(STATE_PATH, "w", encoding="utf-8") as fh:
-        json.dump(state, fh, ensure_ascii=False, indent=1)
+    """Écriture ATOMIQUE. Un `open(STATE_PATH, "w")` interrompu (Ctrl-C, coupure,
+    valeur non sérialisable en fin de dict) laisse un state.json tronqué que
+    `load_state` ne sait plus relire : le scan repart alors de zéro, en silence, et
+    réagrège tout l'historique. On écrit à côté puis `os.replace` — atomique sous
+    Windows comme sous POSIX : l'état publié est complet, ou reste le précédent."""
+    tmp = f"{STATE_PATH}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(state, fh, ensure_ascii=False, indent=1)
+        os.replace(tmp, STATE_PATH)
+    finally:
+        if os.path.exists(tmp):   # échec en cours d'écriture : pas de reliquat
+            os.remove(tmp)
 
 
 def read_new_lines(path: str, offset: int):
@@ -350,10 +354,24 @@ def days_since(ts: str):
     return (now - t).days
 
 
+# Lignes JSONL non parsables au dernier passage, par chemin — lues par main() pour
+# les SIGNALER. Un journal abîmé ne doit ni casser le démarrage ni disparaître sans
+# un mot : le run que porte la ligne perdue n'apparaît nulle part ailleurs.
+LIGNES_ILLISIBLES = {}
+
+
 def load_jsonl(path: str) -> list:
+    """Journal JSONL, lecture TOLÉRANTE aux octets invalides.
+
+    `errors="replace"` : un seul octet non-UTF-8 — ce que produit `Add-Content` en
+    PowerShell — levait `UnicodeDecodeError`, qui échappait à `except OSError`,
+    remontait jusqu'au `except Exception` de `main()` et annulait TOUT le scan de
+    démarrage avec pour seule trace « scan ignore ». Les lignes qui restent non
+    parsables sont comptées dans `LIGNES_ILLISIBLES[path]`, plus sautées en silence."""
     out = []
+    illisibles = 0
     try:
-        with open(path, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 line = line.strip()
                 if not line:
@@ -361,9 +379,10 @@ def load_jsonl(path: str) -> list:
                 try:
                     out.append(json.loads(line))
                 except ValueError:
-                    continue
+                    illisibles += 1
     except OSError:
         pass
+    LIGNES_ILLISIBLES[path] = illisibles
     return out
 
 
@@ -1164,8 +1183,17 @@ def update_index(todos: list) -> None:
     try:
         with open(WIKI_INDEX, encoding="utf-8") as fh:
             txt = fh.read()
-    except OSError:
-        txt = ""
+    except FileNotFoundError:
+        txt = ""   # premier passage : la page est créée avec le bloc seul
+    except OSError as exc:
+        # Un échec de LECTURE ne doit JAMAIS devenir un ÉCRASEMENT. Rabattre sur ""
+        # puis réécrire en "w" détruisait la page rédigée à la main (reproduit :
+        # 1466 -> 422 octets, sans un message). On renonce à la mise à jour et on le
+        # dit : fail-open — la section TODO n'est pas rafraîchie, rien de plus, le
+        # démarrage de session n'est pas cassé pour autant.
+        print(f"  index.md non mis a jour : lecture impossible "
+              f"({exc.__class__.__name__}) - section TODO agents laissee en l'etat.")
+        return
     if MARK_START in txt and MARK_END in txt:
         pattern = re.escape(MARK_START) + r".*?" + re.escape(MARK_END)
         txt = re.sub(pattern, lambda m: block, txt, flags=re.DOTALL)
@@ -1309,6 +1337,9 @@ def main(argv) -> int:
     if inconnues:
         detail += (" (arbitrages.json : categorie(s) hors vocabulaire, sans effet -> "
                    + ", ".join(inconnues) + ")")
+    illisibles = LIGNES_ILLISIBLES.get(RUNS_PATH, 0)
+    if illisibles:
+        detail += f" ({illisibles} ligne(s) illisible(s) dans runs.jsonl, ignoree(s))"
     print(
         f"Supervision agents : +{new_events} evenement(s), {len(state.get('files', {}))} sessions couvertes, "
         f"{len(todos)} TODO, {len(runs)} run(s) orchestrateur -> agents-supervision.md, index.md"
@@ -1318,8 +1349,15 @@ def main(argv) -> int:
     # subprocess (console cp1252 sur Windows) — un caractere hors cp1252 y leve
     # UnicodeDecodeError et rend stdout None (incident verifie le 2026-07-29).
     for run in runs_a_solder(runs):
+        # ts COMPLET, jamais tronque : `log_run.py --solde` exige EXACTEMENT une
+        # correspondance de prefixe et rend rc=1 sinon. Tronquer a l'heure ([:13])
+        # rendait donc la commande officielle inutilisable des que deux runs
+        # partageaient l'heure -- mesure du 2026-08-31 sur le journal reel : 24
+        # prefixes horaires sur 36 en collision, les 8 runs en attente touches. Or
+        # R5 interdit l'edition manuelle du journal : sans prefixe unique, la
+        # boucle en-attente-validation ne se referme plus.
         print(f"  run a solder (il y a {run['heures']} h) : {run['demande']} "
-              f"-> py .claude/orchestration/log_run.py --solde {run['ts'][:13]} succes \"note\"")
+              f"-> py .claude/orchestration/log_run.py --solde \"{run['ts']}\" succes \"note\"")
     if apparus:
         print(f"  sous-agent(s) desormais adressable(s) par l'outil Agent : "
               f"{', '.join(apparus)} - ecrit(s) hors de cette session, donc utilisable(s) "

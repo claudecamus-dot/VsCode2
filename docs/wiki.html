@@ -835,12 +835,12 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-07-31T16:34:24+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-08-31T15:46:37+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>63 sessions</strong> couvertes · <strong>150</strong> invocations de skills · <strong>82</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>64 sessions</strong> couvertes · <strong>154</strong> invocations de skills · <strong>84</strong> lancements de sous-agents. Conception : <code>docs/reflexions/agent-superviseur.md</code> (étage 2 : skill <code>agent-supervisor</code>, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-07-31 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
+        <div class="tag-source">scan_transcripts.py · 2026-08-31 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
 
       <h3>Skills — usage réel</h3>
@@ -848,9 +848,9 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Skill</th><th>Famille</th><th>Invocations</th><th>Première</th><th>Dernière</th></tr></thead>
           <tbody>
-            <tr><td><code>run-dev-server</code></td><td>projet</td><td>38</td><td>2026-07-03</td><td>2026-07-31</td></tr>
-            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>30</td><td>2026-07-17</td><td>2026-07-31</td></tr>
-            <tr><td><code>agent-supervisor</code></td><td>projet</td><td>19</td><td>2026-07-18</td><td>2026-07-29</td></tr>
+            <tr><td><code>run-dev-server</code></td><td>projet</td><td>39</td><td>2026-07-03</td><td>2026-08-31</td></tr>
+            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>32</td><td>2026-07-17</td><td>2026-08-31</td></tr>
+            <tr><td><code>agent-supervisor</code></td><td>projet</td><td>20</td><td>2026-07-18</td><td>2026-08-31</td></tr>
             <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>13</td><td>2026-07-20</td><td>2026-07-31</td></tr>
             <tr><td><code>revue-increment</code></td><td>projet</td><td>11</td><td>2026-07-18</td><td>2026-07-30</td></tr>
             <tr><td><code>pptx-verify</code></td><td>global</td><td>10</td><td>2026-07-03</td><td>2026-07-29</td></tr>
@@ -879,7 +879,7 @@ pytest -k "pptx or export"                                                     #
           <thead><tr><th>Sous-agent</th><th>Lancements</th><th>Premier</th><th>Dernier</th></tr></thead>
           <tbody>
             <tr><td><code>general-purpose</code></td><td>47</td><td>2026-07-15</td><td>2026-07-31</td></tr>
-            <tr><td><code>Explore</code></td><td>27</td><td>2026-06-30</td><td>2026-07-30</td></tr>
+            <tr><td><code>Explore</code></td><td>29</td><td>2026-06-30</td><td>2026-08-31</td></tr>
             <tr><td><code>claude</code></td><td>4</td><td>2026-07-16</td><td>2026-07-16</td></tr>
             <tr><td><code>Plan</code></td><td>3</td><td>2026-07-06</td><td>2026-07-17</td></tr>
             <tr><td><code>claude-code-guide</code></td><td>1</td><td>2026-07-03</td><td>2026-07-03</td></tr>
@@ -888,15 +888,21 @@ pytest -k "pptx or export"                                                     #
       </div>
 
       <h3>Jamais utilisés</h3>
+      <p><strong>projet</strong> — 2/13 jamais invoqués : <code>audit-technique</code>, <code>veille-agentic</code></p>
       <p><strong>BMAD</strong> — 36/39 jamais invoqués : <details><summary>Voir la liste (36)</summary><p><code>bmad-advanced-elicitation</code>, <code>bmad-agent-analyst</code>, <code>bmad-agent-architect</code>, <code>bmad-agent-dev</code>, <code>bmad-agent-pm</code>, <code>bmad-agent-tech-writer</code>, <code>bmad-agent-ux-designer</code>, <code>bmad-architecture</code>, <code>bmad-brainstorming</code>, <code>bmad-check-implementation-readiness</code>, <code>bmad-checkpoint-preview</code>, <code>bmad-correct-course</code>, <code>bmad-create-epics-and-stories</code>, <code>bmad-create-story</code>, <code>bmad-customize</code>, <code>bmad-dev-auto</code>, <code>bmad-dev-story</code>, <code>bmad-document-project</code>, <code>bmad-domain-research</code>, <code>bmad-editorial-review-prose</code>, <code>bmad-editorial-review-structure</code>, <code>bmad-forge-idea</code>, <code>bmad-generate-project-context</code>, <code>bmad-help</code>, <code>bmad-index-docs</code>, <code>bmad-market-research</code>, <code>bmad-prd</code>, <code>bmad-prfaq</code>, <code>bmad-product-brief</code>, <code>bmad-retrospective</code>, <code>bmad-review-adversarial-general</code>, <code>bmad-review-edge-case-hunter</code>, <code>bmad-shard-doc</code>, <code>bmad-sprint-planning</code>, <code>bmad-technical-research</code>, <code>bmad-ux</code></p></details></p>
-      <p><strong>bibliothèque / référence</strong> — usage via scripts/sous-agent, non capté par le compteur (n=0 ≠ mort, constat #2) : <code>pptx-framed-image</code></p>
+      <p><strong>bibliothèque / référence</strong> — usage via scripts/sous-agent, non capté par le compteur (n=0 ≠ mort, constat #2) : <code>pdf-quality</code>, <code>pptx-framed-image</code></p>
 
 
       <h3>TODO agents — chantiers à lancer (constats automatiques)</h3>
       <div class="critical">
-        <p><strong>Skills en sommeil (&gt;30 j sans usage)</strong> : <code>claude-api</code>.</p>
+        <p><strong>Skills projet sans usage</strong> : <code>audit-technique</code>, <code>veille-agentic</code> — vérifier pertinence et déclencheurs.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-07-31 · transcripts de session</div>
+        <div class="tag-source">scan_transcripts.py · 2026-08-31 · transcripts de session</div>
+      </div>
+      <div class="critical">
+        <p><strong>Skills en sommeil (&gt;30 j sans usage)</strong> : <code>bmad-code-review</code>, <code>bmad-party-mode</code>, <code>bmad-sprint-status</code>, <code>claude-api</code>, <code>deck-design-library</code>, <code>deck-design-review</code>, <code>init</code>, <code>pptx-deck</code>, <code>pptx-verify</code>, <code>priority-matrix</code>, <code>restitution-deck-design</code>, <code>revue-increment</code>, <code>roadmap-keeper</code>, <code>run</code>, <code>skill-creator</code>, <code>slide-text-polish</code>, <code>swot-matrix</code>, <code>update-config</code>.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">scan_transcripts.py · 2026-08-31 · transcripts de session</div>
       </div>
 
       <h3>Arbitrages enregistrés</h3>
@@ -944,7 +950,17 @@ pytest -k "pptx or export"                                                     #
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
       <p><em>Diagnostic à jour.</em></p>
       <div class="critical">
-        <p><strong>Angle mort CI : 6 runs rouges d'affilée pendant que la suite locale était verte</strong> — Le vert local ne prouve rien de la CI : le poste de dev a un environnement plus riche que le runner (binaires installés, Windows). Sans lecture du statut après push, la CI cesse d'être un gate et devient du rouge permanent que plus personne ne regarde. · <strong>Proposition</strong> : Traité le jour même sur les deux plans : règle ajoutée à <code>revue-increment</code> §2 (vérifier le run CI après un push, avec la commande adaptée — pas de <code>gh</code> sur cette machine, token via <code>git credential fill</code> puis l'API <code>actions/runs</code>) et mémoire <code>feedback-green-local-suite-hides-red-ci</code>. À arbitrer : faut-il en plus un garde-fou exécutable (hook post-push ou étape <code>commit-et-journal</code> du playbook <code>dev-verifie</code> qui lit le dernier run) plutôt qu'une règle de checklist ?</p>
+        <p><strong>CLAUDE.md est devenu un journal de chantiers en append-only : 15 387 mots charges a chaque tour, contre sa propre discipline de tokens</strong> — Scinder : garder dans CLAUDE.md les invariants durables (projet, vocabulaire, commandes, architecture, regles R1-R4, dispositif) et sortir la chronologie des chantiers vers un journal date sous docs/wiki/, reference par un pointeur. · <strong>Proposition</strong> : Deplacer les paragraphes de chantier ANTERIEURS au dernier increment vers docs/wiki/journal-chantiers.md (un titre de niveau 2 par date, contenu inchange), et laisser dans CLAUDE.md un pointeur unique du type 'Historique detaille des chantiers : docs/wiki/journal-chantiers.md -- verifier contre git log plutot que de s'y fier'. Cible : ramener CLAUDE.md sous ~6 000 mots. Regle de tenue a ajouter dans revue-increment : un nouveau chantier s'ecrit dans le journal, et ne remonte dans CLAUDE.md que s'il change un invariant ou une regle.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">agent-supervisor · étage 2</div>
+      </div>
+      <div class="critical">
+        <p><strong>Les constats adverses differes n'ont toujours aucun support durable : il faut les reconstituer a la main a chaque reprise</strong> — Faire de l'ecriture du triage un artefact obligatoire de la revue adversariale, et non une restitution conversationnelle. · <strong>Proposition</strong> : Ajouter a bmad-code-review une etape terminale : ecrire .claude/triage/&lt;date&gt;-&lt;sujet&gt;.md, une ligne par constat (id, titre court, fichier:ligne, severite, statut corrige|differe|ecarte, raison si non corrige). Puis, dans revue-increment §2, verifier qu'aucun constat 'differe' ne reste sans raison ecrite avant de declarer un increment livre. Cout : une etape d'ecriture par revue ; gain : la reprise des differes devient une lecture de fichier au lieu d'un fan-out de sous-agents.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">agent-supervisor · étage 2</div>
+      </div>
+      <div class="critical">
+        <p><strong>Le sommeil est mesure en jours absolus : au retour d'une dormance projet, il declare morts les agents les plus eprouves</strong> — Mesurer le sommeil par rapport a la derniere activite REELLE du projet (max des <code>last</code> de state.json) plutot qu'a maintenant, ou le compter en nombre de sessions actives ecoulees plutot qu'en jours calendaires. · <strong>Proposition</strong> : Dans scan_transcripts.py, remplacer la reference temporelle du calcul en_sommeil (ligne ~648) : <code>reference = max(last de state.json['skills'] + ['subagents'])</code> au lieu de <code>datetime.now()</code>, et renommer la mention du wiki en '&gt;N j d'activite projet sans usage' (ligne ~769). Effet attendu sur les donnees d'aujourd'hui : en_sommeil retombe de 23 a ~10 entrees, toutes reellement inutilisees pendant que le projet tournait. Aucun impact sur jamais_utilises ni sur prudence.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">agent-supervisor · étage 2</div>
       </div>

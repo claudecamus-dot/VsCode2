@@ -1,5 +1,5 @@
 ---
-updated: 2026-07-31
+updated: 2026-08-31
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -9,15 +9,15 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 > Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-07-31T16:34:24+02:00 · **63 sessions** (transcripts) · **150** invocations de skills · **82** lancements de sous-agents.
+Dernier scan : 2026-08-31T15:46:37+02:00 · **64 sessions** (transcripts) · **154** invocations de skills · **84** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `run-dev-server` | projet | 38 | 2026-07-03 | 2026-07-31 |
-| `agent-orchestrator` | projet | 30 | 2026-07-17 | 2026-07-31 |
-| `agent-supervisor` | projet | 19 | 2026-07-18 | 2026-07-29 |
+| `run-dev-server` | projet | 39 | 2026-07-03 | 2026-08-31 |
+| `agent-orchestrator` | projet | 32 | 2026-07-17 | 2026-08-31 |
+| `agent-supervisor` | projet | 20 | 2026-07-18 | 2026-08-31 |
 | `bmad-code-review` | BMAD | 13 | 2026-07-20 | 2026-07-31 |
 | `revue-increment` | projet | 11 | 2026-07-18 | 2026-07-30 |
 | `pptx-verify` | global | 10 | 2026-07-03 | 2026-07-29 |
@@ -42,12 +42,16 @@ Dernier scan : 2026-07-31T16:34:24+02:00 · **63 sessions** (transcripts) · **1
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
 | `general-purpose` | 47 | 2026-07-15 | 2026-07-31 |
-| `Explore` | 27 | 2026-06-30 | 2026-07-30 |
+| `Explore` | 29 | 2026-06-30 | 2026-08-31 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
 | `claude-code-guide` | 1 | 2026-07-03 | 2026-07-03 |
 
 ## Jamais utilisés
+
+**projet** — 2/13 jamais invoqués :
+
+`audit-technique`, `veille-agentic`
 
 **BMAD** — 36/39 jamais invoqués :
 
@@ -61,11 +65,12 @@ Dernier scan : 2026-07-31T16:34:24+02:00 · **63 sessions** (transcripts) · **1
 
 _Consommés en lisant/exécutant leurs `scripts/`, ou via un sous-agent qui les suit (ex. `ppt-designer`, qui n'a pas l'outil Skill) — le compteur d'invocations ne peut structurellement pas les voir. `n=0` n'y vaut donc PAS « mort » : ne pas désinstaller sur ce seul signal (constat superviseur #2)._
 
-`pptx-framed-image`
+`pdf-quality`, `pptx-framed-image`
 
 ## TODO agents (constats automatiques)
 
-1. **Skills en sommeil (>30 j sans usage)** : `claude-api`.
+1. **Skills projet sans usage** : `audit-technique`, `veille-agentic` — vérifier pertinence et déclencheurs.
+2. **Skills en sommeil (>30 j sans usage)** : `bmad-code-review`, `bmad-party-mode`, `bmad-sprint-status`, `claude-api`, `deck-design-library`, `deck-design-review`, `init`, `pptx-deck`, `pptx-verify`, `priority-matrix`, `restitution-deck-design`, `revue-increment`, `roadmap-keeper`, `run`, `skill-creator`, `slide-text-polish`, `swot-matrix`, `update-config`.
 
 ## Arbitrages enregistrés
 
@@ -114,7 +119,9 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 
 _Diagnostic à jour._
 
-1. **Angle mort CI : 6 runs rouges d'affilée pendant que la suite locale était verte** — Le vert local ne prouve rien de la CI : le poste de dev a un environnement plus riche que le runner (binaires installés, Windows). Sans lecture du statut après push, la CI cesse d'être un gate et devient du rouge permanent que plus personne ne regarde. · **Proposition** : Traité le jour même sur les deux plans : règle ajoutée à `revue-increment` §2 (vérifier le run CI après un push, avec la commande adaptée — pas de `gh` sur cette machine, token via `git credential fill` puis l'API `actions/runs`) et mémoire `feedback-green-local-suite-hides-red-ci`. À arbitrer : faut-il en plus un garde-fou exécutable (hook post-push ou étape `commit-et-journal` du playbook `dev-verifie` qui lit le dernier run) plutôt qu'une règle de checklist ?
+1. **CLAUDE.md est devenu un journal de chantiers en append-only : 15 387 mots charges a chaque tour, contre sa propre discipline de tokens** — Scinder : garder dans CLAUDE.md les invariants durables (projet, vocabulaire, commandes, architecture, regles R1-R4, dispositif) et sortir la chronologie des chantiers vers un journal date sous docs/wiki/, reference par un pointeur. · **Proposition** : Deplacer les paragraphes de chantier ANTERIEURS au dernier increment vers docs/wiki/journal-chantiers.md (un titre de niveau 2 par date, contenu inchange), et laisser dans CLAUDE.md un pointeur unique du type 'Historique detaille des chantiers : docs/wiki/journal-chantiers.md -- verifier contre git log plutot que de s'y fier'. Cible : ramener CLAUDE.md sous ~6 000 mots. Regle de tenue a ajouter dans revue-increment : un nouveau chantier s'ecrit dans le journal, et ne remonte dans CLAUDE.md que s'il change un invariant ou une regle.
+2. **Les constats adverses differes n'ont toujours aucun support durable : il faut les reconstituer a la main a chaque reprise** — Faire de l'ecriture du triage un artefact obligatoire de la revue adversariale, et non une restitution conversationnelle. · **Proposition** : Ajouter a bmad-code-review une etape terminale : ecrire .claude/triage/<date>-<sujet>.md, une ligne par constat (id, titre court, fichier:ligne, severite, statut corrige|differe|ecarte, raison si non corrige). Puis, dans revue-increment §2, verifier qu'aucun constat 'differe' ne reste sans raison ecrite avant de declarer un increment livre. Cout : une etape d'ecriture par revue ; gain : la reprise des differes devient une lecture de fichier au lieu d'un fan-out de sous-agents.
+3. **Le sommeil est mesure en jours absolus : au retour d'une dormance projet, il declare morts les agents les plus eprouves** — Mesurer le sommeil par rapport a la derniere activite REELLE du projet (max des `last` de state.json) plutot qu'a maintenant, ou le compter en nombre de sessions actives ecoulees plutot qu'en jours calendaires. · **Proposition** : Dans scan_transcripts.py, remplacer la reference temporelle du calcul en_sommeil (ligne ~648) : `reference = max(last de state.json['skills'] + ['subagents'])` au lieu de `datetime.now()`, et renommer la mention du wiki en '>N j d'activite projet sans usage' (ligne ~769). Effet attendu sur les donnees d'aujourd'hui : en_sommeil retombe de 23 a ~10 entrees, toutes reellement inutilisees pendant que le projet tournait. Aucun impact sur jamais_utilises ni sur prudence.
 
 ---
 

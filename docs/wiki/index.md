@@ -69,7 +69,8 @@ BMAD-METHOD installé (39 skills `bmad-*` après tri, routage sur demande explic
 
 Constats automatiques du superviseur d'agents (usage mesuré dans les transcripts de session) :
 
-- **Skills en sommeil (>30 j sans usage)** : `claude-api`.
+- **Skills projet sans usage** : `audit-technique`, `veille-agentic` — vérifier pertinence et déclencheurs.
+- **Skills en sommeil (>30 j sans usage)** : `bmad-code-review`, `bmad-party-mode`, `bmad-sprint-status`, `claude-api`, `deck-design-library`, `deck-design-review`, `init`, `pptx-deck`, `pptx-verify`, `priority-matrix`, `restitution-deck-design`, `revue-increment`, `roadmap-keeper`, `run`, `skill-creator`, `slide-text-polish`, `swot-matrix`, `update-config`.
 
 Tableau de bord complet : [technical/agents-supervision.md](technical/agents-supervision.md) — régénéré à chaque session.
 <!-- TODO-AGENTS:END -->

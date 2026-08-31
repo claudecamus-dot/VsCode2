@@ -1,10 +1,3 @@
-# +-- GÉNÉRÉ — NE PAS ÉDITER LOCALEMENT ---------------------------------------
-# | Source de vérité : hub de supervision VScode5, .claude/dispositif/canon/log_run.py
-# | Propagé par .claude/dispositif/sync_dispositif.py. Toute correction se fait
-# | DANS le canon du hub, puis « py .claude/dispositif/sync_dispositif.py »
-# | re-synchronise la flotte — sinon la modification locale sera écrasée.
-# +---------------------------------------------------------------------------
-
 """Journal des orchestrations (étage O-A) — append d'un run dans runs.jsonl.
 
 Usage : py .claude/orchestration/log_run.py '<json>'   (ou JSON sur stdin)
@@ -83,9 +76,15 @@ def solder(argv) -> int:
     run["resultat"] = resultat
     date = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
     run["notes"] = (str(run.get("notes", "")) + f" | solde {date} : {note}").strip(" |")
-    with open(RUNS_PATH, "w", encoding="utf-8") as fh:
+    # Ecriture atomique (meme convention que scripts/scan_projets.py) : "w" direct sur
+    # RUNS_PATH tronque les 94 Ko du journal a mi-parcours si l'ecriture est interrompue
+    # (Ctrl-C, coupure, disque plein). Le temporaire vit dans le meme repertoire pour
+    # que os.replace reste atomique (meme volume, Windows comme POSIX).
+    tmp = RUNS_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
         for r in runs:
             fh.write(json.dumps(r, ensure_ascii=False) + "\n")
+    os.replace(tmp, RUNS_PATH)
     print(f"log_run --solde : run {run.get('ts')} requalifie {avant} -> {resultat}")
     return 0
 
