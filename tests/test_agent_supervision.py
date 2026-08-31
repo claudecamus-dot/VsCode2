@@ -185,11 +185,16 @@ def test_routing_hints_croisent_usage_et_runs(tmp_path):
     assert "revue-increment" in hints["jamais_utilises"]
     assert any("revue-increment" in v for v in hints["verifications_oubliees"])
     # Plan vs réel : stats par playbook et par agent héritées du résultat du run.
+    # `en-attente-validation` et `partiel` rejoignent `en-cours` : comptés à part,
+    # jamais dans `n` (canon du hub, 2026-08-31 — un playbook sans aucun échec
+    # s'affichait à 83 % parce que ses runs non soldés gonflaient le dénominateur).
     assert hints["playbooks"]["dev-verifie"] == {
         "n": 2, "succes": 1, "echecs": 1, "reprises": 2, "en_cours": 1,
+        "en_attente_validation": 0, "partiels": 0,
     }
     assert hints["agents"]["Explore"] == {
         "n": 1, "succes": 0, "echecs": 1, "reprises": 2, "en_cours": 0,
+        "en_attente_validation": 0, "partiels": 0,
     }
     # Pas de diagnostic étage 2 : signalé comme à lancer.
     assert hints["diagnostic_a_jour"] is False

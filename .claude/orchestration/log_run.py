@@ -1,3 +1,10 @@
+# +-- GÉNÉRÉ — NE PAS ÉDITER LOCALEMENT ---------------------------------------
+# | Source de vérité : hub de supervision VScode5, .claude/dispositif/canon/log_run.py
+# | Propagé par .claude/dispositif/sync_dispositif.py. Toute correction se fait
+# | DANS le canon du hub, puis « py .claude/dispositif/sync_dispositif.py »
+# | re-synchronise la flotte — sinon la modification locale sera écrasée.
+# +---------------------------------------------------------------------------
+
 """Journal des orchestrations (étage O-A) — append d'un run dans runs.jsonl.
 
 Usage : py .claude/orchestration/log_run.py '<json>'   (ou JSON sur stdin)
@@ -47,6 +54,12 @@ QUALIFICATIONS = ("orchestre", "direct-signale")
 # l'utilisateur doit approuver, et qui manquait ici (la skill l'exige pourtant, il
 # n'était donc atteignable qu'en éditant le journal à la main).
 RESULTATS_SOLDE = ("succes", "en-attente-validation", "partiel", "echec")
+# A l'APPEND, « en-cours » s'ajoute aux etats terminaux. Sans cette liste, `resultat`
+# n'etait valide qu'au solde : « succès » (accent, faute de frappe naturelle en
+# francais) et « nimportequoi » entraient dans le journal en exit 0, faussaient le
+# taux de reussite et echappaient au controle « en-attente-validation » (reproduit
+# le 2026-08-31).
+RESULTATS_APPEND = ("en-cours",) + RESULTATS_SOLDE
 
 
 def solder(argv) -> int:
@@ -69,7 +82,9 @@ def solder(argv) -> int:
     if len(cibles) != 1:
         print(f"log_run --solde : {len(cibles)} run(s) pour le prefixe '{prefixe}' — il en faut exactement 1")
         for r in cibles:
-            print(f"  - {r.get('ts')} | {r.get('demande', '')[:60]}")
+            # `or ''` : un run a demande null faisait planter en TypeError la
+            # branche meme qui doit servir a desambiguiser (reproduit 2026-08-31).
+            print(f"  - {r.get('ts')} | {str(r.get('demande') or '')[:60]}")
         return 1
     run = cibles[0]
     avant = run.get("resultat")
@@ -107,6 +122,13 @@ def main(argv) -> int:
         return 1
     if run["qualification"] not in QUALIFICATIONS:
         print(f"log_run : qualification invalide (attendu : {' | '.join(QUALIFICATIONS)})")
+        return 1
+    # `resultat` ABSENT reste accepte (un run peut s'ouvrir sans) ; present, il doit
+    # etre l'un des etats connus — sinon le journal accumule des valeurs qu'aucun
+    # calcul de taux ne sait lire.
+    if "resultat" in run and run["resultat"] not in RESULTATS_APPEND:
+        print(f"log_run : resultat invalide ({run['resultat']!r}) — attendu : "
+              f"{' | '.join(RESULTATS_APPEND)}")
         return 1
     run.setdefault("ts", datetime.datetime.now().astimezone().isoformat(timespec="seconds"))
     with open(RUNS_PATH, "a", encoding="utf-8") as fh:

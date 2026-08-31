@@ -7,16 +7,15 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
-> Conception et phasage : [../../reflexions/agent-superviseur.md](../../reflexions/agent-superviseur.md).
 
-Dernier scan : 2026-08-31T15:46:37+02:00 · **64 sessions** (transcripts) · **154** invocations de skills · **84** lancements de sous-agents.
+Dernier scan : 2026-08-31T21:25:17+02:00 · **65 sessions** (transcripts) · **156** invocations de skills · **87** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
 | `run-dev-server` | projet | 39 | 2026-07-03 | 2026-08-31 |
-| `agent-orchestrator` | projet | 32 | 2026-07-17 | 2026-08-31 |
+| `agent-orchestrator` | projet | 34 | 2026-07-17 | 2026-08-31 |
 | `agent-supervisor` | projet | 20 | 2026-07-18 | 2026-08-31 |
 | `bmad-code-review` | BMAD | 13 | 2026-07-20 | 2026-07-31 |
 | `revue-increment` | projet | 11 | 2026-07-18 | 2026-07-30 |
@@ -41,10 +40,11 @@ Dernier scan : 2026-08-31T15:46:37+02:00 · **64 sessions** (transcripts) · **1
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 47 | 2026-07-15 | 2026-07-31 |
+| `general-purpose` | 48 | 2026-07-15 | 2026-08-31 |
 | `Explore` | 29 | 2026-06-30 | 2026-08-31 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
+| `bmad-revue` | 2 | 2026-08-31 | 2026-08-31 |
 | `claude-code-guide` | 1 | 2026-07-03 | 2026-07-03 |
 
 ## Jamais utilisés
