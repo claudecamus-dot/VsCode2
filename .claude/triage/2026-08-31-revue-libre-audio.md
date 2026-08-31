@@ -8,6 +8,17 @@ puis consolidation en session principale.
 revue est le livrable, les correctifs sont un mandat séparé. Tous les constats sont donc
 `differe` tant que l'utilisateur n'a pas arbitré ce qui se corrige.
 
+> **Mise à jour 2026-08-31 (reprise, session vscode2-78).** Une session ultérieure a
+> appliqué, avec arbitrage utilisateur, des correctifs pour B1, B2+B3, F1, F2, F10 —
+> commit `2bf44b7` (commité et poussé par la session pair vscode5-supervision pendant la
+> vérification). Vérifié à la reprise : suite complète **630 passed** (un premier run à
+> 120 erreurs = verrou Windows transitoire sur la base de test, non reproduit), rendu réel
+> des 2 écrans OK (serveur frais prouvé, empreinte `314b4b7d49f06174`), **gate R3** tenu
+> (revue adversariale du correctif, POST-commit faute d'avoir pu bloquer) → **12 constats
+> nouveaux (0 bloquant, 6 MAJEUR, 6 MINEUR)**, § « Revue du correctif » plus bas.
+> Statuts par constat mis à jour dans les tables. Les 12 nouveaux constats sont `differe`
+> en attente d'arbitrage.
+
 **Preuve** : `VERIFIE-CONSO` = re-vérifié en consolidation par lecture ou exécution directe
 (je ne reprends pas un rapport d'agent à mon compte sans le recouper) ; `VERIFIE-AGENT` =
 lu par le sous-agent, non recoupé ; `SUPPOSE` = demande une session navigateur ou une
@@ -51,11 +62,11 @@ génération d'`uploadBackup` (posée sur `record_libre.html`, absente de `recor
 
 | id | titre | fichier:ligne | preuve | statut |
 | --- | --- | --- | --- | --- |
-| B1 | Le *reduce* de la synthèse ignore les axes de la mission et vide toute la répartition | `app/services/interview_libre_extract_ai.py:480` | VERIFIE-CONSO | differe |
-| B2 | Une tranche d'extraction en échec disparaît sans avertissement, sans log et sans trace | `app/routers/interviews.py:674` | VERIFIE-CONSO | differe |
-| F1 | Aucun timeout sur aucun `fetch` : un upload sans réponse gèle « Enregistrer » à vie | `app/templates/interviews/record_libre.html:950` | VERIFIE-CONSO | differe |
-| F2 | Un 422 non-`no_speech` gèle l'enregistrement, et son rejeu reproduit le même 422 | `app/templates/interviews/record_libre.html:985` | VERIFIE-CONSO | differe |
-| F3 | Sauvegarde audio : une tranche dont l'upload échoue est détruite, puis comptée pour rien | `app/templates/interviews/record_libre.html:1065` | VERIFIE-AGENT | differe |
+| B1 | Le *reduce* de la synthèse ignore les axes de la mission et vide toute la répartition | `app/services/interview_libre_extract_ai.py:480` | VERIFIE-CONSO | **corrige** (2bf44b7, COMPLET — revue R3) |
+| B2 | Une tranche d'extraction en échec disparaît sans avertissement, sans log et sans trace | `app/routers/interviews.py:674` | VERIFIE-CONSO | **corrige** (2bf44b7, COMPLET sur le chemin visé ; réserve = R3-M3) |
+| F1 | Aucun timeout sur aucun `fetch` : un upload sans réponse gèle « Enregistrer » à vie | `app/templates/interviews/record_libre.html:950` | VERIFIE-CONSO | **partiel** (2bf44b7 : 2 écrans câblés ; restent R3-M2/M5/M6) |
+| F2 | Un 422 non-`no_speech` gèle l'enregistrement, et son rejeu reproduit le même 422 | `app/templates/interviews/record_libre.html:985` | VERIFIE-CONSO | **corrige côté serveur, partiel côté client** (2bf44b7 ; R3-m5/m6) |
+| F3 | Sauvegarde audio : une tranche dont l'upload échoue est détruite, puis comptée pour rien | `app/templates/interviews/record_libre.html:1065` | VERIFIE-AGENT | **partiel** (2bf44b7 : « comptée pour rien » traité ; « détruite » subsiste, R3-m4) |
 
 ### B1 — le *reduce* ignore les axes
 Le *map* a ses variantes dynamiques (`_synthese_system(axes)`, `_synthese_schema(axes)`,
@@ -119,7 +130,7 @@ faster-whisper indisponible) se réinjecte en boucle comme bloquant. Aucun bouto
 
 | id | titre | fichier:ligne | preuve | statut |
 | --- | --- | --- | --- | --- |
-| B3 | Récupération synchrone non bornée à l'arrêt : un POST peut lancer 20+ extractions Ollama en ligne | `app/routers/interviews.py:674` | VERIFIE-CONSO | differe |
+| B3 | Récupération synchrone non bornée à l'arrêt : un POST peut lancer 20+ extractions Ollama en ligne | `app/routers/interviews.py:674` | VERIFIE-CONSO | **partiel** (2bf44b7 : plafonné en libre ; chemin frère `:420` NON plafonné = R3-M1) |
 | B4 | L'étape 2 découpe en NOMBRE DE TOURS et ignore `OLLAMA_CHUNK_MAX_WORDS` | `app/services/interview_libre_extract_ai.py:58` | VERIFIE-AGENT | differe |
 | B5 | L'appel de fusion n'a aucune borne de taille : `num_ctx` tronque le prompt en silence | `app/services/interview_libre_extract_ai.py:463` | VERIFIE-AGENT | differe |
 | B6 | Un redémarrage serveur n'est jamais rattrapé : 45 min à 3 h d'attente muette | `app/main.py:49` | VERIFIE-AGENT | differe |
@@ -132,8 +143,8 @@ faster-whisper indisponible) se réinjecte en boucle comme bloquant. Aucun bouto
 | F6 | `libre_segment_wait.html` retient la seule copie de l'entretien sans garde-fou de sortie | `app/templates/interviews/libre_segment_wait.html:27` | VERIFIE-AGENT | differe |
 | F7 | Une exception au démarrage laisse l'écran mort : ni démarrer, ni arrêter, ni enregistrer | `app/templates/interviews/record_libre.html:1372` | VERIFIE-AGENT | differe |
 | F8 | La rotation n'a aucun filet : la transcription peut s'arrêter en silence | `app/templates/interviews/record_libre.html:479` | VERIFIE-AGENT | differe |
-| F9 | « Recommencer » ne vide pas la Répartition : tours de l'entretien jeté affichés ET exportables | `app/templates/interviews/record_libre.html:1503` | VERIFIE-CONSO | differe |
-| F10 | `record.html` : `uploadBackup` sans garde de génération — l'audio d'un autre interviewé | `app/templates/interviews/record.html:944` | VERIFIE-CONSO | differe |
+| F9 | « Recommencer » ne vide pas la Répartition : tours de l'entretien jeté affichés ET exportables | `app/templates/interviews/record_libre.html:1503` | VERIFIE-CONSO | differe — **non touché par 2bf44b7** (asymétrie re-confirmée par R3) |
+| F10 | `record.html` : `uploadBackup` sans garde de génération — l'audio d'un autre interviewé | `app/templates/interviews/record.html:944` | VERIFIE-CONSO | **corrige** (2bf44b7, COMPLET — parité stricte avec `uploadSegment`) |
 | F11 | Les alertes de source audio ne sortent jamais de l'onglet, alors que l'entretien est ailleurs | `app/templates/interviews/record_libre.html:551` | VERIFIE-AGENT | differe |
 
 Notes de consolidation :
@@ -216,3 +227,40 @@ retranscription.
 6. **Revue projet au sens large écartée** par arbitrage utilisateur au moment de composer le
    plan : pas d'`audit-technique` (robustesse/perf/risque/sécurité transverses), pas de revue
    du commit `1c58e7f`.
+
+---
+
+## Revue du correctif (gate R3 sur `2bf44b7`, 2026-08-31)
+
+Revue adversariale du correctif lui-même (bmad-code-review via sous-agent opus, layers en
+séquence — l'outil Agent n'était pas exposé au porteur, couche « aveugle » affaiblie),
+POST-commit : `2bf44b7` a été commité/poussé par la session pair pendant la revue, le
+checkpoint bloquant du playbook n'a pas pu bloquer. `node --check` OK sur `rec_fetch.js` ;
+lecture seule, aucun pytest (suite 630 verte jouée par la session appelante).
+
+**12 constats, 0 bloquant. Tous `differe` — arbitrage utilisateur requis.**
+
+| id | sév. | titre | fichier:ligne | preuve | statut |
+| --- | --- | --- | --- | --- | --- |
+| R3-M1 | MAJEUR | B3 non appliqué au chemin frère : `recover_stalled_or_failed_jobs` sans plafond en mode paramétré (prescrit par la note de consolidation) | `app/routers/interviews.py:420` | VERIFIE-AGENT | differe |
+| R3-M2 | MAJEUR | F1 absent des 3 écrans frères du même parcours ; poll en chaîne `setTimeout` qui meurt définitivement sur connexion morte, écran détenant la seule copie de l'entretien ; `test_record_reseau.ECRANS` verrouille le trou | `libre_segment_wait.html:58`, `record_segment_wait.html:55`, `libre_retranscription.html:100` | VERIFIE-AGENT | differe |
+| R3-M3 | MAJEUR | Plafond de récupération = préfixe fixe (les 3 mêmes tranches à chaque envoi) + asymétrie de filtre `a_recuperer` (sans `text.strip()`) vs `still_ko` — blocage possible à l'infini avec message promettant un progrès | `app/routers/interviews.py:690-691` | VERIFIE-AGENT (mécanisme) | differe |
+| R3-M4 | MAJEUR | Le clamp `Math.min` sur `sliceEndNow` est un no-op dès qu'un segment est arrivé pendant le vol du POST — sur-comptage de `coveredLen` intact, fenêtre élargie 120× par `NET_TIMEOUT_MS` | `record_libre.html:446`, `record.html:388` | VERIFIE-AGENT | differe |
+| R3-M5 | MAJEUR | Le gel n'est pas supprimé, il est ramené à ~45 min (3 tentatives × 900 s, `pendingSegments` tenu), sans affichage d'échéance | `rec_fetch.js` + `record_libre.html:284`, `record.html:260` | VERIFIE-AGENT (arithmétique) | differe |
+| R3-M6 | MAJEUR | L'abort client ne coupe pas le travail Whisper serveur et `retryOrGiveUp` renvoie les mêmes octets — emballement possible si transcription plus lente que le temps réel, aucune idempotence serveur | `rec_fetch.js:36-45` + `record_libre.html:1015` | SUPPOSE | differe |
+| R3-m1 | MINEUR | Les 3 tests qui exécutent réellement `recFetch` sont `skip` sans node — contredit le contrat « un skipped n'est pas un passed » (0f8ca53) en local | `tests/test_record_reseau.py:147` | VERIFIE-AGENT | differe |
+| R3-m2 | MINEUR | Le garde anti-`fetch`-nu exige un littéral mono-ligne : `fetch(url, …)` ou multi-ligne passe sans détection | `tests/test_record_reseau.py:55` | VERIFIE-AGENT | differe |
+| R3-m3 | MINEUR | 3ᵉ valeur de `SEGMENT_RETRY_DELAYS_MS` morte (`attempt + 1 < length` = 3 tentatives, indice 2 jamais lu) — recopiée dans les deux `uploadBackup` neufs | `record_libre.html:1017`, `record.html:1044` | VERIFIE-AGENT | differe |
+| R3-m4 | MINEUR | `beforeunload` ne couvre ni `pendingBackups` ni `backupPerdus` — fermer l'onglet pendant les ~30 min de reprise de sauvegarde ne demande rien | `record_libre.html:977-982` | VERIFIE-AGENT | differe |
+| R3-m5 | MINEUR | `markLostSegmentAbandoned` sort en silence si marqueur introuvable alors que le segment est déjà retiré du bandeau — la perte redevient silencieuse | `record_libre.html:875`, `record.html:811` | VERIFIE-AGENT (atteignabilité SUPPOSE) | differe |
+| R3-m6 | MINEUR | Le marqueur `⚠ [segment N abandonné…]` part dans `segment_tail` donc dans le prompt d'extraction — restituable comme tour de parole, non testé | `record_libre.html:873`, `record.html:809` | SUPPOSE | differe |
+
+Correctifs proposés par la revue (à arbitrer, pas appliqués) : R3-M1 — même forme qu'en
+`:690-692` sur `:420` ; R3-M3 — aligner le filtre de `a_recuperer` sur `still_ko` et faire
+tourner la fenêtre de récupération ; R3-M4 — second accumulateur de décalage pour les
+substitutions dans `[coveredLen, sliceEnd]` au lieu du clamp.
+
+Vérifié et RAS par la même revue : map-reduce axé complet (5 points de contact),
+survie des jobs sur le chemin bloquant, contrat corps-de-réponse de `rec_fetch.js`
+(prouvé par exécution node à 3 bouchons), parité stricte de la garde de génération
+F10, `_parse_repartition` préservant les axes arbitraires.
