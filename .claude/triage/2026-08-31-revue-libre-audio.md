@@ -238,29 +238,271 @@ POST-commit : `2bf44b7` a été commité/poussé par la session pair pendant la 
 checkpoint bloquant du playbook n'a pas pu bloquer. `node --check` OK sur `rec_fetch.js` ;
 lecture seule, aucun pytest (suite 630 verte jouée par la session appelante).
 
-**12 constats, 0 bloquant. Tous `differe` — arbitrage utilisateur requis.**
+**12 constats, 0 bloquant.**
+
+> **Mise à jour — les 12 sont TRAITÉS** (arbitrage utilisateur « traite les 12 R3 »,
+> 2026-08-31 soir). Suite complète **640 passed** (0 failed, 0 skipped, 0 error ; +10
+> tests), rendu réel des 2 écrans re-vérifié sur serveur frais prouvé (empreinte
+> `4df17b5ff12743e9` servie == disque) et contenu SERVI mesuré : 8 `recFetch`,
+> **0 `fetch` nu**, politique `recTimeout` présente sur les deux écrans.
+> R3-m6 s'est avéré **déjà couvert** par `strip_segment_markers` (le motif
+> `⚠ ?\[segment[^\]\n]*\]` prend aussi le marqueur d'abandon) : constat SUPPOSE réfuté
+> par lecture, verrouillé par un test de non-régression plutôt que par un correctif.
 
 | id | sév. | titre | fichier:ligne | preuve | statut |
 | --- | --- | --- | --- | --- | --- |
-| R3-M1 | MAJEUR | B3 non appliqué au chemin frère : `recover_stalled_or_failed_jobs` sans plafond en mode paramétré (prescrit par la note de consolidation) | `app/routers/interviews.py:420` | VERIFIE-AGENT | differe |
-| R3-M2 | MAJEUR | F1 absent des 3 écrans frères du même parcours ; poll en chaîne `setTimeout` qui meurt définitivement sur connexion morte, écran détenant la seule copie de l'entretien ; `test_record_reseau.ECRANS` verrouille le trou | `libre_segment_wait.html:58`, `record_segment_wait.html:55`, `libre_retranscription.html:100` | VERIFIE-AGENT | differe |
-| R3-M3 | MAJEUR | Plafond de récupération = préfixe fixe (les 3 mêmes tranches à chaque envoi) + asymétrie de filtre `a_recuperer` (sans `text.strip()`) vs `still_ko` — blocage possible à l'infini avec message promettant un progrès | `app/routers/interviews.py:690-691` | VERIFIE-AGENT (mécanisme) | differe |
-| R3-M4 | MAJEUR | Le clamp `Math.min` sur `sliceEndNow` est un no-op dès qu'un segment est arrivé pendant le vol du POST — sur-comptage de `coveredLen` intact, fenêtre élargie 120× par `NET_TIMEOUT_MS` | `record_libre.html:446`, `record.html:388` | VERIFIE-AGENT | differe |
-| R3-M5 | MAJEUR | Le gel n'est pas supprimé, il est ramené à ~45 min (3 tentatives × 900 s, `pendingSegments` tenu), sans affichage d'échéance | `rec_fetch.js` + `record_libre.html:284`, `record.html:260` | VERIFIE-AGENT (arithmétique) | differe |
-| R3-M6 | MAJEUR | L'abort client ne coupe pas le travail Whisper serveur et `retryOrGiveUp` renvoie les mêmes octets — emballement possible si transcription plus lente que le temps réel, aucune idempotence serveur | `rec_fetch.js:36-45` + `record_libre.html:1015` | SUPPOSE | differe |
-| R3-m1 | MINEUR | Les 3 tests qui exécutent réellement `recFetch` sont `skip` sans node — contredit le contrat « un skipped n'est pas un passed » (0f8ca53) en local | `tests/test_record_reseau.py:147` | VERIFIE-AGENT | differe |
-| R3-m2 | MINEUR | Le garde anti-`fetch`-nu exige un littéral mono-ligne : `fetch(url, …)` ou multi-ligne passe sans détection | `tests/test_record_reseau.py:55` | VERIFIE-AGENT | differe |
-| R3-m3 | MINEUR | 3ᵉ valeur de `SEGMENT_RETRY_DELAYS_MS` morte (`attempt + 1 < length` = 3 tentatives, indice 2 jamais lu) — recopiée dans les deux `uploadBackup` neufs | `record_libre.html:1017`, `record.html:1044` | VERIFIE-AGENT | differe |
-| R3-m4 | MINEUR | `beforeunload` ne couvre ni `pendingBackups` ni `backupPerdus` — fermer l'onglet pendant les ~30 min de reprise de sauvegarde ne demande rien | `record_libre.html:977-982` | VERIFIE-AGENT | differe |
-| R3-m5 | MINEUR | `markLostSegmentAbandoned` sort en silence si marqueur introuvable alors que le segment est déjà retiré du bandeau — la perte redevient silencieuse | `record_libre.html:875`, `record.html:811` | VERIFIE-AGENT (atteignabilité SUPPOSE) | differe |
-| R3-m6 | MINEUR | Le marqueur `⚠ [segment N abandonné…]` part dans `segment_tail` donc dans le prompt d'extraction — restituable comme tour de parole, non testé | `record_libre.html:873`, `record.html:809` | SUPPOSE | differe |
+| R3-M1 | MAJEUR | B3 non appliqué au chemin frère : `recover_stalled_or_failed_jobs` sans plafond en mode paramétré (prescrit par la note de consolidation) | `app/routers/interviews.py:420` | VERIFIE-AGENT | **corrige** |
+| R3-M2 | MAJEUR | F1 absent des 3 écrans frères du même parcours ; poll en chaîne `setTimeout` qui meurt définitivement sur connexion morte, écran détenant la seule copie de l'entretien ; `test_record_reseau.ECRANS` verrouille le trou | `libre_segment_wait.html:58`, `record_segment_wait.html:55`, `libre_retranscription.html:100` | VERIFIE-AGENT | **corrige** (+ `capture.html`) |
+| R3-M3 | MAJEUR | Plafond de récupération = préfixe fixe (les 3 mêmes tranches à chaque envoi) + asymétrie de filtre `a_recuperer` (sans `text.strip()`) vs `still_ko` — blocage possible à l'infini avec message promettant un progrès | `app/routers/interviews.py:690-691` | VERIFIE-AGENT (mécanisme) | **corrige** |
+| R3-M4 | MAJEUR | Le clamp `Math.min` sur `sliceEndNow` est un no-op dès qu'un segment est arrivé pendant le vol du POST — sur-comptage de `coveredLen` intact, fenêtre élargie 120× par `NET_TIMEOUT_MS` | `record_libre.html:446`, `record.html:388` | VERIFIE-AGENT | **corrige** |
+| R3-M5 | MAJEUR | Le gel n'est pas supprimé, il est ramené à ~45 min (3 tentatives × 900 s, `pendingSegments` tenu), sans affichage d'échéance | `rec_fetch.js` + `record_libre.html:284`, `record.html:260` | VERIFIE-AGENT (arithmétique) | **corrige** |
+| R3-M6 | MAJEUR | L'abort client ne coupe pas le travail Whisper serveur et `retryOrGiveUp` renvoie les mêmes octets — emballement possible si transcription plus lente que le temps réel, aucune idempotence serveur | `rec_fetch.js:36-45` + `record_libre.html:1015` | SUPPOSE | **corrige** (plus de rejeu auto) |
+| R3-m1 | MINEUR | Les 3 tests qui exécutent réellement `recFetch` sont `skip` sans node — contredit le contrat « un skipped n'est pas un passed » (0f8ca53) en local | `tests/test_record_reseau.py:147` | VERIFIE-AGENT | **corrige** (`pytest.fail`) |
+| R3-m2 | MINEUR | Le garde anti-`fetch`-nu exige un littéral mono-ligne : `fetch(url, …)` ou multi-ligne passe sans détection | `tests/test_record_reseau.py:55` | VERIFIE-AGENT | **corrige** |
+| R3-m3 | MINEUR | 3ᵉ valeur de `SEGMENT_RETRY_DELAYS_MS` morte (`attempt + 1 < length` = 3 tentatives, indice 2 jamais lu) — recopiée dans les deux `uploadBackup` neufs | `record_libre.html:1017`, `record.html:1044` | VERIFIE-AGENT | **corrige** |
+| R3-m4 | MINEUR | `beforeunload` ne couvre ni `pendingBackups` ni `backupPerdus` — fermer l'onglet pendant les ~30 min de reprise de sauvegarde ne demande rien | `record_libre.html:977-982` | VERIFIE-AGENT | **corrige** |
+| R3-m5 | MINEUR | `markLostSegmentAbandoned` sort en silence si marqueur introuvable alors que le segment est déjà retiré du bandeau — la perte redevient silencieuse | `record_libre.html:875`, `record.html:811` | VERIFIE-AGENT (atteignabilité SUPPOSE) | **corrige** |
+| R3-m6 | MINEUR | Le marqueur `⚠ [segment N abandonné…]` part dans `segment_tail` donc dans le prompt d'extraction — restituable comme tour de parole, non testé | `record_libre.html:873`, `record.html:809` | SUPPOSE | **sans objet** — déjà couvert, test ajouté |
 
-Correctifs proposés par la revue (à arbitrer, pas appliqués) : R3-M1 — même forme qu'en
-`:690-692` sur `:420` ; R3-M3 — aligner le filtre de `a_recuperer` sur `still_ko` et faire
-tourner la fenêtre de récupération ; R3-M4 — second accumulateur de décalage pour les
-substitutions dans `[coveredLen, sliceEnd]` au lieu du clamp.
+### Ce qui a été fait pour chacun
+
+- **R3-M1 + R3-M3** — helper partagé `_fenetre_recuperation(jobs, deja_abouti)` près de
+  `RECUP_TRANCHES_MAX`, appliqué aux **trois** appelants de
+  `recover_stalled_or_failed_jobs` (paramétré `:420`, libre `:690`, retranscription
+  `:2360`). Il porte les deux garanties : même filtre de matière que `still_ko` (une
+  tranche sans texte ne consomme plus un créneau à chaque envoi) et tri
+  `(error is not None, position)` — les tranches jamais tentées passent avant les échecs
+  déjà constatés, donc plus de préfixe fixe qui affame les tranches 4..N. Limite assumée
+  et documentée : quand TOUTES les tranches restantes portent une erreur, la fenêtre
+  redevient stable (pas de compteur de tentatives en base) — c'est le cas que couvre la
+  porte de sortie « Enregistrer quand même ».
+- **R3-M4** — le couple `sliceEnd` figé + `coverShift` est remplacé par **`flightSliceEnd`**,
+  frontière de la tranche en vol maintenue en coordonnées COURANTES : toute substitution
+  de marqueur avant cette frontière la décale du même delta (que le marqueur soit avant
+  `coveredLen` ou DANS la tranche — c'est précisément le cas que l'ancien code ratait),
+  et la résolution avance `coveredLen` exactement jusqu'à elle. Remise à `-1` en
+  `.finally`. Une seule frontière suffit : la garde de ré-entrance de `submitSegmentJob`
+  ne laisse qu'un POST de tranche en vol.
+- **R3-M5 + R3-M6** — `rec_fetch.js` étiquette ses rejets de délai (`err.recTimeout = true`,
+  testable en programme, contrairement au message traduisible) ; les quatre
+  `retryOrGiveUp` prennent un paramètre `timedOut` et **ne relancent plus automatiquement
+  sur délai** : le segment part directement au bandeau (relance manuelle ou abandon
+  possibles), la tranche de sauvegarde est déclarée perdue. Rejouer les mêmes octets après
+  une fenêtre entière aggravait la file d'un serveur déjà noyé — l'abort client n'annule
+  pas le travail Whisper en cours — et prolongeait le gel à ~45 min. Les messages
+  affichent désormais le rang de tentative (« 2/3 »).
+- **R3-M2** — `recFetch` sur les polls de `libre_segment_wait.html`,
+  `record_segment_wait.html`, `libre_retranscription.html`, **plus `capture.html`**
+  (chemin frère trouvé en appliquant la leçon `apply-the-lesson-to-sibling-paths` :
+  transcription de notes, même gel). Leur `.catch` réarmait déjà le `setTimeout` : borner
+  la promesse suffit à ramener le silence infini dans le chemin d'erreur ordinaire.
+  `test_record_reseau.ECRANS` couvre maintenant les **6** écrans.
+- **R3-m1** — `node` absent devient un `pytest.fail` explicite, plus un `skip` : ces trois
+  tests sont la seule preuve par EXÉCUTION du helper réseau.
+- **R3-m2** — la regex du garde accepte n'importe quel premier argument (`fetch(url, …)`,
+  multi-ligne, concaténation) et n'exempte plus que les mentions après `//`.
+- **R3-m3** — `SEGMENT_RETRY_DELAYS_MS = [2000, 6000]` avec `attempt < length` : 3
+  tentatives, comme avant, mais la lecture ne ment plus.
+- **R3-m4** — `beforeunload` des deux écrans couvre `pendingBackups`.
+- **R3-m5** — marqueur introuvable : le constat d'abandon est **ajouté en fin de
+  transcription** au lieu d'un `return` muet. Au pire une note surnuméraire visible et
+  effaçable ; jamais une perte silencieuse.
+- **R3-m6** — **réfuté par lecture** : `strip_segment_markers` (`ai_common.py`) matche
+  `⚠ ?\[segment[^\]\n]*\]`, donc déjà le marqueur d'abandon, et il est appliqué à l'entrée
+  des DEUX extracteurs. Aucun correctif — un test de non-régression fige le comportement
+  (`test_strip_segment_markers_retire_le_marqueur_d_abandon`).
+
+**Tests ajoutés (+10, suite à 640)** : plafond du chemin paramétré
+(`test_record_plafonne_la_recuperation_synchrone`, échoue sur le code d'avant — 6 appels
+au lieu de 3), fenêtre anti-famine et fenêtre ignorant les tranches abouties (unitaires
+sur `_fenetre_recuperation`), marqueur d'abandon assaini, politique « pas de relance
+automatique sur délai » sur les deux écrans, preuve par exécution node de l'étiquette
+`recTimeout` (deux scénarios), et les 4 écrans frères ajoutés au garde anti-`fetch`-nu.
 
 Vérifié et RAS par la même revue : map-reduce axé complet (5 points de contact),
 survie des jobs sur le chemin bloquant, contrat corps-de-réponse de `rec_fetch.js`
 (prouvé par exécution node à 3 bouchons), parité stricte de la garde de génération
 F10, `_parse_repartition` préservant les axes arbitraires.
+
+
+---
+
+## Revue du correctif R3 (gate R4, 2026-09-01) — AVANT commit cette fois
+
+Le traitement des 12 constats R3 (§ précédent) avait été fait, vérifié et
+documenté par la session du 2026-08-31 soir, mais **ni commité ni journalisé** :
+16 fichiers retrouvés dans l'arbre de travail à la reprise, signalés par le hook
+`arbre_sale()`. La reprise du 2026-09-01 a donc rejoué le gate `dev-verifie` à
+mi-course — et cette fois **avant** le commit, contrairement à la revue R3 qui
+n'avait pu se tenir que POST-commit.
+
+**État re-vérifié à la reprise, par mesure et non sur parole** : suite complète
+**640 passed** (386,92 s, 0 failed / 0 skipped / 0 error) ; contenu SERVI des
+2 écrans porteur de 8 `recFetch` et **0 `fetch` nu** ; serveur prouvé frais
+(`rec_fetch.js` servi == disque, `b7429909ab2d9f76`) ; les 2 écrans rendus et
+regardés ; `docs/wiki*` = churn du scan SessionStart (compteurs et dates).
+`test_rec_fetch_charge_sans_defer` confirme que le piège du chargement différé
+est verrouillé par un test, pas seulement par un commentaire.
+
+**Fan-out de 2 relecteurs adversariaux en contexte frais** (backend
+`bmad-code-review`, frontend `bmad-review-edge-case-hunter`, opus, sur le diff
+non commité) → **18 constats, 0 bloquant**. Trois sont des défauts **introduits
+par le correctif R3 lui-même** — c'est le cycle que ce gate existe pour casser.
+
+### Arbitré et APPLIQUÉ le 2026-09-01 (arbitrage utilisateur : « les 3 introduits, puis commit »)
+
+| id | sév. | titre | fichier:ligne | preuve | statut |
+| --- | --- | --- | --- | --- | --- |
+| N1 | MAJEUR | Le plafond porté au chemin frère sans le message qui le rend tenable : ⌈N/3⌉ pages IDENTIQUES, et la promesse « seules les tranches en échec seront retraitées » devenue littéralement fausse | `app/routers/interviews.py:425` → `:431` | VERIFIE-CONSO (exécuté) | **corrige** |
+| N2 | MAJEUR | Corollaire du plafond : `job_error` pris sur `still_ko` resurface l'erreur d'une tranche NON retentée à cet envoi — « Ollama saturé » affiché alors qu'Ollama répond | `app/routers/interviews.py:432` | VERIFIE-AGENT (exécuté) | **corrige** (les DEUX chemins) |
+| EC-2 | MAJEUR | `replaceLostMarker` décale `flightSliceEnd` mais ne pose de job que pour `pos < coveredLen` : une parole récupérée DANS la tranche en vol n'entre ni dans un job ni dans le reliquat | `record_libre.html:860`, `record.html:791` | VERIFIE-CONSO (exécuté) | **corrige** |
+| EC-4 | MAJEUR | Le test qui fige « pas de relance auto sur délai » cherche `timedOut` à l'échelle du FICHIER : débrancher la politique d'UN des deux `retryOrGiveUp` le laisse vert | `tests/test_record_reseau.py:87` | VERIFIE-AGENT (mutation) | **corrige** |
+
+**Ce qui a été fait.**
+
+- **N1 + N2** — `tentees` nommée sur le chemin paramétré, `recuperees` compté,
+  et les deux branches du message portées depuis le chemin libre (progrès
+  chiffré « N récupérées, il en reste M sur T » / pas de progrès). `job_error`
+  est désormais pris sur `tentees` et non sur `still_ko` — **sur les deux
+  chemins** : le libre portait le même défaut, et ne corriger que le chemin
+  signalé aurait rejoué à l'identique la leçon `apply-the-lesson-to-sibling-paths`
+  que ces constats dénoncent.
+- **EC-2** — `dejaCouvert` / `dansTrancheEnVol` calculés AVANT toute mutation
+  (un delta négatif ferait repasser `coveredLen` sous `pos`), puis
+  `if (dejaCouvert || dansTrancheEnVol) postRecoveredJob(text);` tandis que
+  `coveredLen += delta` reste conditionné à `dejaCouvert` seul. Les deux écrans.
+- **EC-4** — assertion PAR SITE D'APPEL : extraction du corps de chaque
+  `retryOrGiveUp` par comptage d'accolades, commentaires de ligne retirés, puis
+  `timedOut` exigé avant le `setTimeout` de relance ; plus une assertion que le
+  nombre de `retryOrGiveUp` vaut exactement 2 (un site ajouté ne peut plus
+  échapper à la politique).
+
+**Tests ajoutés (+4 cas)** et **tous prouvés discriminants par mutation** —
+chaque correctif rétabli à sa version d'avant fait virer au rouge exactement le
+test correspondant, et rien d'autre :
+
+```
+mutation N1/N2 -> test_record_dit_ou_on_en_est_quand_le_plafond_bloque   FAILED
+                  test_record_ne_resurface_pas_une_erreur_perimee         FAILED
+mutation EC-2  -> test_la_parole_recuperee_dans_la_tranche_en_vol_part_en_job
+                  FAILED sur les DEUX écrans
+mutation EC-4  -> test_le_delai_maximal_ne_declenche_pas_de_relance_automatique
+                  FAILED sur record_libre.html, VERT sur record.html (seul
+                  record_libre était muté) — c'est la sensibilité par site
+                  d'appel que l'ancienne version n'avait pas
+```
+
+### Re-revue des correctifs R4 — le gate attrape le cycle une fois de plus
+
+Le playbook exige « correctifs appliqués **puis RELUS** — la revue n'a validé que le
+code d'avant ». Les 4 correctifs ci-dessus sont donc repartis en revue adversariale
+en contexte frais (`bmad-code-review`, opus, harnais node rejouant le VRAI code
+extrait des templates). **7 constats — dont deux défauts introduits par les
+correctifs eux-mêmes.** C'est la troisième itération consécutive où un correctif
+introduit un défaut, et la première où il est attrapé AVANT le commit.
+
+| id | sév. | titre | preuve | statut |
+| --- | --- | --- | --- | --- |
+| F1 | HAUTE | **EC-2 crée un DOUBLON** : quand le POST de tranche en vol ÉCHOUE, son `.catch` n'avance pas `coveredLen` — la parole récupérée reste AUSSI dans le reliquat et repart une seconde fois. Or c'est le même incident réseau qui a produit le segment perdu : le cas est fréquent | EXÉCUTÉ | **corrige** |
+| F2 | MOYENNE | **EC-4 reste contournable** : `assert "err.recTimeout" in contenu` est satisfaite par les 4 lignes de COMMENTAIRE qui le mentionnent — débrancher le câblage des DEUX sites laissait le test vert. La règle « on teste le CODE, pas les commentaires » n'était pas appliquée à cette assertion | EXÉCUTÉ (mutation) | **corrige** |
+| F3 | MOYENNE | `postRecoveredJob` fuit `pendingSegmentJobSubmits` à travers un « Recommencer » (= EC-1), et EC-2 y routait un cas nouveau et plus fréquent | EXÉCUTÉ | differe (= EC-1) |
+| F4 | BASSE | La branche « ça progresse » avale l'erreur FRAÎCHE des tranches qui viennent d'échouer : sur 24 tranches à 1 récupérée par envoi, le levier actionnable (« augmente OLLAMA_TIMEOUT ») n'apparaît jamais | LU | **corrige** |
+| F5 | BASSE | Le préfixe « Les tranches déjà réparties sont conservées. » redit la fin de la branche de progrès, et l'affirme au PREMIER envoi alors qu'aucune tranche n'a jamais abouti | EXÉCUTÉ (rendu) | **corrige** |
+| F6 | BASSE | `_corps_de_fonction` comptait les accolades AVANT de retirer les commentaires : une accolade en commentaire faussait les bornes → test rouge sur du code correct | EXÉCUTÉ | **corrige** |
+| F7 | BASSE | Les assertions structurelles restent satisfiables par du code qui ne tient pas la politique (jeton alternatif, simple mention) | EXÉCUTÉ | **corrige** (partiellement — cf. limite) |
+
+**Ce qui a été fait.**
+
+- **F1** — file d'attente `recuperesEnAttente`. La couverture d'une parole récupérée
+  n'est PAS connue au moment de la substitution : elle dépend de l'issue du POST en
+  vol. On met donc en attente au lieu de trancher. `.then` (après la garde `gen` et
+  après l'avancée de `coveredLen`) → `forEach(postRecoveredJob)` : la parole vient de
+  sortir du reliquat, il lui faut son job. `.catch` → rien : elle y reste et s'y fait
+  extraire une fois. `.finally` → remise à `[]`. Le cas `dejaCouvert`, dont la
+  couverture est ACQUISE, part toujours immédiatement.
+- **F2** — assertion de CÂBLAGE ajoutée, sur le texte commentaires retirés :
+  `len(re.findall(r"retryOrGiveUp\\([^)]*recTimeout", sans_commentaires)) == 2`. Les
+  deux moitiés sont désormais tenues : le câblage (chaque `.catch` étiquette le rejet)
+  et l'appelé (chaque `retryOrGiveUp` se BRANCHE sur `timedOut`, une mention ne suffit
+  plus).
+- **F4 + F5** — `job_error` (pris sur `tentees`, donc frais) calculé pour LES DEUX
+  branches, sur les DEUX chemins ; préfixe redondant supprimé.
+- **F6** — `_sans_commentaires()` extrait, appliqué AVANT tout comptage d'accolades,
+  et épargnant les `://` des URL. `_corps_de_fonction` exige désormais un texte déjà
+  nettoyé.
+
+**Re-prouvé par mutation** — les 4 contournements que la re-revue avait démontrés
+virent maintenant au rouge :
+
+```
+cablage retire des 2 sites d'appel   -> ROUGE sur les 2 ecrans  (restait VERT)
+soumission immediate (le doublon)    -> ROUGE sur les 2 ecrans
+politique remplacee par une mention  -> ROUGE                   (restait VERT)
+branche de progres sans erreur       -> ROUGE
+```
+
+Suite complète : **645 passed** (0 failed / 0 skipped / 0 error), contenu servi des
+2 écrans re-vérifié (4 occurrences de `recuperesEnAttente`, 2 câblages `recTimeout`,
+0 `fetch` nu), écrans re-rendus et regardés.
+
+**Limite assumée (F7).** Les tests de ces deux écrans restent STRUCTURELS : ils figent
+le mécanisme, pas le comportement. Le comportement — 0 perte ET 0 doublon sur les deux
+issues du POST — n'est prouvé que par le harnais node des relecteurs, pas par la suite.
+Le patron `_node` existe pourtant déjà dans `tests/test_record_reseau.py` pour
+`rec_fetch.js` : porter ces scénarios en test exécuté est le durcissement à faire, et
+c'est la seule chose qui attraperait un futur défaut de logique plutôt que de forme.
+
+### Non arbitré — `differe` (14 constats)
+
+Pré-existants, ou rendus plus atteignables par le correctif R3, ou durcissement.
+Aucun n'est appliqué : ils attendent un arbitrage utilisateur.
+
+| id | sév. | titre | fichier:ligne | preuve | statut |
+| --- | --- | --- | --- | --- | --- |
+| EC-1 | MAJEUR | `postRecoveredJob` : `.finally` sort AVANT le décrément de `pendingSegmentJobSubmits` si la génération a changé — « Enregistrer » grisé pour la vie de la page, et plus aucun job soumis ensuite | `record_libre.html:926`, `record.html:859` | VERIFIE-CONSO (exécuté) | differe |
+| EC-3 | MAJEUR | Sur délai, `uploadSegment` garde le blob (bandeau, relance, abandon) ; `uploadBackup` le JETTE sans issue — sur `record.html`, sans rotation, ce blob est l'audio ENTIER de l'entretien | `record.html:1069`, `record_libre.html:1240` | VERIFIE-CONSO | differe |
+| N3 | MINEUR | La docstring de `_fenetre_recuperation` invoque « Enregistrer quand même » comme mitigation, porte de sortie qui n'existe QUE sur les chemins libres | `app/routers/interviews.py:2045` | VERIFIE-AGENT (exécuté) | differe |
+| N4 | MINEUR | Le test du marqueur d'abandon recopie le littéral au lieu de le dériver des templates : une réécriture en `⚠️` (sélecteur de variation) le laisse vert et réinjecte le marqueur dans le prompt | `tests/test_no_speech_et_marqueurs.py:136` | VERIFIE-AGENT | differe |
+| N5 | MINEUR | Rien ne verrouille la CONVERGENCE du chemin paramétré (N envois → écran de revue) ni la limite assumée de la fenêtre | `tests/test_record_segment_jobs.py:445` | VERIFIE-AGENT (exécuté) | differe |
+| N6 | MINEUR | `deja_abouti` diverge entre les 3 appelants (`status == "done"` / `bool(turns_result)` / `turns_result is not None`) sous une docstring qui annonce des garanties « partagées » | `app/routers/interviews.py:426, 703, 2395` | VERIFIE-AGENT (exécuté) | differe |
+| N7 | MINEUR | `j.error is not None` dans le tri, `if j.error` partout ailleurs : un `error=""` est classé « déjà en échec » d'un côté, « sans erreur » de l'autre | `app/routers/interviews.py:2048` | VERIFIE-AGENT (exécuté) | differe |
+| N8 | MINEUR | `.text.strip()` est neuf sur le chemin retranscription et la colonne est NULLable au niveau SQLite (ajoutée par `ALTER TABLE`) → `AttributeError` = 500. Non atteignable aujourd'hui | `app/routers/interviews.py:2047` + `app/db.py:79` | VERIFIE-AGENT | differe |
+| EC-5 | MINEUR | `pendingBackups` dans `beforeunload` fait apparaître la confirmation de sortie sur « Télécharger le PDF » et sur la porte de sortie, deux boutons non gatés par `updateSubmitState` | `record_libre.html:918`, `record.html:918` | SUPPOSE | differe |
+| EC-6 | MINEUR | `record_libre.html` ne rappelle pas `renderRepartition` au reset ET `pollRepartition` sort sur `!sessionToken` : les tours de l'entretien ABANDONNÉ restent affichés et **exportables en PDF** définitivement (= F9, aggravé) | `record_libre.html:1697` | VERIFIE-CONSO | differe |
+| EC-7 | MINEUR | `flightSliceEnd` n'est remis à `-1` par aucun reset alors que `coveredLen` l'est — l'invariant ne tient que par la garde de ré-entrance, que EC-1 casse précisément | `record_libre.html:1583`, `record.html:1394` | VERIFIE-AGENT | differe |
+| EC-8 | MINEUR | Le garde anti-`fetch`-nu laisse passer `window.fetch(` et tout appel précédé d'un `//` littéral sur la même ligne | `tests/test_record_reseau.py:63` | VERIFIE-AGENT (exécuté) | differe |
+| EC-9 | MINEUR | La justification écrite du repli de `markLostSegmentAbandoned` est fausse : le textarea est `readonly`, le marqueur ne peut pas être « édité à la main » | `record_libre.html:884` vs `:171` | VERIFIE-AGENT | differe |
+| EC-10 | MINEUR | `beforeunload` couvre `pendingBackups` mais pas `pendingSegments` : après « Arrêter », la dernière minute de texte encore en vol part en silence | `record_libre.html:1000`, `record.html:918` | VERIFIE-AGENT | differe |
+
+### Vérifié et RAS par cette revue (ne pas re-revoir)
+
+Câblage du helper aux **3** appelants (grep exhaustif : pas de 4e site d'appel,
+aucune récupération inline ailleurs) ; parité ensembliste du filtre de matière
+avec `still_ko` sur les deux chemins ; le helper ne mute pas son entrée et son
+tri est stable ; cas limites du helper (liste vide, tous aboutis, moins de 3
+candidats, tranche sans texte) ; **R3-m6 vrai ET exhaustif** —
+`strip_segment_markers` est appelé DANS `extract_turns_from_text` et DANS
+`extract_answers_from_text`, donc structurellement inévitable sur les 6 sites
+d'appel ; le repli de R3-m5 réinjecte la même variable, donc le même format ;
+`ai_common.py` ne porte que des commentaires dans ce diff ; le re-POST
+navigateur est possible après `_record_error` (`identity` transporte
+`transcript`/`session_token`/`segment_tail`) ; arithmétique R3-m3 = bien
+3 tentatives ; équilibre des compteurs sur les 4 branches de délai ;
+`flightSliceEnd` — la justification « une seule frontière suffit » est VRAIE sur
+les deux écrans, et ses cas limites (marqueur après la frontière, delta négatif,
+deux substitutions dans un même vol, POST résolu après reset, rotation) sont
+corrects ; les 4 écrans frères réarment bien leur `setTimeout` dans le `.catch` ;
+**aucune asymétrie `record.html` / `record_libre.html` introduite par ce diff**.
+
+### Limites de cette revue
+
+1. Aucun chemin rejoué dans un navigateur : EC-5 (boîte `beforeunload` sur un
+   POST à réponse `Content-Disposition`) et la fréquence réelle de la fenêtre de
+   course d'EC-2 restent SUPPOSÉS. Le mécanisme d'EC-2, lui, est prouvé par
+   exécution du JS extrait.
+2. Aucun appel Ollama réel : les saturations sont simulées par monkeypatch, les
+   temps proviennent des commentaires du code, non remesurés.
+3. Le chemin retranscription (`:2392`) n'a pas été exercé de bout en bout —
+   N6 et N8 y sont établis par lecture + exécution du helper isolé.
+4. Les 27 constats `differe` et 4 `partiels` de la revue initiale (§ plus haut)
+   n'ont pas été re-touchés : ils restent ouverts.

@@ -442,6 +442,187 @@ def test_record_all_jobs_fail_surfaces_actionable_error(
     assert "Aucune réponse détectée" not in resp.text
 
 
+def test_record_plafonne_la_recuperation_synchrone(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Plafond du chemin FRÈRE (revue R3-M1 du 2026-08-31) : quand le plafond a
+    été posé sur le mode libre, la récupération synchrone du mode paramétré est
+    restée sans borne (leçon apply-the-lesson-to-sibling-paths) — un entretien
+    sur trame de 2 h avec Ollama saturé enchaînait ~24 × (timeout + relance)
+    dans un seul POST /record.
+
+    Le test échoue sur le code d'avant : 6 appels au lieu de 3."""
+    from app.routers.interviews import RECUP_TRANCHES_MAX
+
+    mission_id, _ = _make_structured_mission()
+    db = SessionLocal()
+    for pos in range(6):
+        db.add(InterviewSegmentJob(
+            session_token="rec-plafond", position=pos, status="failed",
+            text=f"tranche {pos}", error="Ollama saturé",
+            kind="answers", mission_id=mission_id,
+        ))
+    db.commit()
+    db.close()
+
+    appels: list[str] = []
+
+    def _boom(questions, text):
+        appels.append(text)
+        raise interviews_router.InterviewExtractAIError("Ollama saturé")
+
+    monkeypatch.setattr(interview_segment_jobs, "extract_answers_from_text", _boom)
+    monkeypatch.setattr(interviews_router, "extract_answers_from_text", _boom)
+
+    resp = client.post(
+        f"/missions/{mission_id}/interviews/record",
+        data={"transcript": "un entretien long", "session_token": "rec-plafond",
+              "segment_tail": ""},
+    )
+    assert resp.status_code == 200
+    assert len(appels) <= RECUP_TRANCHES_MAX, (
+        f"{len(appels)} tranches retraitées dans un seul POST — le plafond "
+        f"({RECUP_TRANCHES_MAX}) ne s'applique pas au chemin paramétré"
+    )
+
+
+def _six_jobs_dont_un_en_echec_ancien(mission_id: int, token: str) -> None:
+    """Position 0 porte une erreur ANCIENNE ; 1..5 n'ont jamais été tentées.
+
+    Le tri `(error is not None, position)` met donc les jamais-tentées devant :
+    la fenêtre de cet envoi est [1, 2, 3], et la position 0 — porteuse de
+    l'erreur périmée — n'en fait PAS partie.
+    """
+    db = SessionLocal()
+    db.add(InterviewSegmentJob(
+        session_token=token, position=0, status="failed", text="tranche 0",
+        error="CAUSE PERIMEE", kind="answers", mission_id=mission_id,
+    ))
+    for pos in range(1, 6):
+        db.add(InterviewSegmentJob(
+            session_token=token, position=pos, status="failed",
+            text=f"tranche {pos}", error=None,
+            kind="answers", mission_id=mission_id,
+        ))
+    db.commit()
+    db.close()
+
+
+def test_record_dit_ou_on_en_est_quand_le_plafond_bloque(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """N1 (2026-09-01) : R3-M1 a posé le plafond sur ce chemin sans porter le
+    message qui le rend tenable. Avec 6 tranches en échec il faut 2 envois, et
+    l'ancien texte rendait des pages IDENTIQUES dont la promesse « seules les
+    tranches en échec seront retraitées » était devenue fausse (au plus
+    RECUP_TRANCHES_MAX le sont). L'utilisateur croyait que rien n'avançait.
+
+    Échoue sur le code d'avant : le message ne portait aucun compteur."""
+    from app.routers.interviews import RECUP_TRANCHES_MAX
+
+    mission_id, qids = _make_structured_mission()
+    _six_jobs_dont_un_en_echec_ancien(mission_id, "rec-progres")
+
+    def _ok(questions, text):
+        return {qids[0]: {"text": "réponse", "verbatims": []}}
+
+    monkeypatch.setattr(interview_segment_jobs, "extract_answers_from_text", _ok)
+    monkeypatch.setattr(interviews_router, "extract_answers_from_text", _ok)
+
+    resp = client.post(
+        f"/missions/{mission_id}/interviews/record",
+        data={"transcript": "un entretien long", "session_token": "rec-progres",
+              "segment_tail": ""},
+    )
+    assert resp.status_code == 200
+    # Sous-chaînes sans apostrophe : Jinja échappe `'` en `&#39;` dans le rendu.
+    assert "tranche(s) viennent" in resp.text, (
+        "la page ne dit pas que des tranches ont été récupérées — sans ce "
+        "compteur, les N envois nécessaires rendent des pages identiques"
+    )
+    assert f"reste {6 - RECUP_TRANCHES_MAX} sur 6" in resp.text, (
+        "la page ne chiffre pas ce qui reste : l'utilisateur ne peut pas "
+        "distinguer « ça avance » de « ça ne bougera plus »"
+    )
+
+
+def test_record_montre_le_levier_meme_quand_ca_progresse(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """F4 (re-revue 2026-09-01) : quand 1 tranche sur 3 est récupérée et que les
+    2 autres échouent avec un message ACTIONNABLE frais (« augmente
+    OLLAMA_TIMEOUT »), la branche « ça progresse » avalait l'erreur. Sur
+    24 tranches à 1 récupérée par envoi, l'utilisateur enchaîne les envois sans
+    jamais voir le levier qui débloquerait tout.
+
+    Échoue sur le code d'avant F4 : la branche de progrès ne portait aucune
+    erreur."""
+    mission_id, qids = _make_structured_mission()
+    _six_jobs_dont_un_en_echec_ancien(mission_id, "rec-levier")
+
+    appels: list[str] = []
+
+    def _un_sur_trois(questions, text):
+        appels.append(text)
+        if len(appels) == 1:
+            return {qids[0]: {"text": "réponse", "verbatims": []}}
+        raise interviews_router.InterviewExtractAIError(
+            "Ollama a expiré — augmente OLLAMA_TIMEOUT"
+        )
+
+    monkeypatch.setattr(
+        interview_segment_jobs, "extract_answers_from_text", _un_sur_trois
+    )
+    monkeypatch.setattr(interviews_router, "extract_answers_from_text", _un_sur_trois)
+
+    resp = client.post(
+        f"/missions/{mission_id}/interviews/record",
+        data={"transcript": "un entretien long", "session_token": "rec-levier",
+              "segment_tail": ""},
+    )
+    assert resp.status_code == 200
+    assert "tranche(s) viennent" in resp.text, "le compteur de progrès a disparu"
+    assert "OLLAMA_TIMEOUT" in resp.text, (
+        "la branche « ça progresse » avale le message actionnable des tranches "
+        "qui viennent d'échouer — le levier reste invisible envoi après envoi"
+    )
+
+
+def test_record_ne_resurface_pas_une_erreur_perimee(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """N2 (2026-09-01) : corollaire du plafond. `job_error` était pris sur la
+    plus basse tranche encore KO — donc, depuis le plafond, presque toujours
+    une tranche NON retentée à cet envoi, dont l'`error` date d'un envoi
+    antérieur. La page annonçait « Ollama saturé » alors qu'Ollama répondait,
+    et poussait à cesser de relancer précisément quand relancer marche.
+
+    Échoue sur le code d'avant : « CAUSE PERIMEE » (position 0, hors fenêtre)
+    remontait à l'écran."""
+    mission_id, _ = _make_structured_mission()
+    _six_jobs_dont_un_en_echec_ancien(mission_id, "rec-perimee")
+
+    def _boom(questions, text):
+        raise interviews_router.InterviewExtractAIError("cause fraiche")
+
+    monkeypatch.setattr(interview_segment_jobs, "extract_answers_from_text", _boom)
+    monkeypatch.setattr(interviews_router, "extract_answers_from_text", _boom)
+
+    resp = client.post(
+        f"/missions/{mission_id}/interviews/record",
+        data={"transcript": "un entretien long", "session_token": "rec-perimee",
+              "segment_tail": ""},
+    )
+    assert resp.status_code == 200
+    assert "CAUSE PERIMEE" not in resp.text, (
+        "la page resurface l'erreur d'une tranche NON retentée à cet envoi — "
+        "elle désigne une cause déjà révolue et fait renoncer l'utilisateur"
+    )
+    assert "cause fraiche" in resp.text, (
+        "la page doit porter l'erreur des tranches réellement retentées"
+    )
+
+
 def test_record_blocks_finalize_when_a_job_stays_failed_with_content(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

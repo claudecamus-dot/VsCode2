@@ -417,18 +417,51 @@ def _finalize_record_answers(
         except InterviewExtractAIError as exc:
             return _record_error(request, mission, identity, str(exc))
     else:
-        recover_stalled_or_failed_jobs(db, status["jobs"])
+        # Récupération PLAFONNÉE (revue R3-M1 du 2026-08-31) : même fenêtre que
+        # le mode libre — sans plafond, un Ollama saturé sur un entretien de
+        # 2 h enchaînait ~24 × (timeout + relance) synchrones dans ce seul
+        # POST.
+        tentees = _fenetre_recuperation(status["jobs"], lambda j: j.status == "done")
+        recover_stalled_or_failed_jobs(db, tentees)
+        recuperees = sum(1 for j in tentees if j.status == "done")
         still_ko = [
             j for j in status["jobs"] if j.status != "done" and j.text.strip()
         ]
         if still_ko:
-            job_error = next((j.error for j in still_ko if j.error), None)
-            return _record_error(
-                request, mission, identity,
-                (job_error or "Une tranche n'a pas pu être répartie.")
-                + " Les tranches déjà réparties sont conservées — réessaie "
-                "l'envoi (seules les tranches en échec seront retraitées).",
-            )
+            # Message adapté AU PLAFOND (revue N1 du 2026-09-01), en parité avec
+            # le chemin libre : R3-M1 avait porté le plafond ici sans porter le
+            # message qui le rend tenable. Avec 24 tranches en échec il faut
+            # ⌈24/RECUP_TRANCHES_MAX⌉ = 8 envois, et l'ancien texte rendait 7
+            # pages IDENTIQUES — dont la promesse « seules les tranches en échec
+            # seront retraitées » était devenue fausse (au plus
+            # RECUP_TRANCHES_MAX le sont). L'utilisateur croyait que rien
+            # n'avançait alors que chaque envoi commite son progrès.
+            # N2 : ne resurfacer que l'erreur d'une tranche RÉELLEMENT retentée
+            # à cet envoi. Avant le plafond, tous les jobs étaient retentés à
+            # chaque POST, donc toute `error` affichée était fraîche ; depuis,
+            # la plus basse tranche encore KO est le plus souvent une tranche
+            # NON retentée, dont l'`error` date d'un envoi antérieur — la page
+            # annonçait « Ollama saturé » alors qu'Ollama répondait, et
+            # poussait à cesser de relancer précisément quand relancer marche.
+            # Calculé pour LES DEUX branches (re-revue F4) : un envoi qui
+            # récupère 1 tranche sur 3 avale sinon le message actionnable
+            # (« augmente OLLAMA_TIMEOUT ») des 2 autres, et sur 24 tranches
+            # l'utilisateur enchaîne les envois sans jamais voir le levier.
+            job_error = next((j.error for j in tentees if j.error), None)
+            prefixe = job_error + " " if job_error else ""
+            if recuperees:
+                etat = (f"{recuperees} tranche(s) viennent d'être récupérées, il en "
+                        f"reste {len(still_ko)} sur {status['total']}. Relance l'envoi : "
+                        f"chaque envoi en reprend jusqu'à {RECUP_TRANCHES_MAX}, et ce qui "
+                        "est déjà réparti est conservé.")
+            else:
+                etat = (f"Aucune des {len(still_ko)} tranche(s) en échec n'a pu être "
+                        f"récupérée sur cet envoi (sur {status['total']} au total). "
+                        "Vérifie que le service d'IA répond, puis relance l'envoi.")
+            # Pas de préfixe « les tranches déjà réparties sont conservées » :
+            # il redisait la fin de la branche de progrès, et au PREMIER envoi
+            # il affirmait une conservation portant sur zéro tranche (F5).
+            return _record_error(request, mission, identity, prefixe + etat)
         try:
             tail_result = None
             if segment_tail.strip():
@@ -687,8 +720,14 @@ def _extraire_tours_libre(
         # restées en échec disparaissaient du tour de table SANS un mot, et le
         # `delete_segment_jobs` de la fin détruisait le texte qui les portait :
         # l'entretien était créé `status="done"`, amputé, sans trace.
-        a_recuperer = [j for j in status["jobs"] if not j.turns_result]
-        tentees = a_recuperer[:RECUP_TRANCHES_MAX]
+        # Fenêtre partagée `_fenetre_recuperation` (revue R3-M3) : même filtre
+        # de matière que `still_ko` ci-dessous (une tranche sans texte ne
+        # consomme plus un créneau à chaque envoi), et les tranches jamais
+        # tentées passent avant les échecs déjà constatés (plus de préfixe
+        # fixe qui affamait les tranches 4..N).
+        tentees = _fenetre_recuperation(
+            status["jobs"], lambda j: bool(j.turns_result)
+        )
         recover_stalled_or_failed_jobs(db, tentees)
         recuperees = sum(1 for j in tentees if j.turns_result)
         # `not j.turns_result` : exactement ce que `merge_segment_turns` ignorera.
@@ -708,14 +747,22 @@ def _extraire_tours_libre(
             # le progrès est bien commité d'un envoi à l'autre (revue
             # adversariale 2026-08-31). On distingue donc les deux situations :
             # ça progresse (relancer aboutira), ou ça ne progresse pas du tout.
+            # `tentees` et non `still_ko` (revue N2 du 2026-09-01, chemin frère :
+            # le même défaut vit sur les deux) — depuis le plafond, la plus
+            # basse tranche encore KO est souvent une tranche NON retentée à cet
+            # envoi, dont l'`error` désigne une cause déjà révolue. Calculé pour
+            # LES DEUX branches (re-revue F4) : sinon un envoi qui récupère
+            # 1 tranche sur 3 avale le message actionnable des 2 autres.
+            job_error = next((j.error for j in tentees if j.error), None)
+            prefixe = job_error + " " if job_error else ""
             if recuperees:
-                etat = (f"{recuperees} tranche(s) viennent d'être récupérées, il en "
+                etat = (prefixe
+                        + f"{recuperees} tranche(s) viennent d'être récupérées, il en "
                         f"reste {len(still_ko)} sur {status['total']}. Relance l'envoi : "
                         f"chaque envoi en reprend jusqu'à {RECUP_TRANCHES_MAX}, et ce qui "
                         "est déjà structuré est conservé.")
             else:
-                job_error = next((j.error for j in still_ko if j.error), None)
-                etat = ((job_error + " " if job_error else "")
+                etat = (prefixe
                         + f"Aucune des {len(still_ko)} tranche(s) en échec n'a pu être "
                         f"récupérée sur cet envoi (sur {status['total']} au total). "
                         "Vérifie que le service d'IA répond, puis relance l'envoi.")
@@ -2011,6 +2058,31 @@ def libre_analyse_regenerer_confirm(
 RECUP_TRANCHES_MAX = 3
 
 
+def _fenetre_recuperation(jobs, deja_abouti):
+    """Fenêtre de récupération synchrone : au plus ``RECUP_TRANCHES_MAX``
+    tranches par envoi, choisies pour ne pas affamer (revue R3-M1/M3 du
+    2026-08-31, partagée par les TROIS appelants de
+    ``recover_stalled_or_failed_jobs`` — la version précédente du plafond
+    n'existait que sur le chemin libre, et en préfixe fixe).
+
+    - même filtre de matière que le décompte de perte (``still_ko``) : une
+      tranche sans texte n'est ni récupérable ni une perte — sans ce filtre
+      elle consommait un créneau de récupération à CHAQUE envoi, éternellement ;
+    - les tranches jamais tombées en erreur passent AVANT celles qui portent
+      déjà un ``error`` : trois échecs déterministes en tête de liste
+      monopolisaient sinon le préfixe ``[:RECUP_TRANCHES_MAX]`` et les
+      suivantes n'étaient JAMAIS tentées, pendant que le message promettait
+      « relance l'envoi » à l'infini.
+
+    Limite assumée : quand TOUTES les tranches restantes portent une erreur,
+    la fenêtre redevient un préfixe stable (aucun compteur de tentatives en
+    base) — la porte de sortie « Enregistrer quand même » couvre ce cas.
+    """
+    candidats = [j for j in jobs if not deja_abouti(j) and j.text.strip()]
+    candidats.sort(key=lambda j: (j.error is not None, j.position))
+    return candidats[:RECUP_TRANCHES_MAX]
+
+
 def _tranches_audio(interview: Interview) -> tuple[list[str], int]:
     """Fichiers de sauvegarde audio de l'entretien, dans l'ordre chronologique
     et effectivement présents sur le disque, plus le nombre de tranches
@@ -2349,8 +2421,14 @@ def retranscrire_appliquer(
     # requête bloquée avant une page d'erreur. On en récupère quelques-unes, et
     # l'écran de revue signale explicitement ce qui manque encore.
     status = segment_jobs_status(db, job.session_token)
-    a_recuperer = [j for j in status["jobs"] if j.turns_result is None]
-    recover_stalled_or_failed_jobs(db, a_recuperer[:RECUP_TRANCHES_MAX])
+    # Fenêtre partagée (revue R3-M1/M3) : mêmes garanties anti-famine que les
+    # deux chemins d'enregistrement.
+    recover_stalled_or_failed_jobs(
+        db,
+        _fenetre_recuperation(
+            status["jobs"], lambda j: j.turns_result is not None
+        ),
+    )
     merged = merge_segment_turns(status["jobs"], None)
 
     # Ce qui MANQUE au résultat proposé, avant tout écrasement : une tranche

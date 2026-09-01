@@ -121,7 +121,12 @@
           statusEl.textContent = 'Transcription en cours…';
           var formData = new FormData();
           formData.append('file', new File([blob], 'note.webm', { type: blob.type }));
-          fetch('/interviews/{{ interview.id }}/notes/transcribe', { method: 'POST', body: formData })
+          // Délai maximal via /static/rec_fetch.js (chemin frère du correctif
+          // R3-M2 du 2026-08-31) : un fetch nu jamais réglé laissait
+          // « Transcription en cours… » affiché à vie. Fenêtre généreuse — la
+          // transcription passe par la même file Whisper que les écrans
+          // d'enregistrement.
+          recFetch('/interviews/{{ interview.id }}/notes/transcribe', { method: 'POST', body: formData }, 900000)
             .then(function (res) {
               return res.json().then(function (data) { return { ok: res.ok, data: data }; });
             })

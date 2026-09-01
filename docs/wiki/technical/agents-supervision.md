@@ -1,5 +1,5 @@
 ---
-updated: 2026-08-31
+updated: 2026-09-01
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -8,14 +8,14 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-08-31T21:25:17+02:00 · **65 sessions** (transcripts) · **156** invocations de skills · **87** lancements de sous-agents.
+Dernier scan : 2026-09-01T09:08:51+02:00 · **67 sessions** (transcripts) · **160** invocations de skills · **94** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `run-dev-server` | projet | 39 | 2026-07-03 | 2026-08-31 |
-| `agent-orchestrator` | projet | 34 | 2026-07-17 | 2026-08-31 |
+| `run-dev-server` | projet | 40 | 2026-07-03 | 2026-08-31 |
+| `agent-orchestrator` | projet | 37 | 2026-07-17 | 2026-09-01 |
 | `agent-supervisor` | projet | 20 | 2026-07-18 | 2026-08-31 |
 | `bmad-code-review` | BMAD | 13 | 2026-07-20 | 2026-07-31 |
 | `revue-increment` | projet | 11 | 2026-07-18 | 2026-07-30 |
@@ -41,10 +41,10 @@ Dernier scan : 2026-08-31T21:25:17+02:00 · **65 sessions** (transcripts) · **1
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
 | `general-purpose` | 48 | 2026-07-15 | 2026-08-31 |
-| `Explore` | 29 | 2026-06-30 | 2026-08-31 |
+| `Explore` | 30 | 2026-06-30 | 2026-08-31 |
+| `bmad-revue` | 8 | 2026-08-31 | 2026-09-01 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
-| `bmad-revue` | 2 | 2026-08-31 | 2026-08-31 |
 | `claude-code-guide` | 1 | 2026-07-03 | 2026-07-03 |
 
 ## Jamais utilisés
@@ -117,7 +117,7 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic à jour._
+_Diagnostic ⚠️ à relancer (> 14 j)._
 
 1. **CLAUDE.md est devenu un journal de chantiers en append-only : 15 387 mots charges a chaque tour, contre sa propre discipline de tokens** — Scinder : garder dans CLAUDE.md les invariants durables (projet, vocabulaire, commandes, architecture, regles R1-R4, dispositif) et sortir la chronologie des chantiers vers un journal date sous docs/wiki/, reference par un pointeur. · **Proposition** : Deplacer les paragraphes de chantier ANTERIEURS au dernier increment vers docs/wiki/journal-chantiers.md (un titre de niveau 2 par date, contenu inchange), et laisser dans CLAUDE.md un pointeur unique du type 'Historique detaille des chantiers : docs/wiki/journal-chantiers.md -- verifier contre git log plutot que de s'y fier'. Cible : ramener CLAUDE.md sous ~6 000 mots. Regle de tenue a ajouter dans revue-increment : un nouveau chantier s'ecrit dans le journal, et ne remonte dans CLAUDE.md que s'il change un invariant ou une regle.
 2. **Les constats adverses differes n'ont toujours aucun support durable : il faut les reconstituer a la main a chaque reprise** — Faire de l'ecriture du triage un artefact obligatoire de la revue adversariale, et non une restitution conversationnelle. · **Proposition** : Ajouter a bmad-code-review une etape terminale : ecrire .claude/triage/<date>-<sujet>.md, une ligne par constat (id, titre court, fichier:ligne, severite, statut corrige|differe|ecarte, raison si non corrige). Puis, dans revue-increment §2, verifier qu'aucun constat 'differe' ne reste sans raison ecrite avant de declarer un increment livre. Cout : une etape d'ecriture par revue ; gain : la reprise des differes devient une lecture de fichier au lieu d'un fan-out de sous-agents.

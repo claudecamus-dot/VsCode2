@@ -63,7 +63,14 @@
       if (err && err.name === 'AbortError') {
         // `Math.max(1, …)` : un délai sous la seconde (les tests) afficherait
         // sinon « après 0 s », qui se lit comme un bug plutôt qu'un délai.
-        return new Error('pas de réponse après ' + Math.max(1, Math.round(ms / 1000)) + ' s');
+        var e = new Error('pas de réponse après ' + Math.max(1, Math.round(ms / 1000)) + ' s');
+        // Étiquette structurée (revue R3-M5/M6 du 2026-08-31) : un appelant ne
+        // doit JAMAIS re-tenter automatiquement sur ce délai — il a déjà attendu
+        // la fenêtre généreuse entière, et renvoyer les mêmes octets doublerait
+        // la charge d'un serveur déjà noyé. Tester `err.recTimeout`, pas le
+        // texte du message (traduisible, illisible en programme).
+        e.recTimeout = true;
+        return e;
       }
       return err;
     }

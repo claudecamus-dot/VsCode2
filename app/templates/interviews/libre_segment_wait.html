@@ -44,6 +44,13 @@
   var form = document.getElementById('finalize-form');
   var submitted = false;
   var failedPolls = 0;
+  // Délai maximal du poll (helper /static/rec_fetch.js — revue R3-M2 du
+  // 2026-08-31). Ce poll est une CHAÎNE de setTimeout : un fetch nu jamais
+  // réglé (connexion à demi ouverte) ne réarmait jamais le suivant et le
+  // suivi mourait sans un mot — sur l'écran qui détient la seule copie de
+  // l'entretien. Avec le délai, l'échec devient ordinaire et le `.catch`
+  // réarme comme pour tout aléa réseau.
+  var POLL_TIMEOUT_MS = 120000;
 
   function finalize() {
     if (submitted) return;
@@ -55,7 +62,8 @@
   }
 
   function poll() {
-    fetch('/interviews/segment-jobs/status?session_token=' + encodeURIComponent(token))
+    recFetch('/interviews/segment-jobs/status?session_token=' + encodeURIComponent(token),
+             null, POLL_TIMEOUT_MS)
       .then(function (res) {
         // Un 5xx n'est pas une « connexion perdue » — le distinguer via le catch
         // commun avec un message qui couvre les deux (revue adversariale 2026-07-23).

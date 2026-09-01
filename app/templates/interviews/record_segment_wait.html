@@ -43,6 +43,10 @@
   var form = document.getElementById('finalize-form');
   var submitted = false;
   var failedPolls = 0;
+  // Délai maximal du poll (helper /static/rec_fetch.js — revue R3-M2 du
+  // 2026-08-31, même raison que libre_segment_wait.html) : sans lui, un fetch
+  // jamais réglé tuait définitivement la chaîne de setTimeout du suivi.
+  var POLL_TIMEOUT_MS = 120000;
 
   function finalize() {
     if (submitted) return;
@@ -52,7 +56,8 @@
   }
 
   function poll() {
-    fetch('/interviews/segment-jobs/status?session_token=' + encodeURIComponent(token))
+    recFetch('/interviews/segment-jobs/status?session_token=' + encodeURIComponent(token),
+             null, POLL_TIMEOUT_MS)
       .then(function (res) {
         // Un 5xx n'est pas une « connexion perdue » — le distinguer via le catch
         // commun avec un message qui couvre les deux (même durcissement que

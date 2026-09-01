@@ -162,8 +162,10 @@ def ollama_chunk_max_words() -> int:
 
 # Marqueurs insérés dans la transcription par les écrans d'enregistrement
 # (record.html / record_libre.html) quand un segment échoue :
-#   « ⚠ [segment perdu : <raison>] » (échec 422 définitif) et
-#   « ⚠ [segment <N> non transcrit — relance possible] » (en attente de relance).
+#   « ⚠ [segment perdu : <raison>] » (échec 422 définitif),
+#   « ⚠ [segment <N> non transcrit — relance possible] » (en attente de relance)
+#   et « ⚠ [segment <N> abandonné — audio perdu] » (porte de sortie explicite,
+#   2026-08-31 — vérifié couvert par ce même motif lors de la revue R3-m6).
 _SEGMENT_MARKER_RE = re.compile(r"⚠ ?\[segment[^\]\n]*\]")
 
 

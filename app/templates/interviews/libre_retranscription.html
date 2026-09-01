@@ -74,6 +74,10 @@
   var statutUrl = '/interviews/{{ interview.id }}/retranscrire/statut';
   var echecs = 0;
   var termine = false;
+  // Délai maximal du poll (helper /static/rec_fetch.js — revue R3-M2 du
+  // 2026-08-31) : la chaîne de setTimeout du suivi mourait définitivement sur
+  // un fetch jamais réglé ; le délai la ramène dans le `.catch` qui réarme.
+  var POLL_TIMEOUT_MS = 120000;
 
   // Les trois formulaires de cet écran agissent sur le MÊME job : « Voir le
   // résultat » est synchrone et peut durer longtemps (jusqu'à
@@ -97,7 +101,7 @@
   });
 
   function poll() {
-    fetch(statutUrl)
+    recFetch(statutUrl, null, POLL_TIMEOUT_MS)
       .then(function (res) {
         // 404 = le job n'existe plus (résultat confirmé ou abandonné depuis un
         // autre onglet). C'est TERMINAL : sans ce cas, le `.catch` le traitait

@@ -820,3 +820,58 @@ def test_record_libre_enregistre_quand_meme_sur_derogation_explicite(
     assert [t.question for t in interview.turns] == ["Q0"]
     assert "la transcription complète" in interview.raw_transcript
     db.close()
+
+
+def test_fenetre_de_recuperation_anti_famine() -> None:
+    """R3-M3 (2026-08-31) : la fenêtre de récupération n'est plus un préfixe
+    fixe. Deux garanties, chacune testée sur la fonction réelle :
+
+    - les tranches jamais tombées en erreur passent AVANT les échecs déjà
+      constatés — trois échecs déterministes en tête de liste (ex. trame
+      supprimée) monopolisaient sinon le préfixe `[:RECUP_TRANCHES_MAX]` et les
+      tranches suivantes n'étaient JAMAIS tentées, pendant que la page d'erreur
+      promettait « relance l'envoi » à l'infini ;
+    - une tranche SANS texte (acceptée par `create_segment_job`, re-marquée
+      `failed` à chaque récupération) ne consomme plus un créneau à chaque
+      envoi : même filtre de matière que le décompte de perte `still_ko`.
+    """
+    from types import SimpleNamespace
+
+    from app.routers.interviews import RECUP_TRANCHES_MAX, _fenetre_recuperation
+
+    def tranche(pos, error=None, text="de la matière"):
+        return SimpleNamespace(position=pos, error=error, text=text,
+                               turns_result=None)
+
+    poison = [tranche(0, error="KO"), tranche(1, error="KO"), tranche(2, error="KO")]
+    fraiches = [tranche(3), tranche(4)]
+    vide = tranche(5, text="   ")
+
+    fenetre = _fenetre_recuperation(
+        poison + fraiches + [vide], lambda j: bool(j.turns_result)
+    )
+
+    assert len(fenetre) == RECUP_TRANCHES_MAX
+    assert [j.position for j in fenetre] == [3, 4, 0], (
+        "les tranches jamais tentées doivent passer avant les échecs déjà "
+        f"constatés — fenêtre obtenue : {[j.position for j in fenetre]}"
+    )
+    assert vide not in fenetre, "une tranche sans texte ne doit jamais consommer un créneau"
+
+
+def test_fenetre_de_recuperation_ignore_les_tranches_abouties() -> None:
+    """La fenêtre ne retraite jamais une tranche déjà structurée : `deja_abouti`
+    est le même critère que la fusion (`merge_segment_turns` ignore les jobs
+    sans `turns_result`)."""
+    from types import SimpleNamespace
+
+    from app.routers.interviews import _fenetre_recuperation
+
+    faite = SimpleNamespace(position=0, error=None, text="ok",
+                            turns_result={"turns": [{"remarque": "vu"}]})
+    restante = SimpleNamespace(position=1, error=None, text="reste",
+                               turns_result=None)
+
+    fenetre = _fenetre_recuperation([faite, restante],
+                                    lambda j: bool(j.turns_result))
+    assert fenetre == [restante]

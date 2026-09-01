@@ -287,7 +287,11 @@
   var NET_TIMEOUT_MS = 120000;         // le serveur rend la main tout de suite (création de job, poll de statut)
   var TRANSCRIBE_TIMEOUT_MS = 900000;  // Whisper est CPU-bound et sérialisé derrière son verrou : la file peut être longue
   var UPLOAD_TIMEOUT_MS = 600000;      // envoi d'un fichier audio entier sur un réseau d'entreprise
-  var SEGMENT_RETRY_DELAYS_MS = [2000, 6000, 15000];
+  // Délais ENTRE tentatives : N valeurs = N relances = N+1 tentatives en tout.
+  // (L'ancien tableau portait une 3e valeur morte — la condition `attempt + 1 <
+  // length` ne lisait jamais l'indice 2, et un lecteur y voyait 4 tentatives ;
+  // revue R3-m3 du 2026-08-31.)
+  var SEGMENT_RETRY_DELAYS_MS = [2000, 6000];
   // Nombre maximum de lignes de segments non aboutis affichées (les plus
   // récentes) — cf. le plafond appliqué dans `refreshLostBanner`.
   var LOST_LIST_MAX = 8;
@@ -350,13 +354,27 @@
   var sessionToken = {{ (identity.session_token if identity else '') | default('', true) | tojson }};
   var segmentJobPosition = 0;
   var coveredLen = 0;
-  // Somme des décalages appliqués à coveredLen par replaceLostMarker (texte
-  // récupéré inséré AVANT le curseur) : un submitSegmentJob en vol a figé son
-  // sliceEnd AVANT l'insertion — à la résolution il doit se recaler du delta
-  // accumulé entre-temps, sinon son texte (déjà parti en job) resterait dans
-  // le reliquat et serait extrait une seconde fois (revue adversariale
-  // 2026-07-29).
-  var coverShift = 0;
+  // Frontière (exclusive) de la tranche du POST /interviews/segment-jobs en
+  // vol, maintenue EN COORDONNÉES COURANTES : toute substitution de marqueur
+  // qui change la longueur du texte AVANT cette frontière la décale du même
+  // delta (replaceLostMarker / markLostSegmentAbandoned), et à la résolution
+  // coveredLen avance exactement jusqu'à elle. Remplace l'ancien couple
+  // « sliceEnd figé + coverShift » (revue adversariale 2026-07-29), qui ne
+  // recalait que les substitutions situées avant coveredLen : une substitution
+  // DANS la tranche en vol laissait sur-compter coveredLen, et les caractères
+  // transcrits ensuite n'étaient ni dans un job ni dans le reliquat (revue
+  // R3-M4 du 2026-08-31, mesuré : coveredLen=68 pour un texte de 59).
+  // -1 = aucun POST de tranche en vol. Un seul POST de tranche vole à la fois
+  // (garde de ré-entrance de submitSegmentJob) : une seule frontière suffit.
+  var flightSliceEnd = -1;
+  // Paroles récupérées PENDANT le vol d'une tranche, en attente de savoir si
+  // ce POST aboutit (re-revue F1 du 2026-09-01). Les soumettre tout de suite
+  // produisait un DOUBLON quand le POST échouait : son `.catch` n'avance pas
+  // `coveredLen`, donc la parole restait AUSSI dans le reliquat et repartait
+  // une seconde fois — or c'est le même incident réseau qui a produit le
+  // segment perdu, donc le cas est fréquent, pas théorique. Vidé au succès
+  // (la parole sort du reliquat, il lui faut son job), jeté à l'échec.
+  var recuperesEnAttente = [];
   // Compteur des POST /interviews/segment-jobs en vol — gate le bouton
   // "Extraire" le temps de la requête (même pattern que `pendingSegments`
   // pour les uploads de transcription). Sans ce gate, un submit pendant
@@ -412,14 +430,15 @@
     // arbitraire. Une position sautée sur échec est sans effet (la fusion trie,
     // les trous sont permis).
     var pos = segmentJobPosition++;
-    var sliceEnd = coveredLen + slice.length;
-    var shiftAtSend = coverShift;  // recalage si une récupération insère avant le curseur
     var gen = backupGeneration;  // session courante : garde anti-poison inter-session (E2)
     var formData = new FormData();
     formData.append('session_token', sessionToken);
     formData.append('position', pos);
     formData.append('text', slice);
     pendingSegmentJobSubmits++;
+    // Frontière de la tranche en vol, recalée par les substitutions de
+    // marqueurs pendant le vol (cf. déclaration de flightSliceEnd, R3-M4).
+    flightSliceEnd = coveredLen + slice.length;
     updateSubmitState();  // bloque "Extraire" tant que ce POST est en vol
     recFetch('/interviews/segment-jobs', { method: 'POST', body: formData }, NET_TIMEOUT_MS)
       .then(function (res) {
@@ -430,31 +449,31 @@
         // l'enregistrement suivant, dont les 1ers caractères ne sont alors ni dans
         // un job de la nouvelle session ni dans segment_tail : perte silencieuse.
         if (gen !== backupGeneration) return;
-        // Job bien créé : on avance le curseur, ce texte est pris en charge
-        // en tâche de fond. `sliceEnd` est recalé du décalage accumulé par les
-        // récupérations résolues pendant que ce POST était en vol.
-        // `Math.min(…, transcriptSoFar.length)` : `coveredLen` ne peut pas, par
-        // définition, dépasser le texte qui existe. Il le dépassait pourtant
-        // quand une substitution de marqueur RACCOURCISSAIT le texte à
-        // l'intérieur de la tranche en vol : `coverShift` n'est mis à jour que
-        // pour un marqueur situé AVANT `coveredLen`, jamais pour un marqueur
-        // situé dans [coveredLen, sliceEnd]. `sliceEndNow` restait alors calculé
-        // sur l'ancienne longueur, et les caractères transcrits ensuite
-        // n'étaient ni dans un job ni dans le reliquat — présents dans la
-        // transcription, absents des tours de parole (revue adversariale
-        // 2026-08-31, mesuré : coveredLen=68 pour un texte de 59).
-        var sliceEndNow = Math.min(sliceEnd + (coverShift - shiftAtSend), transcriptSoFar.length);
+        // Job bien créé : on avance le curseur jusqu'à la frontière de la
+        // tranche, MAINTENUE en coordonnées courantes par les substitutions de
+        // marqueurs survenues pendant le vol (cf. flightSliceEnd, R3-M4).
+        // `Math.min(…, transcriptSoFar.length)` : ceinture — `coveredLen` ne
+        // peut pas, par définition, dépasser le texte qui existe.
+        var sliceEndNow = Math.min(flightSliceEnd, transcriptSoFar.length);
         if (sliceEndNow > coveredLen) {
           coveredLen = sliceEndNow;
           refreshSegmentTail();
         }
+        // Ce POST a abouti : `coveredLen` vient de passer par-dessus les
+        // paroles récupérées pendant son vol, qui ne sont PAS dans son
+        // contenu (figé à l'envoi). Elles ont donc besoin de leur job.
+        recuperesEnAttente.forEach(postRecoveredJob);
       })
       .catch(function () {
         // Création KO (réseau/serveur) : on NE fait PAS avancer coveredLen —
         // ce texte reste dans le reliquat (segment_tail), traité en synchrone
-        // à l'arrêt. Aucune tranche perdue.
+        // à l'arrêt. Aucune tranche perdue. Les paroles récupérées pendant le
+        // vol y restent aussi : pas de job dédié, sinon elles seraient
+        // extraites DEUX fois (re-revue F1).
       })
       .finally(function () {
+        recuperesEnAttente = [];  // soumises au succès, laissées au reliquat sinon
+        flightSliceEnd = -1;  // plus de tranche en vol (succès comme échec)
         // Planché : un job en vol traversant un reset/redémarrage résout dans une
         // nouvelle session (compteur remis à zéro) — sans plancher, le décrément
         // le passerait négatif et le gate « Extraire » ne bloquerait plus jamais.
@@ -848,15 +867,30 @@
     transcriptEl.value = transcriptSoFar;
     transcriptEl.scrollTop = transcriptEl.scrollHeight;
     transcriptHidden.value = transcriptSoFar;
-    if (pos < coveredLen) {
+    var delta = text.length - marker.length;
+    // Les deux tests se font AVANT toute mutation : `coveredLen` bouge juste
+    // en dessous, et un delta négatif le ferait repasser sous `pos`.
+    var dejaCouvert = pos < coveredLen;
+    var dansTrancheEnVol = flightSliceEnd >= 0 && pos < flightSliceEnd;
+    // Substitution AVANT la frontière de la tranche en vol (qu'elle soit avant
+    // coveredLen ou DANS la tranche) : la frontière se décale du même delta,
+    // sinon coveredLen retomberait à côté à la résolution (R3-M4).
+    if (dansTrancheEnVol) flightSliceEnd += delta;
+    if (dejaCouvert) {
       // Le trou était dans une zone déjà soumise en job d'extraction : on
-      // décale le curseur du même delta (sinon la fin déjà couverte
-      // repasserait dans le reliquat -> tours dupliqués à la fusion) et on
-      // soumet ce texte comme un job à part, sinon il ne serait extrait par
-      // personne. Il reste de toute façon dans la transcription finale.
-      coveredLen += text.length - marker.length;
-      coverShift += text.length - marker.length;  // recale les submits en vol (cf. coverShift)
+      // décale le curseur du même delta, sinon la fin déjà couverte
+      // repasserait dans le reliquat -> tours dupliqués à la fusion. Sa
+      // couverture est ACQUISE, le job part donc tout de suite.
+      coveredLen += delta;
       postRecoveredJob(text);
+    } else if (dansTrancheEnVol) {
+      // Zone couverte SEULEMENT SI le POST en vol aboutit (revue EC-2 puis
+      // re-revue F1) : le job en vol porte le MARQUEUR, texte figé à l'envoi,
+      // pas cette parole. Au succès `coveredLen` passera par-dessus elle et
+      // plus personne ne l'extrairait — d'où le job dédié ; à l'échec elle
+      // reste dans le reliquat et s'y fait extraire une fois. On ne peut donc
+      // pas trancher maintenant : on met en attente.
+      recuperesEnAttente.push(text);
     }
     refreshSegmentTail();
   }
@@ -872,15 +906,27 @@
     var marker = lostMarker(id);
     var texte = '⚠ [segment ' + id + ' abandonné — audio perdu]';
     var pos = transcriptSoFar.indexOf(marker);
-    if (pos < 0) return;  // marqueur déjà remplacé (relance aboutie entre-temps)
+    if (pos < 0) {
+      // Marqueur introuvable : édité à la main dans la zone de texte, ou
+      // relance aboutie dans la fenêtre entre le rendu du bouton et le clic.
+      // L'appelant a DÉJÀ retiré le segment du bandeau — sortir en silence
+      // rendrait la perte invisible, le défaut même que cette porte de sortie
+      // doit rendre explicite (R3-m5). On pose le constat en fin de
+      // transcription : au pire (texte en fait récupéré entre-temps), une note
+      // surnuméraire VISIBLE et effaçable ; jamais une perte muette.
+      appendTranscript(texte);
+      return;
+    }
     transcriptSoFar = transcriptSoFar.slice(0, pos) + texte + transcriptSoFar.slice(pos + marker.length);
     transcriptEl.value = transcriptSoFar;
     transcriptHidden.value = transcriptSoFar;
+    var delta = texte.length - marker.length;
+    // Même recalage de la frontière en vol que `replaceLostMarker` (R3-M4).
+    if (flightSliceEnd >= 0 && pos < flightSliceEnd) flightSliceEnd += delta;
     if (pos < coveredLen) {
       // Même recalage que `replaceLostMarker` — sans lui, la fin déjà couverte
       // repasserait dans le reliquat et produirait des tours dupliqués à la fusion.
-      coveredLen += texte.length - marker.length;
-      coverShift += texte.length - marker.length;
+      coveredLen += delta;
     }
     refreshSegmentTail();
   }
@@ -974,9 +1020,12 @@
   // bloquant la file est vide alors que le blob — seule copie de cette parole —
   // n'existe qu'en vol. Sans ce drapeau, la fenêtre exacte où fermer l'onglet
   // détruit l'audio est précisément celle où l'alerte se taisait.
+  // `pendingBackups` (revue R3-m4) : pendant un upload de sauvegarde (et sa
+  // chaîne de reprise), le blob de ~20 min d'audio n'existe que dans la closure
+  // de l'onglet — fermer pendant cette fenêtre détruit la seule copie.
   window.addEventListener('beforeunload', function (e) {
     if (!lostSegments.some(function (s) { return s.blocking; }) && !lostRetryBlocking
-        && !recordingActive) return;
+        && !recordingActive && !pendingBackups) return;
     e.preventDefault();
     e.returnValue = '';
   });
@@ -1012,10 +1061,23 @@
     // machine en veille — ou 5xx passager). Le blob est CONSERVÉ : c'est la
     // seule copie de cette minute de parole côté transcription, la jeter
     // faisait un trou définitif (signalement utilisateur 2026-07-29).
-    function retryOrGiveUp(reason) {
+    function retryOrGiveUp(reason, timedOut) {
       if (gen !== backupGeneration) { settle(); return; }
-      if (attempt + 1 < SEGMENT_RETRY_DELAYS_MS.length) {
-        statusEl.textContent = 'Segment non transmis (' + reason + ') — nouvelle tentative…';
+      // Délai maximal atteint (err.recTimeout — revue R3-M5/M6) : PAS de
+      // relance automatique. La fenêtre généreuse (15 min) a déjà été attendue
+      // en entier — soit la connexion est morte (rejouer attendrait 15 min de
+      // plus), soit Whisper est noyé (renvoyer les mêmes octets aggrave la
+      // file, et l'abort client n'a PAS annulé le travail serveur en cours).
+      // Le blob part directement dans le bandeau : relance MANUELLE possible,
+      // abandon possible — un état actionnable au lieu d'un gel de 45 min.
+      if (timedOut) {
+        keepLostSegment(blob, reason, lostId, true);  // bloquant : seule copie de cette parole
+        settle();
+        return;
+      }
+      if (attempt < SEGMENT_RETRY_DELAYS_MS.length) {
+        statusEl.textContent = 'Segment non transmis (' + reason + ') — nouvelle tentative ('
+          + (attempt + 2) + '/' + (SEGMENT_RETRY_DELAYS_MS.length + 1) + ')…';
         // Garde de génération RE-TESTÉE au réveil, pas seulement à la
         // programmation (revue adversariale 2026-07-30) : un échec survenu juste
         // avant un « Recommencer » ou un nouveau démarrage envoyait sinon 1 à 2
@@ -1076,7 +1138,9 @@
         settle();
       })
       .catch(function (err) {
-        retryOrGiveUp(err.message);
+        // `recTimeout` : délai maximal atteint (rec_fetch.js) — pas de relance
+        // automatique des mêmes octets (R3-M5/M6).
+        retryOrGiveUp(err.message, !!(err && err.recTimeout));
       });
   }
 
@@ -1199,11 +1263,18 @@
     // Cette tranche de 20 min n'existe QUE dans ce blob : la jeter au premier
     // échec (micro-coupure réseau, 5xx passager) faisait un trou définitif dans
     // l'audio de l'entretien. Même politique de reprise que `uploadSegment`.
-    function retryOrGiveUp(reason) {
+    function retryOrGiveUp(reason, timedOut) {
       if (gen !== backupGeneration) { settle(); return; }
-      if (attempt + 1 < SEGMENT_RETRY_DELAYS_MS.length) {
+      // Délai maximal atteint (err.recTimeout — revue R3-M5/M6) : pas de
+      // relance automatique. L'upload est borné par la bande passante, pas par
+      // une file d'attente : 10 min sans aboutir = connexion morte, rejouer
+      // les mêmes octets attendrait 10 min de plus en tenant « Enregistrer »
+      // grisé. La tranche est marquée perdue et DITE (refreshBackupStatus) —
+      // le texte transcrit, lui, reste complet.
+      if (!timedOut && attempt < SEGMENT_RETRY_DELAYS_MS.length) {
         backupStatusEl.textContent = 'Sauvegarde audio de la tranche ' + (position + 1)
-          + ' non transmise (' + reason + ') — nouvelle tentative…';
+          + ' non transmise (' + reason + ') — nouvelle tentative ('
+          + (attempt + 2) + '/' + (SEGMENT_RETRY_DELAYS_MS.length + 1) + ')…';
         setTimeout(function () {
           if (gen !== backupGeneration) { settle(); return; }
           uploadBackup(blob, attempt + 1, position, gen);
@@ -1247,7 +1318,9 @@
         }
       })
       .catch(function (err) {
-        retryOrGiveUp(err.message);
+        // `recTimeout` : délai maximal atteint (rec_fetch.js) — pas de relance
+        // automatique des mêmes octets (R3-M5/M6).
+        retryOrGiveUp(err.message, !!(err && err.recTimeout));
       });
   }
 

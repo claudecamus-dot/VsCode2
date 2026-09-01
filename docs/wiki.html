@@ -835,12 +835,12 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-08-31T21:25:17+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-09-01T09:08:51+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>65 sessions</strong> couvertes · <strong>156</strong> invocations de skills · <strong>87</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>67 sessions</strong> couvertes · <strong>160</strong> invocations de skills · <strong>94</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-08-31 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
+        <div class="tag-source">scan_transcripts.py · 2026-09-01 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
 
       <h3>Skills — usage réel</h3>
@@ -848,8 +848,8 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Skill</th><th>Famille</th><th>Invocations</th><th>Première</th><th>Dernière</th></tr></thead>
           <tbody>
-            <tr><td><code>run-dev-server</code></td><td>projet</td><td>39</td><td>2026-07-03</td><td>2026-08-31</td></tr>
-            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>34</td><td>2026-07-17</td><td>2026-08-31</td></tr>
+            <tr><td><code>run-dev-server</code></td><td>projet</td><td>40</td><td>2026-07-03</td><td>2026-08-31</td></tr>
+            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>37</td><td>2026-07-17</td><td>2026-09-01</td></tr>
             <tr><td><code>agent-supervisor</code></td><td>projet</td><td>20</td><td>2026-07-18</td><td>2026-08-31</td></tr>
             <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>13</td><td>2026-07-20</td><td>2026-07-31</td></tr>
             <tr><td><code>revue-increment</code></td><td>projet</td><td>11</td><td>2026-07-18</td><td>2026-07-30</td></tr>
@@ -879,10 +879,10 @@ pytest -k "pptx or export"                                                     #
           <thead><tr><th>Sous-agent</th><th>Lancements</th><th>Premier</th><th>Dernier</th></tr></thead>
           <tbody>
             <tr><td><code>general-purpose</code></td><td>48</td><td>2026-07-15</td><td>2026-08-31</td></tr>
-            <tr><td><code>Explore</code></td><td>29</td><td>2026-06-30</td><td>2026-08-31</td></tr>
+            <tr><td><code>Explore</code></td><td>30</td><td>2026-06-30</td><td>2026-08-31</td></tr>
+            <tr><td><code>bmad-revue</code></td><td>8</td><td>2026-08-31</td><td>2026-09-01</td></tr>
             <tr><td><code>claude</code></td><td>4</td><td>2026-07-16</td><td>2026-07-16</td></tr>
             <tr><td><code>Plan</code></td><td>3</td><td>2026-07-06</td><td>2026-07-17</td></tr>
-            <tr><td><code>bmad-revue</code></td><td>2</td><td>2026-08-31</td><td>2026-08-31</td></tr>
             <tr><td><code>claude-code-guide</code></td><td>1</td><td>2026-07-03</td><td>2026-07-03</td></tr>
           </tbody>
         </table>
@@ -898,12 +898,12 @@ pytest -k "pptx or export"                                                     #
       <div class="critical">
         <p><strong>Skills projet sans usage</strong> : <code>audit-technique</code>, <code>veille-agentic</code> — vérifier pertinence et déclencheurs.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-08-31 · transcripts de session</div>
+        <div class="tag-source">scan_transcripts.py · 2026-09-01 · transcripts de session</div>
       </div>
       <div class="critical">
         <p><strong>Skills en sommeil (&gt;30 j sans usage)</strong> : <code>bmad-code-review</code>, <code>bmad-party-mode</code>, <code>bmad-sprint-status</code>, <code>claude-api</code>, <code>deck-design-library</code>, <code>deck-design-review</code>, <code>init</code>, <code>pptx-deck</code>, <code>pptx-verify</code>, <code>priority-matrix</code>, <code>restitution-deck-design</code>, <code>revue-increment</code>, <code>roadmap-keeper</code>, <code>run</code>, <code>skill-creator</code>, <code>slide-text-polish</code>, <code>swot-matrix</code>, <code>update-config</code>.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-08-31 · transcripts de session</div>
+        <div class="tag-source">scan_transcripts.py · 2026-09-01 · transcripts de session</div>
       </div>
 
       <h3>Arbitrages enregistrés</h3>
@@ -949,7 +949,7 @@ pytest -k "pptx or export"                                                     #
         <li><strong><code>export-ppt-verifie</code></strong> (2026-07-22) : Constat superviseur du 2026-07-22 (prio 1) arbitré : NE PAS rouvrir les arbitrages PPT — la prémisse du playbook (les 3 skills conditionnelles gagnent leur place via export-ppt-verifie) sera exercée lors de la GÉNÉRATION du deck PPT complet à venir, à laquelle ce constat est relié. Une slide isolée ajoutée au générateur existant (ex. Executive Summary, commit 2e43358) se vérifie par pptx-verify seul et ne déclenche pas le playbook, qui vise un livrable = deck de restitution complet.</li>
       </ul>
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
-      <p><em>Diagnostic à jour.</em></p>
+      <p><em>Diagnostic ⚠️ à relancer (&gt; 14 j).</em></p>
       <div class="critical">
         <p><strong>CLAUDE.md est devenu un journal de chantiers en append-only : 15 387 mots charges a chaque tour, contre sa propre discipline de tokens</strong> — Scinder : garder dans CLAUDE.md les invariants durables (projet, vocabulaire, commandes, architecture, regles R1-R4, dispositif) et sortir la chronologie des chantiers vers un journal date sous docs/wiki/, reference par un pointeur. · <strong>Proposition</strong> : Deplacer les paragraphes de chantier ANTERIEURS au dernier increment vers docs/wiki/journal-chantiers.md (un titre de niveau 2 par date, contenu inchange), et laisser dans CLAUDE.md un pointeur unique du type 'Historique detaille des chantiers : docs/wiki/journal-chantiers.md -- verifier contre git log plutot que de s'y fier'. Cible : ramener CLAUDE.md sous ~6 000 mots. Regle de tenue a ajouter dans revue-increment : un nouveau chantier s'ecrit dans le journal, et ne remonte dans CLAUDE.md que s'il change un invariant ou une regle.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>

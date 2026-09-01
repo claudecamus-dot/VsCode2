@@ -126,6 +126,23 @@ def test_strip_segment_markers_retire_les_deux_formes() -> None:
     assert "Merci Feriel pour ce partage." in cleaned
 
 
+def test_strip_segment_markers_retire_le_marqueur_d_abandon() -> None:
+    """Le marqueur posé par « Abandonner le segment » (porte de sortie du
+    2026-08-31) doit être assaini comme les deux formes historiques : passé au
+    modèle, il deviendrait un faux tour de parole dans le tour de table (revue
+    R3-m6 — constat SUPPOSE de la revue, réfuté ici par exécution)."""
+    text = (
+        "Début de l'échange.\n\n"
+        "⚠ [segment 7 abandonné — audio perdu]\n\n"
+        "Suite de l'échange."
+    )
+    cleaned = strip_segment_markers(text)
+    assert "abandonné" not in cleaned
+    assert "⚠" not in cleaned
+    assert "Début de l'échange." in cleaned
+    assert "Suite de l'échange." in cleaned
+
+
 def test_strip_segment_markers_preserve_les_paragraphes() -> None:
     """Le retrait ne doit pas fusionner tout le texte en un seul paragraphe :
     `chunk_text_by_paragraph` découpe sur les lignes vides, les frontières
