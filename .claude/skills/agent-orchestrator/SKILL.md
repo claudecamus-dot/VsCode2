@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : b5d29c5 du 2026-09-01 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`b5d29c5`, 2026-09-01) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : f2490bf du 2026-09-01 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`f2490bf`, 2026-09-01) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -35,6 +35,43 @@ de l'écran.** Ne pas plaquer un pattern générique là où le projet a déjà 
 
 `deck-design-review` et `slide-text-polish` pour la revue d'un deck, `pdf-quality` dès qu'un
 PDF est produit.
+
+**Génération ET mesure d'un PDF : `pdf-quality`, avec son paramètre arbitré.** Un PDF qui
+se génère sans erreur n'est pas un PDF correct. La skill est installée ici et son
+vérificateur se lance :
+
+```bash
+py .claude/skills/pdf-quality/scripts/pdf_verify.py <sortie.pdf> --retrait-citation-mm 3.53
+```
+
+**`--retrait-citation-mm 3.53` est arbitré et conservé** : sans lui, le vérificateur
+signale à tort un bord gauche multiple sur les PDF de ce projet — un faux défaut bloquant
+sur un PDF correct, qui coûte une chasse au bug inexistant.
+
+**Conception** : `docs/reflexions/agent-orchestrateur.md`.
+
+**Playbooks et cibles propres à ce dépôt** :
+
+| Playbook | Pour | Statut |
+| --- | --- | --- |
+| `dev-verifie` | Implémentation/correction avec tests + vérif réelle + revue-increment avant commit | Éprouvé |
+| `cycle-produit-bmad` | Cycle produit BMAD complet (généré depuis le CSV) — **sur demande explicite uniquement** | Jamais joué |
+
+La cible **export de deck** est `app/services/pptx_export/**` et `pptx_deck.py` ;
+`run-dev-server` sert à regarder un écran.
+
+| Si le plan touche… | Alors le plan contient… |
+| --- | --- |
+| Fin d'incrément / avant commit | `revue-increment` en étape terminale |
+
+**Le piège de parallélisation, ici.** Deux sous-agents ne modifient jamais les mêmes
+fichiers en parallèle — sur ce projet le piège classique est **deux agents sur
+`app/routers/` ou sur `tests/`**. Si le plan l'exige : `isolation: "worktree"`, ou
+sérialiser les étapes d'écriture.
+
+**Les cibles de ce dépôt**, pour qualifier une demande : cible **applicative**
+(`app/routers/`, `app/services/`, un template Jinja, du CSS/JS) ; cible **export de deck**
+(`app/services/pptx_export/**`, `pptx_deck.py`) ; cible **export PDF** (reportlab).
 
 ## Méthode — 5 étapes
 
