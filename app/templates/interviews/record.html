@@ -884,7 +884,16 @@
         // KO : le texte reste dans la transcription, simplement pas pré-extrait.
       })
       .finally(function () {
-        if (gen !== recGeneration) return;
+        // EC-1 (revue du 2026-08-31, corrigé le 2026-09-01) — chemin frère de
+        // `record_libre.html`, même défaut, même correctif. Le `if (gen !==
+        // recGeneration) return;` était ICI, donc AVANT le décrément : un POST
+        // en vol au moment d'un « Recommencer » sortait sans rendre son
+        // incrément, `pendingSegmentJobSubmits` restait à 1 pour la VIE de la
+        // page — « Enregistrer l'entretien » grisé définitivement, et plus un
+        // seul job soumis ensuite (`submitSegmentJob` sort sur ce compteur).
+        // Le compteur est un état de PAGE : ce qui l'a incrémenté le
+        // décrémente, quelle que soit la génération, comme le fait déjà
+        // `submitSegmentJob`.
         pendingSegmentJobSubmits = Math.max(0, pendingSegmentJobSubmits - 1);
         updateSubmitState();
       });
@@ -1071,6 +1080,46 @@
     backupRecorder.start();
   }
 
+  // EC-3 (revue du 2026-08-31, corrigé le 2026-09-01) — l'issue qui manquait
+  // quand la sauvegarde audio n'aboutit pas.
+  //
+  // `uploadSegment` garde le blob d'un segment perdu en mémoire : bandeau,
+  // relance manuelle, abandon explicite. `uploadBackup` ne gardait rien — il
+  // affichait « AUDIO PERDU » et lâchait la seule référence au blob, que le
+  // ramasse-miettes emportait. Sur CET écran il n'y a pas de rotation : ce blob
+  // est l'audio ENTIER de l'entretien, et la branche qui le jetait est
+  // précisément celle du délai maximal, c'est-à-dire le réseau durablement
+  // coupé — le cas où l'utilisateur en a le plus besoin.
+  //
+  // On ne peut pas le pousser au serveur (il ne répond pas) ; on peut le rendre
+  // à l'utilisateur. Le fichier reste écoutable et téléchargeable depuis la
+  // page, et il se ré-importe ensuite par « Importer un fichier audio » — le
+  // chemin qui, depuis cette même date, ne supprime plus jamais d'audio. La
+  // règle du projet vaut aussi contre le réseau : l'audio ne se perd pas plus
+  // qu'il ne se supprime tout seul.
+  var urlBackupLocal = '';
+
+  function offrirBackupEnLocal(blob) {
+    try {
+      // Une seule URL vivante à la fois : sans révocation, chaque échec d'une
+      // page longue retiendrait un blob d'entretien entier en mémoire.
+      if (urlBackupLocal) URL.revokeObjectURL(urlBackupLocal);
+      urlBackupLocal = URL.createObjectURL(blob);
+      var type = (blob && blob.type) || '';
+      var ext = type.indexOf('mp4') >= 0 ? '.m4a' : (type.indexOf('ogg') >= 0 ? '.ogg' : '.webm');
+      audioPlayerEl.src = urlBackupLocal;
+      audioDownloadEl.href = urlBackupLocal;
+      audioDownloadEl.download = 'entretien-{{ mission.id }}-' + Date.now() + ext;
+      audioPlaybackEl.hidden = false;
+      return true;
+    } catch (e) {
+      // Navigateur sans createObjectURL, ou blob déjà neutralisé : on ne
+      // transforme pas un échec d'envoi en page cassée. Le message d'échec
+      // ci-dessous reste affiché tel quel.
+      return false;
+    }
+  }
+
   function uploadBackup(blob, attempt, genArg) {
     // Garde de génération, alignée sur la PREMIÈRE tentative — elle manquait
     // ICI, et ici seulement (revue du 2026-08-31) : tous les autres chemins du
@@ -1108,8 +1157,19 @@
         }, SEGMENT_RETRY_DELAYS_MS[attempt]);
         return;  // pendingBackups reste tenu par la tentative initiale
       }
-      backupStatusEl.textContent = '⚠ AUDIO PERDU : la sauvegarde n’a pas pu être '
-        + 'transmise (' + reason + '). Le texte transcrit, lui, reste complet.';
+      // Le blob n'est PAS lâché : on le rend à l'utilisateur (EC-3). Le message
+      // ne dit « perdu » que si même ça a échoué — annoncer une perte alors que
+      // le fichier est téléchargeable juste en dessous serait faux, et
+      // l'inverse (promettre un lien absent) le serait tout autant.
+      if (offrirBackupEnLocal(blob)) {
+        backupStatusEl.textContent = '⚠ Sauvegarde audio NON transmise (' + reason
+          + '), mais l’enregistrement n’est pas perdu : récupère-le avec '
+          + '« Télécharger l’enregistrement » ci-dessous, puis ré-importe-le '
+          + 'avec « Importer un fichier audio ». Le texte transcrit, lui, reste complet.';
+      } else {
+        backupStatusEl.textContent = '⚠ AUDIO PERDU : la sauvegarde n’a pas pu être '
+          + 'transmise (' + reason + '). Le texte transcrit, lui, reste complet.';
+      }
       settle();
     }
 
@@ -1126,6 +1186,14 @@
           backupPathHidden.value = result.data.path;
           backupStatusEl.textContent = '✓ sauvegarde audio complète effectuée.';
           var backupUrl = '/missions/{{ mission.id }}/interviews/record/backup/' + encodeURIComponent(result.data.path);
+          // Une tentative précédente a pu offrir le blob en local (EC-3) : le
+          // serveur l'a maintenant, on rend la mémoire et on remet le lien dans
+          // son état d'origine (nom de fichier déduit de l'URL servie).
+          if (urlBackupLocal) {
+            URL.revokeObjectURL(urlBackupLocal);
+            urlBackupLocal = '';
+            audioDownloadEl.download = '';
+          }
           audioPlayerEl.src = backupUrl;
           audioDownloadEl.href = backupUrl;
           audioPlaybackEl.hidden = false;
@@ -1292,6 +1360,15 @@
             return;
           }
           if (data.status === 'done') {
+            // Rattache le fichier importé à l'entretien (2026-09-01), pour
+            // qu'il soit visible dans l'onglet Backup et protégé par le
+            // contrôle de références de la suppression.
+            // Cet écran n'a PAS de tranches (`startBackupRecorder` : « l'arrêt
+            // du backup est toujours final », pas de rotation, donc pas de
+            // champ `audio_segments`) : le rattachement passe par le chemin
+            // unique `audio_backup_path`, et surtout PAS par une copie du code
+            // du mode libre, qui écrirait dans un champ inexistant ici.
+            if (data.filename) { backupPathHidden.value = data.filename; }
             finishFileImport(null, gen);
             // APRÈS finishFileImport : updateSubmitState y écrit son libellé
             // générique, qui écraserait sinon ce message.
@@ -1349,6 +1426,12 @@
     var formData = new FormData();
     formData.append('file', file);
     formData.append('session_token', sessionToken);
+    // Le fichier importé est de l'audio d'entretien : il doit porter la même
+    // convention de nom qu'un enregistrement (`{mission}_...`), sans quoi
+    // l'onglet Backup de la mission ne le voit pas et l'utilisateur n'a aucun
+    // moyen de le supprimer — or c'est la SEULE suppression d'audio autorisée
+    // depuis le 2026-09-01.
+    formData.append('mission_id', '{{ mission.id }}');
     recFetch('/audio/transcribe-file', { method: 'POST', body: formData }, UPLOAD_TIMEOUT_MS)
       .then(function (res) {
         return res.json().then(function (data) { return { ok: res.ok, data: data }; });

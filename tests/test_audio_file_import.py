@@ -25,8 +25,28 @@ from sqlalchemy import select
 
 from app.db import DB_PATH, RECORDINGS_DIR, SessionLocal, engine, init_db
 from app.main import app
-from app.models import AudioFileJob
+from app.models import AudioFileJob, Mission
 from app.services import audio_file_jobs, audio_transcribe
+
+
+def _creer_mission(nom: str) -> int:
+    db = SessionLocal()
+    try:
+        mission = Mission(name=nom)
+        db.add(mission)
+        db.commit()
+        return mission.id
+    finally:
+        db.close()
+
+
+# Mission porteuse des imports de ce module. Depuis le 2026-09-01 la route
+# EXIGE un `mission_id` qui existe : c'est lui qui préfixe le nom du fichier,
+# donc qui le rend visible dans l'onglet Backup — seul endroit d'où
+# l'utilisateur peut le supprimer, et seule suppression d'audio autorisée.
+# Créée une fois pour le module, et jamais codée en dur : les identifiants
+# SQLite sont réattribués après un `unlink` de la base de test.
+_MISSION_ID = 0
 
 
 def setup_module() -> None:
@@ -39,6 +59,8 @@ def setup_module() -> None:
     if DB_PATH.exists():
         DB_PATH.unlink()
     init_db()
+    global _MISSION_ID
+    _MISSION_ID = _creer_mission("Mission des imports audio")
 
 
 def teardown_module() -> None:
@@ -74,7 +96,7 @@ def _upload(client: TestClient, contenu: bytes = b"fake-audio", token: str = _TO
     response = client.post(
         "/audio/transcribe-file",
         files={"file": ("entretien.weba", io.BytesIO(contenu), "audio/webm")},
-        data={"session_token": token},
+        data={"session_token": token, "mission_id": str(_MISSION_ID)},
     )
     assert response.status_code == 200, response.text
     return response.json()
@@ -136,17 +158,34 @@ def test_le_statut_exige_le_jeton_de_session(client, monkeypatch):
     assert ok.status_code == 200 and ok.json()["blocks"] == ["Secret."]
 
 
-def test_import_sans_jeton_refuse_et_ne_laisse_pas_de_fichier(client):
+def test_import_sans_jeton_refuse_SANS_rien_ecrire(client):
     """Un import sans session ne serait relisable par personne (le statut est
-    scopé au jeton) : on refuse, et on ne laisse pas l'audio sur le disque."""
-    avant = set(p.name for p in RECORDINGS_DIR.glob("import_*"))
+    scopé au jeton) : on refuse — et l'octet n'est jamais écrit.
+
+    C'est la façon dont la règle « l'audio ne se supprime que par une action de
+    l'utilisateur » se tient sur un chemin REFUSÉ, et il a fallu deux essais
+    pour la trouver. Écrire puis conserver (première version du 2026-09-01)
+    respectait la lettre de la règle et ouvrait un dépôt d'audio définitif que
+    n'importe quelle requête refusée pouvait remplir, sans limite. Valider AVANT
+    d'écrire dissout le dilemme : on ne conserve que l'audio d'une requête
+    acceptée, et le serveur ne supprime toujours rien.
+
+    Ce test verrouille donc l'ORDRE des opérations dans la route, pas seulement
+    son code de retour : il vire au rouge si une validation repasse après
+    l'écriture du fichier."""
+    avant = set(p.name for p in RECORDINGS_DIR.glob("*import_*"))
     response = client.post(
         "/audio/transcribe-file",
         files={"file": ("x.weba", io.BytesIO(b"audio"), "audio/webm")},
-        data={"session_token": "  "},
+        data={"session_token": "  ", "mission_id": str(_MISSION_ID)},
     )
     assert response.status_code == 400
-    assert set(p.name for p in RECORDINGS_DIR.glob("import_*")) == avant
+    nouveaux = set(p.name for p in RECORDINGS_DIR.glob("*import_*")) - avant
+    assert nouveaux == set(), (
+        "une requête REFUSÉE a laissé de l'audio sur le disque : le serveur ne "
+        "le supprimera plus jamais, donc chaque refus dépose un fichier "
+        f"définitif — répétable sans limite (nouveaux : {nouveaux})"
+    )
 
 
 def test_le_job_est_supprime_une_fois_entierement_consomme(client, monkeypatch):
@@ -251,9 +290,17 @@ def test_echec_de_transcription_remonte_un_message_utilisable(client, monkeypatc
     assert "illisible" in data["error"]
 
 
-def test_fichier_audio_supprime_apres_traitement(client, monkeypatch):
-    """L'audio d'un entretien ne doit pas s'entasser sur le disque une fois son
-    texte obtenu (même exigence que la purge des tranches de texte)."""
+def test_fichier_audio_CONSERVE_apres_traitement(client, monkeypatch):
+    """Contrat INVERSÉ le 2026-09-01. L'ancien libellé — « l'audio ne doit pas
+    s'entasser une fois son texte obtenu » — traitait l'enregistrement comme une
+    copie de travail. C'en est la SOURCE : quand un défaut de transcription ou
+    d'extraction est découvert après coup, c'est le seul moyen de rejouer, et
+    c'est exactement le moment où le fichier avait disparu.
+
+    L'entretien enregistré au micro gardait le sien (`audio_backup_path`,
+    « filet de sécurité en cas de souci de transcription/extraction ») :
+    l'import était le chemin frère privé du même filet. La purge continue, elle,
+    d'effacer les LIGNES de base, qui portent du texte d'entretien."""
     monkeypatch.setattr(
         audio_transcribe, "iter_transcribe_blocks", _fake_blocks("Un bloc."),
     )
@@ -262,7 +309,10 @@ def test_fichier_audio_supprime_apres_traitement(client, monkeypatch):
     try:
         job = db.get(AudioFileJob, job_id)
         assert job.status == "done"
-        assert not (RECORDINGS_DIR / job.filename).exists()
+        assert (RECORDINGS_DIR / job.filename).exists(), (
+            "l'audio importé a été supprimé après transcription : plus aucun "
+            "rejeu possible si un bug est découvert ensuite"
+        )
     finally:
         db.close()
 
@@ -320,8 +370,13 @@ def test_la_relance_reprend_au_bloc_echoue_sans_re_transcrire(client, monkeypatc
     assert data["blocks"] == textes
     # La 2e passe est repartie DU bloc échoué, pas du début.
     assert starts == [0, 1]
-    # Et le fichier est nettoyé une fois le job abouti, comme un import direct.
-    assert not (RECORDINGS_DIR / filename).exists()
+    # Et le fichier est CONSERVÉ une fois le job abouti, comme un import direct
+    # (contrat inversé le 2026-09-01) : c'est la source de l'entretien, seule
+    # matière d'un rejeu si un défaut est découvert plus tard.
+    assert (RECORDINGS_DIR / filename).exists(), (
+        "l'audio a été supprimé après la reprise réussie — le rejeu devient "
+        "impossible alors que c'est précisément un parcours déjà accidenté"
+    )
 
 
 def test_la_relance_exige_le_jeton_de_session(client, monkeypatch):
@@ -450,8 +505,14 @@ def test_la_relance_accepte_un_job_perime_encore_marque_running(client, monkeypa
 def test_la_relance_refuse_un_echec_sans_bloc_a_reprendre(client):
     """Fichier muet : tous les blocs sont transcrits (vides), l'échec ne vient
     pas d'un bloc interrompu. Relancer ne rejouerait RIEN et re-échouerait à
-    l'identique, indéfiniment, en gardant le fichier à vie (revue adversariale
-    2026-07-29) : on répond 409 et on libère le fichier."""
+    l'identique : on répond 409.
+
+    Le fichier, lui, est CONSERVÉ depuis le 2026-09-01 (la version de
+    2026-07-29 le libérait ici). « Muet pour Whisper » n'est pas « sans
+    valeur » : c'est au contraire le cas où l'on veut réécouter pour comprendre
+    ce qui a échoué — micro coupé, mauvaise piste captée, une seule face de la
+    réunion. Le serveur n'a pas à trancher à la place de l'utilisateur ;
+    l'audio ne se supprime que par une action sur le site."""
     fichier = RECORDINGS_DIR / "import_test_muet.weba"
     fichier.write_bytes(b"audio")
     db = SessionLocal()
@@ -471,7 +532,10 @@ def test_la_relance_refuse_un_echec_sans_bloc_a_reprendre(client):
         reponse = _retry(client, job_id)
         assert reponse.status_code == 409
         assert "déjà été transcrit" in reponse.json()["error"]
-        assert not fichier.exists(), "plus aucune reprise possible : le fichier est libéré"
+        assert fichier.exists(), (
+            "le serveur a supprimé l'audio d'un import muet — c'est justement "
+            "celui qu'on veut pouvoir réécouter pour comprendre l'échec"
+        )
     finally:
         fichier.unlink(missing_ok=True)
 
@@ -658,16 +722,7 @@ def test_un_signal_plus_court_qu_un_bloc_donne_un_seul_bloc():
 # Écrans : l'import doit exister ET poller, sur les DEUX modes
 # --------------------------------------------------------------------------- #
 def _mission_id() -> int:
-    from app.models import Mission
-
-    db = SessionLocal()
-    try:
-        mission = Mission(name="Mission import audio")
-        db.add(mission)
-        db.commit()
-        return mission.id
-    finally:
-        db.close()
+    return _creer_mission("Mission import audio")
 
 
 @pytest.mark.parametrize("chemin", ["record-libre", "record"])

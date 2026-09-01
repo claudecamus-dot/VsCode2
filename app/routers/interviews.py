@@ -46,7 +46,6 @@ from ..services import audio_transcribe, mission_backups
 from ..services.audio_file_jobs import (
     is_audio_file_job_stale,
     purge_stale_audio_file_jobs,
-    release_audio_file,
     run_audio_file_job,
     tranches_extraction,
 )
@@ -1548,6 +1547,7 @@ async def transcribe_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     session_token: str = Form(""),
+    mission_id: int = Form(0),
     db: Session = Depends(get_session),
 ):
     """Importe un fichier audio déjà enregistré et lance sa transcription
@@ -1559,11 +1559,53 @@ async def transcribe_file(
     avant la fin). Le client récupère les blocs au fil de l'eau
     (`transcribe_file_status`) et soumet, bloc par bloc, les mêmes jobs
     d'extraction que pendant un enregistrement micro : à partir du texte, un
-    fichier importé se comporte exactement comme un direct."""
+    fichier importé se comporte exactement comme un direct.
+
+    `mission_id` sert au NOM du fichier, et c'est structurel (2026-09-01) : le
+    fichier importé est de l'audio d'entretien au même titre qu'un
+    enregistrement, il doit donc porter la même convention
+    `{mission}_...` — c'est elle, et elle seule, qui le rend visible dans
+    l'onglet Backup de la mission (`mission_backups.lister_backups` cherche par
+    `glob("{mission.id}_*")`). Sans ce préfixe, le fichier n'était atteignable
+    par AUCUN écran : la seule façon de s'en débarrasser était la suppression
+    automatique, exactement ce que la règle « l'audio ne se supprime que par une
+    action sur le site » interdit."""
+    # TOUTES les validations AVANT d'écrire le moindre octet (revue du
+    # 2026-09-01). Tant que le serveur nettoyait derrière lui, écrire puis
+    # refuser était sans conséquence ; depuis qu'il ne supprime plus rien, la
+    # moindre requête refusée laisserait de l'audio DÉFINITIF sur le disque —
+    # répétable sans limite, et invisible si le refus porte précisément sur le
+    # `mission_id` qui conditionne la visibilité. On ne conserve donc que
+    # l'audio d'une requête acceptée.
+    if not session_token.strip():
+        # Le jeton scope la lecture du statut (le seul endpoint qui renvoie du
+        # contenu d'entretien) : sans lui, n'importe quel `job_id` — ils sont
+        # séquentiels — rendrait la transcription d'autrui.
+        return JSONResponse(
+            {"error": "Session d'enregistrement absente."}, status_code=400
+        )
+    if mission_id <= 0:
+        # Refus FRANC plutôt que repli silencieux : un `mission_id` absent ou
+        # nul produisait un fichier sans préfixe, que l'onglet Backup ne montre
+        # à personne — donc que plus aucune action du site ne peut supprimer.
+        # Le cas réel visé est un onglet resté ouvert avec le JS d'avant ce
+        # déploiement : mieux vaut une erreur lisible qu'un fichier fantôme.
+        return JSONResponse(
+            {"error": "Mission absente : recharge la page avant d'importer."},
+            status_code=400,
+        )
+    if db.get(Mission, mission_id) is None:
+        # Sinon le fichier porterait le préfixe d'une mission inexistante :
+        # visible d'aucun écran, donc indestructible.
+        return JSONResponse({"error": "Mission introuvable."}, status_code=404)
     try:
         suffix = "".join(c for c in (file.filename or "")[-16:] if c.isalnum() or c == ".")
         suffix = suffix[suffix.rfind("."):] if "." in suffix else ".audio"
-        filename = f"import_{int(time.time())}_{uuid.uuid4().hex[:8]}{suffix}"
+        # `import_` conservé APRÈS le préfixe de mission : le fichier reste
+        # reconnaissable comme un import dans la liste, et le garde-fou de
+        # `get_record_backup` (ni « / » ni « .. ») passe comme pour un
+        # enregistrement.
+        filename = f"{mission_id}_import_{int(time.time())}_{uuid.uuid4().hex[:8]}{suffix}"
         # Streaming par blocs vers le disque (même raison que save_record_backup) :
         # un entretien de 1h30-3h ne doit pas passer entièrement en RAM.
         def _ecrire():
@@ -1574,14 +1616,6 @@ async def transcribe_file(
         logger.exception("Échec de l'import du fichier audio à transcrire")
         return JSONResponse({"error": str(exc)}, status_code=500)
 
-    if not session_token.strip():
-        # Le jeton scope la lecture du statut (le seul endpoint qui renvoie du
-        # contenu d'entretien) : sans lui, n'importe quel `job_id` — ils sont
-        # séquentiels — rendrait la transcription d'autrui.
-        (RECORDINGS_DIR / filename).unlink(missing_ok=True)
-        return JSONResponse(
-            {"error": "Session d'enregistrement absente."}, status_code=400
-        )
     try:
         purge_stale_audio_file_jobs(db)
         job = AudioFileJob(
@@ -1595,10 +1629,13 @@ async def transcribe_file(
         db.commit()
         db.refresh(job)
     except Exception as exc:
-        # Fichier déjà écrit mais aucun job pour le référencer : la purge ne
-        # le retrouverait jamais (elle part des lignes en base) — on le retire
-        # tout de suite (revue adversariale 2026-07-27).
-        (RECORDINGS_DIR / filename).unlink(missing_ok=True)
+        # Fichier déjà écrit mais aucun job pour le référencer. Il n'est PLUS
+        # supprimé (2026-09-01) : la revue adversariale du 2026-07-27 le
+        # retirait parce que rien ne pouvait plus le retrouver — ce n'est plus
+        # vrai depuis qu'il porte le préfixe de mission, il apparaît en
+        # orphelin dans l'onglet Backup. Entre « un fichier à supprimer d'un
+        # clic » et « l'audio d'un entretien détruit par le serveur », la règle
+        # du projet tranche : l'audio ne se supprime que par une action du site.
         logger.exception("Création du job de transcription de fichier impossible")
         return JSONResponse({"error": str(exc)}, status_code=500)
     background_tasks.add_task(run_audio_file_job, job.id)
@@ -1646,10 +1683,12 @@ def transcribe_file_retry(
         # Tous les blocs ont déjà été transcrits : l'échec ne vient pas d'un
         # bloc manquant (fichier sans parole, typiquement). Relancer ne
         # rejouerait rien — `iter_transcribe_blocks` n'a plus aucun bloc à
-        # produire — et re-échouerait à l'identique, indéfiniment. On le dit et
-        # on libère le fichier, que plus rien ne justifie de garder.
-        release_audio_file(job)
-        job.filename = ""
+        # produire — et re-échouerait à l'identique, indéfiniment. On le dit.
+        # Le fichier RESTE (2026-09-01) : « plus rien ne justifie de le garder »
+        # était un jugement du serveur sur l'audio de l'utilisateur. Un fichier
+        # sans parole exploitable pour Whisper reste une réunion enregistrée,
+        # et c'est précisément le cas où l'on veut pouvoir réécouter pour
+        # comprendre ce qui a échoué. Il reste listé dans l'onglet Backup.
         db.commit()
         return JSONResponse(
             {
@@ -1715,6 +1754,15 @@ def transcribe_file_status(
         "done": len(blocks),
         "total": job.total_blocks,
         "error": error,
+        # Nom du fichier importé (2026-09-01), pour que le client le RATTACHE à
+        # l'entretien via `audio_segments`. Sans ce rattachement, l'audio
+        # importé survit désormais sur le disque mais reste un orphelin :
+        # `_tranches_audio` ne le voit pas, donc « Relancer la transcription »
+        # ne peut pas rejouer depuis lui — or c'est précisément le geste qu'on
+        # veut rendre possible quand un défaut de transcription est découvert
+        # après coup. Vide pour une retranscription (`filenames`), dont les
+        # tranches sont déjà rattachées.
+        "filename": (job.filename or "") if not job.filenames else "",
     }
     if status == "done" and since >= len(blocks):
         # Job consommé : sa colonne `blocks` porte la transcription complète
@@ -2204,8 +2252,8 @@ def _job_porte_l_audio(job: AudioFileJob, interview: Interview) -> bool:
 
 def _oublier_job_retranscription(db: Session, job: AudioFileJob) -> None:
     """Retire un job de retranscription et les tranches d'extraction qu'il a
-    créées. Le fichier audio, lui, appartient à l'entretien : jamais supprimé
-    (cf. la garde de `audio_file_jobs._remove_audio`)."""
+    créées. Le fichier audio, lui, appartient à l'entretien : jamais supprimé —
+    depuis 2026-09-01 aucun chemin automatique du dépôt n'efface d'audio."""
     delete_segment_jobs(db, job.session_token)
     db.delete(job)
     db.commit()

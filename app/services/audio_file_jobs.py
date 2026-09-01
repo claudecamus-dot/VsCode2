@@ -38,39 +38,19 @@ logger = logging.getLogger(__name__)
 BLOCS_PAR_TRANCHE_IA = 5
 
 
-def _remove_audio(job: AudioFileJob) -> None:
-    """Supprime le fichier importé du disque. L'audio d'un entretien ne doit
-    pas s'entasser une fois son texte obtenu (même exigence que
-    `purge_stale_segment_jobs` pour le texte des tranches).
-
-    Uniquement sur SUCCÈS depuis 2026-07-29 : un job `failed` garde son fichier
-    pour que l'utilisateur puisse relancer la transcription au bloc qui a
-    échoué (route `/audio/transcribe-file/retry`) au lieu de tout ré-importer. La purge
-    périodique (`purge_stale_audio_file_jobs`, 7 j) reste le filet qui finit
-    par l'enlever si la relance n'a jamais lieu."""
-    if job.filenames:
-        # RETRANSCRIPTION d'un entretien enregistré : ces tranches sont les
-        # sauvegardes audio de l'utilisateur (`Interview.audio_segments`,
-        # servies par l'onglet Backup de la mission), pas un fichier importé
-        # temporaire. Les supprimer à la fin du job détruirait l'enregistrement
-        # de l'entretien — et pas seulement la copie de travail.
-        return
-    if not job.filename:
-        return
-    try:
-        (RECORDINGS_DIR / job.filename).unlink(missing_ok=True)
-    except OSError:
-        logger.warning("Fichier audio importé non supprimé : %s", job.filename)
-
-
-def release_audio_file(job: AudioFileJob) -> None:
-    """Libère le fichier importé d'un job qui n'a plus de raison de le garder.
-
-    Nom public de `_remove_audio` pour les appelants hors de ce module : depuis
-    2026-07-29 le fichier survit à un échec pour rendre la reprise possible, et
-    la route de relance doit pouvoir le libérer quand elle constate qu'aucune
-    reprise n'est possible (tous les blocs déjà transcrits)."""
-    _remove_audio(job)
+# AUCUNE suppression d'audio dans ce module — et c'est un invariant, pas un
+# état de fait (2026-09-01). `_remove_audio` / `release_audio_file` vivaient
+# ici et effaçaient le fichier importé au succès du job, dans la purge à 7 j et
+# sur un refus de reprise. Les trois étaient AUTOMATIQUES, donc contraires à la
+# règle du projet : **l'audio d'un entretien ne se supprime que par une action
+# de l'utilisateur sur le site** (onglet Backup de la mission, route
+# `delete_record_backup`, seule suppression d'audio du dépôt).
+#
+# Elles ne sont pas gardées « au cas où » : un helper de suppression qui
+# traîne finit par être rappelé. Ce que la purge continue de faire, elle, c'est
+# effacer les LIGNES de base (blocs de transcription, tranches d'extraction),
+# qui portent du texte d'entretien et n'ont pas de raison de s'éterniser.
+# `tests/test_audio_jamais_supprime.py` fige l'invariant.
 
 
 def _fichiers_a_traiter(job: AudioFileJob) -> list[str]:
@@ -287,14 +267,17 @@ def run_audio_file_job(job_id: int) -> None:
         except Exception:
             pass
     finally:
-        try:
-            job = db.get(AudioFileJob, job_id)
-            # Sur ÉCHEC on garde le fichier : c'est lui qui rend la relance au
-            # bloc échoué possible (cf. `_remove_audio`).
-            if job is not None and job.status == "done":
-                _remove_audio(job)
-        except Exception:
-            pass
+        # Le fichier importé n'est PLUS supprimé au succès (2026-09-01, règle
+        # « l'audio ne se supprime que par une action sur le site »). C'était la
+        # dernière suppression automatique du chemin nominal, et la plus chère :
+        # une fois la transcription réussie, la source de l'entretien
+        # disparaissait — donc AUCUN rejeu possible si l'on découvrait ensuite
+        # un défaut dans la transcription ou dans l'extraction, alors que c'est
+        # exactement le moment où l'on en a besoin. L'entretien enregistré au
+        # micro, lui, gardait son audio (`Interview.audio_backup_path`, décrit
+        # comme un « filet de sécurité en cas de souci de
+        # transcription/extraction ») : l'import était le chemin frère privé du
+        # même filet.
         db.close()
 
 
@@ -341,7 +324,12 @@ def purge_stale_audio_file_jobs(db: Session, max_age_days: int = 7) -> None:
         db.scalars(select(AudioFileJob).where(AudioFileJob.created_at < cutoff))
     )
     for job in perimes:
-        _remove_audio(job)
+        # Le FICHIER n'est plus supprimé ici (2026-09-01) : la purge efface les
+        # lignes de base — qui portent du texte d'entretien, donc une vraie
+        # raison de ne pas s'éterniser — mais pas l'audio, qui appartient à
+        # l'utilisateur. Conséquence assumée et voulue : l'audio d'un import
+        # abandonné reste sur le disque jusqu'à ce qu'on le supprime depuis
+        # l'onglet Backup de la mission, où il apparaît en orphelin.
         # Les tranches d'extraction d'une retranscription (`_extraire_tours`)
         # sont rattachées au job par le seul `session_token` — aucune FK ne les
         # emporte. Sans cette ligne, la purge effaçait le job mais laissait en

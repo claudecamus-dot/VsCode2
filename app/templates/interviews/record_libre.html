@@ -950,7 +950,21 @@
         // relecture de l'étape suivante), simplement pas pré-extrait.
       })
       .finally(function () {
-        if (gen !== backupGeneration) return;
+        // EC-1 (revue du 2026-08-31, corrigé le 2026-09-01). Le `if (gen !==
+        // backupGeneration) return;` était ICI, donc AVANT le décrément : un
+        // POST encore en vol au moment d'un « Recommencer » sortait sans jamais
+        // rendre son incrément. `pendingSegmentJobSubmits` restait à 1 pour la
+        // VIE de la page — « Enregistrer l'entretien » grisé définitivement, et
+        // `submitSegmentJob` (qui sort sur `pendingSegmentJobSubmits > 0`) ne
+        // soumettait plus un seul job de la session suivante : tout le texte de
+        // l'entretien d'après partait au traitement synchrone de l'arrêt.
+        //
+        // Le compteur est un état de PAGE, pas de session : ce qui l'a
+        // incrémenté doit le décrémenter, quelle que soit la génération. C'est
+        // déjà la forme de `submitSegmentJob`, dont le `.finally` décrémente
+        // sans condition — le plancher restant la ceinture. Aucune des deux
+        // lignes du bloc ne dépend de la génération : le décompte est comptable,
+        // et `updateSubmitState` ne lit que des compteurs de page.
         pendingSegmentJobSubmits = Math.max(0, pendingSegmentJobSubmits - 1);
         updateSubmitState();
       });
@@ -1204,11 +1218,50 @@
         audioSegmentListEl.insertBefore(row, audioSegmentListEl.children[i] || null);
       }
     });
-    audioPlaybackEl.hidden = backupSegments.length === 0;
+    // Tranches non transmises, rendues depuis leur copie locale (EC-3). Ajoutées
+    // APRÈS les tranches servies, jamais intercalées : la boucle ci-dessus
+    // positionne les siennes par index, et s'insérer au milieu la ferait
+    // permuter des lignes à chaque rotation.
+    backupPerdusLocaux.forEach(function (perdue) {
+      if (!perdue.row) {
+        var row = document.createElement('div');
+        row.className = 'audio-segment';
+        var label = document.createElement('span');
+        label.className = 'muted';
+        label.textContent = 'Tranche ' + (perdue.position + 1) + ' — non transmise';
+        var audio = document.createElement('audio');
+        audio.controls = true;
+        audio.className = 'record-audio-player';
+        audio.src = perdue.url;
+        var link = document.createElement('a');
+        link.className = 'btn-link';
+        link.href = perdue.url;
+        // Nom explicite : ce fichier va vivre sur le disque de l'utilisateur,
+        // hors de toute mission — « entretien.webm » n'y serait pas retrouvable.
+        link.setAttribute('download', 'entretien-{{ mission.id }}-tranche-' + (perdue.position + 1) + '.webm');
+        link.textContent = 'Télécharger cette tranche';
+        row.appendChild(label);
+        row.appendChild(audio);
+        row.appendChild(link);
+        perdue.row = row;
+      }
+      if (perdue.row.parentNode !== audioSegmentListEl) {
+        audioSegmentListEl.appendChild(perdue.row);
+      }
+    });
+    audioPlaybackEl.hidden = backupSegments.length === 0 && backupPerdusLocaux.length === 0;
   }
 
   function clearBackupList() {
     backupRowByFile = {};
+    // Copies locales des tranches non transmises (EC-3) : révoquées ICI et
+    // seulement ici. `clearBackupList` n'est appelée que sur les remises à zéro
+    // de session, où l'utilisateur a explicitement jeté l'enregistrement — les
+    // garder retiendrait un blob de 20 min par tranche pour la vie de la page.
+    backupPerdusLocaux.forEach(function (perdue) {
+      try { URL.revokeObjectURL(perdue.url); } catch (e) { /* déjà révoquée */ }
+    });
+    backupPerdusLocaux = [];
     audioSegmentListEl.innerHTML = '';
     audioPlaybackEl.hidden = true;
   }
@@ -1221,6 +1274,30 @@
   // 2026-08-31).
   var backupPerdus = [];
 
+  // EC-3 (revue du 2026-08-31, corrigé le 2026-09-01) — la COPIE LOCALE d'une
+  // tranche non transmise. `backupPerdus` ne retenait que le NUMÉRO : le blob,
+  // seule copie de ces 20 minutes, était lâché au ramasse-miettes en même temps
+  // qu'on affichait « PERDUE ». `uploadSegment` ne fait pas ça — il garde le
+  // blob d'un segment perdu et laisse une relance manuelle. Ici le serveur ne
+  // répond plus (la branche de délai maximal = connexion morte), donc la seule
+  // issue possible est de rendre le fichier à l'utilisateur : il l'écoute et le
+  // télécharge depuis la liste, puis le ré-importe par « Importer un fichier
+  // audio » — chemin qui, depuis cette même date, ne supprime plus jamais
+  // d'audio. Une tranche est « perdue » pour le serveur, pas pour l'entretien.
+  var backupPerdusLocaux = [];  // [{position, url, row}]
+
+  function garderTrancheEnLocal(position, blob) {
+    for (var i = 0; i < backupPerdusLocaux.length; i++) {
+      if (backupPerdusLocaux[i].position === position) return true;  // relance : déjà gardée
+    }
+    try {
+      backupPerdusLocaux.push({ position: position, url: URL.createObjectURL(blob), row: null });
+      return true;
+    } catch (e) {
+      return false;  // pas de createObjectURL : on retombe sur le message de perte sèche
+    }
+  }
+
   // Message UNIQUE de la sauvegarde audio : succès et pertes composés ensemble,
   // pour qu'aucune rotation ultérieure ne puisse effacer un avertissement.
   function refreshBackupStatus() {
@@ -1230,11 +1307,21 @@
       : '';
     if (backupPerdus.length) {
       var m = backupPerdus.length;
+      // Le message distingue « non transmise » de « perdue » (EC-3) : tant
+      // qu'une copie locale existe, l'audio est récupérable depuis la liste
+      // ci-dessous, et annoncer une perte enverrait l'utilisateur renoncer à un
+      // fichier qu'il a sous les yeux. On ne parle de perte que si la copie
+      // locale a elle aussi échoué.
+      var recuperables = backupPerdusLocaux.length === backupPerdus.length;
       txt += (txt ? ' ' : '')
-        + '⚠ ' + m + ' tranche' + (m > 1 ? 's' : '') + ' d’audio PERDUE'
-        + (m > 1 ? 'S' : '') + ' (n° '
-        + backupPerdus.map(function (p) { return p + 1; }).join(', ')
-        + ') — le texte transcrit, lui, reste complet.';
+        + '⚠ ' + m + ' tranche' + (m > 1 ? 's' : '') + ' d’audio '
+        + (recuperables ? 'NON TRANSMISE' : 'PERDUE') + (m > 1 ? 'S' : '')
+        + ' (n° ' + backupPerdus.map(function (p) { return p + 1; }).join(', ') + ') — '
+        + (recuperables
+            ? 'récupère-la' + (m > 1 ? 's' : '') + ' avec « Télécharger cette tranche » '
+              + 'ci-dessous, puis ré-importe avec « Importer un fichier audio ». '
+            : '')
+        + 'Le texte transcrit, lui, reste complet.';
     }
     backupStatusEl.textContent = txt;
   }
@@ -1282,7 +1369,11 @@
         return;  // pendingBackups reste tenu par la tentative initiale
       }
       if (backupPerdus.indexOf(position) < 0) backupPerdus.push(position);
+      // Le blob n'est PAS lâché : il devient une ligne écoutable et
+      // téléchargeable de la liste des tranches (EC-3).
+      garderTrancheEnLocal(position, blob);
       refreshBackupStatus();
+      refreshBackupList();
       settle();
     }
 
@@ -1435,6 +1526,31 @@
     if (vivant) maybeSubmitFinalJob();
   }
 
+  // Rattache un fichier IMPORTÉ à l'entretien, exactement comme une tranche de
+  // sauvegarde d'un enregistrement micro (2026-09-01). C'est ce rattachement,
+  // et lui seul, qui rend l'audio importé REJOUABLE : `_tranches_audio` — donc
+  // « Relancer la transcription » — part d'`audio_segments`. Il le fait aussi
+  // apparaître dans l'onglet Backup et le protège par le contrôle de
+  // références de la suppression.
+  function enregistrerAudioImporte(nom) {
+    if (!nom) return;
+    // Idempotent : le poll peut voir `done` plusieurs fois (relance après une
+    // erreur réseau sur le dernier tour), et deux entrées pour un seul fichier
+    // afficheraient « 2 tranches » pour un unique enregistrement.
+    for (var i = 0; i < backupSegments.length; i++) {
+      if (backupSegments[i].filename === nom) return;
+    }
+    var position = backupSegments.length
+      ? backupSegments[backupSegments.length - 1].position + 1
+      : 0;
+    backupSegments.push({ filename: nom, position: position });
+    backupSegments.sort(function (a, b) { return a.position - b.position; });
+    audioSegmentsHidden.value = JSON.stringify(backupSegments);
+    backupPathHidden.value = backupSegments[backupSegments.length - 1].filename;
+    refreshBackupStatus();
+    refreshBackupList();
+  }
+
   function pollFileImport(jobId, gen, consumed, failures) {
     fileImportTimer = setTimeout(function () {
       fileImportTimer = null;
@@ -1474,6 +1590,14 @@
             return;
           }
           if (data.status === 'done') {
+            // Rattache le fichier importé à l'entretien (2026-09-01), au même
+            // titre qu'une tranche de sauvegarde d'un enregistrement micro :
+            // il devient visible dans l'onglet Backup, REJOUABLE par
+            // « Relancer la transcription » (`_tranches_audio` part
+            // d'`audio_segments`), et protégé par le contrôle de références de
+            // la suppression. Sans ça il survivait en orphelin, donc
+            // inexploitable là où on en a justement besoin.
+            enregistrerAudioImporte(data.filename);
             finishFileImport(null, gen);
             // APRÈS finishFileImport : updateSubmitState y écrit son libellé
             // générique, qui écraserait sinon ce message.
@@ -1531,6 +1655,12 @@
     var formData = new FormData();
     formData.append('file', file);
     formData.append('session_token', sessionToken);
+    // Le fichier importé est de l'audio d'entretien : il doit porter la même
+    // convention de nom qu'un enregistrement (`{mission}_...`), sans quoi
+    // l'onglet Backup de la mission ne le voit pas et l'utilisateur n'a aucun
+    // moyen de le supprimer — or c'est la SEULE suppression d'audio autorisée
+    // depuis le 2026-09-01.
+    formData.append('mission_id', '{{ mission.id }}');
     recFetch('/audio/transcribe-file', { method: 'POST', body: formData }, UPLOAD_TIMEOUT_MS)
       .then(function (res) {
         return res.json().then(function (data) { return { ok: res.ok, data: data }; });

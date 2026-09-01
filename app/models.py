@@ -815,11 +815,13 @@ class AudioFileJob(Base):
     # importé unique. Vide pour un import classique — `filename` reste alors la
     # seule source, chemin inchangé.
     #
-    # DIFFÉRENCE CAPITALE avec `filename` : ces fichiers appartiennent à
-    # l'entretien (ils sont servis par l'onglet Backup de la mission) et NE
-    # DOIVENT JAMAIS être supprimés à la fin du job — cf. la garde de
-    # `audio_file_jobs._remove_audio`, sans laquelle une retranscription
-    # détruirait les enregistrements de l'utilisateur.
+    # Ces fichiers appartiennent à l'entretien (ils sont servis par l'onglet
+    # Backup de la mission) et ne doivent jamais être supprimés à la fin du
+    # job. Depuis 2026-09-01 la garantie ne tient plus à une garde mais à
+    # l'absence totale de suppression automatique : `audio_file_jobs` n'efface
+    # plus AUCUN audio, et `filename` (l'import) est protégé exactement comme
+    # ces tranches. Seule une action de l'utilisateur sur le site supprime de
+    # l'audio (`delete_record_backup`).
     filenames: Mapped[list] = mapped_column(JSON, default=list)
     interview_id: Mapped[int | None] = mapped_column(
         ForeignKey("interviews.id", ondelete="CASCADE"), default=None, index=True

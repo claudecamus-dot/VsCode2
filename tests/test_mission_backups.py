@@ -20,6 +20,7 @@ import os
 from datetime import datetime
 
 import pytest
+from conftest import vider_recordings_de_test
 from fastapi.testclient import TestClient
 
 from app.db import DB_PATH, RECORDINGS_DIR, SessionLocal, engine, init_db
@@ -39,6 +40,13 @@ def setup_module() -> None:
     if DB_PATH.exists():
         DB_PATH.unlink()
     init_db()
+    # Et le répertoire d'enregistrements avec (2026-09-01) : ce module est le
+    # seul à affirmer un inventaire EXACT de `RECORDINGS_DIR`, or depuis que
+    # l'audio ne se supprime plus tout seul, les imports des modules précédents
+    # y restent — nommés `1_import_…`, donc attribués à la mission n° 1 que
+    # `init_db()` sur base neuve recrée ici. Sans ce nettoyage, l'échec dépend
+    # de l'ordre de collecte et disparaît quand on isole le fichier.
+    vider_recordings_de_test()
 
 
 def teardown_module() -> None:

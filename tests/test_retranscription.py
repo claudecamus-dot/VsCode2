@@ -67,6 +67,22 @@ def client() -> TestClient:
 # --------------------------------------------------------------------------- #
 # Fixtures : un entretien libre enregistré avec 2 tranches audio sur disque
 # --------------------------------------------------------------------------- #
+def _mission_id(nom: str = "Mission import") -> int:
+    """Mission réelle pour les POST d'import. Depuis le 2026-09-01 la route
+    refuse un `mission_id` absent (400) ou inconnu (404), et le fichier en porte
+    le préfixe — jamais coder l'identifiant en dur : la base de test est
+    recréée entre modules, donc SQLite réattribue les mêmes numéros à d'autres
+    missions."""
+    db = SessionLocal()
+    try:
+        mission = Mission(name=nom)
+        db.add(mission)
+        db.commit()
+        return mission.id
+    finally:
+        db.close()
+
+
 def _entretien_avec_tranches(nb_tranches: int = 2, avec_tours: bool = True) -> dict:
     db = SessionLocal()
     try:
@@ -224,10 +240,13 @@ def test_relance_transcrit_toutes_les_tranches_dans_l_ordre(client, monkeypatch)
 
 
 def test_l_audio_de_l_entretien_n_est_JAMAIS_supprime(client, monkeypatch):
-    """R1 — garde critique : `_remove_audio` supprime le fichier d'un import
-    abouti. Appliquée à une retranscription, elle détruirait les
-    enregistrements de l'utilisateur (`audio_segments`, servis par l'onglet
-    Backup) — pas une copie de travail."""
+    """R1 — une retranscription ne doit pas détruire les enregistrements de
+    l'utilisateur (`audio_segments`, servis par l'onglet Backup).
+
+    Tenu à l'origine par une garde dans `_remove_audio` ; depuis 2026-09-01 la
+    garantie est structurelle — plus aucune suppression automatique d'audio
+    n'existe dans le dépôt (cf. `tests/test_audio_jamais_supprime.py`). Ce test
+    reste le contrôle de bout en bout, par la route réelle."""
     ctx = _entretien_avec_tranches(nb_tranches=2)
     monkeypatch.setattr(
         audio_transcribe, "iter_transcribe_blocks", _fake_blocks("Bloc.")
@@ -238,32 +257,6 @@ def test_l_audio_de_l_entretien_n_est_JAMAIS_supprime(client, monkeypatch):
 
     for nom in ctx["fichiers"]:
         assert (RECORDINGS_DIR / nom).is_file(), f"tranche supprimée : {nom}"
-
-
-def test_remove_audio_refuse_de_toucher_les_tranches_d_un_entretien():
-    """R1, à la source : `_remove_audio` appelé sur un job de retranscription ne
-    doit RIEN supprimer, même si `filename` porte une tranche.
-
-    Testé directement sur la fonction, et pas seulement à travers la route :
-    dans le flux nominal `filename` est vide, donc le premier `return` de
-    `_remove_audio` masque l'absence de garde — un futur appelant qui
-    renseignerait `filename` (le champ existe et reste le chemin de l'import)
-    effacerait alors l'enregistrement de l'utilisateur sans que rien n'alerte."""
-    ctx = _entretien_avec_tranches(nb_tranches=1)
-    tranche = ctx["fichiers"][0]
-    job = AudioFileJob(
-        session_token="sess-garde",
-        filename=tranche,           # pire cas : le job pointe la tranche
-        filenames=[tranche],        # ... mais c'est bien une retranscription
-        interview_id=ctx["interview_id"],
-        status="done",
-    )
-
-    audio_file_jobs._remove_audio(job)
-
-    assert (RECORDINGS_DIR / tranche).is_file(), (
-        "la tranche audio de l'entretien a été supprimée"
-    )
 
 
 def test_chaque_tranche_est_extraite_en_tours_de_parole(client, monkeypatch):
@@ -518,25 +511,44 @@ def test_ecran_de_suivi_redirige_sans_job(client):
     assert reponse.headers["location"].endswith(f"/interviews/{ctx['interview_id']}")
 
 
-def test_import_de_fichier_supprime_toujours_son_fichier(client, monkeypatch):
-    """Non-régression du chemin d'import (un seul `filename`, pas de
-    `filenames`) : lui, doit continuer à libérer son fichier temporaire."""
+def test_import_de_fichier_CONSERVE_son_fichier_apres_succes(client, monkeypatch):
+    """Contrat INVERSÉ le 2026-09-01, délibérément : le chemin d'import (un seul
+    `filename`, pas de `filenames`) supprimait son fichier une fois la
+    transcription réussie. C'était la suppression automatique la plus chère du
+    dépôt — la SOURCE de l'entretien disparaissait au moment précis où elle
+    devient utile, c'est-à-dire quand on découvre après coup un défaut de
+    transcription ou d'extraction et qu'on veut REJOUER.
+
+    L'entretien enregistré au micro gardait le sien (`audio_backup_path`, décrit
+    comme un « filet de sécurité en cas de souci de transcription/extraction ») :
+    l'import était le chemin frère privé du même filet. Il ne l'est plus, et
+    l'audio ne se supprime désormais que par une action de l'utilisateur sur le
+    site."""
     import io
 
     monkeypatch.setattr(
         audio_transcribe, "iter_transcribe_blocks", _fake_blocks("Bloc unique.")
     )
+    mission_id = _mission_id("Mission import retranscription")
     reponse = client.post(
         "/audio/transcribe-file",
         files={"file": ("entretien.weba", io.BytesIO(b"audio"), "audio/webm")},
-        data={"session_token": "sess-import-retranscription"},
+        data={"session_token": "sess-import-retranscription", "mission_id": str(mission_id)},
     )
-    assert reponse.status_code == 200
+    assert reponse.status_code == 200, reponse.text
     db = SessionLocal()
     try:
         job = db.get(AudioFileJob, reponse.json()["job_id"])
         assert job.status == "done"
-        assert not (RECORDINGS_DIR / job.filename).exists()
+        assert (RECORDINGS_DIR / job.filename).exists(), (
+            "l'audio importé a été supprimé après une transcription réussie — "
+            "plus aucun rejeu n'est possible en cas de bug découvert ensuite"
+        )
+        assert job.filename.startswith(f"{mission_id}_"), (
+            "le fichier importé ne porte pas le préfixe de mission : il "
+            "n'apparaîtra pas dans l'onglet Backup, donc l'utilisateur ne "
+            "pourra jamais le supprimer"
+        )
     finally:
         db.close()
 
@@ -629,8 +641,12 @@ def test_import_mono_fichier_echoue_toujours_en_bloc(client, monkeypatch):
     reponse = client.post(
         "/audio/transcribe-file",
         files={"file": ("e.weba", io.BytesIO(b"audio"), "audio/webm")},
-        data={"session_token": "sess-import-echec-bloc"},
+        data={
+            "session_token": "sess-import-echec-bloc",
+            "mission_id": str(_mission_id("Mission import échec bloc")),
+        },
     )
+    assert reponse.status_code == 200, reponse.text
     db = SessionLocal()
     try:
         job = db.get(AudioFileJob, reponse.json()["job_id"])

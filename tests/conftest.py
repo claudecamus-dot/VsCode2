@@ -18,6 +18,49 @@ os.environ.setdefault("APP_DB_PATH", _TEST_DB)
 os.environ.setdefault("PPTX_NO_PHOTO_FETCH", "1")
 
 
+def vider_recordings_de_test() -> None:
+    """Vide le répertoire d'enregistrements DE TEST.
+
+    Rien ne l'a jamais nettoyé : les fichiers s'accumulaient d'un run à l'autre
+    (178 constatés le 2026-09-01). C'était latent tant que le code supprimait
+    lui-même les imports aboutis ; depuis que l'audio ne se supprime plus que
+    par une action de l'utilisateur — la règle du produit — chaque run en
+    laisse, et `test_mission_backups` (qui affirme un inventaire EXACT de
+    `RECORDINGS_DIR`) échoue sur les résidus. Un échec de ce genre est le pire
+    à diagnostiquer : il ne se reproduit pas en isolant le test, et il accuse
+    un code qui n'a rien fait.
+
+    Appelée au démarrage de la session (résidus du run PRÉCÉDENT) ET par le
+    `setup_module` de `test_mission_backups` : les imports de la MEME session
+    s'accumulent aussi — ils portent désormais le préfixe `1_import_…`, donc la
+    mission n° 1 de ce module-là se les voit attribuer comme orphelins.
+
+    Garde-fou : on ne touche qu'un répertoire situé sous le temporaire système
+    et dérivé d'`APP_DB_PATH`. Jamais `data/recordings`, qui porte les
+    enregistrements réels de l'utilisateur (une confusion de ce type a déjà
+    coûté des données sur ce projet)."""
+    from pathlib import Path
+
+    recordings = Path(os.environ["APP_DB_PATH"]).parent / "recordings"
+    temp = Path(tempfile.gettempdir()).resolve()
+    try:
+        if temp not in recordings.resolve().parents:
+            return  # pas sous le temporaire système : on ne touche à rien
+    except OSError:
+        return
+    for chemin in recordings.glob("*"):
+        if chemin.is_file():
+            try:
+                chemin.unlink()
+            except OSError:
+                pass  # verrou Windows : le run suivant le reprendra
+
+
+def pytest_sessionstart(session):  # noqa: ARG001
+    """Nettoyage au démarrage de la session."""
+    vider_recordings_de_test()
+
+
 # --------------------------------------------------------------------------- #
 # Windows : neutraliser le crash de nettoyage tmp de fin de session de pytest.
 # Le housekeeping de `pytest_sessionfinish` supprime la jonction `pytest-current`
