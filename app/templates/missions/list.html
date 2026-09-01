@@ -10,6 +10,12 @@
       <button class="btn btn-sm" type="submit">Nettoyer {{ nb_brouillons_vides }} brouillon{{ nb_brouillons_vides|pluriel }} vide{{ nb_brouillons_vides|pluriel }}</button>
     </form>
     {% endif %}
+    {# Seul point d'entrée vers l'inventaire global (constat C1) : ces fichiers
+       n'apparaissent dans l'onglet Backup d'aucune mission, donc sans ce lien
+       personne ne saurait qu'ils existent — ni ne pourrait les supprimer. #}
+    {% if nb_audio_orphelin %}
+    <a class="btn btn-sm" href="/missions/audio-orphelin">{{ nb_audio_orphelin }} audio sans mission ({{ mo_audio_orphelin }} Mo)</a>
+    {% endif %}
     <a class="btn btn-primary" href="/missions/new">+ Nouvelle mission</a>
   </div>
 </div>

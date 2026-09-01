@@ -1784,10 +1784,30 @@ def transcribe_file_status(
 
 
 @router.post("/missions/{mission_id}/interviews/record/backup")
-async def save_record_backup(mission_id: int, file: UploadFile = File(...)):
+async def save_record_backup(
+    mission_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_session),
+):
     """Sauvegarde l'audio brut complet d'un entretien enregistré (filet de
     sécurité, cf. commentaire sur `Interview.audio_backup_path`) — écrit sur
-    disque, hors base de données, en tâche de fond côté client."""
+    disque, hors base de données, en tâche de fond côté client.
+
+    Sert AUSSI de « rattacher un fichier sans le transcrire » (2026-09-01) :
+    c'est exactement le même geste — écrire de l'audio d'entretien sous la
+    convention `{mission}_…` et rendre son nom au client, qui le référence.
+    C'est l'issue qui manquait à trois constats de la revue : sans elle,
+    l'unique façon de rattacher un fichier était de le faire transcrire, donc
+    de dupliquer une transcription déjà complète (EC3-1) ou d'écraser la
+    référence de l'enregistrement micro (IMPORT-1).
+
+    Le mission_id est désormais VÉRIFIÉ, même raison que dans `transcribe_file`
+    (2026-09-01) : un préfixe de mission inexistante produit un fichier
+    qu'aucun onglet Backup ne montre — et depuis que rien ne s'efface tout
+    seul, il ne resterait joignable que par l'inventaire global, sans aucune
+    raison de l'y envoyer."""
+    if db.get(Mission, mission_id) is None:
+        return JSONResponse({"error": "Mission introuvable."}, status_code=404)
     try:
         # Suffixe aléatoire en plus de l'horodatage : deux tranches uploadées
         # dans la MÊME seconde (fin d'enregistrement + rotation, ou deux fetch
@@ -1795,7 +1815,16 @@ async def save_record_backup(mission_id: int, file: UploadFile = File(...)):
         # plusieurs entrées `audio_segments` pointant sur un seul fichier
         # (« une seule tranche »). Le hex ne contient ni « / » ni « .. » : passe
         # le garde-fou de `get_record_backup`.
-        filename = f"{mission_id}_{int(time.time())}_{uuid.uuid4().hex[:8]}.webm"
+        # Extension tirée du fichier reçu (2026-09-01) : le magnétophone envoie
+        # toujours `entretien.webm`, mais un fichier RATTACHÉ peut être un
+        # `.m4a` Meet ou un `.mp3`. Forcer `.webm` sur ces octets-là produisait
+        # un fichier dont l'extension ment sur le contenu — et `get_record_backup`
+        # le servait en `audio/webm`, donc illisible dans le lecteur. Même
+        # filtre que `transcribe_file` : ni « / » ni « .. » ne survivent, le
+        # garde-fou de `get_record_backup` passe comme avant.
+        suffix = "".join(c for c in (file.filename or "")[-16:] if c.isalnum() or c == ".")
+        suffix = suffix[suffix.rfind("."):] if "." in suffix else ".webm"
+        filename = f"{mission_id}_{int(time.time())}_{uuid.uuid4().hex[:8]}{suffix}"
         # Streaming par blocs vers le disque (finding perf audit 2026-07-24) : un
         # enregistrement complet de 1h30-3h passait entièrement en RAM via
         # file.read(). copyfileobj lit/écrit en chunks ; dans un thread pour ne
@@ -1825,14 +1854,18 @@ def get_record_backup(mission_id: int, filename: str, db: Session = Depends(get_
     if "/" in filename or "\\" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail="Nom de fichier invalide.")
     mission = _get_mission(db, mission_id)
-    if not mission_backups.appartient_a_mission(filename, mission_id, mission):
+    if not mission_backups.appartient_a_mission(
+        filename, mission_id, mission, RECORDINGS_DIR
+    ):
         raise HTTPException(
             status_code=404, detail="Enregistrement introuvable pour cette mission."
         )
     path = RECORDINGS_DIR / filename
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Enregistrement introuvable.")
-    return FileResponse(path, media_type="audio/webm", filename=filename)
+    return FileResponse(
+        path, media_type=mission_backups.media_type_audio(filename), filename=filename
+    )
 
 
 @router.post("/missions/{mission_id}/interviews/record/backup/{filename}/delete")
@@ -1853,7 +1886,9 @@ def delete_record_backup(
     if "/" in filename or "\\" in filename or ".." in filename:
         raise HTTPException(status_code=400, detail="Nom de fichier invalide.")
     mission = _get_mission(db, mission_id)
-    if not mission_backups.appartient_a_mission(filename, mission_id, mission):
+    if not mission_backups.appartient_a_mission(
+        filename, mission_id, mission, RECORDINGS_DIR
+    ):
         raise HTTPException(
             status_code=404, detail="Enregistrement introuvable pour cette mission."
         )

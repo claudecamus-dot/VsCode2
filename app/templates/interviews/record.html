@@ -100,11 +100,28 @@
          être mise en place le jour de l'entretien. -->
     <input type="file" id="rec-file-upload" accept="audio/*,video/*,.mp4,.m4a,.weba,.webm">
     <button class="btn" type="button" id="rec-file-upload-btn">Transcrire ce fichier</button>
+    <!-- Rattacher SANS transcrire (2026-09-01, constats IMPORT-1 et EC3-1).
+         Il n'existait qu'une façon de confier un fichier à la mission : le
+         faire transcrire. Deux conséquences, toutes deux constatées en revue —
+         un fichier importé après un enregistrement écrasait la référence de
+         celui-ci, et récupérer une sauvegarde audio non transmise (le message
+         d'échec invite à ré-importer) recollait une transcription déjà
+         complète. Ce bouton sépare les deux gestes : ici on range l'audio,
+         on ne relit pas le texte. -->
+    <button class="btn" type="button" id="rec-file-attach-btn">Rattacher sans transcrire</button>
   </div>
   <div class="autosave-line"><span class="muted" id="rec-backup-status"></span></div>
   <div class="autosave-line" id="rec-audio-playback" hidden>
     <audio controls id="rec-audio-player" class="record-audio-player"></audio>
     <a class="btn-link" id="rec-audio-download" download>Télécharger l'enregistrement</a>
+    <!-- Acquittement de la copie locale (EC3-2, 2026-09-01). Quand la
+         sauvegarde n'a pas pu être transmise, le blob n'existe QUE dans cet
+         onglet : « Enregistrer l'entretien » navigue, donc il gate le bouton,
+         comme le fait déjà un segment de transcription perdu. Sans ce bouton
+         d'acquittement, le gate serait un cul-de-sac — exactement le défaut
+         qu'on corrige. On demande donc un geste explicite, pas un
+         renoncement silencieux. -->
+    <button class="btn btn-sm" type="button" id="rec-backup-local-ack" hidden>J'ai récupéré le fichier — continuer</button>
   </div>
 
   <!-- Segments de transcription non aboutis : l'audio correspondant est gardé
@@ -452,7 +469,17 @@
     // manquait ici, alors que le mécanisme de segments perdus est le même
     // (parité libre/structuré). Un 422 conservé pour rejeu ne bloque pas.
     var lost = lostSegments.some(function (s) { return s.blocking; }) || lostRetryBlocking > 0;
-    submitBtn.disabled = recordingActive || busy || lost || !hasTranscript;
+    // EC3-2 (revue du 2026-09-01) — la copie LOCALE d'une sauvegarde audio non
+    // transmise gate exactement comme un segment bloquant, et pour la même
+    // raison, écrite quatre lignes plus haut : « Enregistrer » navigue (303),
+    // donc ce blob — la seule copie de l'entretien entier — disparaîtrait avec
+    // la page. Le trou venait de `pendingBackups`, qui retombe à 0 quand
+    // `retryOrGiveUp` abandonne : à cet instant plus aucun compteur ne
+    // retenait le bouton, alors même que le message venait de dire à
+    // l'utilisateur de télécharger le fichier. La leçon des segments perdus
+    // n'avait pas été appliquée à ce chemin frère, ajouté le jour même.
+    var backupLocalEnAttente = !!urlBackupLocal && !backupLocalAcquitte;
+    submitBtn.disabled = recordingActive || busy || lost || backupLocalEnAttente || !hasTranscript;
     // Export PDF de la transcription disponible dès l'arrêt de l'enregistrement
     // (n'utilise que le texte, pas l'extraction IA) — sans attendre la
     // sauvegarde audio en cours.
@@ -952,8 +979,13 @@
   // (et sa chaîne de reprise), le blob n'existe que dans la closure de
   // l'onglet — fermer pendant cette fenêtre détruit la seule copie.
   window.addEventListener('beforeunload', function (e) {
+    // `urlBackupLocal` non acquittee (EC3-2) : apres l'abandon de l'envoi,
+    // `pendingBackups` est retombe a 0 et plus rien n'armait cette
+    // confirmation — fermer l'onglet detruisait en silence la seule copie de
+    // l'entretien, celle que le message venait de dire de telecharger.
     if (!lostSegments.some(function (s) { return s.blocking; }) && !lostRetryBlocking
-        && !recordingActive && !pendingBackups) return;
+        && !recordingActive && !pendingBackups
+        && !(urlBackupLocal && !backupLocalAcquitte)) return;
     e.preventDefault();
     e.returnValue = '';
   });
@@ -1093,11 +1125,50 @@
   //
   // On ne peut pas le pousser au serveur (il ne répond pas) ; on peut le rendre
   // à l'utilisateur. Le fichier reste écoutable et téléchargeable depuis la
-  // page, et il se ré-importe ensuite par « Importer un fichier audio » — le
-  // chemin qui, depuis cette même date, ne supprime plus jamais d'audio. La
-  // règle du projet vaut aussi contre le réseau : l'audio ne se perd pas plus
-  // qu'il ne se supprime tout seul.
+  // page, puis se range par « Rattacher sans transcrire » une fois le réseau
+  // revenu. La règle du projet vaut aussi contre le réseau : l'audio ne se perd
+  // pas plus qu'il ne se supprime tout seul.
+  //
+  // EC3-1 (revue du 2026-09-01) : la première version disait « ré-importe-le
+  // avec Importer un fichier audio ». C'était FAUX et coûteux — l'import
+  // transcrit, or le texte est déjà complet (le message le dit lui-même deux
+  // lignes plus bas) : suivre l'instruction recollait tout l'entretien une
+  // seconde fois en fin de transcription, et relançait l'extraction IA
+  // dessus. D'où le bouton « Rattacher sans transcrire », qui range l'audio
+  // sans toucher au texte.
   var urlBackupLocal = '';
+  var backupLocalAcquitte = false;   // l'utilisateur dit avoir récupéré le fichier (EC3-2)
+  var backupLocalAckBtn = document.getElementById('rec-backup-local-ack');
+
+  function oublierBackupLocal() {
+    // Révoque la copie locale et désarme son gate. Appelée par la sauvegarde
+    // réussie et par le rattachement réussi (dans les deux cas le serveur a le
+    // fichier), et par les deux remises à zéro de session (l'utilisateur a jeté
+    // l'enregistrement). Sans ce point unique, `urlBackupLocal` restait vivant à
+    // travers un « Recommencer » : le blob d'un entretien entier retenu en
+    // mémoire pour la vie de la page (constat C6), et « Enregistrer » grisé sur
+    // l'entretien SUIVANT.
+    if (urlBackupLocal) {
+      try { URL.revokeObjectURL(urlBackupLocal); } catch (e) { /* deja revoquee */ }
+      urlBackupLocal = '';
+      audioDownloadEl.download = '';
+    }
+    backupLocalAcquitte = false;
+    backupLocalAckBtn.hidden = true;
+  }
+
+  backupLocalAckBtn.addEventListener('click', function () {
+    // Acquittement EXPLICITE, jamais deduit : l'utilisateur affirme avoir le
+    // fichier chez lui. On ne revoque PAS l'URL — le lien de telechargement
+    // doit rester vivant, il peut vouloir le reprendre. On lui rend seulement
+    // la possibilite d'enregistrer l'entretien.
+    backupLocalAcquitte = true;
+    backupLocalAckBtn.hidden = true;
+    backupStatusEl.textContent = 'Sauvegarde audio non transmise, recuperee en local. '
+      + 'Range-la dans la mission avec « Rattacher sans transcrire » quand le '
+      + 'reseau sera revenu.';
+    updateSubmitState();
+  });
 
   function offrirBackupEnLocal(blob) {
     try {
@@ -1111,6 +1182,11 @@
       audioDownloadEl.href = urlBackupLocal;
       audioDownloadEl.download = 'entretien-{{ mission.id }}-' + Date.now() + ext;
       audioPlaybackEl.hidden = false;
+      // Nouvelle copie en attente : le gate de « Enregistrer » se ré-arme,
+      // même si une copie précédente avait été acquittée (EC3-2).
+      backupLocalAcquitte = false;
+      backupLocalAckBtn.hidden = false;
+      updateSubmitState();
       return true;
     } catch (e) {
       // Navigateur sans createObjectURL, ou blob déjà neutralisé : on ne
@@ -1164,8 +1240,10 @@
       if (offrirBackupEnLocal(blob)) {
         backupStatusEl.textContent = '⚠ Sauvegarde audio NON transmise (' + reason
           + '), mais l’enregistrement n’est pas perdu : récupère-le avec '
-          + '« Télécharger l’enregistrement » ci-dessous, puis ré-importe-le '
-          + 'avec « Importer un fichier audio ». Le texte transcrit, lui, reste complet.';
+          + '« Télécharger l’enregistrement » ci-dessous, puis rends-le à l’entretien '
+          + 'avec « Rattacher sans transcrire » — surtout pas « Transcrire ce fichier » : '
+          + 'le texte est déjà là, le retranscrire dirait l’entretien deux fois. '
+          + 'Le texte transcrit, lui, reste complet.';
       } else {
         backupStatusEl.textContent = '⚠ AUDIO PERDU : la sauvegarde n’a pas pu être '
           + 'transmise (' + reason + '). Le texte transcrit, lui, reste complet.';
@@ -1189,11 +1267,7 @@
           // Une tentative précédente a pu offrir le blob en local (EC-3) : le
           // serveur l'a maintenant, on rend la mémoire et on remet le lien dans
           // son état d'origine (nom de fichier déduit de l'URL servie).
-          if (urlBackupLocal) {
-            URL.revokeObjectURL(urlBackupLocal);
-            urlBackupLocal = '';
-            audioDownloadEl.download = '';
-          }
+          oublierBackupLocal();
           audioPlayerEl.src = backupUrl;
           audioDownloadEl.href = backupUrl;
           audioPlaybackEl.hidden = false;
@@ -1392,6 +1466,102 @@
     }, 3000);
   }
 
+  // ---- Rattacher un fichier SANS le transcrire (2026-09-01) ----
+  // L'issue qui manquait à IMPORT-1 et EC3-1. Le geste est celui de la
+  // sauvegarde audio (`/interviews/record/backup`, qui écrit sous
+  // `{mission}_…` et rend le nom) : on range l'audio, on ne touche pas au
+  // texte. C'est ce qui rend VRAIE l'instruction du message d'échec de
+  // sauvegarde — « récupère le fichier et remets-le » — sans recoller une
+  // transcription déjà complète.
+  var fileAttachBtn = document.getElementById('rec-file-attach-btn');
+  var attachInFlight = false;
+
+  fileAttachBtn.addEventListener('click', function () {
+    if (attachInFlight) {
+      statusEl.textContent = 'Un rattachement est déjà en cours — attends sa fin.';
+      return;
+    }
+    // Revue adversariale du 2026-09-01 (A2) : pendant un import, « Transcrire »
+    // est grisé mais ce bouton-ci ne l'était pas — et la fin de l'import écrit
+    // `backupPathHidden` SANS condition. Rattacher pendant un import donnait
+    // donc : rattachement de A, puis écrasement par B à la fin de l'import. A
+    // devenait orphelin et « Relancer la transcription » rejouait le mauvais
+    // fichier. C'est IMPORT-1 rouvert par le bouton censé le fermer.
+    if (!fileImportDone) {
+      statusEl.textContent = 'Un import est en cours — attends sa fin avant de '
+        + 'rattacher un fichier.';
+      return;
+    }
+    if (!fileUploadInput.files.length) {
+      statusEl.textContent = 'Choisis d\'abord un fichier audio.';
+      return;
+    }
+    if (recordingActive) {
+      statusEl.textContent = 'Arrête l\'enregistrement avant de rattacher un fichier.';
+      return;
+    }
+    if (backupPathHidden.value) {
+      // Même raison qu'à l'import : un seul champ de référence sur cet écran.
+      // Écraser silencieusement ferait perdre l'enregistrement précédent, qui
+      // est exactement ce que ce bouton existe pour éviter.
+      statusEl.textContent = 'Cet entretien a déjà un enregistrement rattaché. Supprime-le '
+        + 'depuis l\'onglet Backup de la mission, ou clique « Recommencer », avant d\'en '
+        + 'rattacher un autre.';
+      return;
+    }
+    var file = fileUploadInput.files[0];
+    var gen = recGeneration;
+    attachInFlight = true;
+    fileAttachBtn.disabled = true;
+    // `pendingBackups` et non `pendingSegments` : c'est une sauvegarde audio,
+    // pas du texte en cours de transcription. Il gate « Enregistrer
+    // l'entretien » et arme la confirmation de fermeture d'onglet, donc le
+    // fichier ne peut pas être perdu par une navigation pendant l'envoi.
+    pendingBackups++;
+    updateSubmitState();
+    statusEl.textContent = 'Rattachement de « ' + file.name + ' »…';
+    var formData = new FormData();
+    formData.append('file', file);
+    recFetch('/missions/{{ mission.id }}/interviews/record/backup',
+             { method: 'POST', body: formData }, UPLOAD_TIMEOUT_MS)
+      .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, data: d }; }); })
+      .then(function (result) {
+        if (!result.ok || !result.data || !result.data.path) {
+          throw new Error((result.data && result.data.error) || 'réponse inattendue');
+        }
+        if (gen !== recGeneration) return;  // « Recommencer » pendant l'envoi
+        backupPathHidden.value = result.data.path;
+        var url = '/missions/{{ mission.id }}/interviews/record/backup/'
+          + encodeURIComponent(result.data.path);
+        // La copie locale offerte par un échec de sauvegarde (EC-3) n'a plus
+        // lieu d'être : le serveur a le fichier. `oublierBackupLocal` est LE
+        // point unique — revue adversariale du 2026-09-01 (A7) : cette branche
+        // recopiait la révocation en ligne et oubliait de désarmer le gate,
+        // donc après « ✓ fichier rattaché » le bouton d'acquittement restait
+        // affiché, et le cliquer réécrivait un message de non-transmission qui
+        // conduisait l'utilisateur à supprimer le backup qu'on venait de ranger.
+        oublierBackupLocal();
+        audioPlayerEl.src = url;
+        audioDownloadEl.href = url;
+        audioPlaybackEl.hidden = false;
+        backupStatusEl.textContent = '✓ fichier rattaché à l\'entretien (non transcrit).';
+      })
+      .catch(function (err) {
+        if (gen !== recGeneration) return;
+        statusEl.textContent = 'Rattachement impossible (' + (err && err.message ? err.message : 'erreur')
+          + ') — le fichier n\'a pas été rangé, réessaie.';
+      })
+      .finally(function () {
+        // Hors de la garde de génération, comme le décrément d'EC-1 : ces
+        // compteurs sont un état de PAGE. Sortir avant les rendrait un
+        // « Recommencer » pendant l'envoi définitivement bloquants.
+        attachInFlight = false;
+        fileAttachBtn.disabled = false;
+        pendingBackups = Math.max(0, pendingBackups - 1);
+        updateSubmitState();
+      });
+  });
+
   fileUploadBtn.addEventListener('click', function () {
     if (!fileImportDone) {
       statusEl.textContent = 'Un import est déjà en cours — attends sa fin.';
@@ -1407,6 +1577,22 @@
     }
     if (recordingActive) {
       statusEl.textContent = 'Arrête l\'enregistrement avant d\'importer un fichier.';
+      return;
+    }
+    // IMPORT-1 (revue du 2026-09-01) — cet écran n'a QU'UN champ de référence
+    // audio (`rec-backup-path`, pas de tranches). Transcrire un fichier y
+    // écrivait le nom de l'import PAR-DESSUS celui de la sauvegarde micro : la
+    // réunion réellement enregistrée perdait sa seule référence en base,
+    // basculait en orphelin dans l'onglet Backup, et « Relancer la
+    // transcription » rejouait l'import à sa place. Aucune garde ne l'empêchait.
+    //
+    // On refuse, et on nomme l'issue plutôt que de laisser l'utilisateur
+    // devant un mur : « Rattacher sans transcrire » range le second fichier
+    // sans toucher au texte ni à la référence existante.
+    if (backupPathHidden.value) {
+      statusEl.textContent = 'Cet entretien a déjà un enregistrement audio. Transcrire un '
+        + 'fichier remplacerait sa référence : utilise « Rattacher sans transcrire » pour '
+        + 'ajouter ce fichier, ou « Recommencer » pour repartir de zéro.';
       return;
     }
     var file = fileUploadInput.files[0];
@@ -1497,6 +1683,10 @@
       transcriptEl.value = '';
       transcriptHidden.value = '';
       backupPathHidden.value = '';
+      // Même remise à zéro que « Recommencer » (C6/EC3-2) : démarrer un
+      // nouvel enregistrement abandonne la copie locale de la session
+      // précédente, sinon son gate grise « Enregistrer » sur celle-ci.
+      oublierBackupLocal();
       // Nouvelle session de jobs de répartition à chaque enregistrement.
       sessionToken = newSessionToken();
       sessionTokenHidden.value = sessionToken;
@@ -1598,6 +1788,12 @@
     segmentTailHidden.value = '';
     backupStatusEl.textContent = '';
     audioPlaybackEl.hidden = true;
+    // Copie locale d'une sauvegarde non transmise : révoquée ICI, pas
+    // seulement masquée (constat C6 — `audioPlaybackEl.hidden = true` rendait
+    // le lien inatteignable en laissant le blob de l'entretien entier vivant
+    // pour la vie de la page). Et son gate est désarmé, sinon « Enregistrer »
+    // resterait grisé sur l'entretien SUIVANT.
+    oublierBackupLocal();
     // L'audio des segments non aboutis n'a plus de place où revenir
     // (transcription remise à zéro) : on l'abandonne avec elle.
     lostSegments = [];

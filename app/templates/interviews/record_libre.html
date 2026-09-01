@@ -112,6 +112,13 @@
          n'a pas pu être mise en place le jour de l'entretien. -->
     <input type="file" id="rec-test-upload" accept="audio/*,video/*,.mp4,.m4a,.weba,.webm">
     <button class="btn" type="button" id="rec-test-upload-btn">Transcrire ce fichier</button>
+    <!-- Rattacher SANS transcrire (2026-09-01, constats C4 et EC3-1). Il
+         n'existait qu'une façon de confier un fichier à la mission : le faire
+         transcrire. Importer le fichier Meet d'un entretien DÉJÀ enregistré au
+         micro l'ajoutait donc aux tranches, et « Relancer la transcription »
+         rejouait ensuite le même entretien deux fois. Ce bouton range l'audio
+         sans toucher au texte. -->
+    <button class="btn" type="button" id="rec-test-attach-btn">Rattacher sans transcrire</button>
   </div>
   <!-- Échec de transcription d'un bloc : le fichier importé est conservé côté
        serveur tant que le job est en échec, la reprise repart du bloc fautif
@@ -131,6 +138,14 @@
     <p class="muted" id="rec-audio-playback-title"></p>
     <div id="rec-audio-segment-list"></div>
   </div>
+  <!-- EC3-2 (revue du 2026-09-01). Une tranche « non transmise » n'existe que
+       dans cet onglet, derrière une URL de blob. « Enregistrer l'entretien »
+       redirige (303) : la page meurt, le blob avec, et l'audio est perdu pour
+       de bon — pendant que le bandeau disait « récupère-la ci-dessous ». Le
+       bouton d'enregistrement est donc gelé tant que cet acquittement n'est pas
+       donné ; ce bouton est la SORTIE, sans quoi le gel serait une impasse pour
+       qui accepte de perdre la tranche. -->
+  <button class="btn btn-sm" type="button" id="rec-backup-local-ack" hidden>J'ai récupéré les tranches non transmises — continuer</button>
 
   <!-- Segments de transcription non aboutis : l'audio correspondant est gardé
        en mémoire, une relance manuelle reste possible tant que la page est
@@ -249,6 +264,17 @@
   var audioPlaybackEl = document.getElementById('rec-audio-playback');
   var audioPlaybackTitleEl = document.getElementById('rec-audio-playback-title');
   var audioSegmentListEl = document.getElementById('rec-audio-segment-list');
+  // EC3-2 : acquittement de la récupération locale des tranches non transmises.
+  // Déclaré ICI, avec les autres références du DOM, et non près de
+  // `backupPerdusLocaux` : `updateSubmitState` le lit, et elle tourne bien avant
+  // que le bas du script ne soit évalué.
+  var backupLocalAckBtn = document.getElementById('rec-backup-local-ack');
+  var backupLocalAcquitte = false;
+  backupLocalAckBtn.addEventListener('click', function () {
+    backupLocalAcquitte = true;
+    backupLocalAckBtn.hidden = true;
+    updateSubmitState();
+  });
   var audioSegmentsHidden = document.getElementById('rec-audio-segments');
   var transcriptEl = document.getElementById('rec-transcript');
   var transcriptHidden = document.getElementById('rec-transcript-hidden');
@@ -502,13 +528,27 @@
     // un 422 conservé pour rejeu a déjà atteint le serveur, le geler
     // rendrait un entretien à distance (des dizaines de 422) inenregistrable.
     var lost = lostSegments.some(function (s) { return s.blocking; }) || lostRetryBlocking > 0;
-    submitBtn.disabled = recordingActive || busy || lost || !hasTranscript;
+    // EC3-2 (revue du 2026-09-01) — même faille que `lostSegments` ci-dessus, un
+    // étage plus bas : une tranche de SAUVEGARDE non transmise n'existe que dans
+    // l'onglet (URL de blob). Rien ne bloquait « Enregistrer l'entretien », dont
+    // la redirection 303 détruit la page et donc le blob : le bandeau envoyait
+    // récupérer un fichier que le clic suivant supprimait. `backupPerdusLocaux`
+    // est déclaré plus bas dans le script (hissé, donc `undefined` pendant les
+    // premiers appels) : d'où la lecture défensive.
+    var localEnAttente = (backupPerdusLocaux || []).length > 0 && !backupLocalAcquitte;
+    submitBtn.disabled = recordingActive || busy || lost || localEnAttente || !hasTranscript;
     // L'export PDF de la transcription est disponible dès que l'enregistrement
     // est arrêté et qu'il y a du texte — indépendamment de l'extraction IA (il
     // n'utilise que le texte) et sans attendre les uploads audio en cours.
     pdfBtn.disabled = recordingActive || !hasTranscript;
     if (!recordingActive && !busy && hasTranscript) {
-      statusEl.textContent = 'Enregistrement terminé — prêt à envoyer.';
+      // Le libellé générique mentirait pendant le gel EC3-2 : le bouton serait
+      // désactivé sans que rien n'explique pourquoi.
+      statusEl.textContent = localEnAttente
+        ? 'Récupère la ou les tranches non transmises ci-dessous (« Télécharger cette '
+          + 'tranche »), puis clique « J’ai récupéré… » : enregistrer l’entretien '
+          + 'maintenant détruirait ces copies locales.'
+        : 'Enregistrement terminé — prêt à envoyer.';
     }
   }
 
@@ -1037,9 +1077,13 @@
   // `pendingBackups` (revue R3-m4) : pendant un upload de sauvegarde (et sa
   // chaîne de reprise), le blob de ~20 min d'audio n'existe que dans la closure
   // de l'onglet — fermer pendant cette fenêtre détruit la seule copie.
+  // `backupPerdusLocaux` (EC3-2) : une tranche non transmise ne vit que dans le
+  // blob de cet onglet — fermer sans l'avoir téléchargée la détruit, exactement
+  // comme fermer pendant un upload en vol.
   window.addEventListener('beforeunload', function (e) {
+    var localEnAttente = (backupPerdusLocaux || []).length > 0 && !backupLocalAcquitte;
     if (!lostSegments.some(function (s) { return s.blocking; }) && !lostRetryBlocking
-        && !recordingActive && !pendingBackups) return;
+        && !recordingActive && !pendingBackups && !localEnAttente) return;
     e.preventDefault();
     e.returnValue = '';
   });
@@ -1262,6 +1306,11 @@
       try { URL.revokeObjectURL(perdue.url); } catch (e) { /* déjà révoquée */ }
     });
     backupPerdusLocaux = [];
+    // L'acquittement suit les copies qu'il acquittait : sans cette remise à zéro,
+    // un « Recommencer » laisserait le bouton visible et l'entretien SUIVANT
+    // partirait déjà acquitté.
+    backupLocalAcquitte = false;
+    backupLocalAckBtn.hidden = true;
     audioSegmentListEl.innerHTML = '';
     audioPlaybackEl.hidden = true;
   }
@@ -1281,9 +1330,11 @@
   // blob d'un segment perdu et laisse une relance manuelle. Ici le serveur ne
   // répond plus (la branche de délai maximal = connexion morte), donc la seule
   // issue possible est de rendre le fichier à l'utilisateur : il l'écoute et le
-  // télécharge depuis la liste, puis le ré-importe par « Importer un fichier
-  // audio » — chemin qui, depuis cette même date, ne supprime plus jamais
-  // d'audio. Une tranche est « perdue » pour le serveur, pas pour l'entretien.
+  // télécharge depuis la liste, puis le rattache par « Rattacher sans
+  // transcrire ». PAS par « Transcrire ce fichier » (EC3-1, même revue) : le
+  // texte de cette tranche est déjà dans la transcription — la retranscrire
+  // rendrait un entretien dit deux fois. Une tranche est « perdue » pour le
+  // serveur, pas pour l'entretien.
   var backupPerdusLocaux = [];  // [{position, url, row}]
 
   function garderTrancheEnLocal(position, blob) {
@@ -1292,6 +1343,12 @@
     }
     try {
       backupPerdusLocaux.push({ position: position, url: URL.createObjectURL(blob), row: null });
+      // Une tranche NEUVE remet le compteur à zéro (EC3-2) : un acquittement
+      // donné pour la tranche 2 ne vaut pas pour la tranche 5, perdue dix
+      // minutes plus tard.
+      backupLocalAcquitte = false;
+      backupLocalAckBtn.hidden = false;
+      updateSubmitState();
       return true;
     } catch (e) {
       return false;  // pas de createObjectURL : on retombe sur le message de perte sèche
@@ -1300,6 +1357,37 @@
 
   // Message UNIQUE de la sauvegarde audio : succès et pertes composés ensemble,
   // pour qu'aucune rotation ultérieure ne puisse effacer un avertissement.
+  // Un rattachement réussi met CE fichier à l'abri côté serveur. Mais on ne
+  // sait pas LAQUELLE des copies locales il vient de rendre : le bouton
+  // rattache le fichier choisi dans le sélecteur, pas une ligne de la liste.
+  // On ne révoque donc jamais un blob « au jugé » — une seule copie en attente
+  // se lève sans ambiguïté, plusieurs restent affichées et le message continue
+  // de les nommer. Sur-avertir ne coûte rien ; sous-avertir détruit de l'audio.
+  //
+  // Sans ce point (revue adversariale du 2026-09-01, B1), le geste CORRECT ne
+  // levait pas le gel d'EC3-2 : après avoir rendu sa tranche à l'entretien,
+  // l'utilisateur n'avait pour seule issue que d'acquitter — donc d'affirmer un
+  // fait que l'application savait déjà accompli.
+  function noterRattachementLocal() {
+    if (backupPerdusLocaux.length !== 1) {
+      refreshBackupList();
+      updateSubmitState();
+      return;
+    }
+    var perdue = backupPerdusLocaux[0];
+    try { URL.revokeObjectURL(perdue.url); } catch (e) { /* déjà révoquée */ }
+    if (perdue.row && perdue.row.parentNode) {
+      perdue.row.parentNode.removeChild(perdue.row);
+    }
+    backupPerdusLocaux = [];
+    backupPerdus = [];
+    backupLocalAcquitte = false;
+    backupLocalAckBtn.hidden = true;
+    refreshBackupStatus();
+    refreshBackupList();
+    updateSubmitState();
+  }
+
   function refreshBackupStatus() {
     var n = backupSegments.length;
     var txt = n
@@ -1319,7 +1407,10 @@
         + ' (n° ' + backupPerdus.map(function (p) { return p + 1; }).join(', ') + ') — '
         + (recuperables
             ? 'récupère-la' + (m > 1 ? 's' : '') + ' avec « Télécharger cette tranche » '
-              + 'ci-dessous, puis ré-importe avec « Importer un fichier audio ». '
+              + 'ci-dessous, puis rends-la' + (m > 1 ? 's' : '') + ' à l’entretien avec '
+              + '« Rattacher sans transcrire » — surtout pas « Transcrire ce fichier » : '
+              + 'ce texte est déjà dans la transcription, le retranscrire dirait '
+              + 'l’entretien deux fois. '
             : '')
         + 'Le texte transcrit, lui, reste complet.';
     }
@@ -1621,6 +1712,81 @@
     }, 3000);
   }
 
+  // ---- Rattacher un fichier SANS le transcrire (2026-09-01, constats C4/EC3-1) ----
+  // Il n'existait qu'une façon de confier un audio à l'entretien : le faire
+  // transcrire. Deux besoins réels n'étaient donc pas servis — ranger
+  // l'enregistrement Meet d'un entretien déjà transcrit au micro, et rendre à
+  // l'entretien une tranche non transmise récupérée en local. Dans les deux cas
+  // le TEXTE existe déjà : passer par la transcription le dirait deux fois.
+  var testAttachBtn = document.getElementById('rec-test-attach-btn');
+  var attachInFlight = false;
+
+  testAttachBtn.addEventListener('click', function () {
+    if (attachInFlight) {
+      statusEl.textContent = 'Un rattachement est déjà en cours — attends sa fin.';
+      return;
+    }
+    if (!fileImportDone) {
+      statusEl.textContent = 'Un import est déjà en cours — attends sa fin.';
+      return;
+    }
+    if (!testUploadInput.files.length) {
+      statusEl.textContent = 'Choisis d\'abord un fichier audio.';
+      return;
+    }
+    if (recordingActive) {
+      statusEl.textContent = 'Arrête l\'enregistrement avant de rattacher un fichier.';
+      return;
+    }
+    var file = testUploadInput.files[0];
+    var gen = backupGeneration;
+    var rattache = false;
+    attachInFlight = true;
+    testAttachBtn.disabled = true;
+    // `pendingBackups` et non `pendingSegments` : c'est de la sauvegarde audio,
+    // pas du texte en cours de transcription. Il gèle « Enregistrer l'entretien »
+    // et arme la confirmation de fermeture d'onglet, donc le fichier ne peut pas
+    // être perdu par une navigation pendant l'envoi.
+    pendingBackups++;
+    updateSubmitState();
+    statusEl.textContent = 'Rattachement de « ' + file.name + ' »…';
+    var formData = new FormData();
+    formData.append('file', file);
+    recFetch('/missions/{{ mission.id }}/interviews/record/backup',
+             { method: 'POST', body: formData }, UPLOAD_TIMEOUT_MS)
+      .then(function (res) { return res.json().then(function (d) { return { ok: res.ok, data: d }; }); })
+      .then(function (result) {
+        if (!result.ok || !result.data || !result.data.path) {
+          throw new Error((result.data && result.data.error) || 'réponse inattendue');
+        }
+        if (gen !== backupGeneration) return;  // « Recommencer » pendant l'envoi
+        // `enregistrerAudioImporte` fait tout le reste — position, tri, champs
+        // cachés, liste, message — et il est idempotent.
+        enregistrerAudioImporte(result.data.path);
+        noterRattachementLocal();
+        rattache = true;
+      })
+      .catch(function (err) {
+        if (gen !== backupGeneration) return;
+        statusEl.textContent = 'Rattachement impossible (' + (err && err.message ? err.message : 'erreur')
+          + ') — le fichier n\'a pas été rangé, réessaie.';
+      })
+      .finally(function () {
+        // Hors de la garde de génération, comme le décrément d'EC-1 : ces
+        // compteurs sont un état de PAGE. Sortir avant les rendrait un
+        // « Recommencer » pendant l'envoi définitivement bloquants.
+        attachInFlight = false;
+        testAttachBtn.disabled = false;
+        pendingBackups = Math.max(0, pendingBackups - 1);
+        updateSubmitState();
+        // APRÈS updateSubmitState : elle pose sinon son libellé générique
+        // (« prêt à envoyer ») par-dessus la confirmation.
+        if (rattache) {
+          statusEl.textContent = 'Fichier rattaché à l’entretien — il n\'a PAS été transcrit.';
+        }
+      });
+  });
+
   testUploadBtn.addEventListener('click', function () {
     if (!fileImportDone) {
       statusEl.textContent = 'Un import est déjà en cours — attends sa fin.';
@@ -1636,6 +1802,22 @@
     }
     if (recordingActive) {
       statusEl.textContent = 'Arrête l\'enregistrement avant d\'importer un fichier.';
+      return;
+    }
+    // C4 (revue du 2026-09-01) — l'import était ajouté aux TRANCHES de
+    // l'entretien (`enregistrerAudioImporte` le pousse dans `backupSegments`).
+    // Importer le fichier Meet d'un entretien déjà enregistré au micro donnait
+    // donc un entretien référençant n+1 fichiers dont un couvre déjà tout :
+    // « Relancer la transcription » les concaténait et produisait un texte
+    // contenant DEUX FOIS l'entretien, sans le moindre avertissement. Le seul
+    // garde-fou était `recordingActive`, qui ne dit rien de ce qui est déjà
+    // enregistré.
+    if (backupSegments.length) {
+      statusEl.textContent = 'Cet entretien a déjà ' + backupSegments.length + ' tranche'
+        + (backupSegments.length > 1 ? 's' : '') + ' d\'audio enregistrée'
+        + (backupSegments.length > 1 ? 's' : '') + '. Transcrire ce fichier ajouterait un '
+        + 'second enregistrement du même entretien, et la relance le transcrirait deux fois : '
+        + 'utilise « Rattacher sans transcrire », ou « Recommencer » pour repartir de zéro.';
       return;
     }
     var file = testUploadInput.files[0];

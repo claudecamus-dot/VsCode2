@@ -17,7 +17,7 @@ réel n'est touché ici.
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import UTC, datetime
 
 import pytest
 from conftest import vider_recordings_de_test
@@ -86,6 +86,27 @@ def _mission_avec_entretien(nom_mission: str, segments: list[str]):
         db.add(interview)
         db.commit()
         return mission.id, interview.id
+
+
+def _antidater_mission(mission_id: int, epoch: float) -> None:
+    """Recule la creation de la mission avant `epoch`.
+
+    Necessaire depuis la garde anti-reutilisation d'id (2026-09-01, constat
+    C3) : un fichier ANTERIEUR a sa mission appartient a celle qui portait ce
+    numero avant elle, donc il n'est plus liste comme son orphelin. Les tests
+    qui antidatent un fichier pour eprouver l'ordre ou la fraicheur creaient un
+    etat impossible en production (l'audio d'une mission est forcement ecrit
+    apres sa creation) ; on retablit la chronologie reelle au lieu
+    d'affaiblir la garde.
+    """
+    from datetime import datetime
+
+    with SessionLocal() as db:
+        mission = db.get(Mission, mission_id)
+        mission.created_at = datetime.fromtimestamp(epoch - 3600, tz=UTC).replace(
+            tzinfo=None
+        )
+        db.commit()
 
 
 # --------------------------------------------------------------------------- #
@@ -192,7 +213,10 @@ def test_lister_ordonne_du_plus_ancien_au_plus_recent():
         db.add(interview)
         db.commit()
         db.refresh(mission)
-        inventaire = mission_backups.lister_backups(mission, RECORDINGS_DIR)
+
+    _antidater_mission(mid, 1_700_000_000)
+    with SessionLocal() as db:
+        inventaire = mission_backups.lister_backups(db.get(Mission, mid), RECORDINGS_DIR)
 
     assert [b["filename"] for b in inventaire["rattaches"]] == [vieux, recent]
     assert [b["filename"] for b in inventaire["orphelins"]] == [orph_vieux, orph_recent]
@@ -414,6 +438,7 @@ def test_orphelin_recent_est_signale_comme_enregistrement_possible_en_cours(clie
     frais = _ecrire(f"{mid}_6666_frais.webm")           # mtime = maintenant
     vieux = _ecrire(f"{mid}_7777_vieux.webm")
     os.utime(RECORDINGS_DIR / vieux, (1_700_000_000, 1_700_000_000))
+    _antidater_mission(mid, 1_700_000_000)
 
     with SessionLocal() as db:
         inventaire = mission_backups.lister_backups(db.get(Mission, mid), RECORDINGS_DIR)
@@ -468,3 +493,396 @@ def test_onglets_entretiens_et_synthese_restent_accessibles(client: TestClient):
     assert 'data-panel="entretiens"' in html
     assert 'data-panel="synthese"' in html
     assert "Synthèse transverse" in html
+
+
+# --------------------------------------------------------------------------- #
+# Cycle de vie de l'audio — correctifs de la revue du 2026-09-01
+#
+# Trois constats liés, qu'on ne peut pas tester séparément sans mentir sur ce
+# qui les relie : depuis que l'audio ne se supprime QUE par une action de
+# l'utilisateur (commit c79e8b5), un fichier qu'aucun écran n'atteint est un
+# fichier INDESTRUCTIBLE. La règle produit se retournait contre elle-même.
+#
+#   C1 — la suppression d'une mission fabriquait ces fichiers (mesuré :
+#        75,8 Mo, 24 % du répertoire, sur l'installation réelle) ;
+#   C2 — les imports d'avant la convention de nommage n'ont aucun préfixe,
+#        donc n'ont JAMAIS été atteignables ;
+#   C3 — `Mission.id` est un rowid sans AUTOINCREMENT : l'id d'une mission
+#        supprimée est rendu à la suivante, qui héritait de son audio.
+# --------------------------------------------------------------------------- #
+def _globaux(db) -> list[dict]:
+    return mission_backups.lister_orphelins_globaux(RECORDINGS_DIR, db)["orphelins"]
+
+
+def _vieillir(nom: str, secondes: int) -> str:
+    """Recule le `mtime` d'un fichier. La garde anti-réutilisation d'id compare
+    l'âge du fichier à la création de la mission : sans ce recul, tout est
+    écrit dans la même seconde et le test ne prouverait rien."""
+    chemin = RECORDINGS_DIR / nom
+    ancien = chemin.stat().st_mtime
+    os.utime(chemin, (ancien - secondes, ancien - secondes))
+    return nom
+
+
+def test_un_fichier_dont_la_mission_est_supprimee_reste_atteignable_globalement():
+    """C1 — le cœur du correctif. Avant, ce fichier n'était listé nulle part :
+    `lister_backups` exige un objet `Mission` et globbe `{mission.id}_*`."""
+    mid, _ = _mission_avec_entretien("Mission a supprimer", [_ecrire("_c1_rattache.webm")])
+    orphelin = _ecrire(f"{mid}_9999_c1.webm")
+
+    with SessionLocal() as db:
+        db.delete(db.get(Mission, mid))
+        db.commit()
+        noms = [e["filename"] for e in _globaux(db)]
+
+    assert orphelin in noms, "l'audio d'une mission supprimee n'est atteignable par aucun ecran"
+    assert "_c1_rattache.webm" in noms, "le fichier reference par l'entretien supprime aussi"
+
+
+def test_l_import_sans_prefixe_de_mission_est_atteignable_globalement():
+    """C2 — convention d'avant le 2026-09-01 (`import_<ts>_<hex>`). Aucun
+    préfixe, donc aucune mission ne peut le revendiquer : sans l'inventaire
+    global il n'existe pour personne."""
+    legacy = _ecrire("import_1785351999_f938b8c0.webm")
+
+    with SessionLocal() as db:
+        entrees = _globaux(db)
+
+    noms = [e["filename"] for e in entrees]
+    raisons = {e["filename"]: e["raison"] for e in entrees}
+    assert legacy in noms
+    assert "sans préfixe" in raisons[legacy], "l'ecran doit dire POURQUOI le fichier est la"
+
+
+def test_l_inventaire_global_ignore_ce_qu_une_mission_montre_deja():
+    """La contrepartie : un fichier visible dans un onglet Backup n'a rien à
+    faire ici. Sans cette borne, l'inventaire global doublonnerait tous les
+    écrans et inviterait à supprimer de l'audio rattaché à un entretien vivant."""
+    mid, _ = _mission_avec_entretien("Mission vivante", [_ecrire("_c1_vivant.webm")])
+    orphelin_de_mission = _ecrire(f"{mid}_9999_visible.webm")
+
+    with SessionLocal() as db:
+        noms = [e["filename"] for e in _globaux(db)]
+
+    assert "_c1_vivant.webm" not in noms, "fichier rattache a un entretien : jamais ici"
+    assert orphelin_de_mission not in noms, "deja visible dans l'onglet Backup de sa mission"
+
+
+def test_supprimer_une_mission_emporte_son_audio(client):
+    """C1 en amont : ne plus FABRIQUER de fichiers inatteignables. Supprimer la
+    mission est bien une action de l'utilisateur sur le site — la plus
+    explicite qui soit."""
+    mid, _ = _mission_avec_entretien("Mission jetable", [_ecrire("_c1_cascade.webm")])
+    orphelin = _ecrire(f"{mid}_9999_cascade.webm")
+    temoin = _ecrire("999999_9999_autre_mission.webm")
+
+    reponse = client.post(f"/missions/{mid}/delete", follow_redirects=False)
+
+    assert reponse.status_code == 303
+    assert not (RECORDINGS_DIR / "_c1_cascade.webm").exists(), "fichier reference non supprime"
+    assert not (RECORDINGS_DIR / orphelin).exists(), "orphelin de la mission non supprime"
+    assert (RECORDINGS_DIR / temoin).is_file(), "la cascade a deborde sur une autre mission"
+
+
+def test_le_nettoyage_groupe_des_brouillons_n_emporte_PAS_l_audio(client):
+    """Chemin frère de la cascade, et l'exception est VOULUE : un brouillon
+    vide est exactement l'état d'un enregistrement en cours (l'entretien
+    n'existe qu'à la confirmation). Une passe groupée détruirait l'audio d'une
+    séance qui tourne dans un autre onglet. Il retombe dans l'inventaire
+    global, visible et supprimable — personne ne décide à sa place."""
+    with SessionLocal() as db:
+        brouillon = Mission(name="Brouillon", is_draft=True)
+        db.add(brouillon)
+        db.commit()
+        mid = brouillon.id
+    en_cours = _ecrire(f"{mid}_9999_enregistrement_en_cours.webm")
+
+    reponse = client.post("/missions/brouillons/nettoyer", follow_redirects=False)
+
+    assert reponse.status_code == 303
+    assert (RECORDINGS_DIR / en_cours).is_file(), (
+        "le nettoyage groupe a detruit l'audio d'un enregistrement peut-etre en cours"
+    )
+    with SessionLocal() as db:
+        noms = [e["filename"] for e in _globaux(db)]
+    assert en_cours in noms, "il doit rester atteignable par l'inventaire global"
+
+
+def test_une_mission_qui_reutilise_un_id_n_herite_pas_de_l_audio_precedent():
+    """C3 — `Mission.id` est un rowid sans AUTOINCREMENT. La mission suivante
+    récupérait le préfixe de la précédente : elle listait, servait et pouvait
+    SUPPRIMER l'audio d'entretien d'un autre client."""
+    with SessionLocal() as db:
+        ancienne = Mission(name="Ancienne")
+        db.add(ancienne)
+        db.commit()
+        ancien_id = ancienne.id
+    herite = _vieillir(_ecrire(f"{ancien_id}_9999_audio_du_client_precedent.webm"), 86400)
+
+    with SessionLocal() as db:
+        db.delete(db.get(Mission, ancien_id))
+        db.commit()
+        nouvelle = Mission(name="Nouvelle")
+        db.add(nouvelle)
+        db.commit()
+        # L'id doit effectivement être réutilisé, sinon le test ne prouve rien.
+        if nouvelle.id != ancien_id:
+            pytest.skip("SQLite n'a pas reutilise l'id : le scenario vise n'est pas atteint")
+        orphelins = [e["filename"] for e in mission_backups.lister_backups(nouvelle, RECORDINGS_DIR)["orphelins"]]
+        globaux = [e["filename"] for e in _globaux(db)]
+        autorise = mission_backups.appartient_a_mission(
+            herite, nouvelle.id, nouvelle, RECORDINGS_DIR
+        )
+
+    assert herite not in orphelins, "la nouvelle mission liste l'audio d'entretien de la precedente"
+    assert not autorise, "la nouvelle mission peut SUPPRIMER l'audio de la precedente"
+    assert herite in globaux, (
+        "cache a sa mission mais absent de l'inventaire global = fichier indestructible"
+    )
+
+
+def test_une_reference_explicite_prime_sur_la_chronologie():
+    """Contrepartie de C3 : un entretien réattaché depuis une mission brouillon
+    garde un fichier plus VIEUX que sa mission d'accueil. La garde
+    chronologique ne doit pas le lui retirer — sinon le correctif de C3 casse
+    le rattachement, qui est un chemin nominal."""
+    vieux = _vieillir(_ecrire("_c3_reference_ancienne.webm"), 86400)
+    mid, _ = _mission_avec_entretien("Mission d'accueil", [vieux])
+
+    with SessionLocal() as db:
+        mission = db.get(Mission, mid)
+        rattaches = [
+            e["filename"] for e in mission_backups.lister_backups(mission, RECORDINGS_DIR)["rattaches"]
+        ]
+        autorise = mission_backups.appartient_a_mission(vieux, mid, mission, RECORDINGS_DIR)
+        globaux = [e["filename"] for e in _globaux(db)]
+
+    assert vieux in rattaches
+    assert autorise, "un fichier reference appartient a sa mission, quel que soit son age"
+    assert vieux not in globaux, "il est visible dans l'onglet Backup : pas un orphelin global"
+
+
+# --------------------------------------------------------------------------- #
+# Routes de l'inventaire global
+# --------------------------------------------------------------------------- #
+def test_l_ecran_global_sert_et_supprime_un_orphelin(client):
+    """Écouter AVANT de supprimer : ces fichiers ne sont rattachés à aucune
+    mission, donc `get_record_backup` les refuse. Sans route d'écoute, l'écran
+    demanderait de détruire des dizaines de Mo d'audio d'entretien à l'aveugle."""
+    orphelin = _ecrire("import_1785000000_ecoute.webm", taille=128)
+
+    ecoute = client.get(f"/missions/audio-orphelin/{orphelin}")
+    assert ecoute.status_code == 200
+    assert len(ecoute.content) == 128
+
+    suppression = client.post(
+        f"/missions/audio-orphelin/{orphelin}/delete", follow_redirects=False
+    )
+    assert suppression.status_code == 303
+    assert not (RECORDINGS_DIR / orphelin).exists()
+
+
+def test_l_ecran_global_refuse_un_fichier_qui_n_est_PAS_orphelin(client):
+    """La garde qui compte. Sans elle, ces deux routes seraient un « sers ou
+    supprime n'importe quel enregistrement par son nom », contournant toutes
+    les gardes d'appartenance de l'onglet Backup : un écran de nettoyage ne
+    doit pas être la porte dérobée des écrans qu'il complète."""
+    _mission_avec_entretien("Mission protegee", [_ecrire("_c1_protege.webm")])
+
+    assert client.get("/missions/audio-orphelin/_c1_protege.webm").status_code == 404
+    assert (
+        client.post(
+            "/missions/audio-orphelin/_c1_protege.webm/delete", follow_redirects=False
+        ).status_code
+        == 404
+    )
+    assert (RECORDINGS_DIR / "_c1_protege.webm").is_file()
+
+
+def test_l_ecran_global_refuse_une_traversee_de_chemin(client):
+    assert client.get("/missions/audio-orphelin/..%2F..%2Fapp.db").status_code in (400, 404)
+    assert client.post(
+        "/missions/audio-orphelin/..%2F..%2Fapp.db/delete", follow_redirects=False
+    ).status_code in (400, 404)
+
+
+def test_l_ecran_global_est_atteignable_depuis_la_liste_des_missions(client):
+    """Le lien est le SEUL point d'entrée : ces fichiers n'apparaissent dans
+    l'onglet Backup d'aucune mission. Sans lui, l'écran existe mais personne ne
+    le trouve — et l'audio reste indestructible, constat C1 non traité."""
+    _ecrire("import_1785000001_lien.webm")
+
+    page = client.get("/missions")
+
+    assert page.status_code == 200
+    assert "/missions/audio-orphelin" in page.text, (
+        "aucun lien vers l'inventaire global depuis la liste des missions"
+    )
+    assert client.get("/missions/audio-orphelin").status_code == 200
+
+
+# --------------------------------------------------------------------------- #
+# La RAISON affichée à côté du bouton « Supprimer »
+# --------------------------------------------------------------------------- #
+def test_la_raison_distingue_mission_absente_et_numero_reattribue(tmp_path) -> None:
+    """Devant un bouton de suppression, une raison fausse est pire que pas de
+    raison : elle fait douter de l'écran entier.
+
+    Défaut mesuré le 2026-09-01 sur l'installation réelle, en regardant la page
+    servie : sur 12 orphelins, 4 annonçaient « mission n° N supprimée » alors
+    que la mission N figurait dans la liste des missions, juste à côté. Le
+    fichier était bien orphelin — c'est la garde anti-réutilisation d'id qui
+    l'écarte, SQLite ayant réattribué le numéro d'une mission supprimée — mais
+    la phrase, elle, était fausse. Les trois causes sont distinctes et doivent
+    le rester.
+    """
+    from app.services import mission_backups
+
+    class _Mission:
+        id = 13
+        created_at = None
+
+    mission = _Mission()
+    # `_epoch_creation` lit `created_at` ; on passe par le helper pour rester
+    # sur la même conversion de fuseau que la production.
+    mission.created_at = datetime.fromtimestamp(1_700_000_000, tz=UTC).replace(
+        tzinfo=None
+    )
+
+    sans_prefixe = mission_backups._raison_orphelin("import", None, 1_700_000_000)
+    assert "sans préfixe" in sans_prefixe
+    assert "supprimée" not in sans_prefixe
+
+    absente = mission_backups._raison_orphelin("8", None, 1_700_000_000)
+    assert absente == "mission n° 8 supprimée"
+
+    # Le cas qui mentait : la mission EXISTE, le fichier est plus ancien qu'elle.
+    reattribue = mission_backups._raison_orphelin("13", mission, 1_600_000_000)
+    assert "réattribué" in reattribue, reattribue
+    assert "plus ancienne" in reattribue, reattribue
+    # Et surtout : il ne dit PAS que la mission n° 13 a été supprimée.
+    assert reattribue != "mission n° 13 supprimée"
+    assert "mission n° 13 supprimée" not in reattribue
+
+
+def test_l_ecran_global_nomme_la_bonne_cause_pour_un_id_reattribue(tmp_path) -> None:
+    """Bout en bout : un fichier antérieur à SA mission est bien listé comme
+    orphelin (il est inatteignable depuis l'onglet Backup de cette mission),
+    mais avec la cause exacte."""
+    from app.db import SessionLocal
+    from app.models import Mission
+    from app.services import mission_backups
+
+    db = SessionLocal()
+    try:
+        mission = Mission(name="ZZ raison orphelin")
+        db.add(mission)
+        db.commit()
+        mid = mission.id
+        _antidater_mission(mid, 1_700_000_000)
+
+        # Fichier au préfixe de la mission, mais PLUS ANCIEN qu'elle.
+        fichier = tmp_path / f"{mid}_1600000000_aaaabbbb.webm"
+        fichier.write_bytes(b"audio")
+        os.utime(fichier, (1_600_000_000, 1_600_000_000))
+
+        listing = mission_backups.lister_orphelins_globaux(tmp_path, db)
+        entrees = {e["filename"]: e for e in listing["orphelins"]}
+        assert fichier.name in entrees, (
+            "un fichier écarté de sa mission par la garde de chronologie doit "
+            "apparaître ici, sinon il n'est listé NULLE PART"
+        )
+        raison = entrees[fichier.name]["raison"]
+        assert "réattribué" in raison, raison
+        assert f"mission n° {mid} supprimée" not in raison, (
+            f"la raison affirme que la mission n° {mid} est supprimée alors "
+            "qu'elle existe : c'est le mensonge corrigé le 2026-09-01"
+        )
+    finally:
+        db.query(Mission).filter(Mission.name == "ZZ raison orphelin").delete()
+        db.commit()
+        db.close()
+
+
+def test_un_fichier_en_cours_de_transcription_n_est_pas_proposable_a_la_suppression(
+    tmp_path,
+) -> None:
+    """Revue adversariale du 2026-09-01, constat A5.
+
+    Le chemin réel, et il n'a rien d'exotique : on importe un fichier dans un
+    brouillon, `nettoyer_brouillons` emporte la mission — `_draft_vide` est vrai
+    pour un entretien libre encore en cours — et le fichier devient orphelin
+    global AVEC son bouton « Supprimer », pendant que le job de transcription le
+    lit bloc par bloc. Le jeu de références ne regardait que les entretiens.
+
+    Un job terminé, lui, ne retient rien : son fichier redevient supprimable dès
+    que plus aucun entretien ne le cite, sinon la règle produirait de nouveau
+    des fichiers indestructibles — exactement ce que C1 corrigeait.
+    """
+    from app.db import SessionLocal
+    from app.models import AudioFileJob
+    from app.services import mission_backups
+
+    en_cours = tmp_path / "77_import_1600000000_encours.webm"
+    termine = tmp_path / "77_import_1600000000_termine.webm"
+    for f in (en_cours, termine):
+        f.write_bytes(b"audio")
+
+    db = SessionLocal()
+    try:
+        db.add(AudioFileJob(
+            session_token="a5-en-cours", filename=en_cours.name, status="running",
+        ))
+        db.add(AudioFileJob(
+            session_token="a5-termine", filename=termine.name, status="done",
+        ))
+        db.commit()
+
+        noms = {e["filename"] for e in
+                mission_backups.lister_orphelins_globaux(tmp_path, db)["orphelins"]}
+
+        assert en_cours.name not in noms, (
+            "l'écran propose de supprimer un fichier que le transcripteur est "
+            "en train de lire : la suppression casse le job en cours"
+        )
+        assert termine.name in noms, (
+            "un job TERMINÉ ne doit plus retenir son fichier, sinon on refabrique "
+            "des fichiers qu'aucun écran ne peut supprimer (constat C1)"
+        )
+    finally:
+        db.query(AudioFileJob).filter(
+            AudioFileJob.session_token.in_(["a5-en-cours", "a5-termine"])
+        ).delete(synchronize_session=False)
+        db.commit()
+        db.close()
+
+
+def test_l_inventaire_global_ignore_ce_qui_n_est_pas_de_l_audio(tmp_path) -> None:
+    """Constat B3 : un `.gitkeep` ou un `notes.txt` déposé dans `recordings/`
+    était listé comme un enregistrement supprimable, et collait un badge
+    permanent sur la liste des missions."""
+    from app.db import SessionLocal
+    from app.services import mission_backups
+
+    (tmp_path / "99_1600000000_aaaa.webm").write_bytes(b"audio")
+    (tmp_path / ".gitkeep").write_bytes(b"")
+    (tmp_path / "notes.txt").write_text("rien a voir", encoding="utf-8")
+    # `isdigit()` est vrai pour « ² », que `int()` refuse (constat B2) : sans la
+    # garde `isascii`, la ValueError remontait jusqu'à la liste des missions.
+    (tmp_path / "\u00b2_1600000000_bbbb.webm").write_bytes(b"audio")
+
+    db = SessionLocal()
+    try:
+        noms = {e["filename"] for e in
+                mission_backups.lister_orphelins_globaux(tmp_path, db)["orphelins"]}
+    finally:
+        db.close()
+
+    assert "99_1600000000_aaaa.webm" in noms
+    assert ".gitkeep" not in noms and "notes.txt" not in noms, (
+        f"un fichier non audio est proposé à la suppression : {noms}"
+    )
+    assert "\u00b2_1600000000_bbbb.webm" in noms, (
+        "un préfixe non ASCII doit être traité comme « sans préfixe », pas lever "
+        "une ValueError qui rend la liste des missions en 500"
+    )

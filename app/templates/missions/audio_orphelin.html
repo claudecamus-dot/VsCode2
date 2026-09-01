@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Audio sans mission — Interview-to-Deck{% endblock %}
+{% block content %}
+<div class="page-head">
+  <h1>Audio sans mission</h1>
+  <div class="row-actions">
+    <a class="btn" href="/missions">← Missions</a>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>Fichiers qu'aucun onglet Backup ne montre</h2>
+    {% if inventaire.taille_totale %}
+    <p class="muted">{{ (inventaire.taille_totale / 1048576) | round(1) }} Mo au total sur ce poste</p>
+    {% endif %}
+  </div>
+
+  <p class="muted">
+    L'onglet Backup d'une mission ne peut lister que les fichiers de cette
+    mission-là. Ceux dont la mission a été supprimée, et ceux nommés sans
+    préfixe de mission (imports d'avant le 2026-09-01), n'apparaissaient donc
+    nulle part. Comme l'audio ne se supprime que par une action de votre part,
+    un fichier invisible était un fichier impossible à supprimer : c'est ce que
+    cet écran répare. Du plus ancien au plus récent.
+  </p>
+
+  {% if inventaire.orphelins %}
+  <table class="table">
+    <thead>
+      <tr><th>Date</th><th>Fichier</th><th>Pourquoi ici</th><th>Taille</th><th>Écoute</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for b in inventaire.orphelins %}
+      <tr>
+        <td>{% if b.horodatage %}{{ b.horodatage }}{% else %}<span class="muted">—</span>{% endif %}</td>
+        <td><span class="muted">{{ b.filename }}</span>
+          {%- if b.recent %}
+          {# Même précaution que l'onglet Backup : pendant le wizard, les
+             tranches ne sont référencées qu'à la confirmation — un fichier
+             récent peut appartenir à un enregistrement EN COURS dans un autre
+             onglet, que la suppression détruirait. #}
+          <br><span class="muted">⚠ récent — peut appartenir à un enregistrement en cours, ne supprimer que si aucun entretien n'est en cours de saisie</span>
+          {%- endif %}</td>
+        <td><span class="muted">{{ b.raison }}</span></td>
+        <td>{{ (b.taille / 1048576) | round(1) }} Mo</td>
+        <td>
+          <audio controls preload="none" class="record-audio-player"
+                 src="/missions/audio-orphelin/{{ b.filename | urlencode }}"></audio>
+        </td>
+        <td class="row-actions">
+          <a class="btn-link" href="/missions/audio-orphelin/{{ b.filename | urlencode }}" download>Télécharger</a>
+          <form method="post" action="/missions/audio-orphelin/{{ b.filename | urlencode }}/delete"
+                onsubmit="return confirm('Supprimer définitivement cet enregistrement ?\n\nIl n\'est rattaché à aucune mission : personne ne pourra le récupérer.{% if b.recent %}\n\n⚠ Fichier récent : il peut appartenir à un enregistrement encore en cours dans un autre onglet.{% endif %}');">
+            <button class="btn btn-danger btn-sm" type="submit">Supprimer</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">
+    Aucun fichier orphelin — tout l'audio de ce poste est rattaché à une
+    mission existante, donc visible et supprimable depuis son onglet Backup.
+  </p>
+  {% endif %}
+</div>
+{% endblock %}

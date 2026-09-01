@@ -19,6 +19,16 @@ revue est le livrable, les correctifs sont un mandat séparé. Tous les constats
 > Statuts par constat mis à jour dans les tables. Les 12 nouveaux constats sont `differe`
 > en attente d'arbitrage.
 
+> **Mise à jour 2026-09-01 (session vscode2-79).** Commit `c79e8b5` — règle produit
+> « l'audio ne se supprime QUE par une action de l'utilisateur sur le site » — ferme
+> **EC-1**, **EC-3** et **F3** (= EC-1), qui étaient encore `differe` dans ce fichier
+> alors que le code les traitait : le triage était périmé de plusieurs heures. Le
+> `differe` non arbitré passe donc de 14 à **12 constats**. Vérification du commit :
+> suite complète **653 passed** (relance intégrale après correctif d'une régression de
+> `test_mission_backups`), CI GitHub Actions run #35 **success** sur `c79e8b5`.
+> ⚠️ Ce fichier ne se met pas à jour tout seul : un constat fermé par un commit doit
+> l'être ICI dans le même mouvement, sinon le backlog ment sur ce qui reste à faire.
+
 **Preuve** : `VERIFIE-CONSO` = re-vérifié en consolidation par lecture ou exécution directe
 (je ne reprends pas un rapport d'agent à mon compte sans le recouper) ; `VERIFIE-AGENT` =
 lu par le sous-agent, non recoupé ; `SUPPOSE` = demande une session navigateur ou une
@@ -405,7 +415,7 @@ introduit un défaut, et la première où il est attrapé AVANT le commit.
 | --- | --- | --- | --- | --- |
 | F1 | HAUTE | **EC-2 crée un DOUBLON** : quand le POST de tranche en vol ÉCHOUE, son `.catch` n'avance pas `coveredLen` — la parole récupérée reste AUSSI dans le reliquat et repart une seconde fois. Or c'est le même incident réseau qui a produit le segment perdu : le cas est fréquent | EXÉCUTÉ | **corrige** |
 | F2 | MOYENNE | **EC-4 reste contournable** : `assert "err.recTimeout" in contenu` est satisfaite par les 4 lignes de COMMENTAIRE qui le mentionnent — débrancher le câblage des DEUX sites laissait le test vert. La règle « on teste le CODE, pas les commentaires » n'était pas appliquée à cette assertion | EXÉCUTÉ (mutation) | **corrige** |
-| F3 | MOYENNE | `postRecoveredJob` fuit `pendingSegmentJobSubmits` à travers un « Recommencer » (= EC-1), et EC-2 y routait un cas nouveau et plus fréquent | EXÉCUTÉ | differe (= EC-1) |
+| F3 | MOYENNE | `postRecoveredJob` fuit `pendingSegmentJobSubmits` à travers un « Recommencer » (= EC-1), et EC-2 y routait un cas nouveau et plus fréquent | EXÉCUTÉ | **corrige** (c79e8b5, avec EC-1) |
 | F4 | BASSE | La branche « ça progresse » avale l'erreur FRAÎCHE des tranches qui viennent d'échouer : sur 24 tranches à 1 récupérée par envoi, le levier actionnable (« augmente OLLAMA_TIMEOUT ») n'apparaît jamais | LU | **corrige** |
 | F5 | BASSE | Le préfixe « Les tranches déjà réparties sont conservées. » redit la fin de la branche de progrès, et l'affirme au PREMIER envoi alors qu'aucune tranche n'a jamais abouti | EXÉCUTÉ (rendu) | **corrige** |
 | F6 | BASSE | `_corps_de_fonction` comptait les accolades AVANT de retirer les commentaires : une accolade en commentaire faussait les bornes → test rouge sur du code correct | EXÉCUTÉ | **corrige** |
@@ -452,15 +462,15 @@ Le patron `_node` existe pourtant déjà dans `tests/test_record_reseau.py` pour
 `rec_fetch.js` : porter ces scénarios en test exécuté est le durcissement à faire, et
 c'est la seule chose qui attraperait un futur défaut de logique plutôt que de forme.
 
-### Non arbitré — `differe` (14 constats)
+### Non arbitré — `differe` (12 constats)
 
 Pré-existants, ou rendus plus atteignables par le correctif R3, ou durcissement.
 Aucun n'est appliqué : ils attendent un arbitrage utilisateur.
 
 | id | sév. | titre | fichier:ligne | preuve | statut |
 | --- | --- | --- | --- | --- | --- |
-| EC-1 | MAJEUR | `postRecoveredJob` : `.finally` sort AVANT le décrément de `pendingSegmentJobSubmits` si la génération a changé — « Enregistrer » grisé pour la vie de la page, et plus aucun job soumis ensuite | `record_libre.html:926`, `record.html:859` | VERIFIE-CONSO (exécuté) | differe |
-| EC-3 | MAJEUR | Sur délai, `uploadSegment` garde le blob (bandeau, relance, abandon) ; `uploadBackup` le JETTE sans issue — sur `record.html`, sans rotation, ce blob est l'audio ENTIER de l'entretien | `record.html:1069`, `record_libre.html:1240` | VERIFIE-CONSO | differe |
+| EC-1 | MAJEUR | `postRecoveredJob` : `.finally` sort AVANT le décrément de `pendingSegmentJobSubmits` si la génération a changé — « Enregistrer » grisé pour la vie de la page, et plus aucun job soumis ensuite | `record_libre.html:926`, `record.html:859` | VERIFIE-CONSO (exécuté) | **corrige** (c79e8b5, 2026-09-01, les DEUX écrans — garde de génération retirée du chemin de décrément) |
+| EC-3 | MAJEUR | Sur délai, `uploadSegment` garde le blob (bandeau, relance, abandon) ; `uploadBackup` le JETTE sans issue — sur `record.html`, sans rotation, ce blob est l'audio ENTIER de l'entretien | `record.html:1069`, `record_libre.html:1240` | VERIFIE-CONSO | **corrige** (c79e8b5, 2026-09-01 : blob rendu à l'utilisateur — `offrirBackupEnLocal` côté `record`, `backupPerdusLocaux` côté libre) |
 | N3 | MINEUR | La docstring de `_fenetre_recuperation` invoque « Enregistrer quand même » comme mitigation, porte de sortie qui n'existe QUE sur les chemins libres | `app/routers/interviews.py:2045` | VERIFIE-AGENT (exécuté) | differe |
 | N4 | MINEUR | Le test du marqueur d'abandon recopie le littéral au lieu de le dériver des templates : une réécriture en `⚠️` (sélecteur de variation) le laisse vert et réinjecte le marqueur dans le prompt | `tests/test_no_speech_et_marqueurs.py:136` | VERIFIE-AGENT | differe |
 | N5 | MINEUR | Rien ne verrouille la CONVERGENCE du chemin paramétré (N envois → écran de revue) ni la limite assumée de la fenêtre | `tests/test_record_segment_jobs.py:445` | VERIFIE-AGENT (exécuté) | differe |
