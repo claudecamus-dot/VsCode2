@@ -1,6 +1,6 @@
 ---
 name: agent-orchestrator
-description: Orchestrateur des agents et skills du projet — qualifie une demande de travail, compose un plan (cascade / parallèle / asynchrone, modèle par étape), l'exécute en s'appuyant sur le catalogue et les données du superviseur, puis journalise le run. Lance réellement du multi-agents via l'outil Agent (fan-out parallèle dans un même message, arrière-plan notifié, SendMessage pour continuer un sous-agent, isolation worktree pour les écritures concurrentes, modèle par agent). Sait aussi APPLIQUER une recommandation arbitrée du superviseur (findings de diagnostic.json des deux volets — usage des agents ET pratiques test/dev/revue/design) via le playbook evolution-flotte, puis enregistrer l'arbitrage. Traite la commande « adopte <trouvaille> » (verbe d'arbitrage de la veille) : applique la regle_proposee au référentiel/scan et l'action_corrective aux projets concernés, passe l'entrée de veille.json en adopte (ou ecarte) et trace l'arbitrage. CONVOQUE les 12 salles de table ronde du hub (§ 2 septies) quand la demande pose un choix à instruire — refonte, adoption, partition d un chantier, faux consensus — au lieu d un travail à exécuter : la salle délibère et rend un compte rendu qui alimente le plan, elle ne modifie aucun fichier. Route les 46 skills BMAD installées par besoin détecté (table de § 2 quinquies : d'office pour les passes de lecture/critique qui rendent un rapport — revue, recherche, rétrospective ; annoncé-puis-validé dès qu'une skill coûte cher OU écrit un fichier réel — PRD, architecture, stories, code, documentation) et dispose pour cela de sous-agents porteurs de l'outil Skill — bmad-revue, bmad-doc, bmad-recherche, bmad-cadrage, bmad-livraison. Atteignable de trois façons : cette skill, le sous-agent agent-orchestrator (délégation d'une orchestration entière), ou la commande /orchestre. À charger quand une demande implique plusieurs étapes/agents, des vérifications obligatoires, ou « applique/traite la reco du superviseur » — ou quand la grille du hook UserPromptSubmit route ici.
+description: Orchestrateur des agents et skills du projet — qualifie une demande de travail, compose un plan (cascade / parallèle / asynchrone, modèle par étape), l'exécute en s'appuyant sur le catalogue et les données du superviseur, puis journalise le run. Lance réellement du multi-agents via l'outil Agent (fan-out parallèle dans un même message, arrière-plan notifié, SendMessage pour continuer un sous-agent, isolation worktree pour les écritures concurrentes, modèle par agent). Sait aussi APPLIQUER une recommandation arbitrée du superviseur (findings de diagnostic.json des deux volets — usage des agents ET pratiques test/dev/revue/design) via le playbook evolution-flotte, puis enregistrer l'arbitrage. Traite la commande « adopte <trouvaille> » (verbe d'arbitrage de la veille) : applique la regle_proposee au référentiel/scan et l'action_corrective aux projets concernés, passe l'entrée de veille.json en adopte (ou ecarte) et trace l'arbitrage. CONVOQUE les 12 salles de table ronde du hub (§ 2 septies) quand la demande pose un choix à instruire — refonte, adoption, partition d un chantier, faux consensus — au lieu d un travail à exécuter : la salle délibère et rend un compte rendu qui alimente le plan, elle ne modifie aucun fichier. Route les 46 skills BMAD installées par besoin détecté (table de § 2 quinquies : d'office pour les passes de lecture/critique qui rendent un rapport — revue, recherche, rétrospective ; annoncé-puis-validé dès qu'une skill coûte cher OU écrit un fichier réel — PRD, architecture, stories, code, documentation) et dispose pour cela de trois sous-agents porteurs de l'outil Skill — bmad-revue, bmad-recherche, veille-agentic ; les autres skills partent inline, quatre porteurs jamais invoques ayant ete mis en sommeil le 2026-09-01. Atteignable de trois façons : cette skill, le sous-agent agent-orchestrator (délégation d'une orchestration entière), ou la commande /orchestre. À charger quand une demande implique plusieurs étapes/agents, des vérifications obligatoires, ou « applique/traite la reco du superviseur » — ou quand la grille du hook UserPromptSubmit route ici.
 ---
 
 # Agent orchestrateur (étages O-A + O-B + O-C)
@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : 4348421 du 2026-09-01 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`4348421`, 2026-09-01) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 604fc7c du 2026-09-01 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`604fc7c`, 2026-09-01) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -142,11 +142,20 @@ description d'intention. Les gestes exacts :
   | Sous-agent | Pour | Modèle |
   | --- | --- | --- |
   | `bmad-revue` | Revue de code/diff, critique adversariale, cas limites, revue rédactionnelle, rétrospective (§ 2 quinquies) | opus |
-  | `bmad-doc` | Documentation brownfield, index, découpage, rédaction technique | sonnet |
   | `bmad-recherche` | Recherche technique / domaine / marché, idéation | sonnet |
-  | `bmad-cadrage` | Brief, PRD, PRFAQ, SPEC, architecture, UX — régime **proposé** | opus |
-  | `bmad-livraison` | Epics/stories, sprint, implémentation, tests e2e — régime **proposé** | sonnet |
   | `veille-agentic` | Veille agentic sur cadence (§ 2 sexies) — écrit `veille.json`, n'adopte rien | sonnet |
+
+  **Quatre porteurs ont ete mis en sommeil le 2026-09-01** (`agent-orchestrator`,
+  `bmad-cadrage`, `bmad-doc`, `bmad-livraison`) : jamais invoques en 33 jours, ils sont
+  sortis vers `.claude/agents-en-sommeil/`, qui porte la mesure et la facon de les
+  reveiller. Les rangees de la table BMAD qui les nommaient disent maintenant `—` : la
+  skill reste routee, elle part **inline**.
+
+  Le fait qui a pese : les deux seules skills BMAD jamais chargees le sont sans porteur
+  (`bmad-party-mode` par les salles, `bmad-customize` en direct), et `bmad-revue` a
+  tourne 7 fois sans en charger une seule. Le porteur n'est donc pas le mecanisme qui
+  fait partir une skill — c'est ce que dit deja le § 2 quinquies (« une skill BMAD dont
+  le travail tient dans la conversation courante s'invoque inline »).
   | `agent-supervisor` | Diagnostic étage 2 délégué — s'appuie sur `bmad-revue` et `veille-agentic` pour prouver ses findings, écrit `diagnostic.json`, n'applique rien | opus |
   | `agent-orchestrator` | Cet orchestrateur lui-même : déléguer une orchestration ENTIÈRE hors du contexte principal | hérité |
 - **Consolidation obligatoire** : un fan-out sans étape de synthèse qui recroise les
@@ -344,39 +353,39 @@ produirait un artefact sans lecteur.
 | Approfondir une sortie récente (socratique, prémortem, red team) | `bmad-advanced-elicitation` | `bmad-revue` | d'office |
 | Rétrospective de fin d'epic ou d'incrément | `bmad-retrospective` | `bmad-revue` | d'office |
 | S'orienter dans le catalogue BMAD, choisir la bonne skill | `bmad-help` | `bmad-revue` | d'office |
-| Documenter un projet existant (brownfield) pour le contexte IA | `bmad-document-project` | `bmad-doc` | proposé |
-| Créer / rafraîchir l'index d'un dossier de docs | `bmad-index-docs` | `bmad-doc` | proposé |
-| Découper un document trop gros en sections navigables | `bmad-shard-doc` | `bmad-doc` | proposé |
-| Rédiger ou curer de la documentation technique (Paige) | `bmad-agent-tech-writer` | `bmad-doc` | proposé |
+| Documenter un projet existant (brownfield) pour le contexte IA | `bmad-document-project` | `inline` | proposé |
+| Créer / rafraîchir l'index d'un dossier de docs | `bmad-index-docs` | `inline` | proposé |
+| Découper un document trop gros en sections navigables | `bmad-shard-doc` | `inline` | proposé |
+| Rédiger ou curer de la documentation technique (Paige) | `bmad-agent-tech-writer` | `inline` | proposé |
 | Recherche technique sur une techno, un framework, une archi | `bmad-technical-research` | `bmad-recherche` | d'office |
 | Recherche sur un domaine métier ou un secteur | `bmad-domain-research` | `bmad-recherche` | d'office |
 | Recherche marché, concurrence, clients | `bmad-market-research` | `bmad-recherche` | d'office |
 | Idéation cadrée sur un problème ouvert | `bmad-brainstorming` | `bmad-recherche` | d'office |
-| Brief produit initial | `bmad-product-brief` | `bmad-cadrage` | proposé |
-| PRD — créer, éditer ou valider | `bmad-prd` | `bmad-cadrage` | proposé |
-| PRFAQ Working Backwards (concept client-first) | `bmad-prfaq` | `bmad-cadrage` | proposé |
-| Durcir une idée par interrogation adverse | `bmad-forge-idea` | `bmad-cadrage` | proposé |
-| Distiller une intention en noyau SPEC machine | `bmad-spec` | `bmad-cadrage` | proposé |
-| Analyse métier et exigences (Mary) | `bmad-agent-analyst` | `bmad-cadrage` | proposé |
-| Cadrage produit conduit par un PM (John) | `bmad-agent-pm` | `bmad-cadrage` | proposé |
-| Architecture technique (colonne d'invariants) | `bmad-architecture` | `bmad-cadrage` | proposé |
-| Conception système conduite par un architecte (Winston) | `bmad-agent-architect` | `bmad-cadrage` | proposé |
-| Specs UX, patterns d'interaction | `bmad-ux` | `bmad-cadrage` | proposé |
-| Design UX/UI conduit par une designer (Sally) | `bmad-agent-ux-designer` | `bmad-cadrage` | proposé |
-| Écrire les règles IA du projet (project-context.md) | `bmad-generate-project-context` | `bmad-cadrage` | proposé |
-| Table ronde multi-personas / focus group | `bmad-party-mode` | `bmad-cadrage` | proposé |
-| Customiser une skill BMAD (party, personas, overrides de config) | `bmad-customize` | `bmad-cadrage` | proposé |
-| Découper des exigences en epics et stories | `bmad-create-epics-and-stories` | `bmad-livraison` | proposé |
-| Écrire une story prête à implémenter | `bmad-create-story` | `bmad-livraison` | proposé |
-| Construire le plan de sprint depuis les epics | `bmad-sprint-planning` | `bmad-livraison` | proposé |
-| État du sprint, risques à surfacer | `bmad-sprint-status` | `bmad-livraison` | proposé |
-| Changement significatif en cours de sprint | `bmad-correct-course` | `bmad-livraison` | proposé |
-| Vérifier que PRD/UX/archi/epics sont prêts pour l'implémentation | `bmad-check-implementation-readiness` | `bmad-livraison` | proposé |
-| Implémenter une story déjà spécifiée | `bmad-dev-story` | `bmad-livraison` | proposé |
-| Boucle de développement non surveillée (une itération) | `bmad-dev-auto` | `bmad-livraison` | proposé |
-| Implémenter directement une intention / un correctif | `bmad-quick-dev` | `bmad-livraison` | proposé |
-| Exécution d'histoire conduite par un dev senior (Amelia) | `bmad-agent-dev` | `bmad-livraison` | proposé |
-| Générer des tests e2e sur une feature existante | `bmad-qa-generate-e2e-tests` | `bmad-livraison` | proposé |
+| Brief produit initial | `bmad-product-brief` | `inline` | proposé |
+| PRD — créer, éditer ou valider | `bmad-prd` | `inline` | proposé |
+| PRFAQ Working Backwards (concept client-first) | `bmad-prfaq` | `inline` | proposé |
+| Durcir une idée par interrogation adverse | `bmad-forge-idea` | `inline` | proposé |
+| Distiller une intention en noyau SPEC machine | `bmad-spec` | `inline` | proposé |
+| Analyse métier et exigences (Mary) | `bmad-agent-analyst` | `inline` | proposé |
+| Cadrage produit conduit par un PM (John) | `bmad-agent-pm` | `inline` | proposé |
+| Architecture technique (colonne d'invariants) | `bmad-architecture` | `inline` | proposé |
+| Conception système conduite par un architecte (Winston) | `bmad-agent-architect` | `inline` | proposé |
+| Specs UX, patterns d'interaction | `bmad-ux` | `inline` | proposé |
+| Design UX/UI conduit par une designer (Sally) | `bmad-agent-ux-designer` | `inline` | proposé |
+| Écrire les règles IA du projet (project-context.md) | `bmad-generate-project-context` | `inline` | proposé |
+| Table ronde multi-personas / focus group | `bmad-party-mode` | `inline` | proposé |
+| Customiser une skill BMAD (party, personas, overrides de config) | `bmad-customize` | `inline` | proposé |
+| Découper des exigences en epics et stories | `bmad-create-epics-and-stories` | `inline` | proposé |
+| Écrire une story prête à implémenter | `bmad-create-story` | `inline` | proposé |
+| Construire le plan de sprint depuis les epics | `bmad-sprint-planning` | `inline` | proposé |
+| État du sprint, risques à surfacer | `bmad-sprint-status` | `inline` | proposé |
+| Changement significatif en cours de sprint | `bmad-correct-course` | `inline` | proposé |
+| Vérifier que PRD/UX/archi/epics sont prêts pour l'implémentation | `bmad-check-implementation-readiness` | `inline` | proposé |
+| Implémenter une story déjà spécifiée | `bmad-dev-story` | `inline` | proposé |
+| Boucle de développement non surveillée (une itération) | `bmad-dev-auto` | `inline` | proposé |
+| Implémenter directement une intention / un correctif | `bmad-quick-dev` | `inline` | proposé |
+| Exécution d'histoire conduite par un dev senior (Amelia) | `bmad-agent-dev` | `inline` | proposé |
+| Générer des tests e2e sur une feature existante | `bmad-qa-generate-e2e-tests` | `inline` | proposé |
 
 **Le gel de `bmad-customize` est LEVÉ** (arbitrage utilisateur du 2026-07-31). L'arbitrage
 `skills-jamais-utilisees` du 2026-07-27 avait posé « aucune customisation jusqu'à la v7 » :
