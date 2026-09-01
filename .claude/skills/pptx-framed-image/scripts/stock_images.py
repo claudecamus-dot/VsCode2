@@ -66,17 +66,30 @@ def fetch_to(path, query, seed=0, aspect_ratio=None, manifest_path=None):
     if not img_url.lower().startswith(_SCHEMES_AUTORISES):
         raise ValueError(f"refused non-http(s) image URL from Openverse: {img_url[:80]!r}")
     req = urllib.request.Request(img_url, headers={"User-Agent": "bmad-iap-cadrage-ppt/1.0"})
-    with urllib.request.urlopen(req, timeout=20) as r, open(path, "wb") as f:
-        recu = 0
-        while True:
-            bloc = r.read(64 * 1024)
-            if not bloc:
-                break
-            recu += len(bloc)
-            if recu > _TAILLE_MAX:
-                raise ValueError(
-                    f"image over {_TAILLE_MAX} bytes, download aborted: {img_url[:80]!r}")
-            f.write(bloc)
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r, open(path, "wb") as f:
+            recu = 0
+            while True:
+                bloc = r.read(64 * 1024)
+                if not bloc:
+                    break
+                recu += len(bloc)
+                if recu > _TAILLE_MAX:
+                    raise ValueError(
+                        f"image over {_TAILLE_MAX} bytes, download aborted: {img_url[:80]!r}")
+                f.write(bloc)
+    except BaseException:
+        # Le plafond arrêtait bien le téléchargement, mais laissait les 25 Mo déjà
+        # écrits SOUS LE NOM DE L'IMAGE ATTENDUE (mesuré : 26 214 400 octets) : le deck
+        # aurait embarqué un fichier tronqué, ou le cache aurait grossi d'un fichier que
+        # personne ne réclame. Un refus qui laisse son échec derrière lui n'est un refus
+        # qu'à moitié. `BaseException` et non `Exception` : une interruption clavier
+        # laisse le même déchet.
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+        raise
     if manifest_path:
         _record(manifest_path, os.path.basename(path), query, creator, page_url)
     return path
