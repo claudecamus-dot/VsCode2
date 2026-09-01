@@ -1,8 +1,9 @@
 # +-- GÉNÉRÉ — NE PAS ÉDITER LOCALEMENT ---------------------------------------
 # | Source de vérité : hub de supervision VScode5, .claude/dispositif/canon/scan_transcripts.py
-# | Propagé par .claude/dispositif/sync_dispositif.py. Toute correction se fait
-# | DANS le canon du hub, puis « py .claude/dispositif/sync_dispositif.py »
-# | re-synchronise la flotte — sinon la modification locale sera écrasée.
+# | Une correction faite ICI sera ÉCRASÉE à la prochaine propagation. Pour la
+# | garder : la signaler au hub, qui corrige le canon et re-synchronise.
+# | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
+# |  n'est pas déployé, il n'existe pas dans ce dépôt.)
 # +---------------------------------------------------------------------------
 
 """Superviseur d'agents — étage 1 (incrément A) : collecte déterministe, 0 token LLM.

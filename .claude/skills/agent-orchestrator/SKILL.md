@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : f2490bf du 2026-09-01 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`f2490bf`, 2026-09-01) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 4348421 du 2026-09-01 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`4348421`, 2026-09-01) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -267,7 +267,9 @@ Une entrée `ecarte` se refuse de la même façon (« écarte X »), avec sa rai
 3. **Appliquer les deux débouchés** que porte l'entrée, quand ils existent :
    - `regle_proposee` → **règle d'analyse** : l'inscrire au référentiel
      `docs/wiki/technical/criteres-pratiques.md`, et si elle est mesurable à froid,
-     l'outiller dans `scripts/scan_projets.py` (nouveau marqueur, 0 token) avec ses
+     l'outiller dans le scanner du HUB (`scripts/scan_projets.py`, qui n'existe que là
+     — le scanner déployé chez une cible est `.claude/supervision/scan_transcripts.py`)
+     avec ses
      tests de non-régression. C'est ce qui fait passer un critère ⬜ en ✅.
    - `action_corrective` → **le correctif lui-même** : sur un autre dépôt, via le
      playbook `evolution-flotte` (cadrage réel → modif scopée → vérifs → commit scopé) ;
@@ -462,7 +464,8 @@ et c'est l'orchestrateur qui la tient.
 **Ce qui suit le retour de la veille**, dans l'ordre — et c'est là que la plupart des
 dispositifs de veille meurent :
 
-1. **Régénérer le wiki** (`py scripts/scan_projets.py`) : la section 3 « Veille agentic »
+1. **Régénérer le wiki** — au HUB, `py scripts/scan_projets.py` (ce script n'est pas
+   déployé : depuis une cible, il n'y a pas de wiki à régénérer) : la section 3 « Veille agentic »
    affiche les trouvailles et leur statut. Une veille écrite mais non propagée est
    invisible.
 2. **Présenter les trouvailles à l'utilisateur**, une ligne chacune avec sa
@@ -513,6 +516,26 @@ chose sans terminal.
 
 **Coût.** Une salle en `subagent` = une session par voix, soit 3 à 5 sessions. C'est le
 prix du désaccord réel ; il ne se paie que sur un vrai choix. Une seule salle à la fois.
+
+**Une salle neuve n'entre pas dans le kit publié sur son test de câblage.** Règle posée
+le 2026-09-01 (finding `salles:accueil-projet,conseil-flotte,atelier-deck,mise-en-service`,
+arbitré « rien retirer, poser la règle anti-récidive »). Le dispositif est passé de 9 à
+12 salles pendant que quatre de la première génération n'avaient jamais siégé ailleurs
+que dans leur propre run de création — et la réponse apportée avait été d'en créer trois
+de plus. Convocations mesurées le 2026-09-01 sur les 97 runs : `atelier-idees` 7,
+`atelier-dev` 4, `revue-consommation` 3, `observatoire-agentic` 2 ; `conseil-flotte`,
+`atelier-deck`, `mise-en-service` et `socle-technique` 1 chacune — leur run de création ;
+`accueil-projet`, `code-review-crew`, `inspection-critique` et `anti-consensus-club`
+**zéro**. Une salle se publie donc après une **convocation réelle sur une demande
+utilisateur**, jamais après le test qui prouve qu'elle est atteignable.
+
+Et se garder de la lecture inverse : ces salles ont toutes un déclencheur nommé dans
+`SALLES-ROUTAGE` — `tests/test_salles_routage.py` l'exige déjà de chacune. Le déclencheur
+n'est donc pas ce qui leur manquait, et lui en ajouter un n'aurait rien changé. Ce qui
+manque à une salle jamais convoquée, c'est une demande qui lui ressemble ; si aucune n'est
+venue en un mois, la question est sa raison d'être, pas son câblage. Aucune n'a été mise
+en sommeil le 2026-09-01 : trois des quatre à zéro dataient de la veille, et les juger à
+un jour aurait été ne pas leur laisser leur chance.
 
 <!-- SALLES-ROUTAGE:START — table verrouillée par tests/test_salles_routage.py : toute
      salle citée ici doit exister dans _bmad/custom/bmad-party-mode.toml, et toute salle

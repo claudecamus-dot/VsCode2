@@ -1,8 +1,9 @@
 # +-- GÉNÉRÉ — NE PAS ÉDITER LOCALEMENT ---------------------------------------
 # | Source de vérité : hub de supervision VScode5, .claude/dispositif/canon/log_run.py
-# | Propagé par .claude/dispositif/sync_dispositif.py. Toute correction se fait
-# | DANS le canon du hub, puis « py .claude/dispositif/sync_dispositif.py »
-# | re-synchronise la flotte — sinon la modification locale sera écrasée.
+# | Une correction faite ICI sera ÉCRASÉE à la prochaine propagation. Pour la
+# | garder : la signaler au hub, qui corrige le canon et re-synchronise.
+# | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
+# |  n'est pas déployé, il n'existe pas dans ce dépôt.)
 # +---------------------------------------------------------------------------
 
 """Journal des orchestrations (étage O-A) — append d'un run dans runs.jsonl.
@@ -91,7 +92,7 @@ def solder(argv) -> int:
     run["resultat"] = resultat
     date = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
     run["notes"] = (str(run.get("notes", "")) + f" | solde {date} : {note}").strip(" |")
-    # Ecriture atomique (meme convention que scripts/scan_projets.py) : "w" direct sur
+    # Ecriture atomique (meme convention que .claude/supervision/scan_transcripts.py) : "w" direct sur
     # RUNS_PATH tronque les 94 Ko du journal a mi-parcours si l'ecriture est interrompue
     # (Ctrl-C, coupure, disque plein). Le temporaire vit dans le meme repertoire pour
     # que os.replace reste atomique (meme volume, Windows comme POSIX).

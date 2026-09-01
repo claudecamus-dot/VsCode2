@@ -46,11 +46,37 @@ def search_photo(query, seed=0, aspect_ratio=None):
     return p["url"], p.get("creator") or "inconnu", p.get("foreign_landing_url", "")
 
 
+# Openverse agrège des sources tierces (Wikimedia, Flickr, StockSnap…) : `img_url` est
+# une donnée qu'on ne contrôle pas. Or `urllib.request.urlopen` suit le schéma `file://`
+# par défaut — vérifié, il lit un fichier local — donc une entrée dont l'`url` n'est pas
+# http(s) faisait recopier un fichier arbitraire du poste dans le cache d'images du deck.
+# Et `r.read()` sans plafond charge toute la réponse en mémoire : un serveur tiers
+# décidait de la mémoire de la machine.
+#
+# Les deux fermés le 2026-09-01. La garde existait déjà dans la copie VSCode3 et
+# manquait aux 6 autres, dont CELLE-CI qui est la source du kit : c'est la session
+# VSCode3 qui l'a signalé, en instruisant sa propre doctrine de resynchronisation —
+# laquelle aurait supprimé son correctif en la réalignant sur nous.
+_SCHEMES_AUTORISES = ("http://", "https://")
+_TAILLE_MAX = 25 * 1024 * 1024   # 25 Mo : large pour une photo, borné pour la mémoire
+
+
 def fetch_to(path, query, seed=0, aspect_ratio=None, manifest_path=None):
     img_url, creator, page_url = search_photo(query, seed=seed, aspect_ratio=aspect_ratio)
+    if not img_url.lower().startswith(_SCHEMES_AUTORISES):
+        raise ValueError(f"refused non-http(s) image URL from Openverse: {img_url[:80]!r}")
     req = urllib.request.Request(img_url, headers={"User-Agent": "bmad-iap-cadrage-ppt/1.0"})
     with urllib.request.urlopen(req, timeout=20) as r, open(path, "wb") as f:
-        f.write(r.read())
+        recu = 0
+        while True:
+            bloc = r.read(64 * 1024)
+            if not bloc:
+                break
+            recu += len(bloc)
+            if recu > _TAILLE_MAX:
+                raise ValueError(
+                    f"image over {_TAILLE_MAX} bytes, download aborted: {img_url[:80]!r}")
+            f.write(bloc)
     if manifest_path:
         _record(manifest_path, os.path.basename(path), query, creator, page_url)
     return path

@@ -160,7 +160,13 @@ def _session_tool_uses(transcript_path):
 def _verif_ran(transcript_path):
     """True si une vraie exécution de vérif est présente dans le transcript de session."""
     for name, inp in _session_tool_uses(transcript_path):
-        if name == "Bash":
+        # PowerShell est le shell PRIMAIRE de cet environnement : ne reconnaître
+        # que Bash faisait crier « vérif non détectée » à un commit qui venait de
+        # lancer pytest en PowerShell (2026-09-01, signalé par le hub, reproduit
+        # par appel direct de `_verif_ran`). Un garde-fou qui crie au loup quand
+        # la vérif A eu lieu finit ignoré — donc ignoré aussi le jour où il a
+        # raison. Les deux outils exposent la commande sous la même clé.
+        if name in ("Bash", "PowerShell"):
             cmd = (inp.get("command") or "").lower()
             if any(k in cmd for k in _VERIF_BASH):
                 return True
@@ -175,7 +181,11 @@ def _dispositif_verif_ran(transcript_path):
     pytest ciblant `tests/test_agent_*`, ou une suite complète (pytest sans chemin
     `tests/...`, qui les inclut de fait)."""
     for name, inp in _session_tool_uses(transcript_path):
-        if name != "Bash":
+        # Même aveuglement PowerShell que `_verif_ran` ci-dessus, sur le chemin
+        # frère — non signalé par le hub, trouvé en relisant les DEUX
+        # détections : corriger l'occurrence nommée et laisser sa jumelle est
+        # une leçon déjà payée sur ce dépôt.
+        if name not in ("Bash", "PowerShell"):
             continue
         cmd = (inp.get("command") or "").lower().replace("\\", "/")
         if "pytest" not in cmd:
