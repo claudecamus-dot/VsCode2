@@ -344,6 +344,11 @@
       "categories": [
         "agent-mort"
       ]
+    },
+    {
+      "cible": "bmad-revue",
+      "date": "2026-09-02",
+      "decision": "ACCEPTÉ + APPLIQUÉ (arbitrage utilisateur du 2026-09-02). Le porteur de revue n'avait pas l'outil `Agent`, donc les couches adversariales de `bmad-code-review` — Blind Hunter, Edge Case Hunter, Acceptance Auditor — s'exécutaient EN SÉQUENCE dans un seul contexte : la troisième lisait ce que la première avait écrit, et le garde-fou anti-complaisance devenait un relecteur unique qui se relit. LA DÉGRADATION NE SE DÉDUISAIT PAS, elle était enregistrée DEUX FOIS dans `runs.jsonl` par les runs eux-mêmes (2026-08-31T22:07 et 2026-09-01T18:32) : le dispositif se plaignait de lui-même dans son propre journal, et personne ne lisait la plainte. Corrigé au hub (`.claude/agents/bmad-revue.md`), republié dans le kit, propagé aux 4 dépôts qui portent ce fichier — vérifié avant écrasement : la seule ligne remplacée est l'ancienne ligne `tools`, aucun travail local perdu. ET L'OUTIL SEUL N'AURAIT RIEN CHANGÉ : le mandat prescrit désormais le GESTE — plusieurs appels `Agent` dans un SEUL message (un par message est une cascade, donc l'inverse du but), briefs autoportants qui ne disent pas aux autres couches ce qu'une couche a trouvé, puis consolidation ; une couche qui n'a pas besoin d'être aveugle s'invoque inline. Donner un outil sans prescrire son usage est exactement le défaut mesuré le même jour sur les 46 skills BMAD. Test au hub, vu ROUGE, nommément sur ce porteur : `bmad-recherche` et `veille-agentic` n'ont aucune couche parallèle à dispatcher, leur donner `Agent` élargirait une surface sans besoin mesuré."
     }
   ]
 }
