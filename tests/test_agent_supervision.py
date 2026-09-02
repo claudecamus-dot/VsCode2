@@ -12,6 +12,8 @@ from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / ".claude" / "supervision" / "scan_transcripts.py"
 WRITE_DIAG = Path(__file__).resolve().parents[1] / ".claude" / "supervision" / "write_diagnostic.py"
+COMPTER_TRIAGE = (Path(__file__).resolve().parents[1] / ".claude" / "supervision"
+                  / "compter_triage.py")
 
 
 def _line(skill=None, subagent=None, ts="2026-07-17T10:00:00Z"):
@@ -318,11 +320,26 @@ def test_diagnostic_arbitre_disparait_du_todo_et_de_la_prudence_mais_reste_mesur
 
 
 def _write_diag(tmp_path, payload):
+    # `arbitrages.json` est TOUJOURS isolé dans tmp_path : depuis que le script est un
+    # registre à état (2026-09-02), il lit ce fichier pour savoir quel constat reporter.
+    # Sans cette ligne, les tests liraient les VRAIS arbitrages du dépôt et leur verdict
+    # changerait à chaque décision humaine.
     return subprocess.run(
         [sys.executable, str(WRITE_DIAG), json.dumps(payload, ensure_ascii=False)],
-        env=dict(os.environ, AGENT_SUPERVISION_DIAGNOSTIC=str(tmp_path / "diagnostic.json")),
+        env=dict(os.environ, AGENT_SUPERVISION_DIAGNOSTIC=str(tmp_path / "diagnostic.json"),
+                 AGENT_SUPERVISION_ARBITRAGES=str(tmp_path / "arbitrages.json")),
         capture_output=True, text=True, timeout=30, encoding="utf-8",
     )
+
+
+def _arbitrages(tmp_path, *entries):
+    (tmp_path / "arbitrages.json").write_text(
+        json.dumps({"arbitrages": list(entries)}, ensure_ascii=False), encoding="utf-8")
+
+
+def _cibles(tmp_path):
+    diag = json.loads((tmp_path / "diagnostic.json").read_text(encoding="utf-8"))
+    return [f.get("cible") for f in diag["findings"]]
 
 
 def test_write_diagnostic_valide_et_horodate(tmp_path):
@@ -460,6 +477,128 @@ def test_write_diagnostic_refuse_plus_de_cinq_constats(tmp_path):
     ]})
     assert out.returncode == 1 and "maximum 5" in out.stdout
     assert not (tmp_path / "diagnostic.json").exists()
+
+
+# --- Registre à état : un constat ne disparaît que fermé par un arbitrage (2026-09-02) ---
+
+
+def test_ecrire_un_diagnostic_ne_supprime_pas_les_constats_non_arbitres(tmp_path):
+    """Le mode d'échec mesuré : `open(w)` + `dump` du seul contenu neuf effaçait les
+    constats précédents non tranchés, sans trace ni avertissement — la boucle
+    propose→arbitre→applique fuyait à son premier maillon. Des 5 constats du
+    2026-09-01T23:00, un seul avait été arbitré quand l'écriture suivante les a tous
+    remplacés."""
+    _arbitrages(tmp_path)
+    assert _write_diag(tmp_path, {"findings": [
+        {"categorie": "interaction", "cible": "A", "titre": "constat A", "preuve": "p"},
+        {"categorie": "autre", "cible": "B", "titre": "constat B", "preuve": "p"},
+    ]}).returncode == 0
+
+    out = _write_diag(tmp_path, {"findings": [
+        {"categorie": "autre", "cible": "C", "titre": "constat C", "preuve": "p"}]})
+    assert out.returncode == 0, out.stdout
+    # Le constat neuf d'abord, les reportés ensuite — et surtout : A et B SURVIVENT.
+    assert _cibles(tmp_path) == ["C", "A", "B"]
+    assert "2 reporte(s)" in out.stdout
+
+
+def test_un_constat_ferme_par_un_arbitrage_posterieur_disparait(tmp_path):
+    """La contrepartie : le report n'est pas une accumulation sans fin. L'arbitrage
+    humain reste le SEUL mécanisme qui retire un constat du registre."""
+    _arbitrages(tmp_path)
+    _write_diag(tmp_path, {"findings": [
+        {"categorie": "interaction", "cible": "A", "titre": "constat A", "preuve": "p"},
+        {"categorie": "autre", "cible": "B", "titre": "constat B", "preuve": "p"},
+    ]})
+    _arbitrages(tmp_path, {"cible": "A", "date": dt.date.today().isoformat(),
+                           "decision": "ACCEPTÉ + APPLIQUÉ", "source": "test"})
+    _write_diag(tmp_path, {"findings": [
+        {"categorie": "autre", "cible": "D", "titre": "constat D", "preuve": "p"}]})
+    assert _cibles(tmp_path) == ["D", "B"], "A est tranché, B ne l'est pas"
+
+
+def test_un_arbitrage_anterieur_a_la_premiere_vue_ne_ferme_pas_le_constat(tmp_path):
+    """`vu_le` date la fenêtre d'arbitrage. Une décision PRISE AVANT que le constat
+    n'existe ne peut pas l'avoir tranché — sinon un vieil arbitrage sur la même cible
+    enterrerait en silence tout constat futur, ce que le report existe pour empêcher."""
+    _arbitrages(tmp_path, {"cible": "B", "date": "2020-01-01",
+                           "decision": "décision sans rapport", "source": "test"})
+    _write_diag(tmp_path, {"findings": [
+        {"categorie": "autre", "cible": "B", "titre": "constat B", "preuve": "p"}]})
+    _write_diag(tmp_path, {"findings": [
+        {"categorie": "autre", "cible": "E", "titre": "constat E", "preuve": "p"}]})
+    assert _cibles(tmp_path) == ["E", "B"]
+
+
+def test_un_constat_reconduit_garde_sa_date_de_premiere_vue(tmp_path):
+    """`vu_le` distingue « vu hier et toujours pas tranché » de « trouvé aujourd'hui ».
+    Un constat re-signalé qui repartirait à la date du jour repousserait indéfiniment sa
+    propre fenêtre d'arbitrage et ne serait jamais reconnu comme tranché."""
+    _arbitrages(tmp_path)
+    _write_diag(tmp_path, {"findings": [
+        {"categorie": "autre", "cible": "B", "titre": "constat B", "preuve": "p"}]})
+    diag = json.loads((tmp_path / "diagnostic.json").read_text(encoding="utf-8"))
+    diag["findings"][0]["vu_le"] = "2026-01-15"
+    (tmp_path / "diagnostic.json").write_text(json.dumps(diag, ensure_ascii=False),
+                                              encoding="utf-8")
+    _write_diag(tmp_path, {"findings": [
+        {"categorie": "autre", "cible": "B", "titre": "constat B, reformule", "preuve": "p2"}]})
+    reconduit = json.loads((tmp_path / "diagnostic.json").read_text(encoding="utf-8"))["findings"][0]
+    assert reconduit["vu_le"] == "2026-01-15", "la reformulation ne rajeunit pas le constat"
+    assert reconduit["preuve"] == "p2", "mais le contenu, lui, est bien celui du jour"
+
+
+def test_le_plafond_refuse_d_ecrire_et_nomme_les_constats_en_attente(tmp_path):
+    """Le plafond force l'ARBITRAGE humain au lieu de provoquer un oubli : plutôt que
+    d'écraser des constats que personne n'a tranchés, on refuse d'écrire ET on les nomme,
+    faute de quoi le superviseur ne saurait pas quoi arbitrer."""
+    _arbitrages(tmp_path)
+    for cible in ("A", "B", "C", "D"):
+        _write_diag(tmp_path, {"findings": [
+            {"categorie": "autre", "cible": cible, "titre": f"constat {cible}", "preuve": "p"}]})
+    avant = (tmp_path / "diagnostic.json").read_text(encoding="utf-8")
+
+    out = _write_diag(tmp_path, {"findings": [
+        {"categorie": "autre", "cible": "X", "titre": "x", "preuve": "p"},
+        {"categorie": "autre", "cible": "Y", "titre": "y", "preuve": "p"},
+    ]})
+    assert out.returncode == 1
+    assert "2 constat(s) neuf(s) + 4 reporte(s) = 6, maximum 5" in out.stdout
+    for cible in ("A", "B", "C", "D"):
+        assert f"{cible} : constat {cible}" in out.stdout, "chaque constat en attente est nommé"
+    assert (tmp_path / "diagnostic.json").read_text(encoding="utf-8") == avant, \
+        "un refus ne touche pas au fichier"
+
+
+def test_un_diagnostic_sans_vu_le_est_date_par_son_ecriture(tmp_path):
+    """Rétro-compatibilité : un diagnostic écrit avant l'existence de `vu_le` n'en porte
+    pas. Sans repli sur sa date d'écriture, la comparaison `date >= ""` serait vraie pour
+    n'importe quel arbitrage et refermerait en silence exactement ce qu'on veut sauver."""
+    (tmp_path / "diagnostic.json").write_text(json.dumps({
+        "generated": "2026-08-20T10:00:00+02:00",
+        "findings": [{"categorie": "autre", "cible": "B", "titre": "ancien", "preuve": "p"}],
+    }, ensure_ascii=False), encoding="utf-8")
+    _arbitrages(tmp_path, {"cible": "B", "date": "2026-08-01",
+                           "decision": "antérieure au constat", "source": "test"})
+    _write_diag(tmp_path, {"findings": [
+        {"categorie": "autre", "cible": "Z", "titre": "z", "preuve": "p"}]})
+    assert _cibles(tmp_path) == ["Z", "B"], "l'arbitrage du 01/08 ne ferme pas un constat vu le 20/08"
+
+
+def test_un_arbitrage_restreint_par_categorie_ne_ferme_pas_une_autre_categorie(tmp_path):
+    """Miroir de `_couvre` côté scan : un arbitrage de *routage* ne doit pas masquer un
+    constat de *vérification* sur la même cible. Les deux lectures doivent coïncider,
+    sinon le scan afficherait un constat que le registre a déjà jeté."""
+    _arbitrages(tmp_path)
+    _write_diag(tmp_path, {"findings": [
+        {"categorie": "verification-manquante", "cible": "A", "titre": "vérif absente",
+         "preuve": "p"}]})
+    _arbitrages(tmp_path, {"cible": "A", "date": dt.date.today().isoformat(),
+                           "decision": "agent activé", "source": "test",
+                           "categories": ["agent-mort"]})
+    _write_diag(tmp_path, {"findings": [
+        {"categorie": "autre", "cible": "W", "titre": "w", "preuve": "p"}]})
+    assert _cibles(tmp_path) == ["W", "A"]
 
 
 def test_un_arbitrage_pris_depuis_le_diagnostic_referme_un_re_challenge(tmp_path):
@@ -675,3 +814,76 @@ def test_runs_a_solder_signale_les_attentes_de_plus_de_24h():
     ouverts = mod.runs_a_solder(runs, maintenant=maintenant)
     assert [r["demande"] for r in ouverts] == ["vieux run", "un jour"]
     assert ouverts[0]["heures"] == 96  # tri du plus vieux au plus récent, âge exact
+
+
+# --- Backlog de revue : compteur déterministe de .claude/triage (2026-09-02) ---
+
+
+def _triage(tmp_path, nom, contenu):
+    d = tmp_path / "triage"
+    d.mkdir(exist_ok=True)
+    (d / nom).write_text(contenu, encoding="utf-8")
+    return d
+
+
+def _compter(tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("compter_triage", COMPTER_TRIAGE)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.mesurer(str(tmp_path / "triage"))
+
+
+def test_le_compteur_de_triage_separe_ouverts_et_clos(tmp_path):
+    """La mesure qui manquait : une revue facturée dont les constats ne sont ni corrigés
+    ni arbitrés est une dépense sans achat, et rien ne la voyait."""
+    _triage(tmp_path, "2026-08-31-revue.md", (
+        "| id | titre | statut |\n"
+        "| --- | --- | --- |\n"
+        "| B1 | un bloquant | **corrigé** (abc1234) |\n"
+        "| F1 | un mineur | differe |\n"
+        "| F2 | un autre | différé — portée réduite |\n"
+        "| F3 | à moitié | **partiel** (2 écrans sur 3) |\n"
+    ))
+    m = _compter(tmp_path)
+    assert m["total"]["corrige"] == 1
+    assert m["total"]["differe"] == 2, "les deux graphies, accentuée ou non, comptent"
+    assert m["total"]["partiel"] == 1
+    assert m["ouverts"] == 3, "differe + partiel restent ouverts ; corrige non"
+
+
+def test_le_compteur_signale_les_lignes_sans_statut_au_lieu_de_les_ignorer(tmp_path):
+    """C'est la raison MESURÉE pour laquelle personne ne comptait ce backlog : les
+    fichiers de triage n'avaient pas de structure commune. Un compteur qui les ignorerait
+    en silence rendrait « 0 constat ouvert » sur un fichier qui en porte dix-huit."""
+    _triage(tmp_path, "2026-09-02-revue.md", (
+        "| id | Fichier | Constat |\n"
+        "| --- | --- | --- |\n"
+        "| MID-NEG | interviews.py:1824 | ouvre la route aux id négatifs |\n"
+        "| CHURN | interviews.py:15 | mêle isort et correctif |\n"
+    ))
+    m = _compter(tmp_path)
+    assert m["ouverts"] == 0
+    assert m["total"]["sans_statut"] == 2, "signalées, donc corrigeables"
+
+
+def test_le_compteur_date_le_plus_ancien_backlog_encore_ouvert(tmp_path):
+    """Un backlog de 3 jours et un backlog de 3 mois ne disent pas la même chose. Un
+    fichier entièrement soldé ne doit PAS vieillir le compteur."""
+    _triage(tmp_path, "2026-01-01-vieille-revue-soldee.md", (
+        "| id | statut |\n| --- | --- |\n| A1 | corrigé |\n"))
+    _triage(tmp_path, "2026-08-20-revue-ouverte.md", (
+        "| id | statut |\n| --- | --- |\n| B1 | differe |\n"))
+    m = _compter(tmp_path)
+    assert m["plus_ancien"] == "2026-08-20-revue-ouverte.md"
+    assert m["age_jours"] == (dt.date.today() - dt.date(2026, 8, 20)).days
+
+
+def test_le_compteur_ne_prend_ni_entetes_ni_separateurs_pour_des_constats(tmp_path):
+    _triage(tmp_path, "2026-09-02-revue.md", (
+        "| id | sév. | statut |\n"
+        "| --- | :---: | --- |\n"
+        "| B1 | bloquant | differe |\n"
+    ))
+    m = _compter(tmp_path)
+    assert m["ouverts"] == 1 and m["total"]["sans_statut"] == 0

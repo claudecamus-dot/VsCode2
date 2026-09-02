@@ -22,6 +22,20 @@ prio 4 — le gate a sauté sur un diff de 12 fichiers produit, commité PUIS re
   `revue-increment` (> 5 fichiers produit sous `app/`, JS de concurrence de
   `record*.html`, logique à risque) — en dessous, la revue inline suffit et l'étape saute.
 
+**Une étape ajoutée le 2026-09-02** (arbitrage utilisateur sur le constat superviseur
+`verification-manquante` — sept tours consécutifs où un correctif a introduit un défaut de
+la classe même qu'il corrigeait) :
+
+- `premisse`, **avant** l'implémentation et non en revue. Le gate de revue a fait son
+  travail les sept fois ; ce qui n'était jamais interrogé, c'est pourquoi la première
+  écriture se trompe systématiquement sur ce périmètre. La réponse mesurée : le correctif
+  repose sur un invariant que personne n'a vérifié. Le bloquant `D2-B2` du 2026-09-02 est
+  le cas d'école — la prémisse « les deux routes sont mutuellement exclusives » était
+  ÉCRITE dans le commentaire du correctif, et fausse dès que SQLite réattribue un
+  identifiant. Une lecture des deux routes avant d'écrire l'aurait montré.
+  L'étape est conditionnelle au périmètre à risque : elle ne coûte rien sur un changement
+  de libellé, et elle est le seul moment où l'erreur est encore gratuite.
+
 Frontière avec `export-ppt-verifie` : un changement de code qui *touche* l'export PPT au
 passage reste ici (l'étape `verification-pptx` couvre) ; quand le **livrable est le deck
 lui-même** (layout, contenu, visuel), préférer `export-ppt-verifie` qui déroule la chaîne
@@ -59,6 +73,17 @@ PPT complète (cadres photo, polish, passe design).
       "contrat": {
         "type": "deterministe",
         "critere": "fichiers concernés lus, appelants des fonctions/champs partagés grep-és avant modification"
+      },
+      "checkpoint": false
+    },
+    {
+      "id": "premisse",
+      "agent": "session principale",
+      "mode": "cascade",
+      "modele": "(session)",
+      "contrat": {
+        "type": "reel",
+        "critere": "SI le périmètre est à risque (suppression/écrasement de données, concurrence, chemins frères, identifiants réattribuables) : écrire en UNE PHRASE l'invariant sur lequel le correctif repose, puis le VÉRIFIER par une mesure sur le code réel AVANT d'écrire la première ligne — pas après, en revue. La mesure est une commande ou une lecture citée, jamais une conviction. Si la mesure INFIRME la prémisse, l'implémentation ne commence pas : le correctif est reconçu. La prémisse et sa mesure figurent dans le message de commit"
       },
       "checkpoint": false
     },

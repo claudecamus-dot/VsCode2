@@ -82,14 +82,17 @@ ci-dessus plutôt que d'en dupliquer la logique.
 
 ## 2. Vérification réelle (pytest vert ≠ livré)
 
-- [ ] **Rules R1-R4 du `CLAUDE.md` (§ « Rules — revue de code & couverture de tests »)
-      respectées sur CE diff** : chaque bug corrigé porte son test de régression dans le
-      même commit (R1) ; chaque comportement nouveau est exercé par un test (R2) ; une
-      revue de code a eu lieu avant commit — adversariale au-dessus du seuil, `/code-review`
-      ou relecture ligne à ligne dite explicitement en dessous (R3) ; chaque défaut visuel
-      deck corrigé est verrouillé par un invariant dans `test_deck_qualite.py` (R4).
+- [ ] **Règles P1-P4 du `CLAUDE.md` (§ « Règles de travail ») respectées sur CE diff** :
+      chaque bug corrigé porte son test de régression dans le même commit (P1) ; chaque
+      comportement nouveau est exercé par un test (P2) ; une revue de code a eu lieu avant
+      commit — adversariale au-dessus du seuil, `/code-review` ou relecture ligne à ligne
+      dite explicitement en dessous (P3) ; chaque défaut visuel deck corrigé est verrouillé
+      par un invariant dans `test_deck_qualite.py` (P4).
       Inscrites comme rules le 2026-07-22 (« il y a trop d'erreur ») — elles s'appliquent
       au moment d'écrire le code, cette checklist ne fait que les re-vérifier.
+      **Renumérotées R→P le 2026-09-02** : elles étaient citées « R1-R4 » comme les règles
+      de conduite du dispositif, qui portent d'autres énoncés sous les mêmes numéros. Deux
+      autorités homonymes dans le même dépôt, dont l'une n'avait plus de texte.
 - [ ] `pytest -q` passe, et le compte de tests a **augmenté** si du comportement
       a été ajouté (sinon : pourquoi ?).
 - [ ] **Verdict lu sur la ligne de synthèse *réelle* de `pytest`** (`N passed`,
@@ -235,6 +238,37 @@ ci-dessus plutôt que d'en dupliquer la logique.
       `state.json`, `routing-hints.json`, `runs.jsonl` — jamais les transcripts bruts),
       puis relancer le scan pour propager wiki + hints. Les constats sont restitués à
       l'utilisateur, qui arbitre.
+- [ ] **Backlog de revue mesuré** : `py .claude/supervision/compter_triage.py`. Une revue
+      adversariale est la dépense la plus lourde du dispositif ; ce qu'elle laisse ouvert
+      doit se compter, sinon elle ne rembourse pas. Un `sans_statut` non nul veut dire
+      qu'un fichier de triage échappe au comptage — le mettre au gabarit ci-dessous.
+
+### Gabarit d'un fichier de triage (figé le 2026-09-02)
+
+Les fichiers de `.claude/triage/` sont nommés `AAAA-MM-JJ-<sujet>.md` (la date sert à
+mesurer l'âge du backlog). Chaque constat est **une ligne de tableau**, et la **dernière
+cellule est son statut**, commençant par l'un de ces mots — le texte libre qui suit est
+encouragé (il dit quel commit a corrigé quoi) :
+
+| Statut | Sens | Compté |
+| --- | --- | --- |
+| `ouvert` | trouvé, pas encore traité | ouvert |
+| `differe` | vu et repoussé sciemment | ouvert |
+| `partiel` | traité sur une partie du périmètre seulement | ouvert |
+| `corrige` | traité, avec son test | clos |
+| `traite` | traité autrement (doc, décision) | clos |
+| `ecarte` | refusé après arbitrage, avec la raison | clos |
+
+```markdown
+| id | sév. | titre | fichier:ligne | preuve | statut |
+| --- | --- | --- | --- | --- | --- |
+| D1-F7 | mineur | paragraphe en double | record_libre.html:207 | rendu navigateur | differe |
+```
+
+Les colonnes du milieu sont libres : seuls la **première** (l'id, pour parler du constat
+sans le recopier) et la **dernière** (le statut) sont contraintes. Ce gabarit a été figé
+APRÈS mesure du parc existant, pas avant : `differe` (47), `corrige` (16) et `partiel`
+étaient déjà le vocabulaire réel — un vocabulaire inventé aurait compté zéro.
 
 ## 7. Revue de la façon de travailler elle-même (le niveau méta)
 
