@@ -4,6 +4,9 @@
 # | garder : la signaler au hub, qui corrige le canon et re-synchronise.
 # | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
 # |  n'est pas déployé, il n'existe pas dans ce dépôt.)
+# | Provenance canon : 97c2183 du 2026-09-02 — permet, au prochain sync, de dire si
+# | une différence vient d'une édition locale ou d'une avance du canon (voir
+# | `determiner_cause` dans sync_dispositif.py au hub).
 # +---------------------------------------------------------------------------
 
 """Superviseur d'agents — étage 1 (incrément A) : collecte déterministe, 0 token LLM.
@@ -262,6 +265,51 @@ def scan(state: dict) -> int:
         files_state[name] = {"offset": new_offset}
     state["last_scan"] = dt.datetime.now().astimezone().isoformat(timespec="seconds")
     return new_events
+
+
+def mesure_incomplete(state: dict) -> dict:
+    """Constat de FIABILITÉ de la mesure — jamais un correctif de la mesure elle-même.
+
+    Le scan est incrémental : `state['files']` garde un offset PAR FICHIER, mais rien
+    n'en retire l'entrée quand Claude Code purge le transcript correspondant sur le
+    disque. Le scan suivant n'a alors plus rien à relire pour ce nom — mais il
+    continue de publier les compteurs déjà accumulés (`skills`, `subagents`) comme une
+    mesure courante, sans le dire. Finding `state-transcripts-absents` (2026-09-01) :
+    0 transcript sur disque, `state.json` en référençait 2, absents tous les deux, et
+    le scan a quand même publié 75 skills « jamais utilisées » sur cette base — un
+    `n=0` qui ne veut alors plus dire « jamais invoquée » mais « on ne regarde plus »,
+    sans qu'aucun signal ne distingue les deux.
+
+    Retourne TOUJOURS un dict (jamais None) : `transcripts_absents=0` sur une base
+    saine se distingue ainsi de « jamais mesuré », et l'appelant peut dériver
+    `mesure_non_fiable` par un simple test de vérité sans cas particulier. Fail-open
+    total (hook SessionStart) : un chemin illisible compte comme absent, jamais une
+    exception.
+
+    Ne supprime ni ne recalcule aucun compteur — l'arbitrage du 2026-09-02 est
+    explicite là-dessus : l'information doit porter sa fiabilité, pas disparaître."""
+    files = state.get("files") or {}
+    tdir = transcript_dir()
+    absents = 0
+    for name in files:
+        try:
+            if not os.path.isfile(os.path.join(tdir, str(name))):
+                absents += 1
+        except (OSError, TypeError, ValueError):
+            absents += 1
+    dernier = ""
+    for canal in ("skills", "subagents"):
+        for entry in (state.get(canal) or {}).values():
+            if not isinstance(entry, dict):
+                continue
+            last = entry.get("last") or ""
+            if last > dernier:
+                dernier = last
+    return {
+        "transcripts_absents": absents,
+        "total_fichiers": len(files),
+        "dernier_evenement": dernier,
+    }
 
 
 def installed_skills() -> dict:
@@ -853,6 +901,15 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
                 "raison": f"échecs répétés en orchestration ({e['echecs']}/{e['n']} runs)",
             })
     gaps = catalogue_gaps(runs or [])
+    # Fiabilité de la mesure elle-même (finding state-transcripts-absents,
+    # 2026-09-02) : `mesure_incomplete` est calculé et persisté dans state.json par
+    # main() (cf. mesure_incomplete()) — on le RELIT ici plutôt que de le
+    # recalculer, pour ne jamais publier une lecture différente de celle écrite sur
+    # disque. Absent (état pas encore réécrit, ou appel direct de cette fonction
+    # dans un test) -> 0 transcript absent, jamais un KeyError.
+    mesure = state.get("mesure_incomplete") or {
+        "transcripts_absents": 0, "total_fichiers": 0, "dernier_evenement": "",
+    }
     return {
         "generated": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         "eprouves": eprouves,
@@ -874,6 +931,12 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
         # Boucle propose→arbitre : décisions humaines à respecter lors du routage
         # (un jamais-utilisé arbitré "conserver" se propose via son playbook, sans re-nagguer).
         "arbitrages": load_arbitrages(),
+        # Base de mesure fondue (transcripts purgés depuis le dernier passage) :
+        # les compteurs ci-dessus restent publiés TELS QUELS (aucune suppression),
+        # mais ce drapeau dit qu'ils ne couvrent plus tout l'historique attendu —
+        # à l'orchestrateur/au lecteur de ne pas les lire comme une mesure fraîche.
+        "mesure_incomplete": mesure,
+        "mesure_non_fiable": bool(mesure.get("transcripts_absents")),
     }
 
 
@@ -1451,6 +1514,10 @@ def main(argv) -> int:
     state = {} if "--full" in argv else load_state()
     new_events = scan(state)
     apparus = agents_apparus(state)   # avant save_state : la liste connue s'y enregistre
+    # Fiabilité de la mesure (finding state-transcripts-absents, 2026-09-02) : après
+    # scan() donc sur le state['files'] à jour du passage courant, avant save_state
+    # pour que le constat soit persisté avec le reste de l'état.
+    state["mesure_incomplete"] = mesure_incomplete(state)
     save_state(state)
     fam = installed_skills()
     runs = load_jsonl(RUNS_PATH)
@@ -1483,6 +1550,15 @@ def main(argv) -> int:
                                diagnostic_ran, masques)
     missing = state.get("transcript_dir_missing")
     detail = f" (transcripts introuvables : {missing})" if missing else ""
+    mesure = state.get("mesure_incomplete") or {}
+    if mesure.get("transcripts_absents"):
+        # La base a fondu : le dire au fil du démarrage, pas seulement dans les
+        # fichiers générés — c'est ce qui manquait le 2026-09-01 (finding
+        # state-transcripts-absents), quand le scan a publié 75 skills « jamais
+        # utilisées » sur une base dont personne n'avait dit qu'elle s'était vidée.
+        detail += (f" (mesure non fiable : {mesure['transcripts_absents']}/"
+                   f"{mesure.get('total_fichiers', '?')} transcript(s) references "
+                   "disparus du disque)")
     if html_ok is False:
         detail += " (wiki.html sans marqueurs TODO-AGENTS-HTML : bloc HTML non mis a jour)"
     if not diag_a_jour:
