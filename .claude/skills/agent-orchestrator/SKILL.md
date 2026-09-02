@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : 0f4e632 du 2026-09-01 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`0f4e632`, 2026-09-01) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 0908959 du 2026-09-01 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`0908959`, 2026-09-01) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -144,20 +144,24 @@ description d'intention. Les gestes exacts :
   | `bmad-revue` | Revue de code/diff, critique adversariale, cas limites, revue rédactionnelle, rétrospective (§ 2 quinquies) | opus |
   | `bmad-recherche` | Recherche technique / domaine / marché, idéation | sonnet |
   | `veille-agentic` | Veille agentic sur cadence (§ 2 sexies) — écrit `veille.json`, n'adopte rien | sonnet |
-
-  **Quatre porteurs ont ete mis en sommeil le 2026-09-01** (`agent-orchestrator`,
-  `bmad-cadrage`, `bmad-doc`, `bmad-livraison`) : jamais invoques en 33 jours, ils sont
-  sortis vers `.claude/agents-en-sommeil/`, qui porte la mesure et la facon de les
-  reveiller. Les rangees de la table BMAD qui les nommaient disent maintenant `—` : la
-  skill reste routee, elle part **inline**.
-
-  Le fait qui a pese : les deux seules skills BMAD jamais chargees le sont sans porteur
-  (`bmad-party-mode` par les salles, `bmad-customize` en direct), et `bmad-revue` a
-  tourne 7 fois sans en charger une seule. Le porteur n'est donc pas le mecanisme qui
-  fait partir une skill — c'est ce que dit deja le § 2 quinquies (« une skill BMAD dont
-  le travail tient dans la conversation courante s'invoque inline »).
   | `agent-supervisor` | Diagnostic étage 2 délégué — s'appuie sur `bmad-revue` et `veille-agentic` pour prouver ses findings, écrit `diagnostic.json`, n'applique rien | opus |
-  | `agent-orchestrator` | Cet orchestrateur lui-même : déléguer une orchestration ENTIÈRE hors du contexte principal | hérité |
+
+  **Quatre porteurs ont été mis en sommeil le 2026-09-01** (`agent-orchestrator`,
+  `bmad-cadrage`, `bmad-doc`, `bmad-livraison`) : jamais invoqués en 33 jours, ils sont
+  sortis vers `.claude/agents-en-sommeil/`, qui porte la mesure et la façon de les
+  réveiller. Les rangées de la table BMAD qui les nommaient portent maintenant `inline` :
+  la skill reste routée, elle part dans la conversation courante.
+
+  Le fait qui a pesé : les deux seules skills BMAD jamais chargées le sont **sans
+  porteur** (`bmad-party-mode` par les salles, `bmad-customize` en direct), et
+  `bmad-revue` a tourné 7 fois sans en charger une seule. Le porteur n'est donc pas le
+  mécanisme qui fait partir une skill — c'est ce que dit déjà le § 2 quinquies (« une
+  skill BMAD dont le travail tient dans la conversation courante s'invoque inline »).
+
+  Ce paragraphe a d'abord été inséré AU MILIEU de la table, laissant deux rangées
+  orphelines derrière lui — dont `agent-orchestrator`, qu'il déclarait endormi dans la
+  même phrase. Corrigé le 2026-09-01 : la table est au-dessus, entière, et ne liste que
+  les porteurs réellement adressables.
 - **Consolidation obligatoire** : un fan-out sans étape de synthèse qui recroise les
   résultats (doublons, contradictions, trous) n'est pas un plan — c'est du bruit
   distribué. La consolidation est une étape à part entière du plan journalisé.
@@ -520,8 +524,8 @@ tour de parole et zéro information.
 juste après. Le mode compte : `session` fait jouer toutes les voix par une seule, donc
 **aucun débat réel** — `subagent` donne à chaque persona son propre contexte, et c'est la
 seule façon qu'elles se contredisent. Deux tours au minimum : positions indépendantes,
-puis confrontation. Depuis le wiki, le bouton « En débattre » lance exactement la même
-chose sans terminal.
+puis confrontation. Depuis le wiki, le bouton « Déclencher » (« En débattre » jusqu'au
+2026-09-01) lance exactement la même chose sans terminal.
 
 **Coût.** Une salle en `subagent` = une session par voix, soit 3 à 5 sessions. C'est le
 prix du désaccord réel ; il ne se paie que sur un vrai choix. Une seule salle à la fois.
