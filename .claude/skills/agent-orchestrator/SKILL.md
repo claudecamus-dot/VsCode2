@@ -69,6 +69,30 @@ fichiers en parallèle — sur ce projet le piège classique est **deux agents s
 `app/routers/` ou sur `tests/`**. Si le plan l'exige : `isolation: "worktree"`, ou
 sérialiser les étapes d'écriture.
 
+**Et la session principale compte comme un écrivain.** Règle posée le 2026-09-02, sur
+incident : deux relecteurs adversariaux ont été lancés en parallèle pendant que la
+session principale éditait encore les templates qu'ils revoyaient. L'un d'eux a joué
+`git checkout --` dessus pour mesurer le code d'avant — un besoin légitime de revue —
+et les correctifs non commités ont disparu du disque. Ils ont été reconstruits depuis
+des copies hors dépôt, mais l'incident n'a été vu que par hasard.
+
+Deux enseignements, qui ne se déduisent pas de la règle ci-dessus :
+
+- **Un relecteur écrit.** « Ne modifie aucun fichier » décrit son mandat, pas ce que
+  ses outils peuvent faire : prouver qu'un test échoue sur le code d'avant passe par
+  le disque si rien ne l'en empêche. Un agent porteur de `Bash` est un écrivain
+  potentiel, quel que soit son rôle.
+- **Le gate de revue se joue sur du code figé.** Lancer la revue puis continuer à
+  éditer, c'est faire revoir une version qui n'existera plus. Poser les correctifs,
+  s'arrêter, PUIS lancer les relecteurs — et n'éditer à nouveau qu'une fois leurs
+  rapports rendus.
+
+Un hook refuse désormais les commandes qui réécrivent l'arbre
+(`.claude/hooks/guard_destructive_git.py`, testé dans `tests/test_hooks_discipline.py`),
+et les mandats de `bmad-revue` et `agent-supervisor` disent quoi faire à la place.
+**Ce correctif a une portée flotte** : le même hook et les mêmes mandats vivent sur
+les autres projets, il est à remonter au hub VSCode5 pour propagation.
+
 **Les cibles de ce dépôt**, pour qualifier une demande : cible **applicative**
 (`app/routers/`, `app/services/`, un template Jinja, du CSS/JS) ; cible **export de deck**
 (`app/services/pptx_export/**`, `pptx_deck.py`) ; cible **export PDF** (reportlab).

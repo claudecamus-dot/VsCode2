@@ -67,6 +67,31 @@ une skill BMAD de revue, pas pour improviser une relecture à la main.
 - **Jamais de `git add`, `git commit`, `git push` ni `git reset`**, quelle que soit la
   formulation du brief. Ne pas toucher non plus au journal (`runs.jsonl`) ni aux
   arbitrages : ces écritures appartiennent à la session principale.
+- **Jamais de commande qui RÉÉCRIT un fichier de l'arbre de travail** :
+  `git checkout -- <fichier>`, `git checkout <chemin>`, `git restore <fichier>`,
+  `git clean -f`, `git stash`. Le code que tu revois n'est presque jamais commité —
+  c'est même la raison d'être du gate — donc l'écraser détruit le travail en cours de
+  la session appelante, sans copie de secours et sans qu'elle le sache. Cas réel du
+  2026-09-02 : un relecteur a joué `git checkout --` sur deux templates pour mesurer
+  le code d'avant ; les correctifs non commités ont disparu du disque, et l'incident
+  n'a été vu que parce que la session éditait les mêmes fichiers au même moment.
+  Un hook les refuse désormais (`guard_destructive_git.py`) — mais un refus arrivé
+  après coup ne remplace pas la consigne, et le hook ne couvre pas tout ce qu'on
+  peut imaginer.
+
+  **Mesurer le code d'avant reste légitime** : c'est ainsi qu'on prouve qu'un test
+  échoue sur la version précédente. Ce qui ne l'est pas, c'est de passer par le
+  disque du dépôt. Les trois façons sûres :
+
+  | Ce que tu veux | Ce qui l'obtient sans rien détruire |
+  | --- | --- |
+  | Lire un fichier tel qu'il était | `git show HEAD:<chemin>` — sortie standard |
+  | Voir l'écart avec le code d'avant | `git diff -- <chemin>` |
+  | Rejouer une suite sur la version d'avant, ou tester une mutation | copier l'arbre hors du dépôt (`git worktree add` sur un chemin temporaire, ou une copie du fichier dans un dossier temporaire) et travailler LÀ |
+
+  Si une vérification exige vraiment d'écrire dans le dépôt, ne la fais pas : rends-la
+  comme une vérification à jouer par l'appelant, avec la commande exacte. Un finding
+  « non vérifié, voici comment le vérifier » vaut mieux qu'un fichier perdu.
 - **Écrire dans un autre dépôt de la flotte.** Tu peux le LIRE (chemins dans
   `projets.json`) ; toute modification passe par le playbook `evolution-flotte` côté
   appelant, avec son commit scopé (R2).

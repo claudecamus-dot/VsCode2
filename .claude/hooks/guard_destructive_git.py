@@ -178,6 +178,130 @@ def _blocked_reason(segment: str, profondeur: int = 0):
             "commitées). Utilisez git stash, ou confirmez explicitement avec l'utilisateur."
         )
 
+    raison = _blocked_worktree(tokens[start + 1 :], rest)
+    if raison:
+        return raison
+
+    return None
+
+
+# --------------------------------------------------------------------------- #
+# Commandes qui DÉTRUISENT le travail non commité d'un fichier
+# --------------------------------------------------------------------------- #
+# Ajouté le 2026-09-02, sur un incident réel : un sous-agent de revue, dont le
+# mandat dit pourtant qu'il « ne corrige rien », a joué `git checkout --` sur
+# deux templates pour mesurer le code d'avant. Les correctifs non commités de la
+# session appelante ont disparu du disque. Ils ont pu être reconstruits depuis
+# des copies hors dépôt, mais rien dans le dispositif ne s'y opposait : le
+# garde-fou ne connaissait que `push --force` et `reset --hard`, deux commandes
+# qui touchent l'HISTORIQUE, alors que le travail perdu ce jour-là était dans
+# l'ARBRE. C'est la classe entière qu'il fallait couvrir, pas le cas vu.
+#
+# Le remède n'est pas d'interdire de mesurer le code d'avant : c'est un besoin
+# légitime d'une revue. Le message dit donc comment le faire sans rien détruire
+# (`git show HEAD:<fichier>`, qui écrit sur la sortie standard).
+
+_CREATION_DE_BRANCHE = frozenset({"-b", "-B", "--orphan", "--track", "--no-track", "--detach"})
+
+_ALTERNATIVE = (
+    "Pour lire le code d'avant sans toucher au disque : `git show HEAD:<fichier>` "
+    "(ou `git diff` pour l'écart). Si l'écrasement est réellement voulu, copiez "
+    "d'abord le fichier hors du dépôt et confirmez avec l'utilisateur."
+)
+
+
+def _est_un_chemin_du_depot(tok: str) -> bool:
+    """Vrai si `tok` désigne un fichier ou un dossier réellement présent.
+
+    C'est ce qui sépare `git checkout main` (une branche : rien à écraser) de
+    `git checkout app/templates/x.html` (un fichier : ses modifications non
+    commitées disparaissent). Deviner sur la forme du nom ne marcherait pas —
+    une branche s'appelle souvent `feature/x`, avec une barre oblique comme un
+    chemin. On regarde donc le disque, et on échoue en laissant passer."""
+    if tok in (".", "./", ":/"):
+        return True
+    try:
+        racine = os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
+        return os.path.exists(os.path.join(racine, tok)) or os.path.exists(tok)
+    except Exception:
+        return False
+
+
+def _flags_courts_groupes(rest: list) -> str:
+    """Les lettres de tous les groupes de drapeaux courts (`-fdx` -> 'fdx').
+    Sans ce dépliage, chercher `-f` laissait passer `git clean -fd`, qui est
+    exactement la forme qu'on écrit en pratique."""
+    lettres = []
+    for t in rest:
+        if t.startswith("-") and not t.startswith("--") and len(t) > 1:
+            lettres.append(t[1:])
+    return "".join(lettres)
+
+
+def _blocked_worktree(tokens_apres_git: list, rest: list):
+    sous_commande = next((t for t in rest if not t.startswith("-")), None)
+
+    if sous_commande == "checkout":
+        args = tokens_apres_git[1:]
+        # `git checkout … -- <chemin>` : tout ce qui suit `--` est un chemin, la
+        # forme la plus explicite et la plus destructive.
+        if "--" in [t.lower() for t in args]:
+            i = [t.lower() for t in args].index("--")
+            if args[i + 1 :]:
+                return (
+                    "git checkout -- <chemin> est bloqué par un hook projet : il ÉCRASE "
+                    "les modifications non commitées du fichier, sans copie de secours. "
+                    + _ALTERNATIVE
+                )
+        if any(t.lower() in _CREATION_DE_BRANCHE for t in args):
+            return None  # création/bascule de branche : rien de l'arbre n'est perdu
+        for t in args:
+            if not t.startswith("-") and _est_un_chemin_du_depot(t):
+                return (
+                    "git checkout <chemin> est bloqué par un hook projet : `%s` existe "
+                    "sur le disque, ses modifications non commitées seraient écrasées. "
+                    "Pour changer de branche, le nom ne doit pas être celui d'un fichier "
+                    "existant. " % t + _ALTERNATIVE
+                )
+        return None
+
+    if sous_commande == "restore":
+        bas = [t.lower() for t in rest]
+        # `git restore --staged <chemin>` ne touche QUE l'index : il désindexe,
+        # il ne détruit rien. Il reste donc autorisé — sauf s'il est cumulé avec
+        # `--worktree`, qui lui écrase bien le fichier.
+        que_l_index = ("--staged" in bas or "-S" in rest) and not (
+            "--worktree" in bas or "-W" in rest
+        )
+        if que_l_index:
+            return None
+        return (
+            "git restore <chemin> est bloqué par un hook projet : il ÉCRASE les "
+            "modifications non commitées du fichier. `git restore --staged` (qui ne "
+            "touche que l'index) reste autorisé. " + _ALTERNATIVE
+        )
+
+    if sous_commande == "clean":
+        bas = [t.lower() for t in rest]
+        if "--force" in bas or "f" in _flags_courts_groupes(rest):
+            return (
+                "git clean -f est bloqué par un hook projet : il SUPPRIME les fichiers "
+                "non suivis, donc tout fichier neuf pas encore ajouté (un test qu'on "
+                "vient d'écrire, par exemple). Listez-les d'abord avec `git clean -n`, "
+                "puis confirmez avec l'utilisateur."
+            )
+        return None
+
+    if sous_commande == "stash":
+        bas = [t.lower() for t in rest]
+        if "drop" in bas or "clear" in bas:
+            return (
+                "git stash drop/clear est bloqué par un hook projet : la remise ainsi "
+                "supprimée n'est plus récupérable par aucune commande ordinaire. "
+                "Confirmez avec l'utilisateur."
+            )
+        return None
+
     return None
 
 

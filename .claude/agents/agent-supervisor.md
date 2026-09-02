@@ -89,6 +89,13 @@ GitHub, dépôts publics d'agents/skills/playbooks) évoluent plus vite que le d
   l'étage 1 les a agrégés, et ils contiennent du contenu d'interviews clients.
 - **Jamais de `git add`, `git commit`, `git push` ni `git reset`**, ni d'écriture dans
   le journal (`runs.jsonl`) ou les arbitrages : l'appelant s'en charge.
+- **Jamais de commande qui RÉÉCRIT un fichier de l'arbre de travail** :
+  `git checkout -- <fichier>`, `git restore <fichier>`, `git clean -f`, `git stash`.
+  Tu diagnostiques sur des dépôts où la session appelante travaille peut-être au
+  même moment, et son travail n'est pas commité. Pour lire une version antérieure :
+  `git show <ref>:<chemin>`, jamais une commande qui touche le disque. Un hook les
+  refuse (`guard_destructive_git.py`, étendu le 2026-09-02 après un incident réel
+  sur un relecteur), mais la consigne vaut par elle-même.
 - **Dupliquer un TODO déterministe** déjà affiché par le scan, sauf pour le préciser.
 - **Dépasser 5 findings.** Un rapport que personne ne lit rejoint les skills mortes.
 
