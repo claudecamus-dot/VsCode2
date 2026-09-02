@@ -839,3 +839,114 @@ def test_record_structure_recupere_les_segments_dans_la_bonne_nature(client, mon
     mission_id = _mission_id()
     html = client.get(f"/missions/{mission_id}/interviews/record").text
     assert html.count("formData.append('kind', 'answers');") == 2
+
+
+def test_le_garde_fou_du_suffixe_vaut_aussi_pour_le_chemin_d_import(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Constat `B4-SIBLING` de la revue du 2026-09-02.
+
+    Le garde-fou B4 (« un point sans rien derrière n'est pas une extension »)
+    n'avait été posé que sur `save_record_backup`. Le chemin jumeau
+    `transcribe_file` portait les DEUX MÊMES lignes recopiées, sans garde : un
+    nom comme « reunion. » y produisait un fichier dont le nom en base gardait
+    le point et dont le nom sur disque le perdait (Windows). Les deux ne se
+    correspondant plus, `fichiers_references` ne reconnaissait pas le fichier,
+    et l'inventaire global le proposait à la SUPPRESSION pendant que le job
+    était en train de le lire.
+
+    Le fond du défaut n'était pas l'oubli, c'était la duplication : la logique
+    vit désormais dans `mission_backups.suffixe_sur`, et ce test tient le
+    chemin qui n'avait pas la garde.
+    """
+    monkeypatch.setattr(audio_transcribe, "is_available", lambda: True)
+    monkeypatch.setattr(
+        audio_transcribe, "iter_transcribe_blocks", _fake_blocks("bloc")
+    )
+    reponse = client.post(
+        "/audio/transcribe-file",
+        files={"file": ("reunion.", io.BytesIO(b"fake-audio"), "audio/webm")},
+        data={"session_token": "sess-b4-sibling", "mission_id": str(_MISSION_ID)},
+    )
+    assert reponse.status_code == 200, reponse.text
+    job_id = reponse.json()["job_id"]
+
+    with SessionLocal() as db:
+        job = db.get(AudioFileJob, job_id)
+        nom = job.filename
+    try:
+        suffixe = nom[nom.rfind("."):] if "." in nom else ""
+        assert len(suffixe) >= 2 and suffixe[1:].isalnum(), (
+            f"le nom écrit en base ({nom!r}) se termine par un suffixe qui "
+            "n'est pas une extension — sur Windows le fichier sur disque n'aura "
+            "pas ce point, donc plus aucune référence ne le désignera"
+        )
+        assert (RECORDINGS_DIR / nom).is_file(), (
+            f"{nom!r} : le nom en base ne désigne aucun fichier réel"
+        )
+    finally:
+        (RECORDINGS_DIR / nom).unlink(missing_ok=True)
+
+
+def test_le_statut_d_import_dit_que_la_mission_a_disparu(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Constat `D1-F3` de la revue du 2026-09-02.
+
+    `transcribe_file` vérifie la mission à l'ENTRÉE et n'en reparle plus. Or la
+    fenêtre est longue : sur un entretien Meet de 1 h 30, la transcription dure
+    des dizaines de minutes, pendant lesquelles un entretien libre en cours est
+    `_draft_vide` — donc « Nettoyer les brouillons vides » cliqué dans un autre
+    onglet emporte sa mission. À la fin de l'import, l'écran réarmait
+    « Enregistrer l'entretien » ; le clic rendait 404 et détruisait 1 h 30 de
+    transcription. Exactement le mode d'échec que D1 déclare fermer, sur le
+    seul chemin qu'il n'avait pas regardé.
+
+    Le statut porte donc `mission_absente`, comme la route de sauvegarde.
+    """
+    monkeypatch.setattr(audio_transcribe, "is_available", lambda: True)
+    monkeypatch.setattr(
+        audio_transcribe, "iter_transcribe_blocks", _fake_blocks("bloc")
+    )
+    jetable = _creer_mission("Mission emportée pendant l'import")
+    reponse = client.post(
+        "/audio/transcribe-file",
+        files={"file": ("entretien.weba", io.BytesIO(b"fake-audio"), "audio/webm")},
+        data={"session_token": "sess-d1f3", "mission_id": str(jetable)},
+    )
+    assert reponse.status_code == 200, reponse.text
+    job_id = reponse.json()["job_id"]
+
+    nom = None
+    try:
+        with SessionLocal() as db:
+            nom = db.get(AudioFileJob, job_id).filename
+
+        # Mission encore vivante : surtout PAS d'alarme. Un `true` à tort
+        # afficherait un bandeau et verrouillerait l'enregistrement sur une
+        # mission parfaitement joignable — un dégât certain contre un risque
+        # hypothétique.
+        avant = client.get(
+            f"/audio/transcribe-file/status?job_id={job_id}&session_token=sess-d1f3"
+        )
+        assert avant.status_code == 200
+        assert avant.json()["mission_absente"] is False, avant.json()
+
+        with SessionLocal() as db:
+            db.query(Mission).filter(Mission.id == jetable).delete()
+            db.commit()
+
+        apres = client.get(
+            f"/audio/transcribe-file/status?job_id={job_id}&session_token=sess-d1f3"
+        )
+        assert apres.status_code == 200
+        assert apres.json()["mission_absente"] is True, (
+            "la mission a disparu pendant l'import et le statut ne le dit pas : "
+            "l'écran va réarmer le bouton, dont le clic détruit la transcription"
+        )
+    finally:
+        if nom:
+            (RECORDINGS_DIR / nom).unlink(missing_ok=True)
+        with SessionLocal() as db:
+            db.query(Mission).filter(Mission.id == jetable).delete()
+            db.commit()

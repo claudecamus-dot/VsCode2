@@ -128,6 +128,31 @@
     <button class="btn btn-sm" type="button" id="rec-file-retry"
             title="Reprend la transcription au bloc qui a échoué, sans refaire les blocs déjà transcrits">↻ Relancer la transcription</button>
   </div>
+  <!-- D1 (arbitré le 2026-09-02). La mission peut disparaître PENDANT
+       l'enregistrement : un entretien libre en cours est `_draft_vide`, donc
+       « Nettoyer les brouillons vides » cliqué dans un autre onglet emporte sa
+       mission. Le serveur range quand même l'audio — refuser le détruirait,
+       l'onglet en détient la seule copie — et le dit ici, parce qu'un fichier
+       rangé dont personne ne sait où il est ne vaut pas beaucoup mieux qu'un
+       fichier perdu. -->
+  <div class="notice" id="rec-mission-absente" hidden>
+    <strong>La mission a été supprimée pendant l'enregistrement.</strong>
+    Ton audio est en sécurité : il a été rangé dans
+    <a href="/missions/audio-orphelin" target="_blank" rel="noopener">« Audio sans
+    mission »</a>, d'où tu peux l'écouter et le <strong>télécharger</strong> —
+    fais-le, c'est ce qui met ta copie à l'abri.
+    <span id="rec-mission-absente-attente" hidden><strong>Attends d'abord la fin
+    de la transcription en cours</strong> : tant qu'elle tourne, ton fichier est
+    protégé contre toute suppression, mais il n'apparaît pas encore dans cette
+    liste. Il s'y ajoutera tout seul dès qu'elle sera terminée.</span>
+    Pour le remettre sur une autre
+    mission, ouvre son écran d'enregistrement et utilise « Rattacher sans
+    transcrire » avec le fichier téléchargé. L'entretien, lui, ne peut plus être
+    enregistré sur cette mission : <strong>arrête l'enregistrement s'il tourne
+    encore, puis, dans l'onglet « Transcription », clique « Télécharger la
+    transcription (PDF) »</strong> — c'est la seule façon de garder le texte, et
+    il se télécharge sans quitter cette page.
+  </div>
   <div class="autosave-line"><span class="muted" id="rec-backup-status"></span></div>
   <!-- Une ligne PAR tranche sauvegardée, ajoutée dès que son upload aboutit :
        pendant l'enregistrement (rotation) comme à l'arrêt. Avant (2026-07-29)
@@ -257,6 +282,9 @@
   var stopBtn = document.getElementById('rec-stop');
   var resetBtn = document.getElementById('rec-reset');
   var submitBtn = document.getElementById('rec-submit');
+  // Absent tant qu'aucune soumission n'a été refusée pour tranches manquantes
+  // (il est rendu sous condition « tranches_manquantes ») : usages gardés.
+  var submitForceBtn = document.getElementById('rec-submit-force');
   var pdfBtn = document.getElementById('rec-pdf');
   var timerEl = document.getElementById('rec-timer');
   var statusEl = document.getElementById('rec-status');
@@ -536,7 +564,29 @@
     // est déclaré plus bas dans le script (hissé, donc `undefined` pendant les
     // premiers appels) : d'où la lecture défensive.
     var localEnAttente = (backupPerdusLocaux || []).length > 0 && !backupLocalAcquitte;
-    submitBtn.disabled = recordingActive || busy || lost || localEnAttente || !hasTranscript;
+    // `missionAbsente` (D1-M1, revue du 2026-09-02) : la route d'enregistrement
+    // rend 404 dès que la mission a disparu, et le clic remplaçait la page par
+    // l'erreur — donc détruisait la transcription. Ce n'est pas une impasse :
+    // l'export PDF reste ouvert (route sans mission), et c'est ce que le
+    // bandeau demande de faire.
+    submitBtn.disabled = recordingActive || busy || lost || localEnAttente
+      || missionAbsente || !hasTranscript;
+    // D1-F2 (revue du 2026-09-02) : « Enregistrer quand même » est un
+    // `type="submit"` SANS `formaction`, donc il poste vers la MÊME route que
+    // le bouton ci-dessus — celle qui rend 404 dès que la mission a disparu.
+    // Il n'était touché par aucune ligne de JS : le verrou naissait troué, et
+    // le clic détruisait la transcription exactement comme D1-M1 le décrivait.
+    // On lui applique le gate ENTIER plutôt que le seul `missionAbsente` : ce
+    // bouton déroge à la complétude des tranches, pas aux garde-fous qui
+    // protègent d'une perte de données. Il n'existe qu'après une soumission
+    // refusée, d'où la lecture défensive.
+    //
+    // NE PAS écrire de balise Jinja dans ces commentaires, même citée : Jinja
+    // parse le fichier AVANT que ce soit du JavaScript, donc un « si » cité en
+    // commentaire ouvre un vrai bloc et le template cesse de compiler. Erreur
+    // commise ici même le 2026-09-02 — rattrapée par les tests de rendu, et pas
+    // par `node --check`, qui voit du JS valide puisque le défaut est en amont.
+    if (submitForceBtn) submitForceBtn.disabled = submitBtn.disabled;
     // L'export PDF de la transcription est disponible dès que l'enregistrement
     // est arrêté et qu'il y a du texte — indépendamment de l'extraction IA (il
     // n'utilise que le texte) et sans attendre les uploads audio en cours.
@@ -1236,7 +1286,7 @@
     backupSegments.forEach(function (seg, i) {
       var row = backupRowByFile[seg.filename];
       if (!row) {
-        var url = '/missions/{{ mission.id }}/interviews/record/backup/' + encodeURIComponent(seg.filename);
+        var url = urlAudio(seg.filename);
         row = document.createElement('div');
         row.className = 'audio-segment';
         var label = document.createElement('span');
@@ -1254,6 +1304,10 @@
         row.appendChild(audio);
         row.appendChild(link);
         row.labelEl = label;
+        // FLAG-STALE : si l'URL choisie ci-dessus est déjà périmée (mission
+        // supprimée depuis l'upload), le chargement échoue et la ligne bascule
+        // seule sur l'inventaire global.
+        brancherRepliOrphelin(audio, link, seg.filename);
         backupRowByFile[seg.filename] = row;
       }
       row.labelEl.textContent = many ? 'Tranche ' + (seg.position + 1) : '';
@@ -1368,6 +1422,132 @@
   // levait pas le gel d'EC3-2 : après avoir rendu sa tranche à l'entretien,
   // l'utilisateur n'avait pour seule issue que d'acquitter — donc d'affirmer un
   // fait que l'application savait déjà accompli.
+  // D1 : une fois la mission disparue, la route par mission refuse de servir
+  // l'audio (`_get_mission` rend 404). L'inventaire global, lui, le sert — il
+  // existe exactement pour les fichiers qu'aucune mission ne réclame.
+  //
+  // D1-F1 (revue du 2026-09-02, BLOQUANT) — la carte par fichier introduite par
+  // D1-M3 était inerte sur exactement les lignes qu'elle devait réparer.
+  // `fichiersOrphelins` ne recevait que le fichier de la réponse COURANTE, donc
+  // sur un entretien de 70 min les tranches 1-2-3 gardaient l'URL par mission
+  // qui rend 404, pendant que le bandeau annonçait l'audio écoutable. Mesuré :
+  // 3 lignes sur 4 mortes.
+  //
+  // La bonne granularité n'est pas le fichier, c'est la MISSION — et les deux
+  // routes le disent. `get_record_backup` exige que la mission existe (sinon
+  // 404) PUIS que le fichier lui appartienne ; `get_audio_orphelin` exige que
+  // le fichier soit recalculé orphelin. Elles sont mutuellement exclusives :
+  // quand la mission est là, c'est la première pour TOUS les fichiers ; quand
+  // elle n'est plus là, c'est la seconde pour TOUS. Un état par fichier ne
+  // pouvait qu'inventer des cas que le serveur ne connaît pas.
+  //
+  // D2-B2 (re-revue du 2026-09-02) — le drapeau est MONOTONE, et c'est un
+  // renversement de D1-M3, qui voulait le rendre réversible.
+  //
+  // « La mission est revenue » n'existe pas. Ce que `db.get(Mission, id)`
+  // retrouve après une suppression, c'est une AUTRE mission à qui SQLite a
+  // réattribué le numéro — le module le dit lui-même ailleurs
+  // (`_anterieur_a_la_mission`, et le cas 3 de `_raison_orphelin` existent
+  // exactement pour ça). Rendre la main dans cet état est le pire des deux
+  // mondes, mesuré : les tranches d'avant rendent 404 sur les DEUX routes,
+  // le bandeau se rétracte, le bouton se ré-arme — et le clic écrit
+  // l'entretien d'un client dans la mission d'un autre.
+  //
+  // Une fois la mission d'origine partie, elle ne revient donc pas, et cette
+  // page reste verrouillée. Ce que D1-F5 reprochait au drapeau collant n'était
+  // pas d'être collant : c'était l'INCOHÉRENCE entre un bandeau figé et un
+  // bouton ré-armé. Monotone, les deux disent la même chose.
+  var missionAbsente = false;   // monotone : une fois vrai, le reste
+  var missionAbsenteEl = document.getElementById('rec-mission-absente');
+  var missionAbsenteAttenteEl = document.getElementById('rec-mission-absente-attente');
+
+  function urlAudio(nom) {
+    return missionAbsente
+      ? '/missions/audio-orphelin/' + encodeURIComponent(nom)
+      : '/missions/{{ mission.id }}/interviews/record/backup/' + encodeURIComponent(nom);
+  }
+
+  // FLAG-STALE (revue du 2026-09-02) : `mission_absente` décrit l'état à
+  // l'arrivée de la tranche, alors que l'URL sert plus tard. Mission vivante à
+  // l'upload puis supprimée une seconde après, et le lecteur rend 404 sans que
+  // rien ne le signale. Le repli ne se déduit donc pas d'un drapeau : il se
+  // constate sur l'échec réel du chargement, seule information qui ne peut pas
+  // être périmée. Posé une fois par élément (`repliTente`), pour ne pas boucler
+  // si l'inventaire global refuse lui aussi.
+  // `onerror` et non `addEventListener` : créneau unique, donc rebrancher une
+  // ligne ne cumule pas les écouteurs (parité avec l'écran guidé, où le lecteur
+  // unique est réaffecté à chaque sauvegarde).
+  function brancherRepliOrphelin(audio, lien, nom) {
+    audio.onerror = function () {
+      if (audio.repliTente) return;
+      audio.repliTente = true;
+      var secours = '/missions/audio-orphelin/' + encodeURIComponent(nom);
+      // D2-M1 (re-revue du 2026-09-02) : `error` sur un `<audio>` ne dit PAS
+      // « 404 », il dit « je n'ai pas su jouer ça ». Un conteneur que le
+      // navigateur ne décode pas (.mkv, .avi, .mov, tous admis depuis
+      // aujourd'hui) rend le MÊME code qu'une route qui refuse — mesuré en
+      // navigateur réel : 4 dans les deux cas, donc indiscernable. Basculer sur
+      // la foi de cet évènement réécrivait le lien « Télécharger » vers une URL
+      // en 404 alors qu'il fonctionnait : on cassait le dernier recours de
+      // l'utilisateur pour cause de codec manquant.
+      //
+      // On ne dégrade donc que vers du PROUVÉ : la route de secours doit
+      // répondre avant qu'on lui confie quoi que ce soit. Réseau coupé ou
+      // secours muet, on ne touche à rien — l'état d'avant valait mieux.
+      recFetch(secours, { method: 'HEAD' }, NET_TIMEOUT_MS).then(function (r) {
+        if (!r || !r.ok) return;
+        audio.src = secours;
+        if (lien) lien.href = secours;
+      }).catch(function () { /* on garde l'URL d'origine */ });
+    };
+  }
+
+  // Re-pointe les lignes DÉJÀ construites sans les détruire. L'ancien code
+  // faisait `audioSegmentListEl.innerHTML = ''` puis reconstruisait : il coupait
+  // une écoute en cours — ce que le commentaire de `refreshBackupList` dit
+  // explicitement vouloir éviter — et pour rien, puisque 3 lignes sur 4
+  // revenaient identiques.
+  function repointerLignesAudio() {
+    Object.keys(backupRowByFile).forEach(function (nom) {
+      var row = backupRowByFile[nom];
+      if (!row) return;
+      var url = urlAudio(nom);
+      var audio = row.querySelector('audio');
+      var lien = row.querySelector('a');
+      if (audio && audio.getAttribute('src') !== url) {
+        audio.repliTente = false;
+        audio.src = url;
+      }
+      if (lien) lien.href = url;
+    });
+  }
+
+  function signalerMissionAbsente(reponse) {
+    if (!reponse) return;
+    // Relu à CHAQUE réponse : c'est ce qui ré-arme « Enregistrer l'entretien »
+    // si la mission redevient joignable, au lieu de le geler pour la vie de la
+    // page.
+    var avant = missionAbsente;
+    // Monotone (D2-B2) : `||`, jamais une affectation qui pourrait rabaisser.
+    missionAbsente = missionAbsente || !!reponse.mission_absente;
+    updateSubmitState();
+    if (missionAbsente !== avant) repointerLignesAudio();
+    // D1-F5 : bandeau et bouton lisent le MÊME état, donc ils ne peuvent plus
+    // se contredire à l'écran — c'était le vrai grief, pas la persistance.
+    missionAbsenteEl.hidden = !missionAbsente;
+    // D2-B1 (re-revue du 2026-09-02) : pendant un import, le fichier est retenu
+    // par `lister_orphelins_globaux` tant que le job n'est pas terminé (garde
+    // A5, qui empêche de supprimer un fichier en cours de lecture). Il n'est
+    // donc PAS encore dans « Audio sans mission », et le bandeau y envoyait
+    // l'utilisateur vers une liste vide et une URL en 404 — pendant 40 min à
+    // 1 h 30. La promesse n'était pas fausse, elle était prématurée : on le dit
+    // plutôt que d'affaiblir A5. `status` n'existe que sur la réponse du statut
+    // d'import, donc ce cas est naturellement borné à ce chemin.
+    var importEnCours = !!reponse.status
+      && reponse.status !== 'done' && reponse.status !== 'failed';
+    if (missionAbsenteAttenteEl) missionAbsenteAttenteEl.hidden = !importEnCours;
+  }
+
   function noterRattachementLocal() {
     if (backupPerdusLocaux.length !== 1) {
       refreshBackupList();
@@ -1482,6 +1662,7 @@
         // réinitialisation entre-temps) : ne pas contaminer la nouvelle.
         if (gen !== backupGeneration) { settle(); return; }
         if (result.ok && result.data.path) {
+          signalerMissionAbsente(result.data);
           backupSegments.push({ filename: result.data.path, position: position });
           backupSegments.sort(function (a, b) { return a.position - b.position; });
           audioSegmentsHidden.value = JSON.stringify(backupSegments);
@@ -1659,6 +1840,13 @@
         })
         .then(function (data) {
           if (gen !== backupGeneration) { finishFileImport(null, gen); return; }
+          // D1-F3 : à CHAQUE tick, pas seulement en fin d'import. Une
+          // transcription de 1 h 30 laisse une longue fenêtre pour que
+          // « Nettoyer les brouillons vides » emporte la mission dans un autre
+          // onglet ; le dire tout de suite vaut mieux que le dire au bout de
+          // 40 min, et c'est ce qui verrouille « Enregistrer l'entretien »
+          // avant que le clic ne détruise le texte.
+          signalerMissionAbsente(data);
           var fresh = data.blocks || [];
           for (var i = 0; i < fresh.length; i++) {
             appendTranscript(fresh[i]);
@@ -1762,6 +1950,7 @@
         if (gen !== backupGeneration) return;  // « Recommencer » pendant l'envoi
         // `enregistrerAudioImporte` fait tout le reste — position, tri, champs
         // cachés, liste, message — et il est idempotent.
+        signalerMissionAbsente(result.data);
         enregistrerAudioImporte(result.data.path);
         noterRattachementLocal();
         rattache = true;

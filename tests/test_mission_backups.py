@@ -17,7 +17,9 @@ réel n'est touché ici.
 from __future__ import annotations
 
 import os
+import re
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pytest
 from conftest import vider_recordings_de_test
@@ -27,6 +29,8 @@ from app.db import DB_PATH, RECORDINGS_DIR, SessionLocal, engine, init_db
 from app.main import app
 from app.models import Interview, Mission
 from app.services import mission_backups
+
+RACINE_APP = Path(__file__).resolve().parent.parent / "app"
 
 
 def setup_module() -> None:
@@ -886,3 +890,482 @@ def test_l_inventaire_global_ignore_ce_qui_n_est_pas_de_l_audio(tmp_path) -> Non
         "un préfixe non ASCII doit être traité comme « sans préfixe », pas lever "
         "une ValueError qui rend la liste des missions en 500"
     )
+
+
+# --------------------------------------------------------------------------- #
+# D1 — la mission disparue pendant l'enregistrement n'est pas un refus
+# --------------------------------------------------------------------------- #
+def test_une_tranche_arrivant_pour_une_mission_disparue_est_rangee_et_signalee() -> None:
+    """Arbitrage du 2026-09-02, sur le constat D1 de la revue adversariale.
+
+    Le 404 posé la veille échangeait un orphelin récupérable contre une perte
+    sèche : sur ce chemin, l'onglet détient la SEULE copie de l'audio. Et le
+    scénario n'a rien d'exotique — un entretien libre en cours est
+    `_draft_vide`, donc « Nettoyer les brouillons vides » cliqué dans un autre
+    onglet emporte sa mission pendant qu'il enregistre.
+
+    Deux exigences, et la seconde compte autant que la première : le fichier
+    est écrit, ET la réponse dit que la mission a disparu — un fichier rangé
+    dont personne ne sait où il est ne vaut pas beaucoup mieux qu'un fichier
+    perdu.
+    """
+    client = TestClient(app)
+    inexistante = 999_777
+
+    with SessionLocal() as db:
+        assert db.get(Mission, inexistante) is None, "l'id de test doit être libre"
+
+    reponse = client.post(
+        f"/missions/{inexistante}/interviews/record/backup",
+        files={"file": ("entretien.webm", b"des octets d audio", "audio/webm")},
+    )
+
+    assert reponse.status_code == 200, (
+        "refuser détruit l'audio : l'onglet en détient la seule copie "
+        f"(reçu {reponse.status_code})"
+    )
+    corps = reponse.json()
+    assert corps.get("mission_absente") is True, (
+        "le client ne peut pas prévenir l'utilisateur ni pointer vers l'écran "
+        f"« Audio sans mission » : {corps}"
+    )
+    # `corps["path"]` DANS le try (constat D1-m4) : lu au-dessus, un 500 y
+    # levait KeyError avant le `finally`, laissant le fichier sur disque.
+    fichier = None
+    try:
+        fichier = RECORDINGS_DIR / corps["path"]
+        assert fichier.is_file(), "l'audio n'a pas été écrit"
+        # Et il est bien joignable : c'est ce qui rend l'acceptation défendable.
+        with SessionLocal() as db:
+            noms = {e["filename"] for e in
+                    mission_backups.lister_orphelins_globaux(RECORDINGS_DIR, db)["orphelins"]}
+        assert corps["path"] in noms, (
+            "l'audio est écrit mais n'apparaît dans AUCUN écran : c'est le "
+            "fichier indestructible que tout ce chantier supprime"
+        )
+    finally:
+        if fichier is not None:
+            fichier.unlink(missing_ok=True)
+
+
+def test_une_mission_existante_ne_declenche_pas_le_signal() -> None:
+    """Le pendant : sur le chemin normal, le bandeau ne doit jamais s'afficher."""
+    client = TestClient(app)
+    with SessionLocal() as db:
+        mission = Mission(name="ZZ D1 mission vivante")
+        db.add(mission)
+        db.commit()
+        mid = mission.id
+
+    reponse = client.post(
+        f"/missions/{mid}/interviews/record/backup",
+        files={"file": ("entretien.webm", b"audio", "audio/webm")},
+    )
+    fichier = None
+    try:
+        assert reponse.status_code == 200
+        corps = reponse.json()
+        fichier = RECORDINGS_DIR / corps["path"]
+        assert corps.get("mission_absente") is False, corps
+    finally:
+        # La ligne de mission part TOUJOURS, même si l'assertion casse avant :
+        # un test qui échoue ne doit pas salir la base des suivants (D1-m4).
+        if fichier is not None:
+            fichier.unlink(missing_ok=True)
+        with SessionLocal() as db:
+            db.query(Mission).filter(Mission.id == mid).delete()
+            db.commit()
+
+
+@pytest.mark.parametrize("ecran", ["record.html", "record_libre.html"])
+def test_les_deux_ecrans_savent_dire_que_la_mission_a_disparu(ecran: str) -> None:
+    """Test au niveau du TEMPLATE : pytest est aveugle au JavaScript, mais il
+    peut vérifier que le câblage est là — c'est la leçon
+    `feedback_frontend_render_check_plus_template_regression_test` (un rendu
+    prouve « ça marche maintenant », pas « ça ne régressera pas »).
+
+    Il vérifie les SITES D'APPEL, pas la présence des noms. Première version
+    (2026-09-02) : elle cherchait `"signalerMissionAbsente" in source`, et la
+    revue adversariale l'a passée au vert sur quatre mutations qui cassaient
+    entièrement la fonctionnalité — dont « remettre l'URL par mission en dur
+    dans la ligne de tranche » et « retirer l'appel du site de la rotation ».
+    Un test qui atteste au lieu de prouver est pire qu'absent : il rassure.
+    """
+    source = (RACINE_APP / "templates" / "interviews" / ecran).read_text(
+        encoding="utf-8"
+    )
+    assert 'id="rec-mission-absente"' in source, (
+        f"{ecran} n'a plus de bandeau : l'audio serait rangé sans que "
+        "l'utilisateur sache où"
+    )
+    # Le bandeau suit l'état COURANT, dans les deux sens (constat `D1-F5`). La
+    # première version figeait `missionAbsenteEl.hidden = false` : le bandeau ne
+    # se rétractait jamais, donc il continuait d'affirmer « ne peut plus être
+    # enregistré » au-dessus d'un bouton que le même drapeau venait de ré-armer.
+    # Deux affirmations contraires à l'écran, et le test les garantissait.
+    assert "missionAbsenteEl.hidden = !missionAbsente" in source, (
+        f"{ecran} n'accorde plus le bandeau à l'état courant : il restera "
+        "affiché après le retour de la mission, au-dessus d'un bouton actif"
+    )
+    # Le repli d'URL doit être le SEUL chemin : plus aucune URL de backup
+    # construite en dur, sinon la ligne concernée reste en 404.
+    #
+    # Constat `D2-M2` : la première version comptait une CHAÎNE d'une seule
+    # ligne. Or la forme coupée en deux lignes existait littéralement à HEAD
+    # (`record.html:1630-1631`) — remettre l'URL en dur sous cette forme
+    # réintroduisait le défaut sans que le test bronche. Le `\s*` couvre les
+    # deux écritures.
+    en_dur = len(re.findall(
+        r"interviews/record/backup/'\s*\+\s*encodeURIComponent", source
+    ))
+    assert en_dur == 1, (
+        f"{ecran} construit {en_dur} URL de backup en dur ; il ne doit en "
+        "rester qu'une, celle de `urlAudio` lui-même — toute autre reste en "
+        "404 dès que la mission a disparu"
+    )
+    # `D2-M2` : le drapeau doit VERROUILLER, pas seulement être écrit. Retirer
+    # `updateSubmitState()` de `signalerMissionAbsente` laissait le bouton armé
+    # et le test vert.
+    assert re.search(
+        r"missionAbsente\s*=\s*missionAbsente\s*\|\|\s*!!reponse\.mission_absente;"
+        r"\s*\n\s*updateSubmitState\(\);",
+        source,
+    ), (
+        f"{ecran} : le drapeau doit être monotone (`||`, constat D2-B2 — une "
+        "mission « revenue » est une AUTRE mission) et déclencher le verrou "
+        "dans la foulée"
+    )
+    # `D2-M1` : le repli ne bascule que vers du prouvé. Vider le corps de
+    # `brancherRepliOrphelin` le rendait inerte sans faire rougir le test.
+    assert "recFetch(secours, { method: 'HEAD' }" in source, (
+        f"{ecran} : le repli bascule sans vérifier que la route de secours "
+        "répond — un simple échec de décodage casserait le lien « Télécharger »"
+    )
+    # `D2-B1` : la promesse « c'est dans Audio sans mission » est prématurée
+    # tant qu'un import tourne (garde A5 : le fichier est retenu hors de
+    # l'inventaire). Le bandeau doit le dire.
+    assert 'id="rec-mission-absente-attente"' in source, (
+        f"{ecran} envoie l'utilisateur vers « Audio sans mission » pendant un "
+        "import, où le fichier n'est ni listé ni servi"
+    )
+    assert "missionAbsenteAttenteEl.hidden = !importEnCours" in source, (
+        f"{ecran} n'accorde pas l'avertissement d'attente à l'état de l'import"
+    )
+    # Et le drapeau doit être lu à CHAQUE réponse de sauvegarde, pas seulement
+    # déclaré : c'est l'appel qui manquait dans les mutations passées au vert.
+    assert source.count("signalerMissionAbsente(result.data)") == 2, (
+        f"{ecran} ne signale plus la mission absente sur ses deux chemins "
+        "d'écriture (sauvegarde et rattachement)"
+    )
+    assert "|| missionAbsente ||" in source, (
+        f"{ecran} laisse « Enregistrer l'entretien » cliquable alors que la "
+        "route rend 404 : le clic remplace la page et détruit la transcription"
+    )
+    assert 'target="_blank"' in source, (
+        f"{ecran} : le lien du bandeau quitte la page dans le même onglet, "
+        "donc détruit le texte qu'il demande justement de sauver"
+    )
+    # `FLAG-STALE` : le repli ne se déduit pas d'un drapeau capturé à l'upload,
+    # il se constate sur l'échec réel du chargement. Sans ce branchement, une
+    # mission supprimée APRÈS la réponse laisse un lecteur muet sans recours.
+    # `D2-M2` : compter les SITES D'APPEL, pas la définition. La première
+    # version exigeait « >= 2 occurrences » — or la définition en est une, donc
+    # un seul site d'appel suffisait sur `record.html`, et en retirer un
+    # laissait le test vert.
+    #
+    # Le compte attendu n'est pas le même sur les deux écrans, et ce n'est pas
+    # arbitraire : il vaut le nombre d'endroits où l'écran affecte une source
+    # audio. L'écran libre construit ses lignes en UN point (`refreshBackupList`),
+    # qui couvre toutes les tranches ; l'écran guidé réaffecte son lecteur
+    # unique en DEUX points (sauvegarde complète, puis rattachement sans
+    # transcription). Un site non branché laisse ce lecteur-là en 404.
+    attendu = 2 if ecran == "record.html" else 1
+    appels_repli = source.count("brancherRepliOrphelin(") - source.count(
+        "function brancherRepliOrphelin("
+    )
+    assert appels_repli == attendu, (
+        f"{ecran} branche le repli à {appels_repli} site(s) d'appel au lieu de "
+        f"{attendu} : soit un lecteur reste en 404 définitivement, soit un "
+        "nouveau site d'affectation a été ajouté sans son repli"
+    )
+    # `D1-F3` : la branche IMPORT doit signaler elle aussi. Le serveur ne
+    # produisait `mission_absente` que sur la route de sauvegarde, donc une
+    # mission supprimée pendant une transcription de 1 h 30 laissait le bouton
+    # armé — et le clic détruisait le texte.
+    assert "signalerMissionAbsente(data)" in source, (
+        f"{ecran} n'écoute pas la disparition pendant un import : le bouton "
+        "reste armé et son clic détruit la transcription"
+    )
+    # `D1-B1-BIS` : le bandeau ne doit plus promettre un geste que l'écran
+    # « Audio sans mission » n'offre pas — il n'y expose que Télécharger et
+    # Supprimer, et le seul bouton d'action y est la suppression définitive.
+    assert "rattacher à une\n    autre mission" not in source, (
+        f"{ecran} : le bandeau promet un rattachement depuis un écran qui ne "
+        "propose que « Télécharger » et « Supprimer »"
+    )
+    if ecran == "record_libre.html":
+        # `D1-F2` : « Enregistrer quand même » est un `type=submit` sans
+        # `formaction`, donc il poste vers la MÊME route 404. Le verrou naissait
+        # troué : aucune ligne de JS ne touchait ce bouton.
+        #
+        # `D2-M2` : l'ORDRE fait partie du contrat. Lire `submitBtn.disabled`
+        # avant de l'avoir calculé recopie la valeur du tour précédent — le
+        # gate est mort, et la simple présence de la ligne ne le voit pas.
+        assert re.search(
+            r"submitBtn\.disabled\s*=.*?submitForceBtn\.disabled\s*=\s*"
+            r"submitBtn\.disabled;",
+            source,
+            re.S,
+        ), (
+            "record_libre.html : « Enregistrer quand même » doit recopier le "
+            "verrou APRÈS son calcul — même route, même 404, même transcription "
+            "détruite"
+        )
+        # `D1-F1` : le cœur du correctif. Sa disparition pure et simple laissait
+        # le test vert (constat `D2-M2`), donc les tranches d'avant la
+        # suppression gardaient une URL morte.
+        assert "repointerLignesAudio();" in source, (
+            "record_libre.html ne re-pointe plus les lignes déjà construites : "
+            "les tranches uploadées avant la suppression restent en 404, "
+            "pendant que le bandeau les annonce écoutables"
+        )
+
+
+@pytest.mark.parametrize(
+    "nom_envoye",
+    ["reunion.mkv", "iphone.mov", "obs.avi", "dictaphone.opus", "voix.aac",
+     "chrome.weba", "sansext."],
+)
+def test_un_media_non_webm_reste_atteignable_quand_la_mission_a_disparu(
+    nom_envoye: str,
+) -> None:
+    """Constat BLOQUANT D1-B1 de la revue du 2026-09-02.
+
+    L'inventaire global filtrait par LISTE BLANCHE de 8 extensions, alors que
+    l'application accepte `audio/*,video/*,.weba` (l'attribut `accept` des deux
+    écrans). Un `.mkv`, `.mov`, `.opus`, `.aac` ou `.weba` rattaché à une mission
+    déjà supprimée était donc écrit sur disque, absent de l'inventaire ET refusé
+    par sa route de lecture — pendant que le bandeau affirmait à l'utilisateur
+    que son audio était « en sécurité ». C1 refabriqué, en pire : silencieux, et
+    démenti par l'écran.
+
+    `sansext.` couvre le constat B4 au passage : un nom réduit au point seul
+    perdait ce point à l'écriture sous Windows, donc le nom rendu au client ne
+    désignait plus aucun fichier.
+    """
+    client = TestClient(app)
+    inexistante = 999_778
+
+    with SessionLocal() as db:
+        assert db.get(Mission, inexistante) is None
+
+    reponse = client.post(
+        f"/missions/{inexistante}/interviews/record/backup",
+        files={"file": (nom_envoye, b"des octets", "application/octet-stream")},
+    )
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert corps["mission_absente"] is True
+
+    # Constat B4-TEST-CI (revue du 2026-09-02) : les deux assertions qui
+    # suivaient étaient toutes deux aveugles sur au moins un système, et la CI
+    # tourne sur `ubuntu-latest`. `is_file()` rend True sous Windows parce que
+    # le point final y est retiré à la LECTURE comme à l'écriture ; et sous
+    # POSIX, où le point est conservé, le nom rendu au client désigne bien un
+    # fichier — donc les deux passaient avec ou sans le garde-fou. Retirer le
+    # garde-fou laissait la CI verte et ne cassait que sur un poste Windows.
+    #
+    # Cette assertion-ci ne dépend d'aucun système de fichiers : elle regarde le
+    # nom RENDU. Un point sans rien derrière n'est pas une extension, où qu'on
+    # tourne.
+    # Affecté avant toute assertion, même raison que le test voisin : un fichier
+    # laissé derrière par un test rouge se compte comme un orphelin et fait
+    # tomber d'autres tests plus loin.
+    fichier = RECORDINGS_DIR / corps["path"]
+    try:
+        suffixe_rendu = Path(corps["path"]).suffix
+        assert len(suffixe_rendu) >= 2 and suffixe_rendu[1:].isalnum(), (
+            f"{nom_envoye} : le nom rendu au client ({corps['path']}) se "
+            f"termine par un suffixe qui n'est pas une extension "
+            f"({suffixe_rendu!r})"
+        )
+        assert fichier.is_file(), (
+            f"le nom rendu au client ({corps['path']}) ne désigne aucun fichier"
+        )
+        with SessionLocal() as db:
+            noms = {e["filename"] for e in
+                    mission_backups.lister_orphelins_globaux(
+                        RECORDINGS_DIR, db)["orphelins"]}
+        assert corps["path"] in noms, (
+            f"{nom_envoye} : écrit sur disque, listé NULLE PART et servi par "
+            "personne, pendant que le bandeau promet qu'il est en sécurité"
+        )
+    finally:
+        if fichier is not None:
+            fichier.unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize(
+    "nom_envoye",
+    ["notes.txt", "archive.zip", "base.sqlite3", "page.html", "script.py",
+     "donnees.csv", "config.yaml"],
+)
+def test_la_route_d_ecriture_refuse_l_extension_que_la_lecture_refuserait(
+    nom_envoye: str,
+) -> None:
+    """Constat `D1-B1-BIS` de la revue du 2026-09-02.
+
+    Le correctif D1-B1 a rendu le filtre de LECTURE permissif (`est_media`),
+    mais la route d'ÉCRITURE recopiait l'extension du client sans jamais la
+    confronter à ce filtre. Résultat mesuré : 23 noms sur 37 produisaient un
+    fichier écrit sur disque, annoncé `mission_absente: true` — donc « en
+    sécurité dans Audio sans mission » par le bandeau — **absent de
+    l'inventaire ET refusé en 404 par sa propre route de lecture**. C'était C1
+    refabriqué de l'autre côté du tuyau : silencieux, et démenti par l'écran.
+
+    Le test tient les DEUX bouts de la promesse, parce que c'est leur écart qui
+    faisait le défaut : l'extension est repliée sur `.webm`, ET le fichier
+    apparaît réellement dans l'inventaire qui est censé le montrer.
+    """
+    client = TestClient(app)
+    inexistante = 999_779
+
+    with SessionLocal() as db:
+        assert db.get(Mission, inexistante) is None
+
+    reponse = client.post(
+        f"/missions/{inexistante}/interviews/record/backup",
+        files={"file": (nom_envoye, b"des octets", "application/octet-stream")},
+    )
+    assert reponse.status_code == 200
+    corps = reponse.json()
+    assert corps["mission_absente"] is True
+
+    # Affecté AVANT toute assertion : sur un échec, le `finally` doit pouvoir
+    # nettoyer. Un fichier laissé dans `RECORDINGS_DIR` par un test rouge
+    # apparaît comme un orphelin de plus et fait tomber, plus loin, des tests
+    # qui comptent l'inventaire — un échec en produit alors trois, dont deux
+    # mensongers (c'est le motif du constat `TEST-HYGIENE`).
+    fichier = RECORDINGS_DIR / corps["path"]
+    try:
+        assert Path(corps["path"]).suffix == ".webm", (
+            f"{nom_envoye} : l'extension non-média a été recopiée telle quelle "
+            f"({corps['path']}), donc l'inventaire ne montrera jamais ce fichier"
+        )
+        assert fichier.is_file()
+        with SessionLocal() as db:
+            noms = {e["filename"] for e in
+                    mission_backups.lister_orphelins_globaux(
+                        RECORDINGS_DIR, db)["orphelins"]}
+        assert corps["path"] in noms, (
+            f"{nom_envoye} : écrit sur disque mais listé nulle part, pendant "
+            "que le bandeau promet qu'il est rangé dans « Audio sans mission »"
+        )
+    finally:
+        if fichier is not None:
+            fichier.unlink(missing_ok=True)
+
+
+def test_l_inventaire_ecarte_le_non_media_sans_ecarter_un_media_inconnu() -> None:
+    """Le pendant de D1-B1 : le filtre doit rester utile (constat B3) sans
+    redevenir une liste blanche. Le doute profite au fichier — une exclusion à
+    tort rend de l'audio définitivement inatteignable, une inclusion à tort
+    montre un parasite sur un écran d'administration."""
+    from app.services.mission_backups import est_media
+
+    for nom in ("12_x.webm", "12_x.weba", "12_x.mkv", "12_x.opus", "12_x.aac",
+                "12_x.mov", "12_x.inconnu", "12_x"):
+        assert est_media(nom), f"{nom} devrait rester dans l'inventaire"
+    for nom in (".gitkeep", "notes.txt", "index.html", "app.db", "dump.json"):
+        assert not est_media(nom), f"{nom} ne devrait pas y figurer"
+
+
+def test_un_bouton_desactive_se_voit() -> None:
+    """pytest est aveugle au CSS : cette assertion est le seul garde-fou.
+
+    Constaté le 2026-09-02 en regardant un rendu réel. La feuille ne portait
+    AUCUNE règle `:disabled`, et le fond explicite de `.btn` écrase le rendu
+    grisé par défaut du navigateur : tous les verrous de l'application étaient
+    donc muets — « Enregistrer l'entretien » avait exactement la même apparence
+    qu'il soit cliquable ou non. Ce chantier en ajoute deux (tranche locale non
+    récupérée, mission supprimée pendant l'enregistrement) ; un verrou invisible
+    ne protège pas, il laisse cliquer dans le vide sans dire pourquoi.
+    """
+    css = (RACINE_APP / "static" / "app.css").read_text(encoding="utf-8")
+    assert ".btn:disabled" in css and ".btn[disabled]" in css, (
+        "les boutons désactivés redeviennent indiscernables des actifs : les "
+        "verrous de l'écran d'enregistrement ne se voient plus"
+    )
+    assert "cursor: not-allowed" in css, (
+        "le curseur ne signale plus qu'un bouton est hors service"
+    )
+
+
+@pytest.mark.parametrize(
+    ("nom", "attendu"),
+    [
+        ("12_1788_abcd.webm", 12),
+        ("7_import_1788_ab.weba", 7),
+        ("-5_1788_abcd.webm", None),
+        ("+5_1788_abcd.webm", None),
+        (" 5_1788_abcd.webm", None),
+        ("007_1788_abcd.webm", None),
+        ("sansunderscore.webm", None),
+        ("_1788_abcd.webm", None),
+        ("²_1788_abcd.webm", None),
+        ("", None),
+    ],
+)
+def test_le_prefixe_de_mission_se_lit_partout_pareil(
+    nom: str, attendu: int | None
+) -> None:
+    """Constat `D2-m3` de la re-revue du 2026-09-02.
+
+    Trois endroits lisent le préfixe de mission d'un nom d'enregistrement :
+    `lister_orphelins_globaux` (qui exige `isdigit() and isascii()`),
+    `appartient_a_mission` (qui compare un `startswith(f"{id}_")`), et depuis
+    aujourd'hui `mission_id_du_fichier`. La version initiale de cette dernière
+    acceptait `-5_`, `+5_`, `« 5_ »` et `007_` que les deux autres refusent —
+    trois lectures divergentes du même nom, dans le module dont c'est
+    précisément le sujet.
+
+    `007_` mérite son cas : `int()` en fait `7`, mais `appartient_a_mission`
+    cherche `"7_"` et ne le trouvera jamais. Accepter ici ce que l'autre refuse
+    est la définition d'une incohérence silencieuse.
+    """
+    assert mission_backups.mission_id_du_fichier(nom) == attendu
+
+
+def test_la_sauvegarde_refuse_un_identifiant_de_mission_impossible() -> None:
+    """Constat `D2-m2` de la re-revue du 2026-09-02.
+
+    En levant le 404 sur mission disparue (chantier D1), on a rouvert ce chemin
+    aux identifiants ≤ 0 que le chemin jumeau `transcribe_file` refuse en 400
+    depuis toujours. Le fichier s'écrivait, et l'écran d'administration
+    affichait une raison FAUSSE : « mission n° 0 supprimée » alors qu'aucune
+    mission 0 n'a jamais existé, « nom sans préfixe de mission (import d'avant
+    le 2026-09-01) » pour un `-5_` qui en porte pourtant un. C'est ce que
+    `_raison_orphelin` s'interdit explicitement — « devant un bouton de
+    suppression, une raison fausse est pire que pas de raison ».
+
+    C'est le SEUL cas de cette route où refuser ne détruit rien : aucune page
+    légitime ne poste un identifiant ≤ 0. Partout ailleurs, refuser
+    condamnerait la seule copie de l'audio, et c'est bien pour ça que D1 a levé
+    le 404.
+    """
+    client = TestClient(app)
+    for mission_id in (0, -5):
+        avant = {p.name for p in RECORDINGS_DIR.glob("*")}
+        reponse = client.post(
+            f"/missions/{mission_id}/interviews/record/backup",
+            files={"file": ("entretien.webm", b"des octets", "audio/webm")},
+        )
+        assert reponse.status_code == 400, (
+            f"mission_id={mission_id} accepté : le fichier écrit portera un "
+            f"préfixe impossible, et l'écran affichera une raison fausse"
+        )
+        apres = {p.name for p in RECORDINGS_DIR.glob("*")}
+        assert apres == avant, (
+            f"mission_id={mission_id} : un fichier a été écrit malgré le refus "
+            f"({apres - avant})"
+        )

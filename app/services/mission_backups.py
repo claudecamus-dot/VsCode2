@@ -37,14 +37,138 @@ ORPHELIN_RECENT_S = 6 * 3600
 
 _MEDIA_AUDIO = {
     ".webm": "audio/webm",
+    ".weba": "audio/webm",
     ".ogg": "audio/ogg",
     ".oga": "audio/ogg",
+    ".opus": "audio/ogg",
     ".m4a": "audio/mp4",
+    # `audio/mp4` et non `video/mp4` : le produit n'a QUE des `<audio>`, qui ne
+    # lisent que la piste audio, et un `.mp4` audio-seul (dictaphone iOS, sortie
+    # Safari) est le cas réel ici. Le passage à `video/mp4` du 2026-09-02 était
+    # un passager clandestin — sans rapport avec le filtre de l'inventaire qu'il
+    # accompagnait, sans test, et contredisant le docstring juste en dessous
+    # (constat `D2-m6`).
     ".mp4": "audio/mp4",
+    ".m4v": "video/mp4",
+    ".mov": "video/quicktime",
+    ".mkv": "video/x-matroska",
+    ".avi": "video/x-msvideo",
     ".mp3": "audio/mpeg",
+    ".aac": "audio/aac",
     ".wav": "audio/wav",
     ".flac": "audio/flac",
 }
+
+# L'inventaire global filtre par EXCLUSION, jamais par liste blanche
+# (revue adversariale du 2026-09-02, constat BLOQUANT D1-B1). La veille, il
+# n'admettait que les 8 extensions ci-dessus — or l'application accepte
+# `audio/*,video/*,.weba` (l'attribut `accept` des deux écrans). Un `.mkv`,
+# `.mov`, `.opus`, `.aac` ou `.weba` rattaché à une mission déjà supprimée était
+# donc écrit sur disque, absent de cet inventaire ET refusé par sa route de
+# lecture — pendant que le bandeau affirmait à l'utilisateur que son audio était
+# « en sécurité dans Audio sans mission ». C'était C1 refabriqué, en pire :
+# silencieux et démenti par l'écran.
+#
+# L'asymétrie des coûts commande la forme du filtre. Une exclusion à tort rend
+# de l'audio d'entretien définitivement inatteignable ; une inclusion à tort
+# montre un fichier parasite sur un écran d'administration. La liste des
+# conteneurs média est ouverte, celle des fichiers qu'on ne veut pas voir est
+# fermée : on nomme donc ces derniers.
+_EXTENSIONS_NON_MEDIA = frozenset({
+    ".txt", ".md", ".json", ".yml", ".yaml", ".ini", ".cfg", ".toml",
+    ".log", ".csv", ".tsv", ".db", ".sqlite", ".sqlite3", ".py", ".pyc",
+    ".html", ".css", ".js", ".zip", ".tmp", ".bak", ".lock",
+})
+
+
+def est_media(nom: str) -> bool:
+    """Ce fichier de `recordings/` peut-il être de l'audio d'entretien ?
+
+    Répond OUI par défaut : le doute profite au fichier. Seuls un nom caché
+    (`.gitkeep`) et une extension explicitement non média sont écartés.
+    """
+    if nom.startswith("."):
+        return False
+    return Path(nom).suffix.lower() not in _EXTENSIONS_NON_MEDIA
+
+
+def suffixe_sur(nom_client: str | None, defaut: str) -> str:
+    """Extension sûre à donner au fichier écrit, déduite du nom envoyé par le client.
+
+    Les DEUX routes d'écriture (`save_record_backup` et `transcribe_file`)
+    portaient la même logique recopiée, ce qui a produit exactement le défaut
+    qu'on attend d'un code dupliqué : le garde-fou B4 n'a été posé que sur l'une
+    des deux, et le chemin frère est resté ouvert une journée entière (constat
+    `B4-SIBLING`, revue du 2026-09-02). La logique vit désormais ici, une fois.
+
+    Trois filtres, dans cet ordre :
+
+    1. ni « / » ni « .. » ne survivent — le garde-fou de `get_record_backup`
+       passe comme avant ;
+    2. un point sans rien derrière n'est pas une extension (constat B4).
+       Windows retire le point final à l'écriture, donc le nom rendu au client
+       ne désignerait plus aucun fichier : référence cassée d'un côté, orphelin
+       de l'autre. L'exigence `isascii()` s'ajoute à `isalnum()`, vrai pour les
+       chiffres et lettres UNICODE — le module s'est déjà fait avoir par
+       `isdigit()` sur « ² », inutile de laisser le même piège deux fois ;
+    3. l'extension doit passer `est_media` (constat `D1-B1-BIS`). Sans ce
+       dernier filtre, la route d'écriture acceptait ce que la route de lecture
+       refuse : un `notes.txt` rattaché à une mission supprimée était écrit sur
+       disque, annoncé « en sécurité dans Audio sans mission », **absent de
+       l'inventaire et refusé en 404 par sa propre route de lecture**. Mesuré :
+       23 noms sur 37. C'était C1 refabriqué, silencieux et démenti par l'écran.
+
+    Le repli est toujours `defaut`, jamais un refus : sur ces chemins-là, l'onglet
+    peut détenir la seule copie de l'audio, et un nom bizarre ne justifie pas de
+    la détruire.
+    """
+    suffixe = "".join(c for c in (nom_client or "")[-16:] if c.isalnum() or c == ".")
+    suffixe = suffixe[suffixe.rfind("."):] if "." in suffixe else defaut
+    if len(suffixe) < 2 or not suffixe[1:].isascii() or not suffixe[1:].isalnum():
+        return defaut
+    # Nom-sonde et non le suffixe nu : `est_media` écarte les noms cachés
+    # (« .gitkeep »), et un suffixe commence justement par un point.
+    if not est_media(f"x{suffixe}"):
+        return defaut
+    return suffixe
+
+
+def mission_id_du_fichier(nom: str) -> int | None:
+    """Identifiant de mission porté par le préfixe d'un enregistrement, ou None.
+
+    Les noms écrits par les deux routes valent `{mission_id}_...` — c'est déjà
+    ce que `lister_orphelins_globaux` lit pour dire de quelle mission un fichier
+    vient. La lecture est isolée ici parce qu'un troisième appelant en a besoin
+    (constat `D1-F3`) : `transcribe_file_status` doit pouvoir dire au client que
+    la mission a disparu PENDANT l'import, et `AudioFileJob` ne porte pas de
+    `mission_id`.
+
+    `isdigit()` est vrai pour les chiffres Unicode (« ² »), que `int()` refuse —
+    le module s'est déjà fait piéger là-dessus, d'où le `try` plutôt qu'un test.
+    """
+    prefixe, _, reste = (nom or "").partition("_")
+    if not reste:
+        return None
+    # Même exigence que les deux autres lecteurs du même préfixe (constat
+    # `D2-m3`) : `lister_orphelins_globaux` demande `isdigit() and isascii()`,
+    # et `appartient_a_mission` compare un `startswith(f"{id}_")`. Sans cette
+    # ligne, cette fonction-ci acceptait `-5_x`, `+5_x`, `« 5_x »` et `007_x`
+    # que les deux autres refusent — trois lectures divergentes du même nom,
+    # dans un module dont c'est justement le sujet.
+    if not (prefixe.isdigit() and prefixe.isascii()):
+        return None
+    try:
+        valeur = int(prefixe)
+    except ValueError:
+        return None
+    # Forme CANONIQUE exigée : `appartient_a_mission` compare un
+    # `startswith(f"{id}_")`, donc « 007_… » ne désignera jamais la mission 7
+    # pour lui. Rendre 7 ici en ferait une troisième lecture du même nom,
+    # différente des deux autres — exactement ce que cette fonction existe pour
+    # éviter. Nos propres routes n'écrivent que du canonique.
+    if str(valeur) != prefixe:
+        return None
+    return valeur
 
 
 def media_type_audio(filename: str) -> str:
@@ -345,10 +469,10 @@ def lister_orphelins_globaux(recordings_dir: Path, db) -> dict:
         for chemin in sorted(recordings_dir.glob("*")):
             if not chemin.is_file() or chemin.name in references:
                 continue
-            # Seulement de l'AUDIO (constat B3) : un `.gitkeep` ou un `notes.txt`
-            # déposé là serait sinon listé comme un enregistrement supprimable,
-            # et collerait un badge permanent sur la liste des missions.
-            if chemin.suffix.lower() not in _MEDIA_AUDIO:
+            # Écarte le non-média (constat B3) sans jamais écarter un média
+            # inconnu (constat D1-B1) : cf. `est_media` et l'asymétrie des coûts
+            # documentée à côté de `_EXTENSIONS_NON_MEDIA`.
+            if not est_media(chemin.name):
                 continue
             prefixe, _, _ = chemin.name.partition("_")
             # `isdigit()` est vrai pour les chiffres Unicode (« ² »), que `int()`

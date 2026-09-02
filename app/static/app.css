@@ -107,6 +107,19 @@ h2 { font-size: 1.1rem; margin: 0; }
 .btn-secondary { background: var(--surface-subtle); border-color: var(--border); color: var(--text); }
 .btn-secondary:hover { border-color: var(--border-hover); }
 .btn-sm { padding: 6px 10px; font-size: .82rem; }
+/* Un bouton desactive doit SE VOIR (2026-09-02). La feuille ne portait aucune
+   regle `:disabled` : le fond explicite de `.btn` ecrase le rendu grise par
+   defaut du navigateur, donc tous les verrous de l'application etaient muets —
+   « Enregistrer l'entretien » avait exactement la meme apparence qu'il soit
+   cliquable ou non. Constate en regardant un rendu reel pendant le chantier
+   D1, qui ajoute deux verrous de plus (tranche locale non recuperee, mission
+   supprimee) : un verrou invisible ne protege pas, il laisse cliquer dans le
+   vide sans dire pourquoi. Regle additive, elle ne touche aucun etat actif. */
+.btn:disabled, .btn[disabled] {
+  opacity: .5; cursor: not-allowed; filter: grayscale(65%);
+}
+.btn:disabled:hover, .btn[disabled]:hover { border-color: var(--border); }
+.btn-primary:disabled:hover { background: var(--accent); border-color: var(--accent); }
 /* Requête htmx en vol : bouton déclencheur estompé + curseur d'attente. Règle
    GLOBALE assumée — htmx pose .htmx-request sur tout bouton déclencheur (agents
    OpenHub via hx-indicator, mais aussi « Non posée »/« À revoir » de la capture) :

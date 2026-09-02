@@ -12,7 +12,7 @@ import logging
 import shutil
 import time
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from itertools import zip_longest
 
 from fastapi import (
@@ -49,18 +49,11 @@ from ..services.audio_file_jobs import (
     run_audio_file_job,
     tranches_extraction,
 )
-from ..services.mission_axes import axes_of
 from ..services.interview_export import (
     build_interview_markdown,
     group_turns_into_sections,
     slugify,
     transcript_of,
-)
-from ..services.interview_pdf_export import (
-    build_interview_pdf,
-    build_synthese_only_pdf,
-    build_transcript_only_pdf,
-    build_turns_only_pdf,
 )
 from ..services.interview_extract_ai import (
     InterviewExtractAIError,
@@ -71,6 +64,12 @@ from ..services.interview_libre_extract_ai import (
     extract_turns_from_text,
     generate_repartition_from_turns,
 )
+from ..services.interview_pdf_export import (
+    build_interview_pdf,
+    build_synthese_only_pdf,
+    build_transcript_only_pdf,
+    build_turns_only_pdf,
+)
 from ..services.interview_segment_jobs import (
     delete_segment_jobs,
     merge_segment_answers,
@@ -80,7 +79,9 @@ from ..services.interview_segment_jobs import (
     run_segment_job,
     segment_jobs_status,
 )
+from ..services.mission_axes import axes_of
 from ..templating import templates
+
 
 def _parse_repartition(repartition_json: str, valeurs_nommees: tuple) -> dict:
     """Répartition postée par le wizard libre.
@@ -1599,8 +1600,11 @@ async def transcribe_file(
         # visible d'aucun écran, donc indestructible.
         return JSONResponse({"error": "Mission introuvable."}, status_code=404)
     try:
-        suffix = "".join(c for c in (file.filename or "")[-16:] if c.isalnum() or c == ".")
-        suffix = suffix[suffix.rfind("."):] if "." in suffix else ".audio"
+        # Même point unique que `save_record_backup` (constat `B4-SIBLING`) : ce
+        # chemin-ci portait la logique recopiée SANS le garde-fou B4, donc un
+        # nom comme « reunion. » y produisait encore un fichier que l'inventaire
+        # global proposait à la suppression PENDANT que le job le lisait.
+        suffix = mission_backups.suffixe_sur(file.filename, ".audio")
         # `import_` conservé APRÈS le préfixe de mission : le fichier reste
         # reconnaissable comme un import dans la liste, et le garde-fou de
         # `get_record_backup` (ni « / » ni « .. ») passe comme pour un
@@ -1712,12 +1716,31 @@ def transcribe_file_retry(
     # des 7 jours) : sans ce réarmement, un job relancé plus de 3 h après
     # l'import initial serait déclaré « ne répond plus » au premier poll,
     # alors que la reprise vient de démarrer.
-    job.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    job.created_at = datetime.now(UTC).replace(tzinfo=None)
     db.commit()
     background_tasks.add_task(run_audio_file_job, job.id)
     return JSONResponse(
         {"job_id": job.id, "status": "pending", "reprise_au_bloc": len(job.blocks or [])}
     )
+
+
+def _mission_du_job_absente(job, db) -> bool:
+    """La mission de ce job d'import a-t-elle disparu depuis son démarrage ?
+
+    Rend `False` dès que la question n'a pas de réponse FIABLE — nom sans
+    préfixe lisible, ou retranscription (`filenames`, dont les tranches sont
+    déjà rattachées à un entretien existant). Le silence est le bon défaut dans
+    le doute : un `true` à tort afficherait un bandeau alarmant et
+    verrouillerait l'enregistrement sur une mission parfaitement vivante, ce qui
+    est un dégât certain contre un risque hypothétique.
+    """
+    nom = job.filename or ""
+    if job.filenames or not nom:
+        return False
+    mission_id = mission_backups.mission_id_du_fichier(nom)
+    if mission_id is None:
+        return False
+    return db.get(Mission, mission_id) is None
 
 
 @router.get("/audio/transcribe-file/status")
@@ -1763,6 +1786,17 @@ def transcribe_file_status(
         # après coup. Vide pour une retranscription (`filenames`), dont les
         # tranches sont déjà rattachées.
         "filename": (job.filename or "") if not job.filenames else "",
+        # D1-F3 (revue du 2026-09-02) : la mission peut disparaître PENDANT
+        # l'import — un entretien libre en cours est `_draft_vide`, donc
+        # « Nettoyer les brouillons vides » cliqué dans un autre onglet emporte
+        # sa mission pendant les 40 min de transcription. `transcribe_file`
+        # vérifie la mission à l'ENTRÉE et n'en reparle plus ; l'écran
+        # réarmait donc « Enregistrer l'entretien » à la fin de l'import, et le
+        # clic rendait 404 en détruisant 1 h 30 de transcription. Exactement le
+        # mode d'échec que D1 déclare fermer, sur le chemin qu'il n'avait pas
+        # regardé. `AudioFileJob` ne porte pas de `mission_id` : on le lit sur
+        # le préfixe du nom, seule source disponible ici.
+        "mission_absente": _mission_du_job_absente(job, db),
     }
     if status == "done" and since >= len(blocks):
         # Job consommé : sa colonne `blocks` porte la transcription complète
@@ -1801,13 +1835,43 @@ async def save_record_backup(
     de dupliquer une transcription déjà complète (EC3-1) ou d'écraser la
     référence de l'enregistrement micro (IMPORT-1).
 
-    Le mission_id est désormais VÉRIFIÉ, même raison que dans `transcribe_file`
-    (2026-09-01) : un préfixe de mission inexistante produit un fichier
-    qu'aucun onglet Backup ne montre — et depuis que rien ne s'efface tout
-    seul, il ne resterait joignable que par l'inventaire global, sans aucune
-    raison de l'y envoyer."""
-    if db.get(Mission, mission_id) is None:
-        return JSONResponse({"error": "Mission introuvable."}, status_code=404)
+    **La mission disparue n'est PAS un refus** (D1, arbitré le 2026-09-02). Le
+    404 posé la veille échangeait un orphelin récupérable contre une perte
+    sèche : sur ce chemin-ci, l'onglet détient la SEULE copie de l'audio, et le
+    refuser la condamne à mourir avec la page. Le scénario n'a rien d'exotique —
+    un entretien libre en cours est `_draft_vide`, donc « Nettoyer les brouillons
+    vides » cliqué dans un autre onglet emporte sa mission pendant qu'il
+    enregistre (mesuré le 2026-09-01 : les 7 brouillons réels sont tous
+    `_draft_vide`, et deux d'entre eux portent déjà de l'audio sur disque).
+
+    On écrit donc, et on le DIT : la réponse porte `mission_absente`, sur quoi
+    l'écran envoie l'utilisateur vers « Audio sans mission » — où le fichier est
+    écoutable, téléchargeable, rattachable ailleurs et supprimable. C'est
+    exactement ce que l'inventaire global existe pour faire.
+
+    `transcribe_file`, lui, garde son 404 et ce n'est pas une incohérence : là
+    l'utilisateur importe un fichier qu'il a toujours sur son disque, donc
+    refuser ne détruit rien. Ici, refuser détruit."""
+    if mission_id <= 0:
+        # Refus FRANC, comme le jumeau `transcribe_file` (constat `D2-m2`). En
+        # levant le 404, D1 avait rouvert ce chemin-ci à `0` et `-5` : le
+        # fichier s'écrivait, et l'écran d'administration affichait une raison
+        # FAUSSE (« mission n° 0 supprimée » alors qu'aucune n'a existé), ce que
+        # `_raison_orphelin` s'interdit explicitement — « devant un bouton de
+        # suppression, une raison fausse est pire que pas de raison ».
+        #
+        # C'est le seul cas où refuser ne détruit rien : aucune page légitime ne
+        # poste un identifiant ≤ 0, il ne peut venir que d'un onglet resté
+        # ouvert avec un JS d'avant ce déploiement. Ailleurs dans cette
+        # fonction, refuser détruirait la seule copie de l'audio — d'où le 404
+        # levé par D1.
+        return JSONResponse(
+            {"error": "Mission absente : recharge la page avant d'enregistrer."},
+            status_code=400,
+        )
+    # Lu AVANT l'écriture : `mission_absente` doit décrire l'état au moment où
+    # l'audio arrive, pas celui d'après.
+    mission_absente = db.get(Mission, mission_id) is None
     try:
         # Suffixe aléatoire en plus de l'horodatage : deux tranches uploadées
         # dans la MÊME seconde (fin d'enregistrement + rotation, ou deux fetch
@@ -1822,8 +1886,7 @@ async def save_record_backup(
         # le servait en `audio/webm`, donc illisible dans le lecteur. Même
         # filtre que `transcribe_file` : ni « / » ni « .. » ne survivent, le
         # garde-fou de `get_record_backup` passe comme avant.
-        suffix = "".join(c for c in (file.filename or "")[-16:] if c.isalnum() or c == ".")
-        suffix = suffix[suffix.rfind("."):] if "." in suffix else ".webm"
+        suffix = mission_backups.suffixe_sur(file.filename, ".webm")
         filename = f"{mission_id}_{int(time.time())}_{uuid.uuid4().hex[:8]}{suffix}"
         # Streaming par blocs vers le disque (finding perf audit 2026-07-24) : un
         # enregistrement complet de 1h30-3h passait entièrement en RAM via
@@ -1836,7 +1899,7 @@ async def save_record_backup(
     except Exception as exc:
         logger.exception("Échec de la sauvegarde audio de secours")
         return JSONResponse({"error": str(exc)}, status_code=500)
-    return JSONResponse({"path": filename})
+    return JSONResponse({"path": filename, "mission_absente": mission_absente})
 
 
 @router.get("/missions/{mission_id}/interviews/record/backup/{filename}")
@@ -2353,7 +2416,7 @@ def retranscrire_start(
             # déclarée « ne répond plus » dès le premier appel du statut.
             precedent.status = "pending"
             precedent.error = None
-            precedent.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+            precedent.created_at = datetime.now(UTC).replace(tzinfo=None)
             db.commit()
             background_tasks.add_task(run_audio_file_job, precedent.id)
             return RedirectResponse(
