@@ -275,3 +275,50 @@ l'absence de XSS stocké.
 Et les couches n'étaient pas indépendantes : le porteur `bmad-revue` n'a pas l'outil
 `Agent`, donc les deux angles ont été joués en séquence dans un seul contexte. C'est
 exactement le constat n° 2 du superviseur du même jour.
+
+
+---
+
+## D1 — tranché le 2026-09-02, et sa revue
+
+**Arbitrage utilisateur : « accepter l'écriture ET le dire ».** Le 404 posé la veille sur
+`save_record_backup` échangeait un orphelin récupérable contre une **perte sèche** : sur
+ce chemin, l'onglet détient la seule copie de l'audio. Le serveur écrit donc, répond
+`mission_absente: true`, et les deux écrans affichent un bandeau qui envoie vers « Audio
+sans mission » — où le fichier est écoutable, téléchargeable, rattachable et supprimable.
+
+`transcribe_file` **garde son 404**, et ce n'est pas une incohérence : là, l'utilisateur
+importe un fichier qu'il a toujours sur son disque, donc refuser ne détruit rien.
+
+### La revue de ce correctif a rendu un BLOQUANT — que le correctif avait créé
+
+| id | Constat | Traitement |
+| --- | --- | --- |
+| **D1-B1** (BLOQUANT) | Mon propre filtre B3 était une **liste blanche de 8 extensions**, alors que l'application accepte `audio/*,video/*,.weba`. Un `.mkv`, `.mov`, `.opus`, `.aac` ou `.weba` rattaché à une mission supprimée était écrit sur disque, **absent de l'inventaire ET refusé par sa route de lecture** — pendant que le bandeau affirmait qu'il était « en sécurité ». C1 refabriqué, en pire : silencieux et démenti par l'écran | Filtre **inversé** en liste d'exclusion (`est_media`). Le doute profite au fichier : une exclusion à tort rend de l'audio définitivement inatteignable, une inclusion à tort montre un parasite sur un écran d'administration. `_MEDIA_AUDIO` élargi aussi, pour que le type servi soit juste. Test paramétré sur les 7 formes mesurées |
+| **D1-M1** | Le bouton « Enregistrer l'entretien » restait armé une fois le drapeau levé. Régression de **suppression** introduite par le correctif D1 : avant lui, le 404 faisait échouer la sauvegarde et armait le gate `backupLocalEnAttente` ; depuis qu'elle réussit, `oublierBackupLocal()` désarme ce gate. Le clic remplaçait la page par un 404 et **détruisait la transcription** | `missionAbsente` entre dans `submitBtn.disabled` sur les deux écrans. Pas une impasse : l'export PDF reste ouvert (sa route ne dépend d'aucune mission) |
+| **D1-M2** | Le lien du bandeau — le **seul geste qu'il proposait** — quittait la page dans le même onglet, sans confirmation (les 5 prédicats de `beforeunload` sont faux dans cet état), donc détruisait le texte qu'il demandait de sauver | `target="_blank" rel="noopener"` |
+| **D1-M3** | Le drapeau était **collant et global**. SQLite réattribuant l'identifiant d'une mission supprimée, la mission peut « revenir » : les tranches suivantes recevaient quand même l'URL orphelin — lecteur muet, téléchargement en 404 | État retenu **fichier par fichier** (`fichiersOrphelins`), et `missionAbsente` relu à chaque réponse pour que le verrou du bouton se ré-arme si la mission redevient joignable |
+| **D1-m1** | Mon test de template passait au vert sur **4 mutations qui cassaient tout** : il cherchait la présence de chaînes, pas le câblage | Réécrit pour tester les **sites d'appel** et compter les URL construites en dur. Vérifié : il échoue désormais sur les 5 mutations, sur les deux écrans |
+| **D1-m2** | Le bandeau conseillait « Télécharger la transcription (PDF) », bouton **désactivé pendant l'enregistrement** — or sur l'écran libre le bandeau s'affiche à la rotation | Le libellé dit d'arrêter l'enregistrement d'abord |
+| **D1-m4** | `corps["path"]` lu hors du `try` : un 500 levait `KeyError` avant le `finally`, laissant fichier et ligne de mission derrière lui | Déplacé dans le `try` |
+
+Restent **assumés** : D1-m3 (course lecture-avant-écriture entre `db.get` et l'écriture,
+fenêtre étroite, non provoquée) et D1-m5 (le réordonnancement d'imports produit par
+`ruff --fix` s'est mélangé au diff — c'est C15 à nouveau, signalé plutôt que défait).
+
+### Un défaut trouvé par le rendu, hors du périmètre de la revue
+
+Le harnais de rendu du bandeau a montré un bouton `disabled` **visuellement identique à un
+bouton actif**. Vérification : `app.css` ne portait **aucune** règle `:disabled`, et le fond
+explicite de `.btn` écrase le rendu grisé par défaut du navigateur. Tous les verrous de
+l'application étaient donc muets — y compris les deux que ce chantier ajoute. Règle
+additive ajoutée, plus un test de régression : `pytest` est aveugle au CSS, c'est le seul
+garde-fou possible.
+
+### Limite, identique aux deux revues précédentes
+
+Aucune exécution navigateur : D1-M1, D1-M2, D1-M3 et D1-m2 sont établis par lecture croisée
+des prédicats plus, pour M1 et M3, exécution du **côté serveur** (codes HTTP réels). Et les
+couches de revue n'étaient pas indépendantes — le porteur `bmad-revue` n'a pas l'outil
+`Agent`, elles ont été jouées en séquence dans un seul contexte. C'est le constat n° 2 du
+superviseur du 2026-09-01, toujours non arbitré.

@@ -6,13 +6,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py .claude/hooks/guard_destructive_git.py",
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_destructive_git.py\"",
             "timeout": 10,
             "statusMessage": "Checking for destructive git operations..."
           },
           {
             "type": "command",
-            "command": "py .claude/hooks/warn_verif_before_commit.py",
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/warn_verif_before_commit.py\"",
             "timeout": 10,
             "statusMessage": "Verif reelle avant commit de code app/ ?"
           }
@@ -24,13 +24,13 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py .claude/hooks/remind_revue_increment.py",
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/remind_revue_increment.py\"",
             "timeout": 10,
             "statusMessage": "Rappel discipline revue-increment..."
           },
           {
             "type": "command",
-            "command": "py .claude/supervision/scan_transcripts.py",
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/supervision/scan_transcripts.py\"",
             "timeout": 60,
             "statusMessage": "Supervision agents : scan incremental des transcripts..."
           }
@@ -52,7 +52,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py .claude/hooks/orchestrator_gate.py",
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/orchestrator_gate.py\"",
             "timeout": 10,
             "statusMessage": "Grille de qualification orchestrateur..."
           }
@@ -65,7 +65,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py .claude/supervision/log_usage.py",
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/supervision/log_usage.py\"",
             "timeout": 10,
             "statusMessage": "Journal usage agents..."
           }
@@ -76,7 +76,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py .claude/hooks/check_ci_after_push.py",
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_ci_after_push.py\"",
             "timeout": 10,
             "statusMessage": "Verification du dernier run CI apres push..."
           }
