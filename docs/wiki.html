@@ -835,12 +835,12 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-09-01T22:24:37+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-09-02T11:47:42+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>69 sessions</strong> couvertes · <strong>165</strong> invocations de skills · <strong>101</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>70 sessions</strong> couvertes · <strong>167</strong> invocations de skills · <strong>106</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-09-01 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
+        <div class="tag-source">scan_transcripts.py · 2026-09-02 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
 
       <h3>Skills — usage réel</h3>
@@ -849,10 +849,10 @@ pytest -k "pptx or export"                                                     #
           <thead><tr><th>Skill</th><th>Famille</th><th>Invocations</th><th>Première</th><th>Dernière</th></tr></thead>
           <tbody>
             <tr><td><code>run-dev-server</code></td><td>projet</td><td>42</td><td>2026-07-03</td><td>2026-09-01</td></tr>
-            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>40</td><td>2026-07-17</td><td>2026-09-01</td></tr>
+            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>41</td><td>2026-07-17</td><td>2026-09-02</td></tr>
             <tr><td><code>agent-supervisor</code></td><td>projet</td><td>20</td><td>2026-07-18</td><td>2026-08-31</td></tr>
             <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>13</td><td>2026-07-20</td><td>2026-07-31</td></tr>
-            <tr><td><code>revue-increment</code></td><td>projet</td><td>11</td><td>2026-07-18</td><td>2026-07-30</td></tr>
+            <tr><td><code>revue-increment</code></td><td>projet</td><td>12</td><td>2026-07-18</td><td>2026-09-01</td></tr>
             <tr><td><code>pptx-verify</code></td><td>global</td><td>10</td><td>2026-07-03</td><td>2026-07-29</td></tr>
             <tr><td><code>update-config</code></td><td>(builtin/session)</td><td>6</td><td>2026-07-03</td><td>2026-07-16</td></tr>
             <tr><td><code>roadmap-keeper</code></td><td>global</td><td>4</td><td>2026-06-29</td><td>2026-07-15</td></tr>
@@ -878,9 +878,9 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Sous-agent</th><th>Lancements</th><th>Premier</th><th>Dernier</th></tr></thead>
           <tbody>
-            <tr><td><code>general-purpose</code></td><td>48</td><td>2026-07-15</td><td>2026-08-31</td></tr>
+            <tr><td><code>general-purpose</code></td><td>49</td><td>2026-07-15</td><td>2026-09-02</td></tr>
             <tr><td><code>Explore</code></td><td>30</td><td>2026-06-30</td><td>2026-08-31</td></tr>
-            <tr><td><code>bmad-revue</code></td><td>14</td><td>2026-08-31</td><td>2026-09-01</td></tr>
+            <tr><td><code>bmad-revue</code></td><td>18</td><td>2026-08-31</td><td>2026-09-02</td></tr>
             <tr><td><code>claude</code></td><td>4</td><td>2026-07-16</td><td>2026-07-16</td></tr>
             <tr><td><code>Plan</code></td><td>3</td><td>2026-07-06</td><td>2026-07-17</td></tr>
             <tr><td><code>agent-supervisor</code></td><td>1</td><td>2026-09-01</td><td>2026-09-01</td></tr>
@@ -899,12 +899,12 @@ pytest -k "pptx or export"                                                     #
       <div class="critical">
         <p><strong>Skills projet sans usage</strong> : <code>audit-technique</code>, <code>veille-agentic</code> — vérifier pertinence et déclencheurs.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-09-01 · transcripts de session</div>
+        <div class="tag-source">scan_transcripts.py · 2026-09-02 · transcripts de session</div>
       </div>
       <div class="critical">
-        <p><strong>Skills en sommeil (&gt;30 j sans usage)</strong> : <code>bmad-code-review</code>, <code>bmad-party-mode</code>, <code>bmad-sprint-status</code>, <code>claude-api</code>, <code>deck-design-library</code>, <code>deck-design-review</code>, <code>init</code>, <code>pptx-deck</code>, <code>pptx-verify</code>, <code>priority-matrix</code>, <code>restitution-deck-design</code>, <code>revue-increment</code>, <code>roadmap-keeper</code>, <code>run</code>, <code>skill-creator</code>, <code>slide-text-polish</code>, <code>swot-matrix</code>, <code>update-config</code>.</p>
+        <p><strong>Skills en sommeil (&gt;30 j sans usage)</strong> : <code>Plan</code>, <code>bmad-code-review</code>, <code>bmad-party-mode</code>, <code>bmad-sprint-status</code>, <code>claude</code>, <code>claude-api</code>, <code>claude-code-guide</code>, <code>deck-design-library</code>, <code>deck-design-review</code>, <code>init</code>, <code>pptx-deck</code>, <code>pptx-verify</code>, <code>priority-matrix</code>, <code>restitution-deck-design</code>, <code>roadmap-keeper</code>, <code>run</code>, <code>skill-creator</code>, <code>slide-text-polish</code>, <code>swot-matrix</code>, <code>update-config</code>.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-09-01 · transcripts de session</div>
+        <div class="tag-source">scan_transcripts.py · 2026-09-02 · transcripts de session</div>
       </div>
 
       <h3>Arbitrages enregistrés</h3>
@@ -948,16 +948,12 @@ pytest -k "pptx or export"                                                     #
         <li><strong><code>revue-increment</code></strong> (2026-07-21) : Proposition superviseur du 2026-07-21 appliquée : revue-increment/SKILL.md §2 allégé (règles terses + section « Leçons capitalisées » indexant les [[feedback-*]]) — les war-stories datées vivent dans les mémoires liées, la checklist les référence sans les recopier (net -23 lignes ; sections §1-§7, Phase B, Verdict intactes ; aucune exigence perdue).</li>
         <li><strong><code>revue-increment</code></strong> (2026-07-22) : Constat superviseur du 2026-07-22 (prio 3) appliqué : mémoire feedback-self-review-weak-gate-vs-adversarial-review + règle revue-increment/SKILL.md §2 — au-dessus du seuil bmad-code-review (fidélité frontend, JS de concurrence, &gt;5 fichiers produit), l'auto-relecture n'est PAS le gate ; ne pas présenter « prêt à committer » sur self-review + tests verts, lister les zones à risque pour la revue. Preuve : 2 fois (2026-07-21 exec summary, 2026-07-22 bug répartition) un « rien à corriger » — une fois adossé à un harness Node 6/6 vert + pytest vert — a précédé la découverte par bmad-code-review de défauts réels dont une régression.</li>
         <li><strong><code>export-ppt-verifie</code></strong> (2026-07-22) : Constat superviseur du 2026-07-22 (prio 1) arbitré : NE PAS rouvrir les arbitrages PPT — la prémisse du playbook (les 3 skills conditionnelles gagnent leur place via export-ppt-verifie) sera exercée lors de la GÉNÉRATION du deck PPT complet à venir, à laquelle ce constat est relié. Une slide isolée ajoutée au générateur existant (ex. Executive Summary, commit 2e43358) se vérifie par pptx-verify seul et ne déclenche pas le playbook, qui vise un livrable = deck de restitution complet.</li>
+        <li><strong><code>bmad-revue</code></strong> (2026-09-02) : ACCEPTÉ + APPLIQUÉ (arbitrage utilisateur du 2026-09-02). Le porteur de revue n'avait pas l'outil `Agent`, donc les couches adversariales de `bmad-code-review` — Blind Hunter, Edge Case Hunter, Acceptance Auditor — s'exécutaient EN SÉQUENCE dans un seul contexte : la troisième lisait ce que la première avait écrit, et le garde-fou anti-complaisance devenait un relecteur unique qui se relit. LA DÉGRADATION NE SE DÉDUISAIT PAS, elle était enregistrée DEUX FOIS dans `runs.jsonl` par les runs eux-mêmes (2026-08-31T22:07 et 2026-09-01T18:32) : le dispositif se plaignait de lui-même dans son propre journal, et personne ne lisait la plainte. Corrigé au hub (`.claude/agents/bmad-revue.md`), republié dans le kit, propagé aux 4 dépôts qui portent ce fichier — vérifié avant écrasement : la seule ligne remplacée est l'ancienne ligne `tools`, aucun travail local perdu. ET L'OUTIL SEUL N'AURAIT RIEN CHANGÉ : le mandat prescrit désormais le GESTE — plusieurs appels `Agent` dans un SEUL message (un par message est une cascade, donc l'inverse du but), briefs autoportants qui ne disent pas aux autres couches ce qu'une couche a trouvé, puis consolidation ; une couche qui n'a pas besoin d'être aveugle s'invoque inline. Donner un outil sans prescrire son usage est exactement le défaut mesuré le même jour sur les 46 skills BMAD. Test au hub, vu ROUGE, nommément sur ce porteur : `bmad-recherche` et `veille-agentic` n'ont aucune couche parallèle à dispatcher, leur donner `Agent` élargirait une surface sans besoin mesuré.</li>
       </ul>
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
       <p><em>Diagnostic à jour.</em></p>
       <div class="critical">
         <p><strong>Le gate de revue vit dans deux artefacts opt-in : 33 jours sans une seule invocation, et le seul commit applicatif du 2026-09-01 est passe sans revue prealable</strong> — Sortir les regles arbitrees des artefacts qu il faut penser a charger (skill, playbook) et les porter dans le gate deterministe qui s execute deja a chaque commit. Une regle qu on peut oublier d invoquer n est pas un gate, c est un rappel. · <strong>Proposition</strong> : Ajouter a .claude/hooks/warn_verif_before_commit.py une troisieme branche, calquee sur _DISPOSITIF_PREFIXES deja arbitree le 2026-07-29 : _REVUE_PREFIXES = app/templates/interviews/record + app/static/rec_ , plus la condition de plus de 5 fichiers app/ ; si le diff stage les touche et que la session ne porte aucune trace de bmad-code-review, avertir en NOMMANT l arbitrage du 2026-07-21. Le hook gate aujourd hui la VERIFICATION (pytest, rendu reel, _WARNING ligne 200) mais pas la REVUE, alors que c est la revue qui a saute. Cout : une constante et un test dans tests/test_hooks_discipline.py ; effet mesure sur c79e8b5 : l avertissement aurait porte.</p>
-        <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">agent-supervisor · étage 2</div>
-      </div>
-      <div class="critical">
-        <p><strong>Le porteur de revue n a pas l outil Agent : les couches adversariales censees etre aveugles et paralleles s executent en sequence dans un seul contexte</strong> — Rendre au porteur la capacite de lancer ses couches, ou cesser de presenter ses rapports comme des couches adversariales independantes — un seul contexte qui joue trois roles n est pas trois relecteurs. · <strong>Proposition</strong> : Ajouter Agent a la ligne tools de .claude/agents/bmad-revue.md — correction cote hub VScode5 puis re-export, jamais en local (lecon P1). Tant que ce n est pas fait, inscrire dans le playbook revue-design-parallele que le fan-out d independance est a la charge de l APPELANT : deux invocations Agent distinctes de bmad-revue, une par angle, au lieu d une seule qui cascade en interne. Preuve que le contournement marche : le run du 2026-09-01T09:14 l a fait spontanement (plan bmad-revue x2, parallele) et c est le seul des quatre cycles ou les defauts introduits par le correctif ont ete trouves AVANT le commit.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">agent-supervisor · étage 2</div>
       </div>
@@ -976,6 +972,8 @@ pytest -k "pptx or export"                                                     #
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">agent-supervisor · étage 2</div>
       </div>
+      <p><em>1 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un <code>re_challenge</code> avec des données nouvelles :</em></p>
+      <ul><li><s>Le porteur de revue n a pas l outil Agent : les couches adversariales censees etre aveugles et paralleles s executent en sequence dans un seul contexte</s> (<code>bmad-revue</code>)</li></ul>
     </section>
 <!-- TODO-AGENTS-HTML:END -->
 
