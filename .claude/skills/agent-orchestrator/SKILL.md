@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : 0908959 du 2026-09-01 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`0908959`, 2026-09-01) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 2e57112 du 2026-09-02 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`2e57112`, 2026-09-02) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -425,6 +425,38 @@ l'invoquer **inline** est plus direct et compte pareil au tableau de bord. La r�
 > une skill BMAD dont le travail tient dans la conversation courante s'invoque inline ;
 > une skill qui va lire beaucoup de fichiers ou produire un gros artefact part en
 > sous-agent, brief autoportant compris (§ 2 ter).
+
+**Le brief nomme la skill — sinon « d'office » n'est une consigne pour personne.** Règle
+posée le 2026-09-02, sur demande utilisateur de vérifier une information affichée par le
+site. Elle était exacte, et pire que ce qu'elle disait : sur les **46 skills BMAD
+installées, 2 seulement** avaient jamais été invoquées — `bmad-party-mode` (7 fois, par
+les salles) et `bmad-customize` (1 fois, en direct), **toutes deux sans porteur**. Le
+porteur `bmad-revue`, lui, a tourné **5 fois sans en charger une seule**, alors que son
+mandat dit « invoque réellement les skills bmad-* » et qu'il déclare un champ
+`SKILL INVOQUÉE` dans son contrat de sortie.
+
+La cause n'est pas l'installation : les 46 skills sont bien là, au hub comme chez les
+cibles (une exception, VSCode2 à 39). La cause est que **rien dans la chaîne ne portait
+le nom de la skill à charger** — la table le dit à l'orchestrateur, le mandat le dit au
+porteur, et le brief, seul document que le porteur reçoit réellement, se taisait. Trois
+gestes, désormais obligatoires :
+
+1. **Le brief porte le nom exact.** Dispatcher un porteur sans écrire « invoque
+   `bmad-code-review` via l'outil `Skill` » revient à espérer qu'il retrouve la table
+   tout seul — il ne l'a pas, son contexte est vierge (§ 2 ter). Le nom va dans le
+   brief, pas dans l'intention.
+2. **L'invocation est un contrat de sortie, donc vérifiable.** Le rapport doit ouvrir
+   sur `SKILL INVOQUÉE : <nom>` ou sur `aucune` avec sa raison. Un rapport qui déclare
+   une skill sans que l'étage 1 ait vu passer le `tool_use` correspondant est un écart
+   mesurable, pas une question de confiance — le scan compte les invocations, sidechains
+   comprises.
+3. **Contrat non rempli → une relance ciblée, puis escalade** (§ 4), comme pour toute
+   étape. Ne pas récrire le rapport à la place du porteur : ce serait reproduire à la
+   main exactement ce qu'on cherche à faire faire par la skill.
+
+Et la contrepartie honnête : si la skill n'apporte rien sur ce besoin précis, le porteur
+écrit `aucune` et explique. Un rapport franc sans skill vaut mieux qu'un nom emprunté —
+c'est le compteur d'usage qu'on veut juste, pas gonflé.
 
 **Porteur indisponible : dégrader, jamais abandonner l'étape.** Le registre des types
 d'agents est chargé au **démarrage de session** — un sous-agent créé pendant la séance
