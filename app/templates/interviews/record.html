@@ -1823,6 +1823,11 @@
       // Nouvelle session de jobs de répartition à chaque enregistrement.
       sessionToken = newSessionToken();
       sessionTokenHidden.value = sessionToken;
+      // Ce bouton jette la session PRÉCÉDENTE tout autant que « Recommencer »
+      // (après un Stop, les deux sont visibles) : sans ce vidage, les réponses
+      // et la progression de l'entretien précédent restaient à l'écran. Même
+      // correctif que `record_libre.html`, son chemin frère.
+      renderRepartition({}, 0, 0);
       segmentJobPosition = 0;
       coveredLen = 0;
       segmentTailHidden.value = '';
@@ -1966,7 +1971,11 @@
       }
     });
     statusRep.hidden = filled > 0;
-    progressEl.hidden = total === 0;
+    progressEl.hidden = !total;
+    // Vidé INCONDITIONNELLEMENT avant d'être réécrit : la version d'avant ne
+    // le réécrivait que sous `total > 0`, donc un `total` absent laissait le
+    // libellé de la session précédente dans le nœud (revue du 2026-09-02).
+    progressEl.textContent = '';
     if (total > 0) {
       progressEl.textContent = done + '/' + total + ' tranche' + (total > 1 ? 's' : '')
         + ' réparties en tâche de fond — ' + filled + ' question'
@@ -1976,9 +1985,16 @@
 
   function pollRepartition() {
     if (!sessionToken) return;  // pas encore d'enregistrement -> rien à afficher
-    recFetch('/interviews/segment-jobs/answers?session_token=' + encodeURIComponent(sessionToken), null, NET_TIMEOUT_MS)
+    // Jeton figé au DÉPART, re-vérifié au retour : vider l'onglet sur
+    // « Recommencer » ne suffit pas si une réponse partie avant le clic arrive
+    // après — elle réafficherait les réponses de la session jetée. Même garde
+    // que `record_libre.html`, dont c'est le chemin frère.
+    var tokenAuDepart = sessionToken;
+    recFetch('/interviews/segment-jobs/answers?session_token=' + encodeURIComponent(tokenAuDepart), null, NET_TIMEOUT_MS)
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) { if (data) renderRepartition(data.answers, data.done, data.total); })
+      .then(function (data) {
+        if (data && sessionToken === tokenAuDepart) renderRepartition(data.answers, data.done, data.total);
+      })
       .catch(function () { /* aperçu best-effort : un échec réseau ne casse rien */ });
   }
 

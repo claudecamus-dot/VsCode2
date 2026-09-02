@@ -250,9 +250,10 @@ class Interview(Base):
     # l'entretien enregistré — filet de sécurité en cas de souci de
     # transcription/extraction, l'audio brut n'étant sinon jamais conservé.
     audio_backup_path: Mapped[str | None] = mapped_column(String(500), default=None)
-    # Liste ordonnée de tranches de 30min de la sauvegarde audio complète
+    # Liste ordonnée de tranches de 20min de la sauvegarde audio complète
     # ({"filename": str, "position": int}, mode libre uniquement) — au-delà
-    # de 30min, `backupRecorder` (côté client) tourne comme le fait déjà le
+    # de 20min (`BACKUP_SEGMENT_MS` de `record_libre.html`, la seule source de
+    # vérité), `backupRecorder` (côté client) tourne comme le fait déjà le
     # `MediaRecorder` de transcription à 60s, pour ne jamais perdre plus
     # qu'une tranche en cas de crash. `audio_backup_path` ci-dessus continue
     # de pointer vers la DERNIÈRE tranche (rétrocompatible avec le lecteur
@@ -716,7 +717,7 @@ class AgentResult(Base):
     mission: Mapped["Mission"] = relationship(back_populates="agent_results")
 
 
-# Statuts d'un job de traitement de tranche (Palier 2, segmentation 30min).
+# Statuts d'un job de traitement de tranche (Palier 2, segmentation en tranches).
 SEGMENT_JOB_STATUSES = ("pending", "running", "done", "failed")
 
 # Nature du traitement d'une tranche : tours de parole d'un entretien libre
@@ -730,7 +731,7 @@ class InterviewSegmentJob(Base):
     `docs/reflexions/enregistrement-segmente-30min.md` §4).
 
     Découple soumission et résultat pour un entretien libre long : pendant
-    l'enregistrement, chaque tranche de ~30min de texte transcrit est soumise
+    l'enregistrement, chaque tranche de ~5min de texte transcrit est soumise
     ici et traitée en tâche de fond (`extract_turns_from_text`) pendant que la
     tranche suivante s'enregistre — au lieu de tout traiter en une requête
     synchrone bloquée à l'arrêt (le mur des ~2h30 pour 3h, cf.

@@ -90,11 +90,20 @@ def _extract_for_job(db: Session, job: InterviewSegmentJob) -> dict:
 def segment_job_stale_after_s() -> int:
     """Délai (secondes) au-delà duquel un job encore `pending`/`running` est
     considéré bloqué (crash de tâche de fond, serveur redémarré, verrou DB
-    jamais levé) plutôt que simplement lent. Défaut 45min — mesures réelles
-    (`extraction-longue-duree.md`) montrent qu'une tranche de 30min prend au
-    pire ~27-30min de traitement légitime (le temps dépend du volume de mots,
-    pas de `OLLAMA_CHUNK_MAX_WORDS`) : 45min laisse une marge confortable sans
-    faire attendre indéfiniment sur un job réellement mort."""
+    jamais levé) plutôt que simplement lent. Défaut 45min.
+
+    Le chiffre a été calé sur une mesure (`extraction-longue-duree.md`) d'une
+    tranche de 30min de parole, traitée au pire en ~27-30min. **Cette mesure ne
+    décrit plus l'unité réellement soumise** : depuis le découplage de la
+    cadence d'extraction et de la rotation audio, un job porte
+    `JOB_SEGMENT_MS` = 5 min de parole (`record_libre.html`), pas 30. Le seuil
+    est donc aujourd'hui très large — un job réellement mort reste invisible
+    45min au lieu de la dizaine de minutes que sa taille justifierait. Il est
+    conservé tel quel faute d'une mesure refaite à la nouvelle taille : le
+    resserrer sur une estimation risquerait de déclarer morts des jobs
+    simplement lents, ce qui coûte plus cher qu'une attente (constat de revue
+    du 2026-09-02). `SEGMENT_JOB_STALE_AFTER_S` permet de le régler sans
+    toucher au code."""
     raw = os.environ.get("SEGMENT_JOB_STALE_AFTER_S")
     if raw:
         try:

@@ -50,7 +50,7 @@
   <input type="hidden" name="audio_backup_path" id="rec-backup-path" value="{{ identity.audio_backup_path if identity else '' }}">
   <input type="hidden" name="audio_segments" id="rec-audio-segments" value="{{ identity.audio_segments if identity else '[]' }}">
   <!-- Palier 2 : jeton de session (jobs de tranche) + reliquat de texte non
-       encore soumis en tâche de fond. Vides pour un entretien < 30min (aucun
+       encore soumis en tâche de fond. Vides pour un entretien < 20min (aucun
        job créé → traitement synchrone habituel côté serveur). -->
   <input type="hidden" name="session_token" id="rec-session-token" value="{{ identity.session_token if identity else '' }}">
   <input type="hidden" name="segment_tail" id="rec-segment-tail" value="{{ identity.segment_tail if identity else '' }}">
@@ -272,7 +272,7 @@
   var SEGMENT_MS = 60000;
   var BACKUP_SEGMENT_MS = 20 * 60000;
   // Extraction « au fil de l'eau » : cadence de soumission des jobs d'extraction,
-  // DÉCOUPLÉE de la rotation audio 30min. Un job toutes les 5 min tient à peu
+  // DÉCOUPLÉE de la rotation audio 20min. Un job toutes les 5 min tient à peu
   // près le rythme de l'inférence CPU (~5min de parole ≈ ~750 mots, traités en
   // ~4-5min à la vitesse mesurée) tout en gardant l'extraction proche du direct.
   // Ajuster ici selon la vitesse réelle de la machine (mesurer un vrai entretien).
@@ -395,7 +395,7 @@
       return [];
     }
   })();
-  // Palier 2 : traitement asynchrone des tranches. À chaque rotation 30min du
+  // Palier 2 : traitement asynchrone des tranches. À chaque rotation 20min du
   // backupRecorder, on soumet le texte transcrit depuis la dernière rotation
   // comme un job d'extraction en tâche de fond (le serveur enchaîne pendant que
   // l'enregistrement continue). `coveredLen` marque la fin de ce qui a déjà été
@@ -440,7 +440,7 @@
   // font que *programmer* les évènements `stop` ; entre l'appel et leur
   // déclenchement, pendingBackups/pendingSegments valent encore 0 et le bouton
   // « Extraire » se réactiverait à tort — un « Stop puis Extraire » rapide
-  // poste alors sans la dernière tranche (entretien < 30min = tranche UNIQUE ->
+  // poste alors sans la dernière tranche (entretien < 20min = tranche UNIQUE ->
   // sauvegarde audio entièrement perdue). `finalizing` gate la soumission tant
   // que les enregistreurs arrêtés n'ont pas livré leur dernière tranche (revue
   // adversariale 2026-07-20).
@@ -745,7 +745,7 @@
   /* Bascule la source SANS interrompre l'enregistrement : les deux enregistreurs
      relisent la variable `stream` dans leur handler `stop` pour se relancer
      (`startSegment` / `startBackupRecorder`). Les arrêter revient donc à une
-     rotation anticipée — mécanisme déjà éprouvé par la rotation 30 min. La
+     rotation anticipée — mécanisme déjà éprouvé par la rotation 20 min. La
      tranche en cours est livrée normalement, rien n'est perdu. */
   function swapSource(nouveau) {
     // Démarré EN MODE À DISTANCE : les enregistreurs sont déjà branchés sur la
@@ -756,7 +756,7 @@
     stream = nouveau;
     if (!recordingActive || inchange) return;
     // Démarré au micro seul : il faut faire relire `stream` aux enregistreurs.
-    // Ici les DEUX se relancent d'eux-mêmes (rotation 60 s et rotation 30 min),
+    // Ici les DEUX se relancent d'eux-mêmes (rotation 60 s et rotation 20 min),
     // et `audio_segments` accumule les tranches — la bascule ne perd donc rien,
     // contrairement à record.html dont la sauvegarde ne sait pas se rouvrir.
     if (segmentRecorder && segmentRecorder.state === 'recording') segmentRecorder.stop();
@@ -1264,7 +1264,7 @@
       // Reprise immédiate si l'entretien continue, même principe que
       // startSegment() pour la transcription : le micro (stream) n'est
       // jamais coupé, seul le MediaRecorder qui l'enveloppe tourne — au-delà
-      // de 30min, la sauvegarde se poursuit par tranches plutôt que de tout
+      // de 20min, la sauvegarde se poursuit par tranches plutôt que de tout
       // perdre en cas de crash navigateur en fin d'entretien.
       if (recordingActive) startBackupRecorder();
       else recorderFinalized();  // arrêt final : dernière tranche audio livrée (pendingBackups>0 prend le relais)
@@ -2106,6 +2106,14 @@
       // Palier 2 : nouvelle session de jobs à chaque enregistrement.
       sessionToken = newSessionToken();
       sessionTokenHidden.value = sessionToken;
+      // Ce bouton jette la session PRÉCÉDENTE tout autant que « Recommencer » :
+      // après un Stop, « Démarrer » et « Recommencer » sont tous deux visibles.
+      // Sans ce vidage, les tours de l'entretien précédent restaient affichés et
+      // exportables en PDF sous la nouvelle identité — le défaut F9/EC6 par son
+      // chemin frère (revue adversariale du 2026-09-02). Ne pas compter sur le
+      // prochain poll pour le faire : s'il échoue (réseau, serveur), la garde de
+      // jeton REJETTE le rendu sans rien vider, et l'état périmé reste affiché.
+      renderRepartition([]);
       segmentJobPosition = 0;
       coveredLen = 0;
       segmentTailHidden.value = '';
@@ -2134,12 +2142,13 @@
         if (segmentRecorder && segmentRecorder.state === 'recording') segmentRecorder.stop();
       }, SEGMENT_MS);
       // Extraction au fil de l'eau : un job toutes les 5 min, indépendamment de
-      // la rotation audio 30min ci-dessous. L'extraction suit la transcription
+      // la rotation audio 20min ci-dessous. L'extraction suit la transcription
       // au lieu de tout traiter en synchrone à l'arrêt ; à la finalisation il ne
       // reste qu'un petit reliquat (segment_tail, ≤ 5 min).
       jobSubmitTimer = setInterval(submitSegmentJob, JOB_SEGMENT_MS);
       backupRotationTimer = setInterval(function () {
-        // Rotation de la SAUVEGARDE audio (tranche de 30min). La soumission des
+        // Rotation de la SAUVEGARDE audio (tranche de 20min, `BACKUP_SEGMENT_MS`).
+        // La soumission des
         // jobs d'extraction est désormais portée par jobSubmitTimer ci-dessus.
         if (backupRecorder && backupRecorder.state === 'recording') backupRecorder.stop();
       }, BACKUP_SEGMENT_MS);
@@ -2247,6 +2256,13 @@
     refreshLostBanner();
     resetNoSpeech();
     hideFileRetry();
+    // L'onglet « Répartition (Q/R) » fait partie de la session jetée : sans ce
+    // vidage, les tours de l'entretien qu'on vient d'abandonner restaient
+    // affichés ET exportables en PDF par `#rep-pdf` (constats F9/EC6 de la revue
+    // du 2026-08-31, encore vrais au 2026-09-02). `renderRepartition([])` remet
+    // les trois états d'un coup : le conteneur, `latestRepartitionTurns` (source
+    // de l'export PDF) et le bouton d'export.
+    renderRepartition([]);
     resetBtn.hidden = true;
     statusEl.textContent = '';
     timerEl.textContent = '00:00';
@@ -2266,7 +2282,7 @@
     var container = document.getElementById('rec-repartition');
     var statusRep = document.getElementById('rec-repartition-status');
     var repPdfBtn = document.getElementById('rep-pdf');
-    latestRepartitionTurns = turns || [];
+    latestRepartitionTurns = Array.isArray(turns) ? turns : [];
     if (repPdfBtn) repPdfBtn.disabled = !latestRepartitionTurns.length;
     if (!latestRepartitionTurns.length) {
       container.innerHTML = '';
@@ -2275,7 +2291,7 @@
     }
     statusRep.hidden = true;
     var parts = [];
-    turns.forEach(function (t) {
+    latestRepartitionTurns.forEach(function (t) {
       if (t.section_title && String(t.section_title).trim()) {
         parts.push('<h3 class="rec-rep-section">' + escHtml(t.section_title) + '</h3>');
       }
@@ -2294,9 +2310,15 @@
 
   function pollRepartition() {
     if (!sessionToken) return;  // pas encore d'enregistrement -> rien à afficher
-    recFetch('/interviews/segment-jobs/turns?session_token=' + encodeURIComponent(sessionToken), null, NET_TIMEOUT_MS)
+    // Le jeton est figé au DÉPART de la requête, et re-vérifié au retour : vider
+    // l'onglet sur « Recommencer » ne suffit pas si une réponse partie avant le
+    // clic arrive après, car elle réafficherait les tours de la session jetée.
+    var tokenAuDepart = sessionToken;
+    recFetch('/interviews/segment-jobs/turns?session_token=' + encodeURIComponent(tokenAuDepart), null, NET_TIMEOUT_MS)
       .then(function (r) { return r.ok ? r.json() : null; })
-      .then(function (data) { if (data) renderRepartition(data.turns); })
+      .then(function (data) {
+        if (data && sessionToken === tokenAuDepart) renderRepartition(data.turns);
+      })
       .catch(function () { /* aperçu best-effort : un échec réseau ne casse rien */ });
   }
 

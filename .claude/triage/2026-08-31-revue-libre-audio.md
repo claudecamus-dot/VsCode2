@@ -29,6 +29,21 @@ revue est le livrable, les correctifs sont un mandat séparé. Tous les constats
 > ⚠️ Ce fichier ne se met pas à jour tout seul : un constat fermé par un commit doit
 > l'être ICI dans le même mouvement, sinon le backlog ment sur ce qui reste à faire.
 
+> **Mise à jour 2026-09-02 (run `/orchestre` « finalise l'entretien libre »).** **F9** et
+> **EC-6** (le même défaut) sont **corrigés** : « Recommencer » vide désormais l'onglet
+> Répartition (`renderRepartition([])`), et `pollRepartition` fige son jeton au départ pour
+> qu'une réponse en vol ne réaffiche pas la session jetée — une porte de derrière que le
+> seul vidage laissait ouverte, et qui existait AUSSI sur le chemin frère `record.html`
+> (corrigé du même coup). Le trou de test qui rendait ces défauts invisibles est comblé par
+> `tests/test_repartition_live.py`, qui EXÉCUTE réellement le JS extrait du template sous
+> node : 9 tests, dont 3 mutations vérifiées rouges sur le code d'avant. Suite complète
+> **724 passed, 0 skipped**.
+>
+> **F14** (poll jamais arrêté) reste ouvert et est requalifié : le `setInterval` doit
+> continuer après l'arrêt de l'enregistrement, puisque les jobs d'extraction se terminent
+> en fond APRÈS le clic sur Stop — l'arrêter viderait l'aperçu de sa raison d'être. Ce qui
+> était réellement dangereux dans F14, c'est la réponse en vol, désormais gardée.
+
 **Preuve** : `VERIFIE-CONSO` = re-vérifié en consolidation par lecture ou exécution directe
 (je ne reprends pas un rapport d'agent à mon compte sans le recouper) ; `VERIFIE-AGENT` =
 lu par le sous-agent, non recoupé ; `SUPPOSE` = demande une session navigateur ou une
@@ -153,7 +168,7 @@ faster-whisper indisponible) se réinjecte en boucle comme bloquant. Aucun bouto
 | F6 | `libre_segment_wait.html` retient la seule copie de l'entretien sans garde-fou de sortie | `app/templates/interviews/libre_segment_wait.html:27` | VERIFIE-AGENT | differe |
 | F7 | Une exception au démarrage laisse l'écran mort : ni démarrer, ni arrêter, ni enregistrer | `app/templates/interviews/record_libre.html:1372` | VERIFIE-AGENT | differe |
 | F8 | La rotation n'a aucun filet : la transcription peut s'arrêter en silence | `app/templates/interviews/record_libre.html:479` | VERIFIE-AGENT | differe |
-| F9 | « Recommencer » ne vide pas la Répartition : tours de l'entretien jeté affichés ET exportables | `app/templates/interviews/record_libre.html:1503` | VERIFIE-CONSO | differe — **non touché par 2bf44b7** (asymétrie re-confirmée par R3) |
+| F9 | « Recommencer » ne vide pas la Répartition : tours de l'entretien jeté affichés ET exportables | `app/templates/interviews/record_libre.html:1503` | VERIFIE-CONSO | **corrigé le 2026-09-02** — `renderRepartition([])` dans le gestionnaire, + garde de jeton contre la réponse en vol ; verrouillé par `tests/test_repartition_live.py` (mutations vérifiées) |
 | F10 | `record.html` : `uploadBackup` sans garde de génération — l'audio d'un autre interviewé | `app/templates/interviews/record.html:944` | VERIFIE-CONSO | **corrige** (2bf44b7, COMPLET — parité stricte avec `uploadSegment`) |
 | F11 | Les alertes de source audio ne sortent jamais de l'onglet, alors que l'entretien est ailleurs | `app/templates/interviews/record_libre.html:551` | VERIFIE-AGENT | differe |
 
@@ -478,7 +493,7 @@ Aucun n'est appliqué : ils attendent un arbitrage utilisateur.
 | N7 | MINEUR | `j.error is not None` dans le tri, `if j.error` partout ailleurs : un `error=""` est classé « déjà en échec » d'un côté, « sans erreur » de l'autre | `app/routers/interviews.py:2048` | VERIFIE-AGENT (exécuté) | differe |
 | N8 | MINEUR | `.text.strip()` est neuf sur le chemin retranscription et la colonne est NULLable au niveau SQLite (ajoutée par `ALTER TABLE`) → `AttributeError` = 500. Non atteignable aujourd'hui | `app/routers/interviews.py:2047` + `app/db.py:79` | VERIFIE-AGENT | differe |
 | EC-5 | MINEUR | `pendingBackups` dans `beforeunload` fait apparaître la confirmation de sortie sur « Télécharger le PDF » et sur la porte de sortie, deux boutons non gatés par `updateSubmitState` | `record_libre.html:918`, `record.html:918` | SUPPOSE | differe |
-| EC-6 | MINEUR | `record_libre.html` ne rappelle pas `renderRepartition` au reset ET `pollRepartition` sort sur `!sessionToken` : les tours de l'entretien ABANDONNÉ restent affichés et **exportables en PDF** définitivement (= F9, aggravé) | `record_libre.html:1697` | VERIFIE-CONSO | differe |
+| EC-6 | MINEUR | `record_libre.html` ne rappelle pas `renderRepartition` au reset ET `pollRepartition` sort sur `!sessionToken` : les tours de l'entretien ABANDONNÉ restent affichés et **exportables en PDF** définitivement (= F9, aggravé) | `record_libre.html:1697` | VERIFIE-CONSO | **corrigé le 2026-09-02** (= F9) |
 | EC-7 | MINEUR | `flightSliceEnd` n'est remis à `-1` par aucun reset alors que `coveredLen` l'est — l'invariant ne tient que par la garde de ré-entrance, que EC-1 casse précisément | `record_libre.html:1583`, `record.html:1394` | VERIFIE-AGENT | differe |
 | EC-8 | MINEUR | Le garde anti-`fetch`-nu laisse passer `window.fetch(` et tout appel précédé d'un `//` littéral sur la même ligne | `tests/test_record_reseau.py:63` | VERIFIE-AGENT (exécuté) | differe |
 | EC-9 | MINEUR | La justification écrite du repli de `markLostSegmentAbandoned` est fausse : le textarea est `readonly`, le marqueur ne peut pas être « édité à la main » | `record_libre.html:884` vs `:171` | VERIFIE-AGENT | differe |
