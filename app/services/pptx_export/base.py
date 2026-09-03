@@ -10,7 +10,6 @@ from pathlib import Path
 from pptx import Presentation
 from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
-from pptx.oxml.ns import qn
 from pptx.util import Emu, Inches, Pt
 
 from .. import pptx_deck as D
@@ -154,21 +153,16 @@ def _dims(prs: Presentation) -> tuple[float, float]:
 
 
 def _clear_slides(prs: Presentation) -> None:
-    """Retire toutes les slides d'une présentation chargée depuis un template
-    client — on ne veut hériter que masters/layouts/thème. Sans ça, un
-    template qui est un vrai exemple de deck (pas un .potx vierge) ferait
-    apparaître tout son contenu d'origine avant le nôtre. `python-pptx`
-    n'expose pas de suppression de slide côté API publique ; on vide
-    directement la liste XML des slides — mais il faut aussi lâcher la
-    relation (r:id) de chaque slide sur la part présentation, sans quoi le
-    fichier réserialisé contient des relations pointant vers des parts
-    devenues orphelines : invisible pour python-pptx (parseur tolérant),
-    mais PowerPoint refuse ensuite d'ouvrir le fichier (constaté via
-    l'automation COM — l'export semblait « valide » côté tests avant ça)."""
-    sld_id_lst = prs.slides._sldIdLst
-    for sld_id in list(sld_id_lst):
-        prs.part.drop_rel(sld_id.get(qn("r:id")))
-        sld_id_lst.remove(sld_id)
+    """Alias vers `D.clear_slides` (bibliothèque partagée `pptx_deck.py`).
+
+    Copie locale historique — même logique caractère pour caractère (drop_rel
+    de chaque slide avant de vider `sldIdLst`, sans quoi la part devient
+    orpheline et PowerPoint refuse d'ouvrir le fichier, constaté via
+    l'automation COM) — remontée dans la référence de flotte le 2026-09-03
+    (arbitrage utilisateur) pour que VSCode3/VSCode4 la consomment depuis là
+    au lieu d'en garder chacun une copie. Gardée sous ce nom ici pour ne pas
+    toucher les appelants (`build.py`)."""
+    D.clear_slides(prs)
 
 
 def _has_title_placeholder(layout) -> bool:
@@ -443,21 +437,13 @@ def _layout_by_name(prs: Presentation, *keywords: str):
 
 
 def _sans_puce(paragraph) -> None:
-    """Retire l'indentation de puce héritée (marL/indent) et la puce elle-même —
-    reproduit tel quel le helper du générateur de référence VSCode3. Cause réelle
-    du « 01 » qui wrappe dans le petit encart numéro du layout Chapitre : le style
-    de liste hérité pose marL=0.5in dans un encart de ~0.55in. python-pptx n'expose
-    pas ces attributs -> manipulation XML directe."""
-    pPr = paragraph._p.get_or_add_pPr()
-    pPr.set("marL", "0")
-    pPr.set("indent", "0")
-    for tag in ("a:buChar", "a:buAutoNum", "a:buNone"):
-        for el in pPr.findall(qn(tag)):
-            pPr.remove(el)
-    # Forcer explicitement l'absence de puce : notre template hérite un caractère de
-    # puce à un niveau que le retrait ci-dessus ne couvre pas (un ◉ résiduel
-    # apparaissait avant le numéro) — buNone le neutralise à coup sûr.
-    pPr.append(pPr.makeelement(qn("a:buNone"), {}))
+    """Alias vers `D.sans_puce` (bibliothèque partagée `pptx_deck.py`).
+
+    Copie locale historique (elle-même reprise du générateur de référence
+    VSCode3) — remontée dans la référence de flotte le 2026-09-03 (arbitrage
+    utilisateur) pour que le reste de la flotte la consomme depuis là. Gardée
+    sous ce nom ici pour ne pas toucher les appelants (`slides_cadre.py`)."""
+    D.sans_puce(paragraph)
 
 
 def _label_axe_vertical(slide, cx: float, cy: float, longueur: float,

@@ -4,14 +4,35 @@ couleurs, et surtout un controle geometrique automatique (`verifier_geometrie`)
 qui detecte toute forme qui sort de la slide — le defaut classique des decks
 generes a la main.
 
+Section « helpers durcis deck binaire » (remontee depuis VSCode4, arbitrage
+utilisateur 2026-09-03 — VSCode4 les avait durcis seul sur le deck OHC, runs du
+2026-07-21, sans jamais les remonter vers cette reference) : fige en code des
+lecons payees sur de vrais bugs de manipulation de fichiers .pptx binaires —
+ - recherche de slide par TITRE avec assertion d'unicite (`trouver_slide_par_titre`)
+   — les matchers approximatifs (position, title_of, corps de texte) ont tous
+   ete pieges ;
+ - suppression de slide avec drop_rel (`supprimer_slide`, `clear_slides`) : sans
+   lui, la part de slide devient orpheline — invisible pour python-pptx (parseur
+   tolerant), mais PowerPoint refuse ensuite d'ouvrir le fichier (HRESULT
+   0x80CB4404) ; `purger_rels_slides_orphelines` est le filet anti-corruption a
+   appeler avant save() sur un deck retravaille ;
+ - regle AJOUTER-AVANT-SUPPRIMER quand on remplace une slide : creer la nouvelle
+   AVANT de supprimer l'ancienne, jamais l'inverse dans le meme cycle — un
+   delete puis add reutilise un nom de part (slideN.xml) et produit une
+   corruption « Duplicate part name » que python-pptx ne voit pas.
+Complete aussi les formes/texte « riches » (add_forme, add_text_runs,
+definir_geometrie, configurer_text_frame, definir_paragraphes) et un
+localisateur de cadre-image generique par preset OOXML (trouver_cadre_layout).
+
 Reutilisable hors de ce projet : aucune dependance au domaine metier ici.
 Les coordonnees des helpers sont exprimees en POUCES (float) pour la lisibilite.
 """
-from pptx.util import Inches, Pt, Emu
 from pptx.dml.color import RGBColor
-from pptx.enum.text import MSO_ANCHOR, PP_ALIGN, MSO_AUTO_SIZE
 from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
+from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from pptx.oxml.ns import qn
+from pptx.util import Emu, Inches, Pt
 
 # --- Echelle typographique (pt) — une seule source de verite ---
 # Échelle typographique. `title` = 20 (aligné sur la charte de référence
@@ -221,6 +242,199 @@ def add_rect(slide, l, t, w, h, fill=None, line=None, line_w=1.0, rounded=False,
         shp.line.width = Pt(line_w)
     shp.text_frame.paragraphs[0].text = ""
     return shp
+
+
+# --- Formes et texte « riches » (remonte depuis VSCode4, arbitrage 2026-09-03) ---
+# Nes de la reconstruction fidele d'un deck binaire : add_text force taille et
+# couleur sur chaque run (parfait pour dessiner du neuf, faux pour reproduire
+# du texte de placeholder qui doit HÉRITER sa charte du layout), et add_rect ne
+# couvre que les rectangles. Les helpers ci-dessous ne posent QUE les
+# propriétés fournies.
+
+FORMES_PRST = {
+    "rect": MSO_SHAPE.RECTANGLE,
+    "roundRect": MSO_SHAPE.ROUNDED_RECTANGLE,
+    "round1Rect": MSO_SHAPE.ROUND_1_RECTANGLE,
+    "round2DiagRect": MSO_SHAPE.ROUND_2_DIAG_RECTANGLE,
+    "round2SameRect": MSO_SHAPE.ROUND_2_SAME_RECTANGLE,
+    "ellipse": MSO_SHAPE.OVAL,
+    "triangle": MSO_SHAPE.ISOSCELES_TRIANGLE,
+    "rtTriangle": MSO_SHAPE.RIGHT_TRIANGLE,
+    "diamond": MSO_SHAPE.DIAMOND,
+    "tear": MSO_SHAPE.TEAR,
+}
+
+
+def add_forme(slide, prst, l, t, w, h, fill=None, line=None, line_w=1.0,
+              adj=None, rot=0, dash=None, fill_alpha=None):
+    """Autoshape générique par nom de preset OOXML (« roundRect »,
+    « round2DiagRect », « ellipse », « triangle », « tear »… cf. FORMES_PRST).
+    Complète add_rect (limité aux rectangles) pour reproduire fidèlement les
+    formes d'un deck existant : `adj` = liste d'adjustments posés dans l'ordre
+    du preset (fractions de l'échelle OOXML 100000, ex. 0.16667 pour
+    `val 16667`), `rot` en degrés, `dash` = style de tirets OOXML de la
+    bordure (« dot », « dash »… — None = trait plein). Ombre coupée (règle
+    dure OCTO), fill/line hexa ou None (fond transparent / sans bordure).
+    `fill_alpha` (0-100, None = opaque) pose une opacité PARTIELLE sur `fill` —
+    un scrim plat semi-transparent (ex. lisibilité d'un texte posé sur une
+    photo) reste conforme à la charte « pas d'ombre portée » puisqu'il n'a
+    aucun flou/décalage, contrairement à `a:outerShdw` (interdit ailleurs
+    dans ce module via `_no_shadow`)."""
+    shp = slide.shapes.add_shape(FORMES_PRST[prst], Inches(l), Inches(t),
+                                 Inches(w), Inches(h))
+    _no_shadow(shp)
+    if adj:
+        for i, v in enumerate(adj):
+            try:
+                shp.adjustments[i] = v
+            except Exception:
+                pass
+    if rot:
+        shp.rotation = rot
+    if fill is None:
+        shp.fill.background()
+    else:
+        shp.fill.solid()
+        shp.fill.fore_color.rgb = rgb(fill)
+        if fill_alpha is not None:
+            srgb = shp.fill.fore_color._xFill.find(qn("a:srgbClr"))
+            if srgb is not None:
+                for old in srgb.findall(qn("a:alpha")):
+                    srgb.remove(old)
+                a = srgb.makeelement(
+                    qn("a:alpha"), {"val": str(int(round(fill_alpha * 1000)))})
+                srgb.append(a)
+    if line is None:
+        shp.line.fill.background()
+    else:
+        shp.line.color.rgb = rgb(line)
+        shp.line.width = Pt(line_w)
+        if dash:
+            ln = shp.line._get_or_add_ln()
+            pd = ln.find(qn("a:prstDash"))
+            if pd is None:
+                pd = ln.makeelement(qn("a:prstDash"), {})
+                ln.append(pd)
+            pd.set("val", dash)
+    shp.text_frame.paragraphs[0].text = ""
+    return shp
+
+
+def definir_geometrie(shape, l, t, w, h):
+    """Pose la géométrie (pouces) d'une shape existante — typiquement un
+    placeholder cloné du layout dont on veut figer la position telle que
+    mesurée sur le deck de référence (un placeholder sans xfrm explicite
+    hérite du layout : expliciter la même valeur est sans effet visuel mais
+    rend la reproduction indépendante d'une évolution du layout)."""
+    shape.left = Inches(l)
+    shape.top = Inches(t)
+    shape.width = Inches(w)
+    shape.height = Inches(h)
+
+
+def configurer_text_frame(tf, anchor=None, wrap=None, autosize=None,
+                          margins=None):
+    """Configure un text frame en ne touchant QUE les propriétés fournies
+    (None = laisser hériter) : ancrage vertical, retour à la ligne, auto-size
+    (MSO_AUTO_SIZE) et marges internes `(gauche, haut, droite, bas)` en
+    pouces. Indispensable pour reproduire un deck existant sans écraser les
+    réglages hérités des layouts."""
+    if anchor is not None:
+        tf.vertical_anchor = anchor
+    if wrap is not None:
+        tf.word_wrap = wrap
+    if autosize is not None:
+        tf.auto_size = autosize
+    if margins is not None:
+        ml, mt, mr, mb = margins
+        tf.margin_left = Inches(ml)
+        tf.margin_top = Inches(mt)
+        tf.margin_right = Inches(mr)
+        tf.margin_bottom = Inches(mb)
+
+
+def definir_paragraphes(tf, paras, police_defaut=None):
+    """Écrit des paragraphes « riches » (plusieurs runs stylés PAR paragraphe,
+    ex. un mot en gras au milieu d'une phrase) en ne posant que les propriétés
+    fournies — contrairement à add_text qui force taille et couleur sur chaque
+    run, ce qui casserait l'héritage de charte du texte de placeholder.
+    `paras` = liste de (runs, opts_para) ; `runs` = liste de (texte, opts_run).
+    opts_run : size (pt), bold, italic, color (hexa), font ; opts_para :
+    align (PP_ALIGN), space_before/space_after (pt), line_spacing (multiple),
+    bullet (dict char/size/font/color — puce réelle buChar avec retrait
+    suspendu marL/indent en pouces, defaut 0.1875), marL/indent (pouces).
+    Le contenu existant du text frame est remplacé.
+
+    `police_defaut` (None par defaut) : police posee sur les runs qui n'en
+    demandent PAS une. Volontairement non branchee sur POLICE ici — cette
+    fonction ecrit aussi dans des PLACEHOLDERS, ou l'heritage du layout porte
+    des poids nommes (« Outfit SemiBold »…) qu'un defaut global aplatirait.
+    Seul add_text_runs, qui cree toujours une zone DESSINEE neuve, le passe
+    (cf. son docstring)."""
+    tf.clear()
+    for i, (runs, opts) in enumerate(paras):
+        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+        if "align" in opts:
+            p.alignment = opts["align"]
+        if "space_before" in opts:
+            p.space_before = Pt(opts["space_before"])
+        if "space_after" in opts:
+            p.space_after = Pt(opts["space_after"])
+        if "line_spacing" in opts:
+            p.line_spacing = opts["line_spacing"]
+        if opts.get("bullet") or "marL" in opts or "indent" in opts:
+            bu = opts.get("bullet") or {}
+            marL = opts.get("marL", 0.1875 if bu else 0.0)
+            indent = opts.get("indent", -marL if bu else 0.0)
+            pPr = p._p.get_or_add_pPr()
+            pPr.set("marL", str(int(Inches(marL))))
+            pPr.set("indent", str(int(Inches(indent))))
+            if bu:
+                for tag, attrs in (
+                        ("a:buClr", None),
+                        ("a:buSzPts", {"val": str(int(bu.get("size", 10) * 100))}),
+                        ("a:buFont", {"typeface": bu.get("font", "Arial")}),
+                        ("a:buChar", {"char": bu.get("char", "•")})):
+                    el = pPr.makeelement(qn(tag), attrs or {})
+                    if tag == "a:buClr":
+                        clr = pPr.makeelement(qn("a:srgbClr"), {
+                            "val": bu.get("color", INK).lstrip("#").upper()})
+                        el.append(clr)
+                    pPr.append(el)
+        for texte, ro in runs:
+            r = p.add_run()
+            r.text = texte
+            f = r.font
+            if ro.get("size") is not None:
+                f.size = Pt(ro["size"])
+            if ro.get("bold") is not None:
+                f.bold = ro["bold"]
+            if ro.get("italic") is not None:
+                f.italic = ro["italic"]
+            if ro.get("color"):
+                f.color.rgb = rgb(ro["color"])
+            nom = ro.get("font") or police_defaut
+            if nom:
+                f.name = nom
+
+
+def add_text_runs(slide, l, t, w, h, paras, anchor=None, wrap=True,
+                  autosize=None, margins=(0, 0, 0, 0)):
+    """Zone de texte « riche » : la version multi-runs d'add_text (un
+    paragraphe peut mélanger des runs de styles différents), configurée via
+    configurer_text_frame + definir_paragraphes. Mêmes conventions d'unités
+    (pouces / pt).
+
+    Comme add_text, applique POLICE (la police de marque posee par
+    set_police) aux runs qui n'en demandent pas explicitement. C'est une zone
+    DESSINEE neuve : elle n'herite d'aucun layout, donc un run sans police
+    retombe sur le fontScheme du theme — Arial sur les gabarits OCTO, soit
+    deux polices dans la meme carte. Le defaut ferme ce trou a la source."""
+    box = slide.shapes.add_textbox(Inches(l), Inches(t), Inches(w), Inches(h))
+    configurer_text_frame(box.text_frame, anchor=anchor, wrap=wrap,
+                          autosize=autosize, margins=margins)
+    definir_paragraphes(box.text_frame, paras, police_defaut=POLICE)
+    return box
 
 
 def add_hbar(slide, l, t, w, h, frac, fill, track=TRACK):
@@ -606,3 +820,172 @@ def theme_colors(prs):
         if mm:
             out[name] = "#" + (mm.group(1) or mm.group(2)).upper()
     return out
+
+
+# ---------------------------------------------------------------------------
+# Cadre photo (frame) NON groupe — complement de pptx-framed-image
+# (remonte depuis VSCode4, arbitrage 2026-09-03)
+# ---------------------------------------------------------------------------
+# La skill pptx-framed-image (.claude/skills/pptx-framed-image/scripts/
+# framed_image.py, frame_geometry()) suppose que le cadre « ici mettre une
+# Photo » est niche dans un GROUP (cas du « cadre blanc » OCTO). Un layout de
+# type « Chapitre » pose parfois son cadre comme une AUTOSHAPE de premier
+# niveau (pas de group) : frame_geometry() ne s'applique pas telle quelle.
+# trouver_cadre_layout() est la variante top-level manquante — generalise
+# (par PRESET, pas seulement « teardrop ») la variante locale deja presente
+# dans ce projet, `pptx_export.images._find_teardrop_frame` (fixee au preset
+# teardrop, sans desambiguation par largeur ni info de flip) : cette derniere
+# n'a pas ete recablee dessus dans cet increment (elle est deja utilisee en
+# production sur les intercalaires de chapitre) — signale ici pour un futur
+# increment de dedoublonnage, pas tranche seul.
+
+
+def trouver_cadre_layout(shapes, prst, largeur_min_in=None):
+    """Cherche, parmi les shapes de premier niveau d'un LAYOUT, la premiere
+    dont le `<a:prstGeom>` porte le preset `prst` (ex. « round2DiagRect »).
+    `largeur_min_in` leve l'ambiguite si plusieurs shapes du layout partagent
+    le meme preset a des tailles differentes (regle projet : contraindre un
+    matcher par DIMENSIONS, pas seulement par nom/position — une proximite
+    seule a deja repeint la mauvaise forme sur ce deck).
+
+    Renvoie `(left, top, width, height, prstGeom_element, (flip_h, flip_v))`
+    en EMU natifs (Length de python-pptx, deja consommables tels quels par
+    `framed_image.place_image_in_frame`), ou None si aucune shape ne
+    correspond. Le flip (`a:xfrm/@flipH|@flipV`) est renvoye a titre
+    INFORMATIF seulement — NE PAS le reappliquer aveuglement a une image
+    inseree : sur une AUTOSHAPE (fill uni), flipH ne change que le choix du
+    coin arrondi (les 2 diagonales sont visuellement identiques pour un
+    aplat de couleur) ; sur une IMAGE, flipH retourne aussi le contenu
+    pixel — constate au rendu reel sur un projet de la flotte (photo
+    mirroir, texte a l'envers) apres avoir reproduit le flip source par
+    reflexe. Si le coin arrondi doit matcher EXACTEMENT l'original, choisir
+    un `prstGeom` equivalent sans toucher au flip de l'image plutot que de
+    flipper l'image elle-meme."""
+    for sh in shapes:
+        spPr = getattr(sh._element, "spPr", None)
+        if spPr is None:
+            continue
+        g = spPr.find(qn("a:prstGeom"))
+        if g is None or g.get("prst") != prst:
+            continue
+        if largeur_min_in is not None and Emu(sh.width).inches < largeur_min_in:
+            continue
+        xfrm = spPr.find(qn("a:xfrm"))
+        flip_h = xfrm is not None and xfrm.get("flipH") == "1"
+        flip_v = xfrm is not None and xfrm.get("flipV") == "1"
+        return sh.left, sh.top, sh.width, sh.height, g, (flip_h, flip_v)
+    return None
+
+
+def sans_puce(paragraph):
+    """Retire l'indentation de puce heritee (marL/indent) et la puce elle-meme
+    d'un paragraphe. Generalise ici la copie privee historique de ce projet
+    (`pptx_export.base._sans_puce`, elle-meme reprise du generateur VSCode3) —
+    remontee dans la bibliotheque partagee (arbitrage 2026-09-03) pour que les
+    autres projets de la flotte la consomment depuis la reference au lieu d'en
+    garder chacun une copie locale ; `_sans_puce` delegue desormais ici.
+
+    Cause reelle du numero de chapitre (« 01 ») qui wrappe sur 2 lignes dans le
+    petit encart-pilule du layout Chapitre : le style de liste herite pose
+    marL=0.5in dans un encart de ~0.55in de large. python-pptx n'expose pas ces
+    attributs -> manipulation XML directe. `buNone` explicite en plus du retrait
+    des balises de puce existantes : un caractere de puce residuel peut survivre
+    a un niveau que marL/indent seuls ne couvrent pas."""
+    pPr = paragraph._p.get_or_add_pPr()
+    pPr.set("marL", "0")
+    pPr.set("indent", "0")
+    for tag in ("a:buChar", "a:buAutoNum", "a:buNone"):
+        for el in pPr.findall(qn(tag)):
+            pPr.remove(el)
+    pPr.append(pPr.makeelement(qn("a:buNone"), {}))
+
+
+# ---------------------------------------------------------------------------
+# Helpers durcis deck binaire (remontes depuis VSCode4, arbitrage 2026-09-03 —
+# lecons payees la-bas sur le deck OHC, runs du 2026-07-21)
+# ---------------------------------------------------------------------------
+# Regle AJOUTER-AVANT-SUPPRIMER : quand on remplace une slide d'un deck binaire,
+# creer la nouvelle slide AVANT de supprimer l'ancienne — un delete puis add
+# dans le meme cycle reutilise un nom de part (slideN.xml) et produit une
+# corruption « Duplicate part name » que python-pptx ne voit pas mais qui rend
+# le fichier inouvrable dans PowerPoint (HRESULT 0x80CB4404).
+
+
+def _normaliser(texte):
+    return " ".join(str(texte).split()).casefold()
+
+
+def trouver_slide_par_titre(prs, titre):
+    """Retrouve LA slide dont une shape porte exactement `titre` (comparaison
+    normalisee : espaces repliees, casse ignoree) et renvoie (index_0base, slide).
+
+    Pourquoi si strict : les matchers approximatifs ont tous ete pieges sur le
+    deck OHC — proximite de position (a repeint la forme voisine), title_of
+    (a remonte le kicker au-dessus du titre), recherche dans le corps de texte
+    (a matche une slide qui CITAIT le titre cherche). L'egalite stricte sur le
+    texte complet d'une shape + l'assertion d'unicite rendent l'erreur bruyante
+    au lieu de silencieuse.
+
+    Leve ValueError si zero ou plusieurs slides matchent (dans ce cas, resoudre
+    l'ambiguite cote appelant — jamais « prendre la premiere »)."""
+    cible = _normaliser(titre)
+    matches = []
+    for idx, slide in enumerate(prs.slides):
+        for sh in slide.shapes:
+            if not getattr(sh, "has_text_frame", False):
+                continue
+            if _normaliser(sh.text_frame.text) == cible:
+                matches.append((idx, slide))
+                break
+    if len(matches) != 1:
+        detail = ", ".join(f"slide {i + 1}" for i, _ in matches) or "aucune"
+        raise ValueError(
+            f"titre {titre!r} : {len(matches)} slide(s) trouvee(s) ({detail}) — "
+            "1 exigee (assertion d'unicite)")
+    return matches[0]
+
+
+def supprimer_slide(prs, slide):
+    """Suppression SURE d'une slide : retire l'entree de sldIdLst ET lache la
+    relation associee (drop_rel). Sans le drop_rel, la part de slide devient
+    orpheline : python-pptx (parseur tolerant) ne voit rien, mais PowerPoint
+    refuse d'ouvrir le fichier au save suivant (0x80CB4404) — lecon payee 2 fois
+    sur le deck OHC. Le slide_id est capture AVANT de toucher la liste (il se
+    resout via sldIdLst : le lire apres l'avoir videe leve ValueError)."""
+    sid = slide.slide_id
+    sld_id_lst = prs.slides._sldIdLst
+    for sld_id in list(sld_id_lst):
+        if int(sld_id.get("id")) == sid:
+            prs.part.drop_rel(sld_id.get(qn("r:id")))
+            sld_id_lst.remove(sld_id)
+            return
+    raise ValueError(f"slide id={sid} absente de sldIdLst")
+
+
+def clear_slides(prs):
+    """Retire TOUTES les slides d'une presentation chargee depuis un template
+    (on ne veut heriter que masters/layouts/theme). Meme exigence de drop_rel
+    que supprimer_slide : vider sldIdLst sans lacher les relations laisse des
+    parts orphelines que PowerPoint refuse ensuite d'ouvrir (constate via
+    l'automation COM alors que les tests croyaient le fichier valide).
+    `pptx_export.base._clear_slides` delegue desormais ici (arbitrage
+    2026-09-03) — copie locale historique, meme logique caractere pour
+    caractere, remontee pour que le reste de la flotte la consomme d'ici."""
+    sld_id_lst = prs.slides._sldIdLst
+    for sld_id in list(sld_id_lst):
+        prs.part.drop_rel(sld_id.get(qn("r:id")))
+        sld_id_lst.remove(sld_id)
+
+
+def purger_rels_slides_orphelines(prs):
+    """Filet anti-corruption avant save() sur un deck binaire retravaille :
+    lache toute relation de type slide de la part presentation qui n'est plus
+    referencee par sldIdLst (heritee d'une suppression historique faite sans
+    drop_rel). Renvoie le nombre de relations purgees (0 = deck sain)."""
+    rids_utilises = {s.get(qn("r:id")) for s in prs.slides._sldIdLst}
+    purges = 0
+    for rid, rel in list(prs.part.rels.items()):
+        if rel.reltype == RT.SLIDE and rid not in rids_utilises:
+            prs.part.drop_rel(rid)
+            purges += 1
+    return purges
