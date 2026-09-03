@@ -1,0 +1,46 @@
+{
+  "projet": "VSCode2",
+  "date": "2026-09-03",
+  "dimensions": {
+    "robustesse": {
+      "niveau": "moyen",
+      "synthese": "Codebase mature et déjà éprouvée par des revues adversariales répétées, mais 3 angles morts précis subsistent — dont un sur le chemin d'export PPT et un sur l'idempotence de la capture d'entretien.",
+      "findings": [
+        {"titre": "Export PPTX sans filet d'erreur — build_presentation() peut lever (garde-fou géométrique ou template client mal formé) sans try/except ni exception_handler global, la route rend un 500 brut", "localisation": "app/routers/export.py:312 (appel build_presentation dans export_pptx)"},
+        {"titre": "Absence de déduplication des tranches d'extraction d'un entretien libre — InterviewSegmentJob sans contrainte d'unicité, merge_segment_turns concatène sans dédoublonner, un retry réseau produit des tours de parole dupliqués", "localisation": "app/routers/interviews.py:893-937 (create_segment_job) et app/services/interview_segment_jobs.py:243-262 (merge_segment_turns), à comparer à app/services/audio_file_jobs.py:112-134 qui, lui, dédoublonne"},
+        {"titre": "Import de trame : json.loads(raw) non protégé par try/except contrairement aux autres points de parsing JSON du projet — un champ caché corrompu/tronqué renvoie un 500 brut", "localisation": "app/routers/trames.py:240 (import_confirm, appel à _parsed_from_json ligne 118)"}
+      ]
+    },
+    "performance": {
+      "niveau": "moyen",
+      "synthese": "Aucun eager-loading nulle part dans l'app (0 usage de selectinload/joinedload, vérifié) et plusieurs recalculs/boucles IA séquentielles génèrent un vrai N+1 et du temps d'attente évitable ; rien de critique à l'échelle actuelle (app locale mono-utilisateur).",
+      "findings": [
+        {"titre": "N+1 ORM sur la liste des missions — _draft_vide accède mission.interviews et mission.trame.themes (relations lazy par défaut) pour chaque mission affichée", "localisation": "app/routers/missions.py:29-39 (_draft_vide) et :64"},
+        {"titre": "Full-table scan + I/O disque (os.stat par fichier) à chaque affichage de /missions, sans cache, sur un répertoire qui ne change qu'à l'enregistrement", "localisation": "app/services/mission_backups.py:436-501 (lister_orphelins_globaux), appelée depuis app/routers/missions.py:58"},
+        {"titre": "Recalcul du dict réponses pour chaque thème au lieu d'une fois — coût O(thèmes × entretiens × réponses) au lieu de O(entretiens × réponses)", "localisation": "app/routers/synthese.py:156-196 (_theme_material/_all_theme_material)"},
+        {"titre": "Appels IA bloquants sérialisés (jusqu'à 300s/job) dans le thread de la requête HTTP de finalisation, alors que les jobs sont indépendants et pourraient être parallélisés (comme le fait déjà le pipeline Whisper via ProcessPoolExecutor)", "localisation": "app/services/interview_segment_jobs.py:215-240 (recover_stalled_or_failed_jobs)"},
+        {"titre": "Map-reduce de synthèse globale IA non parallélisé — boucle séquentielle d'appels IA indépendants par tronçon", "localisation": "app/services/synthese_ai.py:406-409 (generate_global_synthesis)"}
+      ]
+    },
+    "risque_technique": {
+      "niveau": "moyen",
+      "synthese": "Dépendances épinglées, pas de fonction >200 lignes, chemins critiques testés — mais dette de duplication et un couplage inversé service→router concentrés dans les routers, plus un pan mort du moteur de synthèse IA (~380 lignes).",
+      "findings": [
+        {"titre": "Bloc identity (9 clés) dupliqué à l'identique dans les fonctions d'enregistrement d'entretien — ajouter/renommer un champ impose de retrouver chaque occurrence sans garde-fou", "localisation": "app/routers/interviews.py:302,523,581,860,1023,1092,1142,1377"},
+        {"titre": "Garde-clause IA (is_configured / synthèse absente / try-except SynthesisAIError) dupliquée verbatim 3 fois", "localisation": "app/routers/export.py:178-192, 210-224, 242-264"},
+        {"titre": "Couplage inversé service→router : mission_export.py importe des symboles privés (préfixés _) d'un router, empêchant de tester/réutiliser le service sans charger le router", "localisation": "app/services/mission_export.py:18 (import _all_theme_material, _total_answer_count depuis ..routers.synthese)"},
+        {"titre": "Code mort confirmé par grep : 5 fonctions generate_demo_* (mode démo) jamais appelées par l'application, testées seulement en direct par des tests unitaires — fausse impression de couverture sur un chemin inatteignable en production", "localisation": "app/services/synthese_ai.py:413,580,719,811,891 (generate_demo_global_synthesis, generate_demo_recommendations, generate_demo_swot, generate_demo_executive_summary, generate_demo_difficulties)"}
+      ]
+    },
+    "securite": {
+      "niveau": "ok",
+      "synthese": "Garde-fous déjà en place contre l'injection SQL, le path traversal et les secrets commités ; les écarts réels concernent l'absence d'authentification et de limites de taille d'upload, cohérents avec un usage strictement local mais à surveiller si le serveur est un jour exposé au réseau.",
+      "findings": [
+        {"titre": "Aucune authentification/autorisation sur les routes HTTP — n'importe qui atteignant le port peut lire/supprimer missions, entretiens et audio", "localisation": "app/main.py:63 (FastAPI() sans middleware d'auth) ; aucun Depends d'auth dans app/routers/*.py"},
+        {"titre": "Aucune limite de taille imposée sur les UploadFile (audio, .docx, .pptx) avant écriture disque/lecture mémoire", "localisation": "app/routers/export.py:345 (content = await file.read()) ; app/routers/interviews.py:1616 et 1896 (copyfileobj)"},
+        {"titre": "Messages d'exception bruts renvoyés tels quels au client dans les réponses JSON d'erreur", "localisation": "app/routers/interviews.py:1542,1621,1644,1901,2974"},
+        {"titre": "Aucun en-tête de sécurité HTTP (CSP, X-Frame-Options, X-Content-Type-Options) — sans conséquence tant que l'app reste bindée en 127.0.0.1", "localisation": "app/main.py:63 (aucun add_middleware)"}
+      ]
+    }
+  }
+}
