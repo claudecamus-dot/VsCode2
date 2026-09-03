@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : 2e57112 du 2026-09-02 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`2e57112`, 2026-09-02) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 6ed9058 du 2026-09-03 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`6ed9058`, 2026-09-03) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -189,6 +189,22 @@ description d'intention. Les gestes exacts :
 - **Consolidation obligatoire** : un fan-out sans étape de synthèse qui recroise les
   résultats (doublons, contradictions, trous) n'est pas un plan — c'est du bruit
   distribué. La consolidation est une étape à part entière du plan journalisé.
+- **Non-convergence d'un sous-agent d'arrière-plan** (veille adoptée 2026-09-03,
+  incident source : un audit-technique resté `running` 4h+ contre 8-17 min pour
+  4 tâches comparables). Ni `maxTurns` en frontmatter (non fiable sur les
+  sous-agents — issue publique fermée non planifiée) ni aucun timeout mural natif
+  du SDK n'existent : la seule mesure disponible est `duree_s`, calculée par
+  `log_usage.py` sur un `SubagentStop` non ambigu (un seul lancement `Agent`
+  ouvert pour la session à ce moment — deux lancements concurrents ne produisent
+  volontairement AUCUNE durée, une durée devinée étant pire qu'aucune). Passé
+  3 à 5× la durée p95 des runs comparables déjà journalisés sans notification,
+  vérifier l'état (`TaskOutput` non bloquant) plutôt qu'attendre indéfiniment ;
+  si non convergent, `TaskStop` et relancer proprement — jamais fabriquer un
+  résultat à la place d'un sous-agent qui n'a rien rendu (même règle que le
+  mode asynchrone ci-dessus, étendue au silence total). Avant de dispatcher un
+  sous-agent de lecture/audit sur un dépôt distant de la flotte, vérifier qu'il
+  est au repos (deux relevés `git status --porcelain` espacés qui diffèrent =
+  session tierce active, cause probable de non-convergence par contention).
 
 **Sous-agents ou agent team ?** (veille 2026-07-29, doc officielle Anthropic). Les
 sous-agents restent le DÉFAUT : ils rendent un résultat au demandeur et ne se parlent
@@ -585,6 +601,29 @@ puis confrontation. Depuis le wiki, le bouton « Déclencher » (« En débattre
 
 **Coût.** Une salle en `subagent` = une session par voix, soit 3 à 5 sessions. C'est le
 prix du désaccord réel ; il ne se paie que sur un vrai choix. Une seule salle à la fois.
+
+**Les skills BMAD de la salle vont dans le brief des voix — `skills_bmad`.** Règle posée
+le 2026-09-02, sur demande utilisateur (« 44 sur 46 skills ne sont jamais utilisées,
+raccorde aux salles »). Chaque salle déclare désormais, dans
+`_bmad/custom/bmad-party-mode.toml`, le champ **`skills_bmad`** : les skills que ses voix
+doivent réellement charger via l'outil `Skill`. **Lis-le en même temps que le manifeste**,
+et recopie le nom exact dans le brief de la voix concernée — une voix part avec un contexte
+vierge, elle n'a ni la table de routage ni le TOML.
+
+Deux points que la mesure impose :
+
+- **Seules les 13 skills du régime « d'office » y figurent**, et un test l'exige. Une salle
+  ne modifie aucun fichier : y router une skill qui écrit casserait son invariant, c'est-à-dire
+  la garde de R4 contre une auto-application collective. Les 29 « proposé » restent
+  atteignables par le porteur ou en inline, sur arbitrage.
+- **`resolve_party.py` ne remonte PAS ce champ** — il ne rend qu'un jeu de clés fixe. C'est
+  toi qui lis le TOML, ce que ce paragraphe t'impose déjà pour le manifeste. Patcher le
+  résolveur aurait été plus direct et se serait perdu à la première mise à jour de BMAD.
+
+Et la limite, à ne pas maquiller : ce raccord ne fait pas tomber « 44 » à zéro, et ne le
+doit pas. Il garantit qu'aucune des 13 utilisables n'est ORPHELINE — sans salle qui la
+nomme, donc sans chemin par lequel elle puisse partir. Forcer une skill à s'exécuter pour
+faire baisser un compteur produirait un compteur qui mesure sa propre complaisance.
 
 **Une salle neuve n'entre pas dans le kit publié sur son test de câblage.** Règle posée
 le 2026-09-01 (finding `salles:accueil-projet,conseil-flotte,atelier-deck,mise-en-service`,

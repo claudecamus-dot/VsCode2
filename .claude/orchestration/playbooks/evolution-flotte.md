@@ -41,7 +41,7 @@ faute de playbook qui matche.
       "modele": "(session)",
       "contrat": {
         "type": "deterministe",
-        "critere": "état RÉEL de chaque cible lu AVANT d'écrire : fichiers concernés ouverts (playbook/catalogue/settings/skills), git status du dépôt cible relevé (churn préexistant identifié et exclu du périmètre), canal/conventions propres au projet identifiés. Le wiki de supervision éclaire, la lecture directe tranche — une demande peut être déjà (partiellement) satisfaite : la correction minimale prime sur le re-câblage."
+        "critere": "état RÉEL de chaque cible lu AVANT d'écrire : fichiers concernés ouverts (playbook/catalogue/settings/skills), git status du dépôt cible relevé (churn préexistant identifié et exclu du périmètre), canal/conventions propres au projet identifiés. Le wiki de supervision éclaire, la lecture directe tranche — une demande peut être déjà (partiellement) satisfaite : la correction minimale prime sur le re-câblage. Dépôt AU REPOS avant tout dispatch de sous-agent (lecture ou écriture) : deux relevés `git status --porcelain` espacés de quelques secondes qui diffèrent signalent une session tierce active — reporter le dispatch ou élargir explicitement le budget de patience attendu avant de qualifier un run non convergent (veille adoptée 2026-09-03, garde-fou maison, pas une pratique documentée par un provider)."
       },
       "checkpoint": false
     },
@@ -85,7 +85,7 @@ faute de playbook qui matche.
       "modele": "(session)",
       "contrat": {
         "type": "deterministe",
-        "critere": "git add limité aux fichiers du périmètre (vérifié par git diff --cached --name-only — aucun fichier du churn préexistant), message expliquant le POURQUOI avec référence au constat/diagnostic d'origine, push si le dépôt a un remote. Composition du message : ÉCRIT DANS UN FICHIER puis `git commit -F <fichier>` — jamais de here-string/heredoc pour un message portant apostrophes, backticks ou $ (3 reprises payées : heredoc bash non quoté 2026-07-24, here-string PowerShell cassée par apostrophes 2026-07-27, et rappel : les variables PowerShell sont INSENSIBLES À LA CASSE quand l'étape produit du code PowerShell sur la cible, collision realOpen/RealOpen 2026-07-28)"
+        "critere": "git add limité aux fichiers du périmètre (vérifié par git diff --cached --name-only — aucun fichier du churn préexistant), message expliquant le POURQUOI avec référence au constat/diagnostic d'origine — pour une propagation du DISPOSITIF (canon, skills de pilotage, hooks, sous-agents), message normalisé « dispositif: <quoi> depuis le hub » —, push si le dépôt a un remote. ÉTAPE TERMINALE OBLIGATOIRE de toute écriture chez une cible : une écriture sur un dépôt tiers n'est PAS terminée tant qu'elle n'est pas soit commitée dans CE dépôt, soit couverte par une ligne d'arbitrage (cible flotte:<projet>-commit-dispositif) nommant un propriétaire et une échéance — un message de séance n'est pas un canal de décision (finding flotte:canon-ecrit-jamais-commite : 80 fichiers non commités, doyen 39 j, deux commits de cibles passés par-dessus sans les voir ; arbitré le 2026-08-31). Composition du message : ÉCRIT DANS UN FICHIER puis `git commit -F <fichier>` — jamais de here-string/heredoc pour un message portant apostrophes, backticks ou $ (3 reprises payées : heredoc bash non quoté 2026-07-24, here-string PowerShell cassée par apostrophes 2026-07-27, et rappel : les variables PowerShell sont INSENSIBLES À LA CASSE quand l'étape produit du code PowerShell sur la cible, collision realOpen/RealOpen 2026-07-28)"
       },
       "checkpoint": "avant commit/push sur un dépôt cible — action difficilement réversible : mandat utilisateur explicite requis (la demande initiale peut le porter)"
     },
@@ -96,7 +96,7 @@ faute de playbook qui matche.
       "modele": "(session)",
       "contrat": {
         "type": "deterministe",
-        "critere": "scripts/scan_projets.py relancé (le wiki reflète l'état post-évolution), run journalisé via log_run.py avec le playbook 'evolution-flotte' et les cibles dans la demande ; si l'évolution répond à un finding du diagnostic, l'arbitrage correspondant est enregistré"
+        "critere": "le scan relancé — au hub scripts/scan_projets.py, depuis une cible .claude/supervision/scan_transcripts.py, le premier n'y étant pas déployé — (le wiki reflète l'état post-évolution), run journalisé via log_run.py avec le playbook 'evolution-flotte' et les cibles dans la demande ; si l'évolution répond à un finding du diagnostic, l'arbitrage correspondant est enregistré"
       },
       "checkpoint": false
     },

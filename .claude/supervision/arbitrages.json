@@ -346,6 +346,51 @@
       ]
     },
     {
+      "cible": "scan_transcripts.py",
+      "date": "2026-09-03",
+      "decision": "DÉJÀ RÉSOLU (constat diagnostic.json du 2026-09-02T12:12, prio 3 — backlog de triage jamais compté) — RECTIFICATIF : un premier passage (même jour) l'avait déclaré ouvert et signalé au hub VSCode5 par erreur, faute d'avoir cherché ailleurs qu'à l'intérieur de scan_transcripts.py. Le compteur existe en réalité, dans un script SÉPARÉ à dessein : .claude/supervision/compter_triage.py (committé 8a3a430, 2026-09-03T01:21:15+02:00 — donc AVANT le diagnostic *et* avant le signalement erroné), avec son propre docstring expliquant pourquoi il n'est pas dans scan_transcripts.py (bannière GÉNÉRÉ — l'y ajouter localement serait écrasé à la prochaine propagation). Vérifié en l'exécutant : compte réellement les 4 fichiers de .claude/triage/ par statut (53 constats ouverts, plus ancien 3 j), référencé par .claude/skills/revue-increment/SKILL.md et tests/test_agent_supervision.py. Reste HORS tableau de bord (le docstring le dit explicitement : « son intégration au tableau de bord est un chantier du hub ») — c'est la seule part encore ouverte, à qualifier côté canon. Message rectificatif envoyé à la session vscode5-supervision-projets-d9.",
+      "source": "orchestrateur",
+      "categories": [
+        "autre"
+      ]
+    },
+    {
+      "cible": "write_diagnostic.py",
+      "date": "2026-09-03",
+      "decision": "DÉJÀ RÉSOLU (constat diagnostic.json du 2026-09-02T12:12, prio 5) — vérifié dans le code réel, pas supposé : write_diagnostic.py (lignes 184-227) est déjà un registre à état — `_precedent()`/`_ferme()`/`vu_le` reportent les constats non arbitrés au lieu de les écraser, et l'écriture est refusée si findings neufs + reportés dépasse MAX_FINDINGS=5. Le docstring interne date le mécanisme du 2026-09-02, jour même du diagnostic : implémenté et propagé (probablement par sync hub) avant ou en même temps que le constat. Aucune action requise.",
+      "source": "orchestrateur",
+      "categories": [
+        "interaction"
+      ]
+    },
+    {
+      "cible": "log_run.py",
+      "date": "2026-09-03",
+      "decision": "DÉJÀ RÉSOLU (constat diagnostic.json du 2026-09-02T12:12, prio 4) — vérifié en direct : scan_transcripts.py::runs_a_solder() (implémenté le 2026-07-29, cf. arbitrage `agent-orchestrator` de cette date) signale au démarrage de CETTE session même les runs en-attente-validation de plus de 24h avec la commande `log_run.py --solde` prête à copier (4 runs listés : 47h/38h/34h/34h). Le constat décrivait donc un mécanisme déjà en place le jour où il a été écrit ; les runs listés restent à solder par l'utilisateur — c'est un usage en attente, pas un défaut de visibilité du dispositif. Aucune action de développement requise.",
+      "source": "orchestrateur",
+      "categories": [
+        "interaction"
+      ]
+    },
+    {
+      "cible": "dev-verifie",
+      "date": "2026-09-03",
+      "decision": "DÉJÀ RÉSOLU (constat diagnostic.json du 2026-09-02T12:12, prio 4, re_challenge) — vérifié dans le fichier réel : .claude/orchestration/playbooks/dev-verifie.md porte déjà l'étape `premisse` avant `implementation` (ajoutée le 2026-09-02 selon le corps du playbook), avec exactement le contrat proposé — invariant écrit en une phrase, vérifié par une mesure sur le code réel AVANT d'écrire, implémentation stoppée si la mesure l'infirme, prémisse+mesure tracées dans le message de commit. Aucune action requise.",
+      "source": "orchestrateur",
+      "categories": [
+        "verification-manquante"
+      ]
+    },
+    {
+      "cible": "CLAUDE.md",
+      "date": "2026-09-03",
+      "decision": "DÉJÀ RÉSOLU (constat diagnostic.json du 2026-09-02T12:12, prio 3) — vérifié dans le fichier réel : CLAUDE.md du projet porte désormais une section « Règles de travail » complète, R1-R5 (numérotées distinctement de P1-P4 code produit) avec l'énoncé entier de chaque règle — exactement la remédiation (a) proposée par le constat (« restaurer une section R1-R4 avec leur énoncé »). Aucune action requise.",
+      "source": "orchestrateur",
+      "categories": [
+        "interaction"
+      ]
+    },
+    {
       "cible": "bmad-revue",
       "date": "2026-09-02",
       "decision": "ACCEPTÉ + APPLIQUÉ (arbitrage utilisateur du 2026-09-02). Le porteur de revue n'avait pas l'outil `Agent`, donc les couches adversariales de `bmad-code-review` — Blind Hunter, Edge Case Hunter, Acceptance Auditor — s'exécutaient EN SÉQUENCE dans un seul contexte : la troisième lisait ce que la première avait écrit, et le garde-fou anti-complaisance devenait un relecteur unique qui se relit. LA DÉGRADATION NE SE DÉDUISAIT PAS, elle était enregistrée DEUX FOIS dans `runs.jsonl` par les runs eux-mêmes (2026-08-31T22:07 et 2026-09-01T18:32) : le dispositif se plaignait de lui-même dans son propre journal, et personne ne lisait la plainte. Corrigé au hub (`.claude/agents/bmad-revue.md`), republié dans le kit, propagé aux 4 dépôts qui portent ce fichier — vérifié avant écrasement : la seule ligne remplacée est l'ancienne ligne `tools`, aucun travail local perdu. ET L'OUTIL SEUL N'AURAIT RIEN CHANGÉ : le mandat prescrit désormais le GESTE — plusieurs appels `Agent` dans un SEUL message (un par message est une cascade, donc l'inverse du but), briefs autoportants qui ne disent pas aux autres couches ce qu'une couche a trouvé, puis consolidation ; une couche qui n'a pas besoin d'être aveugle s'invoque inline. Donner un outil sans prescrire son usage est exactement le défaut mesuré le même jour sur les 46 skills BMAD. Test au hub, vu ROUGE, nommément sur ce porteur : `bmad-recherche` et `veille-agentic` n'ont aucune couche parallèle à dispatcher, leur donner `Agent` élargirait une surface sans besoin mesuré."
