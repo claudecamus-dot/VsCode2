@@ -1,0 +1,8 @@
+{
+  "_comment": "Configuration du hook .claude/hooks/warn_verif_before_commit.py, propre a CE depot (VSCode2, Interview-to-Deck, FastAPI + pytest). Le hook lui-meme est generique et publie tel quel dans le kit agentic du hub de supervision (export_agentic.GENERIQUE) : ce fichier, lui, ne l'est pas et ne doit pas etre recopie ailleurs sans adaptation. Pose le 2026-09-03 (fusion des trois branches divergentes du hook : config JSON du hub + 3e signal dispositif/fichiers-contrat propre a ce depot, preserve tel quel) pour restituer exactement le perimetre qui etait fige en dur avant la fusion.",
+  "watched_prefixes": ["app/"],
+  "verif_bash": ["pytest", "-m pytest", "python -m pytest", "ruff check"],
+  "verif_skill": ["pptx-verify", "revue-increment"],
+  "dispositif_prefixes": [".claude/orchestration/", ".claude/supervision/", ".claude/hooks/"],
+  "dispositif_tests": ["tests/test_agent_orchestration.py", "tests/test_agent_supervision.py", "tests/test_hooks_discipline.py"]
+}
