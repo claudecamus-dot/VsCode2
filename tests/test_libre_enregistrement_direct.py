@@ -20,6 +20,7 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.orm import selectinload
 
 from app.main import app
 from app.db import DB_PATH, SessionLocal, engine, init_db
@@ -93,7 +94,9 @@ def _entretiens(mission_id: int) -> list[Interview]:
     try:
         return list(
             db.scalars(
-                select(Interview).where(Interview.mission_id == mission_id)
+                select(Interview)
+                .where(Interview.mission_id == mission_id)
+                .options(selectinload(Interview.turns))
             ).all()
         )
     finally:
@@ -248,17 +251,19 @@ def test_enregistrement_direct_refuse_une_transcription_vide(
     assert _entretiens(mission_id) == []
 
 
-def test_enregistrement_direct_zero_tour_naboutit_pas_a_un_entretien_vide(
+def test_enregistrement_direct_zero_tour_enregistre_quand_meme_et_signale(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Régression bmad-code-review 2026-07-29 : sur le chemin synchrone (aucun
-    job de tranche), `extract_turns_from_text` peut répondre SANS lever
-    d'exception mais sans détecter aucun tour (silence, transcription trop
-    courte, échec silencieux malgré les relances internes). Avant ce
-    correctif, `_enregistrer_libre_direct` créait quand même l'entretien
-    (`status="done"`, 0 tour) et redirigeait comme un succès — l'écran de
-    revue qui filtrait ce cas dans l'ancien wizard n'existe plus sur ce
-    chemin direct."""
+    """Sur le chemin synchrone (aucun job de tranche), `extract_turns_from_text`
+    peut répondre SANS lever d'exception mais sans détecter aucun tour
+    (silence, transcription trop courte, échec silencieux malgré les relances
+    internes). Depuis la demande utilisateur du 2026-09-04, ce n'est plus un
+    refus : l'entretien est enregistré avec 0 tour, et le compteur persiste
+    sur `Interview.tranches_manquantes` pour que ça ne passe pas inaperçu —
+    le texte, lui, reste intégralement dans `raw_transcript`.
+
+    Échoue sur le code d'avant : la réponse était l'écran d'erreur 200, et
+    aucun entretien n'était créé."""
     mission_id = _mission_brouillon(client)
     _patch_extract(monkeypatch, _payload(turns=[]))
 
@@ -268,15 +273,25 @@ def test_enregistrement_direct_zero_tour_naboutit_pas_a_un_entretien_vide(
         follow_redirects=False,
     )
 
-    assert response.status_code == 200
-    assert "Aucun tour de parole détecté" in response.text
-    assert "un souffle, rien d&#39;autre" in response.text or "un souffle, rien d'autre" in response.text
-    assert _entretiens(mission_id) == []
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/missions/{mission_id}/finaliser"
+    entretiens = _entretiens(mission_id)
+    assert len(entretiens) == 1
+    assert entretiens[0].turns == []
+    assert entretiens[0].raw_transcript == "un souffle, rien d'autre"
+    assert entretiens[0].tranches_manquantes == 1
 
 
-def test_enregistrement_direct_echec_ia_garde_le_texte_et_ne_cree_rien(
+def test_enregistrement_direct_echec_ia_enregistre_quand_meme_et_signale(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Une panne d'extraction (ex. timeout Ollama) ne bloque plus non plus
+    l'enregistrement direct (demande utilisateur 2026-09-04, parité avec le
+    cas 0-tour ci-dessus) : le texte survit dans `raw_transcript`, le manque
+    est signalé sur la fiche.
+
+    Échoue sur le code d'avant : la réponse était l'écran d'erreur 200, et
+    aucun entretien n'était créé."""
     mission_id = _mission_brouillon(client)
 
     def _boom(text):
@@ -290,11 +305,13 @@ def test_enregistrement_direct_echec_ia_garde_le_texte_et_ne_cree_rien(
         follow_redirects=False,
     )
 
-    assert response.status_code == 200
-    assert "Ollama n&#39;a pas répondu à temps" in response.text
-    # La transcription est reconduite dans le formulaire (export PDF possible).
-    assert "une heure de parole" in response.text
-    assert _entretiens(mission_id) == []
+    assert response.status_code == 303
+    assert response.headers["location"] == f"/missions/{mission_id}/finaliser"
+    entretiens = _entretiens(mission_id)
+    assert len(entretiens) == 1
+    assert entretiens[0].turns == []
+    assert entretiens[0].raw_transcript == "une heure de parole"
+    assert entretiens[0].tranches_manquantes == 1
 
 
 # --------------------------------------------------------------------------- #

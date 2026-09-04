@@ -828,12 +828,16 @@ def test_import_docx_confirm_does_not_persist_raw_transcript(client: TestClient)
         session.close()
 
 
-def test_record_interview_erreur_extraction_propose_export_pdf_transcript(
+def test_record_interview_erreur_extraction_ouvre_la_revue_et_signale(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Écran d'échec du mode structuré (record.html) : même garde-fou que
-    côté libre — la transcription reste exportable en PDF plutôt que
-    bloquée dans le formulaire d'erreur sans autre issue (2026-07-19)."""
+    """Mode structuré (record.html → import_review.html) : une panne
+    d'extraction ne bloque plus l'entretien dans l'écran d'erreur (demande
+    utilisateur 2026-09-04, parité avec le mode libre) — la revue s'ouvre
+    quand même, avec un bandeau qui nomme ce qui manque et pourquoi.
+
+    Échoue sur le code d'avant : la réponse était l'écran d'erreur de
+    `record.html`, pas la revue."""
     response = client.post(
         "/missions", data={"name": "Mission Record Erreur"}, follow_redirects=False,
     )
@@ -851,17 +855,84 @@ def test_record_interview_erreur_extraction_propose_export_pdf_transcript(
         },
     )
     assert response.status_code == 200
+    assert "Revue avant import" in response.text
+    assert "1 tranche" in response.text
     assert "Panne extraction structurée simulée." in response.text
-    assert "/interviews/transcript/export-pdf" in response.text
-    assert 'name="transcript" value="Transcription structurée à ne pas perdre."' in response.text
-    assert 'name="interviewee_name" value="Structure Erreur"' in response.text
 
-    export = client.post(
-        "/interviews/transcript/export-pdf",
-        data={"transcript": "Transcription structurée à ne pas perdre.", "interviewee_name": "Structure Erreur"},
+
+def test_record_interview_extraction_vide_sans_exception_signale_quand_meme(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`extract_answers_from_text` peut rendre `{}` SANS lever d'exception
+    (silence, transcription trop courte) — un cas distinct de la panne
+    ci-dessus (bmad-code-review 2026-09-04, finding bloquant F1). Sans garde
+    dédié, la revue s'ouvrait vide et SANS aucun bandeau : zéro case à cocher,
+    zéro avertissement, et « Valider l'import » créait un entretien à 0
+    réponse en silence — exactement la perte que le bandeau doit empêcher.
+
+    Échoue sur le code d'avant : `tranches_manquantes` restait à 0."""
+    response = client.post(
+        "/missions", data={"name": "Mission Record Vide"}, follow_redirects=False,
     )
-    assert export.status_code == 200
-    assert export.headers["content-type"] == "application/pdf"
+    mission_id = response.headers["location"].rsplit("/", 1)[-1]
+
+    monkeypatch.setattr(
+        "app.routers.interviews.extract_answers_from_text", lambda questions, text: {}
+    )
+    response = client.post(
+        f"/missions/{mission_id}/interviews/record",
+        data={
+            "interviewee_name": "Structure Vide",
+            "transcript": "un souffle, rien d'autre",
+        },
+    )
+    assert response.status_code == 200
+    assert "Revue avant import" in response.text
+    assert "1 tranche" in response.text
+
+
+def test_tranches_manquantes_survit_a_la_validation_et_a_un_f5(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Le compteur voyage désormais dans `proposed_json` jusqu'à la création de
+    l'entretien, où il est persisté sur `Interview.tranches_manquantes`
+    (bmad-code-review 2026-09-04, finding F2) — avant ce correctif, il ne
+    voyageait qu'en query string sur la redirection d'enregistrement, perdue
+    au premier rechargement de la fiche.
+
+    Échoue sur le code d'avant : `import_interview_confirm` ne lisait pas
+    `tranches_manquantes` dans le payload, et la fiche n'affichait rien."""
+    response = client.post(
+        "/missions", data={"name": "Mission Persistance"}, follow_redirects=False,
+    )
+    mission_id = response.headers["location"].rsplit("/", 1)[-1]
+
+    proposed_json = json.dumps({
+        "identity": {"interviewee_name": "Persistance Testeur"},
+        "answers": [],
+        "tranches_manquantes": 2,
+    })
+    response = client.post(
+        f"/missions/{mission_id}/interviews/import/confirm",
+        data={"proposed": proposed_json, "keep": []},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    interview_id = int(response.headers["location"].rsplit("/", 1)[-1])
+
+    session = SessionLocal()
+    try:
+        interview = session.get(Interview, interview_id)
+        assert interview.tranches_manquantes == 2
+    finally:
+        session.close()
+
+    # Un GET simple (F5), SANS aucun paramètre de query string : le bandeau
+    # doit tenir tout seul, depuis la base.
+    fiche = client.get(f"/interviews/{interview_id}")
+    assert fiche.status_code == 200
+    assert "2 tranches" in fiche.text
+    assert "pas pu être" in fiche.text
 
 
 def test_notes_record_appends_transcript_and_proposes_answers(

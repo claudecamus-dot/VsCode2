@@ -68,7 +68,16 @@ _DEFAULT_MODELS = {
 
 
 class AIError(RuntimeError):
-    """Erreur fonctionnelle d'appel IA — le message est destiné à l'UI."""
+    """Erreur fonctionnelle d'appel IA — le message est destiné à l'UI.
+
+    `timeout` distingue « le modèle n'a pas répondu à temps » (le tronçon est
+    trop volumineux pour ce poste, le redécouper peut sauver la tranche) de
+    toute autre panne (JSON invalide, serveur injoignable, clé absente), qu'un
+    redécoupage ne réparerait pas. Porté par un attribut plutôt que par une
+    sous-classe : `call_ai_json` ré-emballe l'erreur dans la classe fournie par
+    l'appelant, une hiérarchie de types ne survivrait pas à ce transfert."""
+
+    timeout = False
 
 
 def _openai():
@@ -240,6 +249,73 @@ def chunk_text_by_paragraph(text: str, max_words: int) -> list[str]:
     return chunks or [text]
 
 
+_MIN_MOTS_REDECOUPAGE = 60
+# Un seul niveau de redécoupage (bmad-code-review 2026-09-04, finding F4) : à 2
+# niveaux, un tronçon qui timeoute à toutes les tailles pouvait multiplier par
+# 3-4 le pire cas synchrone que `RECUP_TRANCHES_MAX` bornait ailleurs (jusqu'à
+# ~6-8 appels Ollama à `ollama_timeout()` chacun, dans un seul POST). À 1
+# niveau, le pire cas est borné à 3 appels (le tronçon entier + ses 2 moitiés).
+_PROFONDEUR_REDECOUPAGE_MAX = 1
+
+
+def _split_en_deux_moities(chunk: str) -> list[str]:
+    """Coupe `chunk` en EXACTEMENT deux moitiés, sur une frontière de mot.
+
+    `chunk_text_by_paragraph(chunk, mots // 2)` (utilisé avant le 2026-09-04)
+    borne chaque bloc à `mots // 2` mots au lieu d'imposer deux blocs — sur un
+    compte impair (399 mots -> max 199), il rendait TROIS blocs (`[199, 199,
+    1]`) : le résidu d'un mot repartait en appel IA complet, et
+    `call_par_troncons_degressifs` le retentait jusqu'à 3 fois côté libre sans
+    jamais y trouver de tour (bmad-code-review 2026-09-04, finding F10)."""
+    mots = chunk.split()
+    milieu = len(mots) // 2
+    return [" ".join(mots[:milieu]), " ".join(mots[milieu:])]
+
+
+def call_par_troncons_degressifs(
+    chunk: str,
+    appel,
+    *,
+    _profondeur: int = 0,
+) -> list:
+    """Exécute `appel(chunk)` ; si l'IA a TIMEOUTÉ, redécoupe le tronçon en deux
+    et relance sur chaque moitié plutôt que d'abandonner. Rend la liste des
+    résultats obtenus, dans l'ordre du texte (un seul élément quand le premier
+    appel aboutit — le chemin nominal ne change pas).
+
+    Cas réel du 2026-09-04 : sur 4 tranches d'un entretien, une seule dépassait
+    le délai ; la relance identique de `_call_ollama` échouait pareil (un
+    tronçon structurellement trop lourd pour ce poste l'est deux fois), et
+    l'entretien entier devenait non enregistrable. Le message d'erreur
+    renvoyait alors l'utilisateur vers `OLLAMA_CHUNK_MAX_WORDS` — un réglage
+    global, à froid, pour un tronçon particulier : le code sait le faire
+    lui-même, sur le seul tronçon concerné.
+
+    Bornes : un seul niveau de découpage (un tronçon de 400 mots descend à
+    ~200, pas plus bas) et un plancher de `_MIN_MOTS_REDECOUPAGE` mots. Sous ce
+    plancher un timeout ne vient plus de la taille, et couper encore ne ferait
+    que multiplier les appels lents en découpant des phrases."""
+    try:
+        return [appel(chunk)]
+    except AIError as exc:
+        mots = len(chunk.split())
+        if (
+            not exc.timeout
+            or _profondeur >= _PROFONDEUR_REDECOUPAGE_MAX
+            or mots < 2 * _MIN_MOTS_REDECOUPAGE
+        ):
+            raise
+        moities = _split_en_deux_moities(chunk)
+        resultats = []
+        for moitie in moities:
+            resultats.extend(
+                call_par_troncons_degressifs(
+                    moitie, appel, _profondeur=_profondeur + 1
+                )
+            )
+        return resultats
+
+
 def ollama_keep_alive() -> str:
     """Durée pendant laquelle Ollama garde le modèle chargé en mémoire après
     un appel — `"30m"` par défaut (le défaut serveur d'Ollama est 5 minutes,
@@ -353,6 +429,12 @@ def _call_mistral(system: str, prompt: str, schema: dict, json_hint: str, model:
     return resp.choices[0].message.content or ""
 
 
+def _timeout_error(message: str) -> AIError:
+    exc = AIError(message)
+    exc.timeout = True
+    return exc
+
+
 def _is_ollama_timeout(exc: Exception) -> bool:
     """Un timeout de lecture arrive enveloppé dans `URLError(reason=timeout)` :
     sans ce test, l'UI dirait « vérifiez qu'Ollama tourne » alors qu'il
@@ -415,14 +497,14 @@ def _call_ollama(system: str, prompt: str, schema: dict, json_hint: str, model: 
             data = _call_ollama_once(payload, model)
     except urllib.error.URLError as exc:
         if _is_ollama_timeout(exc):
-            raise AIError(timeout_msg) from exc
+            raise _timeout_error(timeout_msg) from exc
         raise AIError(
             f"Impossible de joindre Ollama sur {ollama_host()} — vérifiez qu'il "
             f"tourne (`ollama serve`) et qu'un modèle est disponible "
             f"(`ollama pull {model}`)."
         ) from exc
     except TimeoutError as exc:
-        raise AIError(timeout_msg) from exc
+        raise _timeout_error(timeout_msg) from exc
     if "error" in data:
         raise AIError(f"Erreur Ollama : {data['error']}")
     return (data.get("message") or {}).get("content") or ""
@@ -463,7 +545,12 @@ def call_ai_json(
     try:
         text = _CALLERS[provider](system, prompt, schema, json_hint, active_model(), max_tokens)
     except AIError as exc:
-        raise error_cls(str(exc)) from exc
+        # Le drapeau `timeout` traverse le ré-emballage : sans lui, l'appelant
+        # ne peut plus distinguer un tronçon trop lourd (redécoupable) d'une
+        # panne qu'un redécoupage ne réparerait pas.
+        wrapped = error_cls(str(exc))
+        wrapped.timeout = exc.timeout
+        raise wrapped from exc
     except Exception as exc:  # garde-fou : jamais de 500 brute sur un appel IA
         raise error_cls(_friendly(exc)) from exc
 

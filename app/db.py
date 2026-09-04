@@ -65,6 +65,11 @@ def _add_missing_columns() -> None:
             "resume": "TEXT",
             "raw_transcript": "TEXT",
             "audio_segments": "JSON",
+            # Persistance du bandeau « tranches manquantes » (2026-09-04,
+            # bmad-code-review finding F2) : le compteur ne voyageait qu'en
+            # query string sur la redirection d'enregistrement — un simple F5
+            # sur la fiche le perdait, sans qu'aucune trace ne subsiste.
+            "tranches_manquantes": "INTEGER DEFAULT 0",
         },
         # Axes de synthèse configurables (2026-07-27) : le contenu passe des 5
         # colonnes figées à un dictionnaire par clé d'axe. Les colonnes

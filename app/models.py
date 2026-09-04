@@ -265,6 +265,11 @@ class Interview(Base):
     # texte ne survivait que le temps du formulaire (perdu après extraction
     # IA des réponses) — aucun moyen de le consulter/exporter après coup.
     raw_transcript: Mapped[str | None] = mapped_column(Text, default=None)
+    # Nombre de tranches que l'IA n'a pas su structurer à l'enregistrement
+    # (2026-09-04) — persisté pour que le bandeau qui le signale survive à un
+    # simple F5 de la fiche (avant ce champ, le compteur ne voyageait qu'en
+    # query string sur la redirection d'enregistrement).
+    tranches_manquantes: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
     mission: Mapped["Mission"] = relationship(back_populates="interviews")

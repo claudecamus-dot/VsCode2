@@ -7,6 +7,20 @@
 </div>
 
 <div class="page-head"><h1>Revue avant import</h1></div>
+{# Une tranche que l'IA n'a pas su répartir ne retient plus l'entretien (demande
+   utilisateur 2026-09-04) — mais elle ne part pas en silence : son texte est
+   dans la transcription, ses réponses manquent d'ici. #}
+{% if tranches_manquantes %}
+<p class="ai-error">
+  ⚠ {{ tranches_manquantes }} tranche{{ 's' if tranches_manquantes > 1 else '' }}
+  d'entretien n'{{ 'ont' if tranches_manquantes > 1 else 'a' }} pas pu être
+  répartie{{ 's' if tranches_manquantes > 1 else '' }} par l'IA : les réponses
+  qu'elle{{ 's' if tranches_manquantes > 1 else '' }}
+  contien{{ 'nent' if tranches_manquantes > 1 else 't' }} manquent de cette revue.
+  Le texte, lui, est conservé dans la transcription de l'entretien.
+  {% if tranches_manquantes_detail %}<br><small>{{ tranches_manquantes_detail }}</small>{% endif %}
+</p>
+{% endif %}
 <p class="muted">
   Décoche ce que tu ne veux pas importer. L'entretien n'est créé qu'à la validation ;
   chaque réponse importée reste marquée « à valider » jusqu'à relecture dans l'écran de saisie.

@@ -454,3 +454,130 @@ def test_call_ollama_connection_refused_is_not_retried(monkeypatch: pytest.Monke
     with pytest.raises(ai_common.AIError, match="Impossible de joindre Ollama"):
         ai_common._call_ollama("sys", "prompt", {}, "\nJSON.", "llama3.1", 100)
     assert len(calls) == 1, "pas de relance sur un serveur injoignable"
+
+
+# --------------------------------------------------------------------------- #
+# Redécoupage sur timeout (2026-09-04) — cas réel : sur 4 tranches d'un
+# entretien, une seule dépassait le délai ; la relance identique de
+# `_call_ollama` échouait pareil, et l'entretien entier devenait non
+# enregistrable. Le message renvoyait alors régler OLLAMA_CHUNK_MAX_WORDS à la
+# main, globalement, pour un seul tronçon — le code sait le faire lui-même.
+# --------------------------------------------------------------------------- #
+def test_troncons_degressifs_ne_decoupe_pas_quand_l_appel_aboutit() -> None:
+    """Chemin nominal inchangé : un seul appel, un seul résultat."""
+    vus = []
+
+    def appel(chunk):
+        vus.append(chunk)
+        return {"ok": chunk}
+
+    texte = " ".join(f"mot{i}" for i in range(300))
+    assert ai_common.call_par_troncons_degressifs(texte, appel) == [{"ok": texte}]
+    assert vus == [texte]
+
+
+def test_troncons_degressifs_redecoupe_le_troncon_qui_timeoute() -> None:
+    """Le tronçon entier dépasse le délai, ses moitiés passent : on rend les
+    deux résultats au lieu de laisser échouer la tranche."""
+    vus = []
+
+    def appel(chunk):
+        vus.append(chunk)
+        if len(chunk.split()) > 200:
+            raise ai_common._timeout_error("Ollama n'a pas répondu à temps")
+        return {"mots": len(chunk.split())}
+
+    texte = " ".join(f"mot{i}" for i in range(400))
+    resultats = ai_common.call_par_troncons_degressifs(texte, appel)
+    assert [r["mots"] for r in resultats] == [200, 200]
+    assert len(vus) == 3, "1 tentative entière + 2 moitiés"
+
+
+def test_troncons_degressifs_sur_compte_impair_rend_deux_moities_pas_trois() -> None:
+    """`_split_en_deux_moities` coupe en EXACTEMENT deux, y compris sur un
+    compte de mots impair (bmad-code-review 2026-09-04, finding F10) : l'ancien
+    `chunk_text_by_paragraph(chunk, mots // 2)` bornait chaque bloc à `mots // 2`
+    au lieu d'imposer deux blocs, et rendait un résidu d'UN mot en tronçon à
+    part — reparti en appel IA complet, sans jamais y trouver de tour."""
+    vus = []
+
+    def appel(chunk):
+        vus.append(chunk)
+        if len(chunk.split()) > 200:
+            raise ai_common._timeout_error("Ollama n'a pas répondu à temps")
+        return {"mots": len(chunk.split())}
+
+    texte = " ".join(f"mot{i}" for i in range(399))
+    resultats = ai_common.call_par_troncons_degressifs(texte, appel)
+    assert len(resultats) == 2, "un résidu isolé produirait un 3e résultat"
+    assert sorted(r["mots"] for r in resultats) == [199, 200]
+    assert len(vus) == 3, "1 tentative entière + exactement 2 moitiés"
+
+
+def test_troncons_degressifs_ne_redecoupe_pas_une_erreur_qui_n_est_pas_un_timeout() -> None:
+    """Un JSON invalide ou un serveur injoignable ne se répare pas en coupant :
+    l'erreur remonte telle quelle, sans multiplier les appels."""
+    vus = []
+
+    def appel(chunk):
+        vus.append(chunk)
+        raise ai_common.AIError("Réponse IA non exploitable (JSON invalide).")
+
+    texte = " ".join(f"mot{i}" for i in range(400))
+    with pytest.raises(ai_common.AIError, match="JSON invalide"):
+        ai_common.call_par_troncons_degressifs(texte, appel)
+    assert len(vus) == 1
+
+
+def test_troncons_degressifs_s_arrete_au_plancher_de_mots() -> None:
+    """Sous le plancher, un timeout ne vient plus de la taille : couper encore
+    ne ferait que multiplier les appels lents. L'erreur remonte."""
+    vus = []
+
+    def appel(chunk):
+        vus.append(chunk)
+        raise ai_common._timeout_error("trop lent quoi qu'il arrive")
+
+    texte = " ".join(f"mot{i}" for i in range(50))
+    with pytest.raises(ai_common.AIError, match="trop lent"):
+        ai_common.call_par_troncons_degressifs(texte, appel)
+    assert len(vus) == 1, "aucun redécoupage sous le plancher"
+
+
+def test_troncons_degressifs_borne_la_profondeur() -> None:
+    """Un poste qui timeoute à toutes les tailles ne déclenche pas une
+    récursion sans fin : UN seul niveau de découpage (bmad-code-review
+    2026-09-04, finding F4 — 2 niveaux pouvaient multiplier par 3-4 le pire cas
+    synchrone que `RECUP_TRANCHES_MAX` bornait ailleurs), et le premier
+    sous-tronçon qui échoue arrête tout (800 → 400, soit 2 appels : le tronçon
+    entier puis sa première moitié).
+
+    Cet abandon franc est voulu : rendre les moitiés déjà obtenues ferait
+    perdre le reste SANS que personne le compte, alors qu'une tranche en échec,
+    elle, est comptée et signalée à l'écran."""
+    vus = []
+
+    def appel(chunk):
+        vus.append(chunk)
+        raise ai_common._timeout_error("Ollama n'a pas répondu à temps")
+
+    texte = " ".join(f"mot{i}" for i in range(800))
+    with pytest.raises(ai_common.AIError):
+        ai_common.call_par_troncons_degressifs(texte, appel)
+    assert [len(c.split()) for c in vus] == [800, 400]
+
+
+def test_call_ai_json_propage_le_drapeau_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Le ré-emballage dans la classe de l'appelant ne doit pas perdre le
+    signal : sans lui, l'extracteur ne peut plus distinguer un tronçon trop
+    lourd (redécoupable) d'une panne qu'un redécoupage ne réparerait pas."""
+    class ErreurAppelant(ai_common.AIError):
+        pass
+
+    def fake_urlopen(req, timeout=None):
+        raise TimeoutError("trop lent")
+
+    monkeypatch.setattr(ai_common.urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(ErreurAppelant) as exc:
+        ai_common.call_ai_json("sys", "prompt", {}, "\nJSON.", error_cls=ErreurAppelant)
+    assert exc.value.timeout is True

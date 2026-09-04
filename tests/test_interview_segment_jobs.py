@@ -28,7 +28,6 @@ de job traite le job avant de rendre la main.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from html import unescape
 
 import pytest
 from fastapi.testclient import TestClient
@@ -553,14 +552,13 @@ def test_record_libre_recovers_failed_job_individually_never_whole_transcript(
 def test_record_libre_surfaces_actionable_error_when_all_jobs_fail(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """B1 (revue adversariale 2026-07-22) : quand la finalisation passe par le
-    chemin JOB (le fix « répartition Q/R vide » force désormais un job même pour
-    un entretien court) et que TOUS les jobs échouent (ex. timeout Ollama), l'écran
-    doit resurfacer le message ACTIONABLE du job (levier OLLAMA_TIMEOUT/…), pas le
-    générique trompeur « Aucun tour de parole détecté ». Parité avec le chemin
-    synchrone (status total==0) qui le remonte déjà via str(exc). Sans ce fix, le
-    chemin job avalait l'exception dans job.error et l'utilisateur voyait « aucun
-    tour détecté » alors qu'Ollama avait simplement timeouté."""
+    """Quand TOUS les jobs échouent (ex. timeout Ollama), la revue des tours
+    s'ouvre quand même — vide — au lieu de refuser la page (demande utilisateur
+    2026-09-04 : la répartition Q/R ne bloque plus rien). Le texte reste porté
+    par le formulaire, donc rien n'est perdu.
+
+    Échoue sur le code d'avant, qui rendait l'écran d'enregistrement avec le
+    message d'erreur du job au lieu de la revue."""
     mission_id = _make_draft_mission()
     db = SessionLocal()
     db.add(InterviewSegmentJob(
@@ -583,8 +581,11 @@ def test_record_libre_surfaces_actionable_error_when_all_jobs_fail(
         data={"transcript": "un entretien court", "session_token": "err-tok", "segment_tail": ""},
     )
     assert resp.status_code == 200
-    assert "OLLAMA_TIMEOUT" in resp.text                    # message actionable resurface
-    assert "Aucun tour de parole détecté" not in resp.text  # jamais le generique trompeur
+    # La revue des tours, pas l'écran d'enregistrement avec son erreur.
+    assert "Revue des questions/réponses" in resp.text
+    assert "OLLAMA_TIMEOUT" not in resp.text
+    # Le texte n'est pas perdu : il repart dans le formulaire de la revue.
+    assert "un entretien court" in resp.text
 
 
 def test_record_libre_stale_job_recovered_at_finalize(
@@ -673,13 +674,16 @@ def test_record_libre_does_not_drop_a_fresh_running_sibling_job(
 def test_record_libre_bloque_quand_une_tranche_reste_en_echec(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Perte PARTIELLE signalée (revue du 2026-08-31). Avant : seul le cas
-    100 % vide était détecté ; avec 1 tranche sur 3 restée en échec, l'entretien
-    était créé `status="done"` amputé de ces 5 minutes, SANS message, sans log,
-    et le `delete_segment_jobs` de la fin détruisait le texte qui les portait.
+    """Une tranche irrécupérable ne retient PLUS l'entretien (demande
+    utilisateur 2026-09-04) : la revue s'ouvre avec les tours qui ont abouti.
 
-    Le test échoue sur le code d'avant : la réponse était une redirection 303
-    vers l'entretien créé, pas la page d'erreur."""
+    La perte reste signalée — c'était la raison d'être du blocage du 2026-08-31,
+    et elle survit à sa levée : `_extraire_tours_libre` compte les tranches
+    manquantes, l'écran d'arrivée les affiche (cf. le test d'enregistrement
+    direct plus bas, qui vérifie le bandeau).
+
+    Échoue sur le code d'avant : la réponse était l'écran d'erreur
+    « MANQUERAIT », pas la revue."""
     mission_id = _make_draft_mission()
     db = SessionLocal()
     db.add(InterviewSegmentJob(session_token="partiel-tok", position=0, status="done",
@@ -700,23 +704,18 @@ def test_record_libre_bloque_quand_une_tranche_reste_en_echec(
         f"/missions/{mission_id}/interviews/record-libre",
         data={"transcript": "un entretien", "session_token": "partiel-tok", "segment_tail": ""},
     )
-    # Page d'erreur, PAS la création silencieuse d'un entretien amputé.
     assert resp.status_code == 200
-    assert "MANQUERAIT" in resp.text
-    # Aucune tranche récupérée sur cet envoi : le message doit le dire, et non
-    # laisser croire à un progrès (revue adversariale 2026-08-31).
-    # Fragment sans apostrophe : Jinja échappe `'` en `&#39;` dans le rendu.
-    assert "récupérée sur cet envoi" in resp.text
-    assert "Ollama saturé" in resp.text  # l'erreur du job reste resurfacée
+    assert "MANQUERAIT" not in resp.text
+    # Ce qui a abouti est là, malgré l'échec de la tranche 1.
+    assert "Q0" in resp.text
 
-    # Les jobs SURVIVENT : la tranche réussie n'est pas re-traitée à la relance,
-    # et le texte de la tranche en échec n'est pas détruit.
+    # Les jobs sont consommés : leur texte vit dans la transcription postée par
+    # l'écran, que l'enregistrement conserve en entier (`raw_transcript`).
     db = SessionLocal()
     restants = db.scalars(
         select(InterviewSegmentJob).where(InterviewSegmentJob.session_token == "partiel-tok")
     ).all()
-    assert len(restants) == 2, "les jobs ne doivent pas être supprimés sur ce chemin"
-    assert any(j.text == "tranche 1 irrécupérable" for j in restants)
+    assert restants == []
     db.close()
 
 
@@ -762,18 +761,20 @@ def test_record_libre_plafonne_la_recuperation_synchrone(
     )
 
 
-def test_record_libre_enregistre_quand_meme_sur_derogation_explicite(
+def test_record_libre_enregistre_malgre_une_tranche_en_echec(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Porte de sortie (arbitrage utilisateur 2026-08-31). Le blocage introduit
-    le même jour protège la matière, mais il coinçait la séance : avec un service
-    d'IA durablement indisponible ET au moins une tranche aboutie, l'entretien
-    devenait DÉFINITIVEMENT non enregistrable — seules issues « Recommencer »
-    (qui détruit la transcription) ou l'export PDF.
+    """Demande utilisateur du 2026-09-04 : que la répartition Q/R aboutisse ou
+    non, elle ne bloque plus l'enregistrement de l'entretien. Il n'y a plus de
+    dérogation à cliquer (« Enregistrer quand même » a disparu) — le premier
+    envoi crée l'entretien.
 
-    Le bouton « Enregistrer quand même » poste `ignorer_tranches_manquantes` ; la
-    dérogation ne vaut que sur ce geste, jamais par défaut. Ce qui a abouti est
-    conservé, et le texte des tranches perdues reste dans `raw_transcript`."""
+    Ce qui a abouti est conservé ; le texte de la tranche perdue survit dans
+    `raw_transcript` ; et la fiche d'arrivée DIT ce qui manque, sans quoi on
+    aurait remplacé un blocage par une perte silencieuse.
+
+    Échoue sur le code d'avant : le premier envoi rendait 200 + « MANQUERAIT »
+    et ne créait aucun entretien."""
     from app.models import Interview
 
     mission_id = _make_draft_mission()
@@ -792,34 +793,34 @@ def test_record_libre_enregistre_quand_meme_sur_derogation_explicite(
     monkeypatch.setattr(interview_segment_jobs, "extract_turns_from_text", _boom)
     monkeypatch.setattr(interviews_router, "extract_turns_from_text", _boom)
 
-    commun = {"transcript": "la transcription complète de l entretien",
-              "session_token": "derog-tok", "segment_tail": ""}
-
-    # Sans la dérogation : refus (le garde-fou tient).
-    refus = client.post(
-        f"/missions/{mission_id}/interviews/record-libre/enregistrer", data=commun
-    )
-    assert refus.status_code == 200 and "MANQUERAIT" in refus.text
-    # ... et la page propose bien la sortie, avec son décompte.
-    assert "ignorer_tranches_manquantes" in refus.text
-    assert "Enregistrer quand même (1 tranche manquante)" in unescape(refus.text)
-
-    # Avec la dérogation : l'entretien est créé.
     ok = client.post(
         f"/missions/{mission_id}/interviews/record-libre/enregistrer",
-        data={**commun, "ignorer_tranches_manquantes": "1"}, follow_redirects=False,
+        data={"transcript": "la transcription complète de l entretien",
+              "session_token": "derog-tok", "segment_tail": ""},
+        follow_redirects=False,
     )
     assert ok.status_code == 303, ok.text[:400]
+    # La mission est un brouillon : l'écran d'arrivée est la finalisation.
+    # Le décompte est persisté (finding F2), plus véhiculé par l'URL.
+    assert ok.headers["location"] == f"/missions/{mission_id}/finaliser"
 
     db = SessionLocal()
     interview = db.scalars(
         select(Interview).where(Interview.mission_id == mission_id)
     ).one()
-    # La tranche aboutie est conservée ; la perdue manque au tour de table mais
-    # son texte survit dans la transcription brute.
     assert [t.question for t in interview.turns] == ["Q0"]
     assert "la transcription complète" in interview.raw_transcript
+    assert interview.tranches_manquantes == 1
+    interview_id = interview.id
     db.close()
+
+    # Le bandeau de la fiche : l'entretien est enregistré, ET son tour de table
+    # est annoncé incomplet. Un simple GET, SANS query string, doit suffire —
+    # le compteur vient de la base (finding F2), pas de l'URL.
+    fiche = client.get(f"/interviews/{interview_id}")
+    assert fiche.status_code == 200
+    assert "pas pu être structurée" in fiche.text
+    assert "Relancer la transcription" in fiche.text
 
 
 def test_fenetre_de_recuperation_anti_famine() -> None:

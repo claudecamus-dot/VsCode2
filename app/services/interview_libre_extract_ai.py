@@ -42,6 +42,7 @@ from __future__ import annotations
 from .ai_common import (
     AIError,
     call_ai_json,
+    call_par_troncons_degressifs,
     chunk_text_by_paragraph,
     ollama_chunk_max_words,
     strip_segment_markers,
@@ -241,6 +242,40 @@ def _is_low_coverage(chunk: str, turns: list[dict]) -> bool:
     return _captured_chars(turns) < _MIN_COVERAGE_RATIO * len(chunk)
 
 
+def _extract_turns_chunk_fiable(chunk: str) -> dict:
+    """Extraction d'UN tronçon, avec ses relances de qualité (jusqu'à 2 relances,
+    3 tentatives au total) : un modèle local rend PAR INTERMITTENCE 0 tour sur un
+    tronçon qui en contient (non-déterminisme observé le 2026-07-22, attrapé par
+    tests/test_ollama_integration.py), OU rend un contenu capté très inférieur au
+    texte source (2026-07-28, cf. `_is_low_coverage` — le modèle invente une
+    question de consultant absente du texte et perd le propos réel). Une seule
+    relance ne suffisait PAS toujours en conditions réelles (mesuré : encore
+    ~1 échec sur 3 après une seule relance sur un vrai monologue non étiqueté).
+    Sans elles, un tronçon malchanceux faisait soit remonter « aucun tour
+    détecté » sur tout l'entretien, soit perdre silencieusement le contenu réel
+    de l'interviewé·e.
+
+    Ces relances-là ne traitent QUE des réponses abouties mais pauvres : un
+    timeout remonte tel quel à `call_par_troncons_degressifs`, seul à savoir
+    redécouper."""
+    result = _extract_turns_chunk(chunk)
+    attempts = 1
+    best = result
+    while (
+        chunk.strip()
+        and (not result["turns"] or _is_low_coverage(chunk, result["turns"]))
+        and attempts < 3
+    ):
+        result = _extract_turns_chunk(chunk)
+        attempts += 1
+        # Garder la MEILLEURE tentative (contenu capté), pas la dernière :
+        # une relance peut rendre 0 tour après une 1re tentative partielle —
+        # sans ce garde, on finirait avec MOINS que ce qu'on avait déjà.
+        if _captured_chars(result["turns"]) > _captured_chars(best["turns"]):
+            best = result
+    return best
+
+
 def extract_turns_from_text(text: str) -> dict:
     """Retourne `{"turns": [{"interlocuteur", "question", "remarque",
     "section_title"}, ...], "identity": {interviewee_name, interviewee_role,
@@ -269,37 +304,14 @@ def extract_turns_from_text(text: str) -> dict:
     identity = {"interviewee_name": "", "interviewee_role": "", "interviewee_entity": ""}
 
     for chunk in chunks:
-        result = _extract_turns_chunk(chunk)
-        # Retry ciblé (jusqu'à 2 relances, 3 tentatives au total) : un modèle
-        # local rend PAR INTERMITTENCE 0 tour sur un tronçon qui en contient
-        # (non-déterminisme observé le 2026-07-22, attrapé par
-        # tests/test_ollama_integration.py), OU rend un contenu capté très
-        # inférieur au texte source (2026-07-28, cf. `_is_low_coverage` — le
-        # modèle invente une question de consultant absente du texte et perd
-        # le propos réel). Une seule relance ne suffisait PAS toujours en
-        # conditions réelles (mesuré : encore ~1 échec sur 3 après une seule
-        # relance sur un vrai monologue non étiqueté) — 2 relances plutôt
-        # qu'une. Sans elles, un tronçon malchanceux faisait soit remonter
-        # « aucun tour détecté » sur tout l'entretien, soit perdre
-        # silencieusement le contenu réel de l'interviewé·e.
-        attempts = 1
-        best = result
-        while (
-            chunk.strip()
-            and (not result["turns"] or _is_low_coverage(chunk, result["turns"]))
-            and attempts < 3
-        ):
-            result = _extract_turns_chunk(chunk)
-            attempts += 1
-            # Garder la MEILLEURE tentative (contenu capté), pas la dernière :
-            # une relance peut rendre 0 tour après une 1re tentative partielle —
-            # sans ce garde, on finirait avec MOINS que ce qu'on avait déjà.
-            if _captured_chars(result["turns"]) > _captured_chars(best["turns"]):
-                best = result
-        all_turns.extend(best["turns"])
-        result = best
-        if not any(identity.values()) and any(result["identity"].values()):
-            identity = result["identity"]
+        # Un tronçon qui dépasse le délai est redécoupé en deux et retenté
+        # plutôt que de faire échouer toute la tranche (`ai_common`) : le
+        # chemin nominal rend une seule liste de tours, un tronçon trop lourd
+        # pour ce poste en rend une par moitié traitée.
+        for result in call_par_troncons_degressifs(chunk, _extract_turns_chunk_fiable):
+            all_turns.extend(result["turns"])
+            if not any(identity.values()) and any(result["identity"].values()):
+                identity = result["identity"]
 
     if not all_turns:
         raise InterviewLibreExtractAIError(

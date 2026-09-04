@@ -933,6 +933,33 @@ def test_finaliser_structure_exclut_missions_avec_trame(client: TestClient) -> N
     assert "Mission Classique" not in response.text
 
 
+def test_finaliser_affiche_le_bandeau_tranches_manquantes(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Aucun test ne vérifiait le RENDU du bandeau sur `missions/finaliser.html`
+    (bmad-code-review 2026-09-04, finding F14). Le compteur est lu depuis
+    `Interview.tranches_manquantes` (finding F2, persistance) — un simple GET,
+    SANS aucun paramètre de query string, doit suffire."""
+    response = client.post("/entretiens/libre/nouveau", follow_redirects=False)
+    mission_id = int(response.headers["location"].split("/")[2])
+
+    def _boom(text):
+        raise interview_libre_extract_ai.InterviewLibreExtractAIError("Panne simulée.")
+
+    monkeypatch.setattr("app.routers.interviews.extract_turns_from_text", _boom)
+    enregistre = client.post(
+        f"/missions/{mission_id}/interviews/record-libre/enregistrer",
+        data={"transcript": "un souffle, rien d'autre"},
+        follow_redirects=False,
+    )
+    assert enregistre.status_code == 303
+    assert enregistre.headers["location"] == f"/missions/{mission_id}/finaliser"
+
+    response = client.get(f"/missions/{mission_id}/finaliser")
+    assert response.status_code == 200
+    assert "pas pu être structurée" in response.text
+
+
 # --------------------------------------------------------------------------- #
 # Intégration à la synthèse globale de mission (US9.6).
 # --------------------------------------------------------------------------- #
@@ -1358,15 +1385,69 @@ def test_nettoyer_brouillons_ne_supprime_que_les_vides(
         session.close()
 
 
+def test_nettoyer_brouillons_emporte_un_entretien_a_zero_tour(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Depuis le 2026-09-04, un entretien peut être enregistré à 0 tour (échec
+    d'extraction qui ne bloque plus) — sans correctif, `_draft_vide` ne
+    considérait plus JAMAIS ce brouillon comme vide (`mission.interviews`
+    n'était plus vide), et il s'accumulait à chaque tentative ratée
+    (bmad-code-review 2026-09-04, finding F8).
+
+    Échoue sur le code d'avant : la mission survit au nettoyage."""
+    response = client.post("/entretiens/libre/nouveau", follow_redirects=False)
+    mission_id = int(response.headers["location"].split("/")[2])
+
+    def _boom(text):
+        raise interview_libre_extract_ai.InterviewLibreExtractAIError("Panne simulée.")
+
+    monkeypatch.setattr("app.routers.interviews.extract_turns_from_text", _boom)
+    enregistre = client.post(
+        f"/missions/{mission_id}/interviews/record-libre/enregistrer",
+        data={"transcript": "un souffle, rien d'autre"},
+        follow_redirects=False,
+    )
+    assert enregistre.status_code == 303
+
+    session = SessionLocal()
+    try:
+        mission = session.get(Mission, mission_id)
+        assert mission.is_draft
+        assert len(mission.interviews) == 1
+        assert mission.interviews[0].turns == []
+    finally:
+        session.close()
+
+    response = client.post("/missions/brouillons/nettoyer", follow_redirects=False)
+    assert response.status_code == 303
+
+    session = SessionLocal()
+    try:
+        assert session.get(Mission, mission_id) is None
+    finally:
+        session.close()
+
+
 # --------------------------------------------------------------------------- #
 # Export PDF de secours sur échec d'extraction (2026-07-19) : le bouton
 # "Télécharger la transcription (PDF)" doit apparaître sur record-libre (échec
 # transcript->tours) et sur la revue des tours (échec tours->répartition),
 # avec le texte préservé au moment de l'échec — pas de travail perdu.
 # --------------------------------------------------------------------------- #
-def test_record_libre_erreur_extraction_propose_export_pdf_transcript(
+def test_record_libre_erreur_extraction_conserve_le_texte_et_enregistre(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Une panne d'extraction ne fait plus perdre la séance (2026-09-04) : la
+    revue s'ouvre avec la transcription intacte, et l'enregistrement aboutit
+    avec ce texte en `raw_transcript`. L'export PDF de secours reste offert par
+    l'écran d'enregistrement pour les refus qui, eux, subsistent.
+
+    Échoue sur le code d'avant : la réponse était l'écran d'erreur, et
+    l'enregistrement était refusé."""
+    from app.models import Interview
+    from app.db import SessionLocal
+    from sqlalchemy import select
+
     response = client.post("/entretiens/libre/nouveau", follow_redirects=False)
     mission_id = int(response.headers["location"].split("/")[2])
 
@@ -1374,15 +1455,39 @@ def test_record_libre_erreur_extraction_propose_export_pdf_transcript(
         raise interview_libre_extract_ai.InterviewLibreExtractAIError("Panne extraction simulée.")
 
     monkeypatch.setattr("app.routers.interviews.extract_turns_from_text", _boom)
+    donnees = {
+        "transcript": "Texte précieux à ne pas perdre.",
+        "interviewee_name": "Erreur Testeur",
+    }
     response = client.post(
-        f"/missions/{mission_id}/interviews/record-libre",
-        data={"transcript": "Texte précieux à ne pas perdre.", "interviewee_name": "Erreur Testeur"},
+        f"/missions/{mission_id}/interviews/record-libre", data=donnees
     )
     assert response.status_code == 200
-    assert "Panne extraction simulée." in response.text
-    assert "/interviews/transcript/export-pdf" in response.text
-    assert 'name="transcript" value="Texte précieux à ne pas perdre."' in response.text
-    assert 'name="interviewee_name" value="Erreur Testeur"' in response.text
+    assert "Texte précieux à ne pas perdre." in response.text
+    assert "Erreur Testeur" in response.text
+    # Le compteur de `_extraire_tours_libre` doit se traduire en bandeau sur CET
+    # écran aussi (bmad-code-review 2026-09-04, finding F5) — avant le fix, il
+    # était calculé puis jeté : la revue s'ouvrait sans dire qu'elle est vide.
+    assert "tranche" in response.text
+    assert "structurée" in response.text
+
+    enregistre = client.post(
+        f"/missions/{mission_id}/interviews/record-libre/enregistrer",
+        data=donnees, follow_redirects=False,
+    )
+    assert enregistre.status_code == 303
+    # Zéro tour extrait : l'entretien existe quand même, sans dérogation à
+    # cliquer. Le décompte est persisté (finding F2), plus véhiculé par l'URL.
+    assert enregistre.headers["location"] == f"/missions/{mission_id}/finaliser"
+
+    db = SessionLocal()
+    interview = db.scalars(
+        select(Interview).where(Interview.mission_id == mission_id)
+    ).one()
+    assert interview.raw_transcript == "Texte précieux à ne pas perdre."
+    assert interview.turns == []
+    assert interview.tranches_manquantes == 1
+    db.close()
 
     export = client.post(
         "/interviews/transcript/export-pdf",

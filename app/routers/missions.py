@@ -26,15 +26,30 @@ def _get_mission(db: Session, mission_id: int) -> Mission:
     return mission
 
 
+def _interview_vide(interview: Interview) -> bool:
+    """Un entretien enregistré sans aucun contenu structuré — 0 tour (libre) ou
+    0 réponse (structuré). Depuis le 2026-09-04, l'extraction IA en échec
+    n'empêche plus l'enregistrement (`_extraire_tours_libre`,
+    `_finalize_record_answers`) : un tel entretien existe désormais, avec son
+    texte préservé dans `raw_transcript` mais sans matière structurée — il ne
+    doit pas faire échouer le nettoyage groupé des brouillons abandonnés
+    (bmad-code-review 2026-09-04, finding F8)."""
+    if interview.mode == "libre":
+        return not interview.turns
+    return not interview.answers
+
+
 def _draft_vide(mission: Mission) -> bool:
-    """Brouillon abandonné sans contenu : ni entretien enregistré, ni trame
-    remplie (la trame vide « Trame d'entretien » créée d'office par le parcours
-    structuré ne compte pas comme du contenu). Seuls ces brouillons-là sont
-    éligibles au nettoyage groupé — un brouillon avec de la matière se reprend
-    via /finaliser, il ne se supprime qu'un par un, explicitement."""
+    """Brouillon abandonné sans contenu : aucun entretien enregistré (ou
+    seulement des entretiens vides, cf. `_interview_vide`), et pas de trame
+    remplie (la trame vide « Trame d'entretien » créée d'office par le
+    parcours structuré ne compte pas comme du contenu). Seuls ces
+    brouillons-là sont éligibles au nettoyage groupé — un brouillon avec de la
+    matière se reprend via /finaliser, il ne se supprime qu'un par un,
+    explicitement."""
     return (
         mission.is_draft
-        and not mission.interviews
+        and all(_interview_vide(iv) for iv in mission.interviews)
         and (mission.trame is None or not mission.trame.themes)
     )
 
@@ -126,7 +141,9 @@ def create_mission(
 
 @router.get("/{mission_id}/finaliser")
 def finaliser_mission_form(
-    mission_id: int, request: Request, db: Session = Depends(get_session)
+    mission_id: int,
+    request: Request,
+    db: Session = Depends(get_session),
 ):
     """Mission brouillon (incr.9, US9.2) née d'un entretien libre ou
     structuré à mission différée : on la nomme maintenant, ou on rattache
@@ -135,6 +152,11 @@ def finaliser_mission_form(
     mission brouillon en porte une — évite le conflit « deux trames »
     (`Mission.trame` reste 1:1)."""
     mission = _get_mission(db, mission_id)
+    # `Interview.tranches_manquantes` (2026-09-04, bmad-code-review finding F2)
+    # plutôt qu'une query string posée par la redirection d'enregistrement :
+    # persisté, il survit à un F5 — la somme couvre le cas (rare) où plusieurs
+    # entretiens auraient été enregistrés sur ce brouillon avant finalisation.
+    tranches_manquantes = sum(iv.tranches_manquantes for iv in mission.interviews)
     if not mission.is_draft:
         return RedirectResponse(f"/missions/{mission.id}", status_code=303)
 
@@ -153,7 +175,11 @@ def finaliser_mission_form(
     return templates.TemplateResponse(
         request,
         "missions/finaliser.html",
-        {"mission": mission, "eligible": eligible},
+        {
+            "mission": mission,
+            "eligible": eligible,
+            "tranches_manquantes": tranches_manquantes,
+        },
     )
 
 

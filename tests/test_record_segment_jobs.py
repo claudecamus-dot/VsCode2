@@ -511,13 +511,14 @@ def _six_jobs_dont_un_en_echec_ancien(mission_id: int, token: str) -> None:
 def test_record_dit_ou_on_en_est_quand_le_plafond_bloque(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """N1 (2026-09-01) : R3-M1 a posé le plafond sur ce chemin sans porter le
-    message qui le rend tenable. Avec 6 tranches en échec il faut 2 envois, et
-    l'ancien texte rendait des pages IDENTIQUES dont la promesse « seules les
-    tranches en échec seront retraitées » était devenue fausse (au plus
-    RECUP_TRANCHES_MAX le sont). L'utilisateur croyait que rien n'avançait.
+    """Le plafond de récupération ne BLOQUE plus (demande utilisateur
+    2026-09-04) : la revue s'ouvre avec ce qui a été réparti, et compte ce qui
+    manque. Avec 6 tranches dont RECUP_TRANCHES_MAX récupérées à cet envoi, le
+    reste est annoncé — sans ce compteur, la perte redeviendrait silencieuse,
+    ce que le blocage de 2026-08-31 servait justement à empêcher.
 
-    Échoue sur le code d'avant : le message ne portait aucun compteur."""
+    Échoue sur le code d'avant : la réponse était l'écran d'enregistrement en
+    erreur, pas la revue."""
     from app.routers.interviews import RECUP_TRANCHES_MAX
 
     mission_id, qids = _make_structured_mission()
@@ -535,28 +536,20 @@ def test_record_dit_ou_on_en_est_quand_le_plafond_bloque(
               "segment_tail": ""},
     )
     assert resp.status_code == 200
-    # Sous-chaînes sans apostrophe : Jinja échappe `'` en `&#39;` dans le rendu.
-    assert "tranche(s) viennent" in resp.text, (
-        "la page ne dit pas que des tranches ont été récupérées — sans ce "
-        "compteur, les N envois nécessaires rendent des pages identiques"
-    )
-    assert f"reste {6 - RECUP_TRANCHES_MAX} sur 6" in resp.text, (
-        "la page ne chiffre pas ce qui reste : l'utilisateur ne peut pas "
-        "distinguer « ça avance » de « ça ne bougera plus »"
+    assert "Revue avant import" in resp.text, "la revue doit s'ouvrir malgré l'échec"
+    assert f"{6 - RECUP_TRANCHES_MAX} tranche" in resp.text, (
+        "la revue ne chiffre pas ce qui manque : la perte redevient silencieuse"
     )
 
 
 def test_record_montre_le_levier_meme_quand_ca_progresse(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """F4 (re-revue 2026-09-01) : quand 1 tranche sur 3 est récupérée et que les
-    2 autres échouent avec un message ACTIONNABLE frais (« augmente
-    OLLAMA_TIMEOUT »), la branche « ça progresse » avalait l'erreur. Sur
-    24 tranches à 1 récupérée par envoi, l'utilisateur enchaîne les envois sans
-    jamais voir le levier qui débloquerait tout.
-
-    Échoue sur le code d'avant F4 : la branche de progrès ne portait aucune
-    erreur."""
+    """F4 (re-revue 2026-09-01), tenu après le déblocage du 2026-09-04 : quand
+    1 tranche est récupérée et que les autres échouent avec un message
+    ACTIONNABLE frais (« augmente OLLAMA_TIMEOUT »), ce message doit rester
+    visible. Il vit maintenant dans le bandeau de la revue, plus dans une page
+    de refus — mais le perdre reste le défaut que F4 a corrigé."""
     mission_id, qids = _make_structured_mission()
     _six_jobs_dont_un_en_echec_ancien(mission_id, "rec-levier")
 
@@ -581,10 +574,10 @@ def test_record_montre_le_levier_meme_quand_ca_progresse(
               "segment_tail": ""},
     )
     assert resp.status_code == 200
-    assert "tranche(s) viennent" in resp.text, "le compteur de progrès a disparu"
+    assert "Revue avant import" in resp.text, "la revue doit s'ouvrir malgré l'échec"
     assert "OLLAMA_TIMEOUT" in resp.text, (
-        "la branche « ça progresse » avale le message actionnable des tranches "
-        "qui viennent d'échouer — le levier reste invisible envoi après envoi"
+        "le bandeau avale le message actionnable des tranches qui viennent "
+        "d'échouer — le levier reste invisible envoi après envoi"
     )
 
 
@@ -623,15 +616,22 @@ def test_record_ne_resurface_pas_une_erreur_perimee(
     )
 
 
-def test_record_blocks_finalize_when_a_job_stays_failed_with_content(
+def test_record_signale_la_tranche_en_echec_sans_retenir_la_revue(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Revue adversariale 2026-07-25 (constat haute sévérité) : un job qui
-    reste en échec APRÈS récupération, alors qu'un frère a produit des
-    réponses, faisait afficher la revue SANS sa tranche (jusqu'à 5 min de
-    propos) et `delete_segment_jobs` détruisait le texte — perte silencieuse.
-    Désormais : écran d'erreur avec le message actionnable du job, et les
-    jobs (dont les `done`) sont CONSERVÉS pour un nouvel essai borné."""
+    """Revue adversariale 2026-07-25 : un job resté en échec alors qu'un frère
+    a produit des réponses faisait afficher la revue SANS sa tranche (jusqu'à
+    5 min de propos), en silence. La réponse a d'abord été un écran d'erreur ;
+    depuis la demande utilisateur du 2026-09-04, c'est un BANDEAU sur la revue :
+    l'entretien avance, et ce qui manque est nommé avec son levier.
+
+    Les jobs restent en base sur un échec PARTIEL (bmad-code-review 2026-09-04,
+    finding F3) : un nouvel essai (F5-repost, ou re-clic « Envoyer » avant la
+    revue) ne doit retenter QUE la tranche encore KO, jamais retomber sur la
+    transcription entière en synchrone — les supprimer à chaque envoi
+    reproduisait exactement le mur que `RECUP_TRANCHES_MAX` existe pour éviter.
+
+    Échoue sur le code d'avant : la revue n'était pas rendue du tout."""
     mission_id, qids = _make_structured_mission()
     db = SessionLocal()
     db.add(InterviewSegmentJob(
@@ -661,9 +661,11 @@ def test_record_blocks_finalize_when_a_job_stays_failed_with_content(
               "segment_tail": ""},
     )
     assert resp.status_code == 200
-    assert "OLLAMA_TIMEOUT" in resp.text          # message actionnable
-    assert "Réponse déjà réussie" not in resp.text  # PAS l'écran de revue
-    # Les jobs survivent : un nouvel essai ne recoûtera que la tranche KO.
+    assert "OLLAMA_TIMEOUT" in resp.text            # le levier reste affiché
+    assert "Réponse déjà réussie" in resp.text      # ce qui a abouti est là
+    assert "1 tranche" in resp.text                 # ce qui manque est chiffré
+    # Les jobs SURVIVENT à cet échec partiel (finding F3) : un nouvel essai ne
+    # recoûtera que la tranche KO, pas la transcription entière.
     db = SessionLocal()
     remaining = db.scalars(
         select(InterviewSegmentJob).where(

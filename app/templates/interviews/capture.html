@@ -10,6 +10,18 @@
   <a href="/missions/{{ interview.mission_id }}">{{ interview.mission.name }}</a> / Entretien
 </div>
 
+{# Persisté sur Interview.tranches_manquantes (2026-09-04, bmad-code-review
+   finding F2) — l'entretien structuré est enregistré même quand l'IA n'a pas
+   su répartir une tranche en réponses ; ce bandeau survit à tout rechargement. #}
+{% if interview.tranches_manquantes %}
+<p class="ai-error">
+  ⚠ {{ interview.tranches_manquantes }} tranche{{ 's' if interview.tranches_manquantes > 1 else '' }}
+  d'entretien n'{{ 'ont' if interview.tranches_manquantes > 1 else 'a' }} pas pu être
+  répartie{{ 's' if interview.tranches_manquantes > 1 else '' }} par l'IA lors de
+  l'enregistrement. Le texte, lui, reste conservé dans la transcription de l'entretien.
+</p>
+{% endif %}
+
 <div class="capture-head">
   <form class="identity" autocomplete="off"
         hx-post="/interviews/{{ interview.id }}/identity"

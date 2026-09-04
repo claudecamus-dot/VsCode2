@@ -31,6 +31,20 @@
   {% if interview.interview_date %}<span>{{ interview.interview_date.strftime("%d/%m/%Y") }}</span>{% endif %}
 </div>
 
+{# L'entretien est enregistré même quand la répartition Q/R échoue (demande
+   utilisateur 2026-09-04) : ce bandeau est la contrepartie du déblocage — le
+   tour de table est incomplet, et personne ne doit l'apprendre en comptant les
+   tours. « Relancer la transcription » repart de l'audio conservé. #}
+{% if tranches_manquantes %}
+<p class="ai-error">
+  ⚠ {{ tranches_manquantes }} tranche{{ 's' if tranches_manquantes > 1 else '' }}
+  n'{{ 'ont' if tranches_manquantes > 1 else 'a' }} pas pu être structurée{{ 's' if tranches_manquantes > 1 else '' }}
+  en tours de parole par l'IA : leur texte est présent dans l'onglet
+  <strong>Transcription</strong>, mais absent du <strong>Tour de table</strong>.
+  Utilise « ↻ Relancer la transcription (audio) » ci-dessous pour les rattraper.
+</p>
+{% endif %}
+
 {% if interview.audio_segments %}
 {# Toutes les tranches sont listées et écoutables individuellement — avant
    (2026-07-20), seul un lecteur unique (la dernière tranche) s'affichait, ce

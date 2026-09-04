@@ -1724,8 +1724,11 @@
     // sans toucher au texte ni à la référence existante.
     if (backupPathHidden.value) {
       statusEl.textContent = 'Cet entretien a déjà un enregistrement audio. Transcrire un '
-        + 'fichier remplacerait sa référence : utilise « Rattacher sans transcrire » pour '
-        + 'ajouter ce fichier, ou « Recommencer » pour repartir de zéro.';
+        + 'fichier remplacerait sa référence. Pour rattraper une tranche que l\'IA n\'a pas '
+        + 'su répartir, enregistre l\'entretien (c\'est toujours possible, même en cas '
+        + 'd\'échec de répartition) puis relance la transcription depuis sa fiche : elle '
+        + 'repart de l\'audio déjà enregistré, sans réimport. Sinon : « Rattacher sans '
+        + 'transcrire » pour ajouter ce fichier, ou « Recommencer » pour repartir de zéro.';
       return;
     }
     var file = fileUploadInput.files[0];

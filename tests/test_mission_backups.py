@@ -1104,22 +1104,15 @@ def test_les_deux_ecrans_savent_dire_que_la_mission_a_disparu(ecran: str) -> Non
         "propose que « Télécharger » et « Supprimer »"
     )
     if ecran == "record_libre.html":
-        # `D1-F2` : « Enregistrer quand même » est un `type=submit` sans
-        # `formaction`, donc il poste vers la MÊME route 404. Le verrou naissait
-        # troué : aucune ligne de JS ne touchait ce bouton.
-        #
-        # `D2-M2` : l'ORDRE fait partie du contrat. Lire `submitBtn.disabled`
-        # avant de l'avoir calculé recopie la valeur du tour précédent — le
-        # gate est mort, et la simple présence de la ligne ne le voit pas.
-        assert re.search(
-            r"submitBtn\.disabled\s*=.*?submitForceBtn\.disabled\s*=\s*"
-            r"submitBtn\.disabled;",
-            source,
-            re.S,
-        ), (
-            "record_libre.html : « Enregistrer quand même » doit recopier le "
-            "verrou APRÈS son calcul — même route, même 404, même transcription "
-            "détruite"
+        # `D1-F2` (2026-09-02) portait sur le verrou du bouton « Enregistrer
+        # quand même » — disparu le 2026-09-04 avec le blocage qu'il permettait
+        # de contourner (une tranche non structurée n'empêche plus
+        # l'enregistrement, cf. `_extraire_tours_libre`). Confirme l'absence
+        # plutôt que de laisser un régex chercher un câblage qui n'existe plus.
+        assert "submitForceBtn" not in source and "rec-submit-force" not in source, (
+            "record_libre.html : résidu du bouton « Enregistrer quand même » "
+            "(supprimé le 2026-09-04) — code mort ou bouton réapparu sans son "
+            "câblage"
         )
         # `D1-F1` : le cœur du correctif. Sa disparition pure et simple laissait
         # le test vert (constat `D2-M2`), donc les tranches d'avant la

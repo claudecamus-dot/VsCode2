@@ -23,6 +23,7 @@ from __future__ import annotations
 from .ai_common import (
     AIError,
     call_ai_json,
+    call_par_troncons_degressifs,
     chunk_text_by_paragraph,
     ollama_chunk_max_words,
     strip_segment_markers,
@@ -203,11 +204,15 @@ def extract_answers_from_text(questions, text: str) -> dict[int, dict]:
     text = cleaned
 
     chunks = chunk_text_by_paragraph(text, ollama_chunk_max_words())
-    if len(chunks) == 1:
-        return _extract_answers_chunk(questions, chunks[0])
 
+    # Chemin frère de `interview_libre_extract_ai` : un tronçon qui dépasse le
+    # délai est redécoupé en deux et retenté plutôt que de faire échouer la
+    # tranche entière (`call_par_troncons_degressifs`).
     merged: dict[int, dict] = {}
     for chunk in chunks:
-        for qid, answer in _extract_answers_chunk(questions, chunk).items():
-            merged.setdefault(qid, answer)
+        for partiel in call_par_troncons_degressifs(
+            chunk, lambda c: _extract_answers_chunk(questions, c)
+        ):
+            for qid, answer in partiel.items():
+                merged.setdefault(qid, answer)
     return merged

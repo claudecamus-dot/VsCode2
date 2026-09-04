@@ -250,20 +250,10 @@
        `formaction`). #}
     <button class="btn btn-primary" type="submit" id="rec-submit" disabled
             title="Enregistre l'entretien (transcription + tours de parole extraits) sans passer par la synthèse">💾 Enregistrer l'entretien</button>
-    {# Porte de sortie, affichée UNIQUEMENT après un refus pour tranches manquantes
-       (arbitrage utilisateur 2026-08-31). Sans elle, un service d'IA durablement
-       indisponible rendait l'entretien définitivement non enregistrable dès qu'une
-       tranche avait abouti : le blocage protégeait la matière mais coinçait la
-       séance, sans autre issue que « Recommencer » — qui détruit la transcription.
-       `name`/`value` sur le bouton : la dérogation n'est postée que si c'est CE
-       bouton qui soumet, jamais le bouton d'enregistrement normal. #}
-    {% if tranches_manquantes %}
-    <button class="btn" type="submit" id="rec-submit-force"
-            name="ignorer_tranches_manquantes" value="1"
-            title="Crée l'entretien sans les tranches non structurées. Leur texte
-                   reste dans la transcription brute, mais il ne figurera pas dans
-                   le tour de table.">Enregistrer quand même ({{ tranches_manquantes }} tranche{{ 's' if tranches_manquantes > 1 else '' }} manquante{{ 's' if tranches_manquantes > 1 else '' }})</button>
-    {% endif %}
+    {# Le bouton « Enregistrer quand même » (2026-08-31) a disparu le 2026-09-04 :
+       il était la porte de sortie d'un blocage qui n'existe plus. Une tranche que
+       l'IA ne sait pas structurer n'empêche plus l'enregistrement — elle est
+       signalée sur la fiche de l'entretien, une fois celui-ci en sécurité. #}
   </div>
 </form>
 
@@ -282,9 +272,6 @@
   var stopBtn = document.getElementById('rec-stop');
   var resetBtn = document.getElementById('rec-reset');
   var submitBtn = document.getElementById('rec-submit');
-  // Absent tant qu'aucune soumission n'a été refusée pour tranches manquantes
-  // (il est rendu sous condition « tranches_manquantes ») : usages gardés.
-  var submitForceBtn = document.getElementById('rec-submit-force');
   var pdfBtn = document.getElementById('rec-pdf');
   var timerEl = document.getElementById('rec-timer');
   var statusEl = document.getElementById('rec-status');
@@ -571,22 +558,6 @@
     // bandeau demande de faire.
     submitBtn.disabled = recordingActive || busy || lost || localEnAttente
       || missionAbsente || !hasTranscript;
-    // D1-F2 (revue du 2026-09-02) : « Enregistrer quand même » est un
-    // `type="submit"` SANS `formaction`, donc il poste vers la MÊME route que
-    // le bouton ci-dessus — celle qui rend 404 dès que la mission a disparu.
-    // Il n'était touché par aucune ligne de JS : le verrou naissait troué, et
-    // le clic détruisait la transcription exactement comme D1-M1 le décrivait.
-    // On lui applique le gate ENTIER plutôt que le seul `missionAbsente` : ce
-    // bouton déroge à la complétude des tranches, pas aux garde-fous qui
-    // protègent d'une perte de données. Il n'existe qu'après une soumission
-    // refusée, d'où la lecture défensive.
-    //
-    // NE PAS écrire de balise Jinja dans ces commentaires, même citée : Jinja
-    // parse le fichier AVANT que ce soit du JavaScript, donc un « si » cité en
-    // commentaire ouvre un vrai bloc et le template cesse de compiler. Erreur
-    // commise ici même le 2026-09-02 — rattrapée par les tests de rendu, et pas
-    // par `node --check`, qui voit du JS valide puisque le défaut est en amont.
-    if (submitForceBtn) submitForceBtn.disabled = submitBtn.disabled;
     // L'export PDF de la transcription est disponible dès que l'enregistrement
     // est arrêté et qu'il y a du texte — indépendamment de l'extraction IA (il
     // n'utilise que le texte) et sans attendre les uploads audio en cours.
@@ -2005,8 +1976,12 @@
       statusEl.textContent = 'Cet entretien a déjà ' + backupSegments.length + ' tranche'
         + (backupSegments.length > 1 ? 's' : '') + ' d\'audio enregistrée'
         + (backupSegments.length > 1 ? 's' : '') + '. Transcrire ce fichier ajouterait un '
-        + 'second enregistrement du même entretien, et la relance le transcrirait deux fois : '
-        + 'utilise « Rattacher sans transcrire », ou « Recommencer » pour repartir de zéro.';
+        + 'second enregistrement du même entretien, et la relance le transcrirait deux fois. '
+        + 'Pour rattraper une tranche que l\'IA n\'a pas su structurer, enregistre '
+        + 'l\'entretien (c\'est toujours possible, même en cas d\'échec de répartition) '
+        + 'puis lance « ↻ Relancer la transcription (audio) » depuis sa fiche : elle repart '
+        + 'des tranches déjà enregistrées, sans réimport. Sinon : « Rattacher sans '
+        + 'transcrire », ou « Recommencer » pour repartir de zéro.';
       return;
     }
     var file = testUploadInput.files[0];

@@ -243,7 +243,7 @@ def _mission_questions(mission: Mission) -> list[Question]:
     return [q for t in mission.trame.themes for q in t.questions]
 
 
-def _proposed_to_json(identity: dict, extracted: dict[int, dict]) -> str:
+def _proposed_to_json(identity: dict, extracted: dict[int, dict], tranches_manquantes: int = 0) -> str:
     return json.dumps(
         {
             "identity": identity,
@@ -251,11 +251,18 @@ def _proposed_to_json(identity: dict, extracted: dict[int, dict]) -> str:
                 {"question_id": qid, "text": v["text"], "verbatims": v["verbatims"]}
                 for qid, v in extracted.items()
             ],
+            # Traverse « Valider l'import » jusqu'à l'entretien créé (2026-09-04,
+            # bmad-code-review finding F2/persistance) : sans lui, le bandeau
+            # affiché sur la revue disparaissait à la validation, comme s'il
+            # n'avait jamais existé.
+            "tranches_manquantes": tranches_manquantes,
         }
     )
 
 
-def _build_review_context(mission: Mission, extracted: dict[int, dict], identity: dict) -> dict:
+def _build_review_context(
+    mission: Mission, extracted: dict[int, dict], identity: dict, tranches_manquantes: int = 0,
+) -> dict:
     """Contexte de gabarit pour `interviews/import_review.html`, partagé par
     l'import depuis un document et l'enregistrement audio (US3.1-US3.3) :
     seule la source du texte extrait diffère, la revue est identique."""
@@ -269,7 +276,7 @@ def _build_review_context(mission: Mission, extracted: dict[int, dict], identity
         "by_theme": by_theme,
         "extracted": extracted,
         "identity": identity,
-        "proposed_json": _proposed_to_json(identity, extracted),
+        "proposed_json": _proposed_to_json(identity, extracted, tranches_manquantes),
     }
 
 
@@ -408,6 +415,8 @@ def _finalize_record_answers(
         )
 
     status = segment_jobs_status(db, session_token)
+    manquantes = 0
+    detail = ""
 
     if status["total"] == 0:
         try:
@@ -415,7 +424,9 @@ def _finalize_record_answers(
                 _mission_questions(mission), transcript
             )
         except InterviewExtractAIError as exc:
-            return _record_error(request, mission, identity, str(exc))
+            extracted = {}
+            manquantes = 1
+            detail = str(exc)
     else:
         # Récupération PLAFONNÉE (revue R3-M1 du 2026-08-31) : même fenêtre que
         # le mode libre — sans plafond, un Ollama saturé sur un entretien de
@@ -423,45 +434,19 @@ def _finalize_record_answers(
         # POST.
         tentees = _fenetre_recuperation(status["jobs"], lambda j: j.status == "done")
         recover_stalled_or_failed_jobs(db, tentees)
-        recuperees = sum(1 for j in tentees if j.status == "done")
         still_ko = [
             j for j in status["jobs"] if j.status != "done" and j.text.strip()
         ]
-        if still_ko:
-            # Message adapté AU PLAFOND (revue N1 du 2026-09-01), en parité avec
-            # le chemin libre : R3-M1 avait porté le plafond ici sans porter le
-            # message qui le rend tenable. Avec 24 tranches en échec il faut
-            # ⌈24/RECUP_TRANCHES_MAX⌉ = 8 envois, et l'ancien texte rendait 7
-            # pages IDENTIQUES — dont la promesse « seules les tranches en échec
-            # seront retraitées » était devenue fausse (au plus
-            # RECUP_TRANCHES_MAX le sont). L'utilisateur croyait que rien
-            # n'avançait alors que chaque envoi commite son progrès.
-            # N2 : ne resurfacer que l'erreur d'une tranche RÉELLEMENT retentée
-            # à cet envoi. Avant le plafond, tous les jobs étaient retentés à
-            # chaque POST, donc toute `error` affichée était fraîche ; depuis,
-            # la plus basse tranche encore KO est le plus souvent une tranche
-            # NON retentée, dont l'`error` date d'un envoi antérieur — la page
-            # annonçait « Ollama saturé » alors qu'Ollama répondait, et
-            # poussait à cesser de relancer précisément quand relancer marche.
-            # Calculé pour LES DEUX branches (re-revue F4) : un envoi qui
-            # récupère 1 tranche sur 3 avale sinon le message actionnable
-            # (« augmente OLLAMA_TIMEOUT ») des 2 autres, et sur 24 tranches
-            # l'utilisateur enchaîne les envois sans jamais voir le levier.
-            job_error = next((j.error for j in tentees if j.error), None)
-            prefixe = job_error + " " if job_error else ""
-            if recuperees:
-                etat = (f"{recuperees} tranche(s) viennent d'être récupérées, il en "
-                        f"reste {len(still_ko)} sur {status['total']}. Relance l'envoi : "
-                        f"chaque envoi en reprend jusqu'à {RECUP_TRANCHES_MAX}, et ce qui "
-                        "est déjà réparti est conservé.")
-            else:
-                etat = (f"Aucune des {len(still_ko)} tranche(s) en échec n'a pu être "
-                        f"récupérée sur cet envoi (sur {status['total']} au total). "
-                        "Vérifie que le service d'IA répond, puis relance l'envoi.")
-            # Pas de préfixe « les tranches déjà réparties sont conservées » :
-            # il redisait la fin de la branche de progrès, et au PREMIER envoi
-            # il affirmait une conservation portant sur zéro tranche (F5).
-            return _record_error(request, mission, identity, prefixe + etat)
+        # Les tranches restées en échec ne retiennent PLUS l'entretien (demande
+        # utilisateur 2026-09-04, parité avec le mode libre) : on passe à la
+        # revue avec ce qui a été réparti, et on dit ce qui manque. La page de
+        # refus renvoyait l'utilisateur relancer l'envoi indéfiniment sur un
+        # poste trop lent, sans autre issue que perdre la séance.
+        manquantes = len(still_ko)
+        # Le levier actionnable (OLLAMA_TIMEOUT/CHUNK/MODEL) rencontré par une
+        # tranche RÉELLEMENT retentée à cet envoi (revue N2 du 2026-09-01) :
+        # l'erreur d'une tranche non retentée désigne une cause souvent révolue.
+        detail = next((j.error for j in tentees if j.error), "") or ""
         try:
             tail_result = None
             if segment_tail.strip():
@@ -469,31 +454,40 @@ def _finalize_record_answers(
                     _mission_questions(mission), segment_tail
                 )
         except InterviewExtractAIError as exc:
-            return _record_error(request, mission, identity, str(exc))
+            tail_result = None
+            manquantes += 1
+            detail = detail or str(exc)
         extracted = merge_segment_answers(status["jobs"], tail_result)
-        if not extracted:
-            # Parité avec le mode libre (B1) : resurfacer le message
-            # ACTIONABLE d'un job en échec (levier OLLAMA_TIMEOUT/…), pas le
-            # générique trompeur « aucune réponse détectée ».
-            job_error = next((j.error for j in status["jobs"] if j.error), None)
-            return _record_error(
-                request, mission, identity,
-                job_error or "Aucune réponse détectée dans la transcription.",
-            )
 
-    if not extracted:
-        return _record_error(
-            request, mission, identity,
-            "Aucune réponse détectée dans la transcription.",
-        )
+    if not extracted and not manquantes:
+        # L'IA peut répondre sans lever d'exception mais sans répartir aucune
+        # réponse (silence, transcription trop courte, jobs `done` au résultat
+        # vide — non comptés par `still_ko`, qui ne filtre que sur le statut).
+        # Sans ce garde, la revue s'ouvrait vide et SANS bandeau (zéro case à
+        # cocher, zéro avertissement), et « Valider l'import » créait un
+        # entretien à 0 réponse en silence. Parité avec le chemin libre
+        # (`_extraire_tours_libre`, mêmes gardes sur ses deux branches).
+        manquantes = 1
 
-    # Jobs consommés (leur seul rôle était d'alimenter cet écran) : on nettoie.
-    delete_segment_jobs(db, session_token)
+    if not manquantes:
+        # Jobs consommés (leur seul rôle était d'alimenter cet écran) : on
+        # nettoie — seulement si tout a abouti. Sur un échec partiel, les
+        # garder permet à un nouvel essai (F5-repost, ou re-clic « Envoyer »
+        # avant la revue) de ne retenter QUE les tranches encore KO, plafonné
+        # par `RECUP_TRANCHES_MAX` — les supprimer inconditionnellement fait
+        # retomber ce nouvel essai sur `status["total"] == 0`, donc sur la
+        # transcription ENTIÈRE en synchrone (bmad-code-review 2026-09-04,
+        # finding F3 : c'est exactement le mur que le plafond existe pour
+        # éviter). Le texte lui-même n'est pas en jeu ici : il voyage déjà
+        # dans `identity["transcript"]` jusqu'à `import_interview_confirm`.
+        delete_segment_jobs(db, session_token)
 
+    contexte = _build_review_context(mission, extracted, identity, manquantes)
+    if manquantes:
+        contexte["tranches_manquantes"] = manquantes
+        contexte["tranches_manquantes_detail"] = detail
     return templates.TemplateResponse(
-        request,
-        "interviews/import_review.html",
-        _build_review_context(mission, extracted, identity),
+        request, "interviews/import_review.html", contexte
     )
 
 
@@ -649,15 +643,14 @@ def _ecran_attente_tranches(
     )
 
 
-def _libre_turns_error(request, mission, identity, message, tranches_manquantes=0):
+def _libre_turns_error(request, mission, identity, message):
     """Rend l'écran d'enregistrement avec un message d'erreur, en conservant le
-    travail déjà saisi (transcription, identité) — chemin d'échec d'extraction.
+    travail déjà saisi (transcription, identité).
 
-    `tranches_manquantes` > 0 fait apparaître la porte de sortie : « Enregistrer
-    quand même ». Sans elle, un service d'IA durablement indisponible rendait
-    l'entretien DÉFINITIVEMENT non enregistrable dès qu'une tranche avait abouti
-    (revue adversariale 2026-08-31, arbitrage utilisateur du même jour) — le
-    blocage protégeait la matière mais coinçait la séance."""
+    Ne sert plus qu'aux refus qui précèdent toute extraction (transcription
+    vide) : depuis le 2026-09-04, un échec de répartition Q/R n'y ramène plus —
+    il enregistre l'entretien et signale les tranches manquantes sur sa fiche
+    (`_extraire_tours_libre`)."""
     return templates.TemplateResponse(
         request,
         "interviews/record_libre.html",
@@ -666,22 +659,36 @@ def _libre_turns_error(request, mission, identity, message, tranches_manquantes=
             "recording_available": audio_transcribe.is_available(),
             "error": message,
             "identity": identity,
-            "tranches_manquantes": tranches_manquantes,
         },
     )
 
 
-def _extraire_tours_libre(
-    db, request, mission, identity, transcript, session_token, segment_tail,
-    ignorer_manquantes=False,
-):
-    """Produit les tours de parole d'un entretien libre.
+def _tours_vides() -> dict:
+    return {
+        "turns": [],
+        "identity": {
+            "interviewee_name": "", "interviewee_role": "", "interviewee_entity": "",
+        },
+    }
 
-    Rend `(extracted, None)` en cas de succès, `(None, réponse d'erreur)` sinon
-    — les deux consommateurs (revue du wizard `_finalize_libre_turns`,
-    enregistrement direct `_enregistrer_libre_direct`) partagent ainsi la même
-    logique d'extraction ET le même écran d'erreur, qui conserve la
-    transcription.
+
+def _extraire_tours_libre(db, transcript, session_token, segment_tail):
+    """Produit les tours de parole d'un entretien libre — et n'échoue JAMAIS.
+
+    Rend `{"turns", "identity", "tranches_manquantes"}`. La répartition Q/R est
+    un CONFORT (elle structure un texte qu'on a déjà) : depuis la demande
+    utilisateur du 2026-09-04, son échec ne peut plus retenir l'entretien.
+    Avant, une seule tranche qu'Ollama ne digérait pas rendait l'entretien non
+    enregistrable — l'utilisateur devait relancer l'envoi, régler des variables
+    d'environnement, ou cliquer une porte de sortie ; sur un poste lent, il
+    perdait la séance. Le texte, lui, est intégralement conservé dans
+    `raw_transcript` (`_creer_interview_libre`) : ce qui manque d'une tranche
+    non structurée manque du TOUR DE TABLE, jamais de la transcription.
+
+    `tranches_manquantes` porte ce qui n'a pas abouti, pour que l'écran
+    d'arrivée le dise — l'ancien blocage protégeait la matière contre une perte
+    SILENCIEUSE, et c'est ce silence-là qu'il faut continuer d'empêcher, pas
+    l'enregistrement.
 
     Palier 2 (revue du 2026-07-20 : la 1ère version retombait sur
     `extract_turns_from_text(transcript_ENTIER)` dès qu'un job n'était pas
@@ -694,23 +701,22 @@ def _extraire_tours_libre(
     de tranches à récupérer, pas à la durée totale de l'entretien."""
     status = segment_jobs_status(db, session_token)
 
+    manquantes = 0
+
     if status["total"] == 0:
         try:
             extracted = extract_turns_from_text(transcript)
-        except InterviewLibreExtractAIError as exc:
-            return None, _libre_turns_error(request, mission, identity, str(exc))
+        except InterviewLibreExtractAIError:
+            extracted = _tours_vides()
         if not extracted["turns"]:
-            # Revue adversariale 2026-07-29 : l'IA peut répondre sans lever
-            # d'exception mais sans détecter aucun tour (silence, transcription
-            # trop courte, échec silencieux malgré les relances internes de
-            # `extract_turns_from_text`). Sans ce garde-fou, l'enregistrement
-            # direct créait un entretien `status="done"` SANS AUCUN CONTENU et
-            # sans erreur affichée — l'écran de revue qui filtrait ce cas dans
-            # l'ancien wizard n'existe plus sur ce chemin.
-            return None, _libre_turns_error(
-                request, mission, identity,
-                "Aucun tour de parole détecté dans la transcription.",
-            )
+            # L'IA peut répondre sans lever d'exception et sans détecter aucun
+            # tour (silence, transcription trop courte, échec silencieux malgré
+            # les relances internes de `extract_turns_from_text`). L'entretien
+            # part quand même — avec sa transcription, qui est la matière
+            # précieuse — mais le compteur fait dire à l'écran d'arrivée que le
+            # tour de table est vide (revue adversariale 2026-07-29 : ce cas
+            # créait un entretien `status="done"` sans contenu NI message).
+            manquantes = 1
     else:
         # Récupération PLAFONNÉE et perte partielle SIGNALÉE — les deux garde-fous
         # posés le 2026-07-31 sur `retranscrire_appliquer` (d36aef6) manquaient ici,
@@ -729,74 +735,35 @@ def _extraire_tours_libre(
             status["jobs"], lambda j: bool(j.turns_result)
         )
         recover_stalled_or_failed_jobs(db, tentees)
-        recuperees = sum(1 for j in tentees if j.turns_result)
         # `not j.turns_result` : exactement ce que `merge_segment_turns` ignorera.
         # `j.text.strip()` : une tranche sans matière n'est pas une perte (parité
         # avec le mode paramétré, plus haut).
         still_ko = [j for j in status["jobs"] if not j.turns_result and j.text.strip()]
-        # `ignorer_manquantes` : l'utilisateur a VU le décompte et a explicitement
-        # cliqué « Enregistrer quand même ». On passe outre — mais seulement sur
-        # ce geste, jamais par défaut : la perte silencieuse est le défaut qu'on
-        # corrige, pas le blocage.
-        if still_ko and not ignorer_manquantes:
-            # Le plafond n'attaque que `RECUP_TRANCHES_MAX` tranches par envoi,
-            # mais le blocage regarde TOUTES les tranches : avec N tranches à
-            # récupérer il faut donc ⌈N/RECUP_TRANCHES_MAX⌉ envois. Le message
-            # doit dire où on en est, sinon l'utilisateur voit une page d'erreur
-            # identique à chaque tentative et croit que rien n'avance — alors que
-            # le progrès est bien commité d'un envoi à l'autre (revue
-            # adversariale 2026-08-31). On distingue donc les deux situations :
-            # ça progresse (relancer aboutira), ou ça ne progresse pas du tout.
-            # `tentees` et non `still_ko` (revue N2 du 2026-09-01, chemin frère :
-            # le même défaut vit sur les deux) — depuis le plafond, la plus
-            # basse tranche encore KO est souvent une tranche NON retentée à cet
-            # envoi, dont l'`error` désigne une cause déjà révolue. Calculé pour
-            # LES DEUX branches (re-revue F4) : sinon un envoi qui récupère
-            # 1 tranche sur 3 avale le message actionnable des 2 autres.
-            job_error = next((j.error for j in tentees if j.error), None)
-            prefixe = job_error + " " if job_error else ""
-            if recuperees:
-                etat = (prefixe
-                        + f"{recuperees} tranche(s) viennent d'être récupérées, il en "
-                        f"reste {len(still_ko)} sur {status['total']}. Relance l'envoi : "
-                        f"chaque envoi en reprend jusqu'à {RECUP_TRANCHES_MAX}, et ce qui "
-                        "est déjà structuré est conservé.")
-            else:
-                etat = (prefixe
-                        + f"Aucune des {len(still_ko)} tranche(s) en échec n'a pu être "
-                        f"récupérée sur cet envoi (sur {status['total']} au total). "
-                        "Vérifie que le service d'IA répond, puis relance l'envoi.")
-            return None, _libre_turns_error(
-                request, mission, identity,
-                "Leur contenu MANQUERAIT du tour de table, l'entretien n'a donc pas "
-                "été enregistré. " + etat,
-                tranches_manquantes=len(still_ko),
-            )
+        manquantes = len(still_ko)
         try:
             tail_result = None
             if segment_tail.strip():
                 tail_result = extract_turns_from_text(segment_tail)
-        except InterviewLibreExtractAIError as exc:
-            return None, _libre_turns_error(request, mission, identity, str(exc))
-        merged = merge_segment_turns(status["jobs"], tail_result)
-        if not merged["turns"]:
-            # B1 (revue adversariale 2026-07-22) : un job qui échoue (ex. timeout
-            # Ollama) avale son exception dans `job.error` — sans ce resurfaçage,
-            # l'utilisateur ne verrait que le message générique ci-dessous, trompeur
-            # (« aucun tour détecté » alors qu'Ollama a timeouté), et le message
-            # actionable (levier OLLAMA_TIMEOUT/OLLAMA_CHUNK_MAX_WORDS/SYNTHESE_MODEL,
-            # patiemment construit dans ai_common) serait perdu. Le chemin synchrone
-            # (status total==0) le remonte déjà via str(exc) — on tient la parité.
-            job_error = next((j.error for j in status["jobs"] if j.error), None)
-            return None, _libre_turns_error(
-                request, mission, identity,
-                job_error or "Aucun tour de parole détecté (tranches et reliquat vides).",
-            )
-        extracted = merged
+        except InterviewLibreExtractAIError:
+            # Le reliquat (≤ 5 min de parole) compte comme une tranche perdue du
+            # tour de table : son texte est dans la transcription, pas dans les
+            # tours.
+            tail_result = None
+            manquantes += 1
+        extracted = merge_segment_turns(status["jobs"], tail_result)
+        if not extracted["turns"] and not manquantes:
+            # Ni tour, ni tranche identifiée comme perdue : tranches vides de
+            # matière. On le signale quand même plutôt que de rendre une fiche
+            # muette (parité avec le chemin synchrone ci-dessus).
+            manquantes = 1
 
-    # Jobs consommés (leur seul rôle était d'alimenter l'écran suivant) : on nettoie.
+    # Jobs consommés (leur seul rôle était d'alimenter l'écran suivant) : on
+    # nettoie. Leur texte est déjà dans la transcription postée par l'écran,
+    # que `_creer_interview_libre` enregistre en entier — y compris celui des
+    # tranches non structurées.
     delete_segment_jobs(db, session_token)
-    return extracted, None
+    extracted["tranches_manquantes"] = manquantes
+    return extracted
 
 
 def _identite_fusionnee(identity: dict, extracted: dict) -> dict:
@@ -812,19 +779,28 @@ def _identite_fusionnee(identity: dict, extracted: dict) -> dict:
 
 def _finalize_libre_turns(
     db, request, mission, identity, transcript, session_token, segment_tail,
-    ignorer_manquantes=False,
 ):
     """Produit les tours de parole puis rend l'écran de revue (étape 2 du
     wizard historique — plus atteignable depuis l'écran d'enregistrement
     depuis le 2026-07-29, cf. `record_libre_enregistrer`, mais conservée)."""
-    extracted, erreur = _extraire_tours_libre(
-        db, request, mission, identity, transcript, session_token, segment_tail,
-        ignorer_manquantes,
-    )
-    if erreur is not None:
-        return erreur
-
+    extracted = _extraire_tours_libre(db, transcript, session_token, segment_tail)
     merged_identity = _identite_fusionnee(identity, extracted)
+
+    # `_extraire_tours_libre` rend un COMPTEUR (`tranches_manquantes`), plus
+    # récent que le message texte que cet écran affiche (`{% if error %}`,
+    # conservé avec son export PDF de secours) — sans cette traduction, un
+    # échec de répartition rendait la revue SANS le dire (bmad-code-review
+    # 2026-09-04, finding F5).
+    manquantes = extracted.get("tranches_manquantes", 0)
+    error = None
+    if manquantes:
+        pluriel = manquantes > 1
+        error = (
+            f"{manquantes} tranche{'s' if pluriel else ''} n'"
+            f"{'ont' if pluriel else 'a'} pas pu être structurée{'s' if pluriel else ''} "
+            "en tours de parole par l'IA. Le texte, lui, est conservé dans la "
+            "transcription."
+        )
 
     return templates.TemplateResponse(
         request,
@@ -834,6 +810,7 @@ def _finalize_libre_turns(
             "turns": extracted["turns"],
             "identity": merged_identity,
             "transcript": transcript,
+            "error": error,
         },
     )
 
@@ -851,9 +828,6 @@ def record_libre(
     audio_segments: str = Form("[]"),
     session_token: str = Form(""),
     segment_tail: str = Form(""),
-    # Porte de sortie explicite (arbitrage utilisateur 2026-08-31) : posté
-    # uniquement par le bouton « Enregistrer quand même » de la page d'erreur.
-    ignorer_tranches_manquantes: str = Form(""),
     db: Session = Depends(get_session),
 ):
     mission = _get_mission(db, mission_id)
@@ -885,7 +859,6 @@ def record_libre(
 
     return _finalize_libre_turns(
         db, request, mission, identity, transcript, session_token, segment_tail,
-        bool(ignorer_tranches_manquantes),
     )
 
 
@@ -1011,9 +984,6 @@ def record_libre_from_jobs(
     audio_segments: str = Form("[]"),
     session_token: str = Form(""),
     segment_tail: str = Form(""),
-    # Porte de sortie explicite (arbitrage utilisateur 2026-08-31) : posté
-    # uniquement par le bouton « Enregistrer quand même » de la page d'erreur.
-    ignorer_tranches_manquantes: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Finalisation après l'écran d'attente : tous les jobs sont terminés (ou un
@@ -1033,13 +1003,11 @@ def record_libre_from_jobs(
     }
     return _finalize_libre_turns(
         db, request, mission, identity, transcript, session_token, segment_tail,
-        bool(ignorer_tranches_manquantes),
     )
 
 
 def _enregistrer_libre_direct(
     db, request, mission, identity, transcript, session_token, segment_tail,
-    ignorer_manquantes=False,
 ):
     """Extrait les tours puis enregistre DÉFINITIVEMENT l'entretien, sans passer
     par les écrans de revue des tours ni de synthèse (désactivés de l'UI le
@@ -1047,13 +1015,7 @@ def _enregistrer_libre_direct(
     de l'écran d'enregistrement, et la synthèse est une génération IA longue
     qui retenait l'entretien en otage). Résumé et répartition restent vides —
     ils se génèrent plus tard depuis l'aperçu (« Régénérer l'analyse »)."""
-    extracted, erreur = _extraire_tours_libre(
-        db, request, mission, identity, transcript, session_token, segment_tail,
-        ignorer_manquantes,
-    )
-    if erreur is not None:
-        return erreur
-
+    extracted = _extraire_tours_libre(db, transcript, session_token, segment_tail)
     interview = _creer_interview_libre(
         db,
         mission.id,
@@ -1062,6 +1024,7 @@ def _enregistrer_libre_direct(
         transcript,
         resume="",
         repartition=None,
+        tranches_manquantes=extracted["tranches_manquantes"],
     )
     return _redirection_apres_enregistrement(mission, interview)
 
@@ -1079,9 +1042,6 @@ def record_libre_enregistrer(
     audio_segments: str = Form("[]"),
     session_token: str = Form(""),
     segment_tail: str = Form(""),
-    # Porte de sortie explicite (arbitrage utilisateur 2026-08-31) : posté
-    # uniquement par le bouton « Enregistrer quand même » de la page d'erreur.
-    ignorer_tranches_manquantes: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Enregistrement direct depuis l'écran de transcription (demande utilisateur
@@ -1114,7 +1074,6 @@ def record_libre_enregistrer(
 
     return _enregistrer_libre_direct(
         db, request, mission, identity, transcript, session_token, segment_tail,
-        bool(ignorer_tranches_manquantes),
     )
 
 
@@ -1131,9 +1090,6 @@ def record_libre_enregistrer_from_jobs(
     audio_segments: str = Form("[]"),
     session_token: str = Form(""),
     segment_tail: str = Form(""),
-    # Porte de sortie explicite (arbitrage utilisateur 2026-08-31) : posté
-    # uniquement par le bouton « Enregistrer quand même » de la page d'erreur.
-    ignorer_tranches_manquantes: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Finalisation de l'enregistrement direct après l'écran d'attente — pendant
@@ -1154,7 +1110,6 @@ def record_libre_enregistrer_from_jobs(
         return _libre_turns_error(request, mission, identity, "Aucun texte transcrit.")
     return _enregistrer_libre_direct(
         db, request, mission, identity, transcript, session_token, segment_tail,
-        bool(ignorer_tranches_manquantes),
     )
 
 
@@ -1288,16 +1243,23 @@ def _parse_turns_from_form(
 
 def _creer_interview_libre(
     db, mission_id: int, identity: dict, turns: list[dict], transcript: str,
-    resume: str, repartition: dict | None,
+    resume: str, repartition: dict | None, tranches_manquantes: int = 0,
 ) -> Interview:
     """Crée l'entretien libre et ses tours de parole, puis commit.
 
     Une seule implémentation pour les deux chemins d'enregistrement définitif :
     la confirmation du wizard (`record_libre_confirm`, avec résumé/répartition)
     et l'enregistrement direct depuis l'écran de transcription
-    (`_enregistrer_libre_direct`, sans synthèse). L'appelant garantit
-    `turns` non vide — un entretien sans tour serait compté dans la mission et
-    injecté dans la synthèse globale sans porter aucun contenu."""
+    (`_enregistrer_libre_direct`, sans synthèse).
+
+    `turns` peut être vide depuis le 2026-09-04 : l'échec d'extraction ne
+    bloque plus l'enregistrement (`_extraire_tours_libre`), et un entretien à
+    0 tour est alors créé, avec son texte dans `raw_transcript` et
+    `tranches_manquantes` posé pour le signaler. `mission_export.py` filtre
+    déjà les entretiens sans tour de la synthèse globale (aucune matière vide
+    injectée) ; `_draft_vide`/`_interview_vide` (missions.py) le traitent
+    comme un brouillon vide pour le nettoyage groupé (bmad-code-review
+    2026-09-04, finding F8)."""
     try:
         parsed_date = (
             date.fromisoformat(identity["interview_date"])
@@ -1324,6 +1286,7 @@ def _creer_interview_libre(
         # dont le cas d'usage est justement l'échec IA à répétition — le texte
         # est alors l'artefact le plus précieux (revue adversariale 2026-07-27).
         raw_transcript=transcript.strip() or None,
+        tranches_manquantes=max(0, tranches_manquantes),
     )
     db.add(interview)
     db.flush()  # attribue interview.id avant de créer les tours liés
@@ -1346,7 +1309,13 @@ def _creer_interview_libre(
 
 def _redirection_apres_enregistrement(mission: Mission, interview: Interview):
     """Une mission brouillon reste à nommer/rattacher ; sinon on ouvre
-    l'entretien tout juste enregistré."""
+    l'entretien tout juste enregistré.
+
+    Le compteur `tranches_manquantes` (règle du 2026-09-04 — la répartition
+    Q/R ne bloque plus l'enregistrement) est lu par la page d'arrivée depuis
+    `Interview.tranches_manquantes`, pas depuis cette redirection : persisté
+    en base (bmad-code-review 2026-09-04, finding F2), il survit à un F5 là où
+    un paramètre d'URL se serait perdu au premier rechargement."""
     if mission.is_draft:
         return RedirectResponse(f"/missions/{mission.id}/finaliser", status_code=303)
     return RedirectResponse(f"/interviews/{interview.id}", status_code=303)
@@ -2046,6 +2015,10 @@ def import_interview_confirm(
         # (record_interview()) — l'import .docx ne met jamais "transcript"
         # dans identity, l'utilisateur gardant déjà son fichier source.
         raw_transcript=(identity.get("transcript") or "").strip() or None,
+        # Traversé depuis `_proposed_to_json` (2026-09-04, bmad-code-review
+        # finding F2) : sans lui, le bandeau affiché sur la revue disparaissait
+        # à la validation de l'import.
+        tranches_manquantes=max(0, int(data.get("tranches_manquantes") or 0)),
     )
     db.add(interview)
     db.flush()  # attribue interview.id avant de créer les réponses liées
@@ -2222,7 +2195,8 @@ def _fenetre_recuperation(jobs, deja_abouti):
 
     Limite assumée : quand TOUTES les tranches restantes portent une erreur,
     la fenêtre redevient un préfixe stable (aucun compteur de tentatives en
-    base) — la porte de sortie « Enregistrer quand même » couvre ce cas.
+    base) — le bandeau `tranches_manquantes` de l'écran d'arrivée couvre ce
+    cas depuis le 2026-09-04 (l'enregistrement n'est plus bloqué dessus).
     """
     candidats = [j for j in jobs if not deja_abouti(j) and j.text.strip()]
     candidats.sort(key=lambda j: (j.error is not None, j.position))
@@ -2711,6 +2685,9 @@ def capture(
     db: Session = Depends(get_session),
 ):
     interview = _get_interview(db, interview_id)
+    # Persisté sur `Interview.tranches_manquantes` (2026-09-04, bmad-code-review
+    # finding F2) — plus lu depuis la query string : un F5 sur cette fiche
+    # perdait sinon le signal, alors même que le manque persistait en base.
     if interview.mode == "libre":
         # Onglet Transcription : jamais vide dès que le tour de table est
         # renseigné (demande utilisateur 2026-07-27) — `transcript_of` rend la
@@ -2729,6 +2706,7 @@ def capture(
                 # Onglet Aperçu (2026-07-27) : même rendu par sections que
                 # l'écran /analyse, directement sur la fiche entretien.
                 "sections": group_turns_into_sections(interview.turns),
+                "tranches_manquantes": interview.tranches_manquantes,
             },
         )
     # Mission sans trame (entretien structuré créé avant la trame, ou trame

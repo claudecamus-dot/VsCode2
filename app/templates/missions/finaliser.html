@@ -10,6 +10,19 @@
   existante.
 </p>
 
+{# Contrepartie du déblocage du 2026-09-04 : l'entretien est enregistré même
+   quand l'IA n'a pas su structurer une tranche — mais jamais en silence. C'est
+   l'écran d'arrivée quand la mission est un brouillon. #}
+{% if tranches_manquantes %}
+<p class="ai-error">
+  ⚠ {{ tranches_manquantes }} tranche{{ 's' if tranches_manquantes > 1 else '' }}
+  n'{{ 'ont' if tranches_manquantes > 1 else 'a' }} pas pu être structurée{{ 's' if tranches_manquantes > 1 else '' }}
+  en tours de parole par l'IA : leur texte est conservé dans la transcription de
+  l'entretien, mais absent de son tour de table. Depuis la fiche de l'entretien,
+  « ↻ Relancer la transcription (audio) » les rattrape.
+</p>
+{% endif %}
+
 <section class="card">
   <h2>Nouvelle mission</h2>
   <form method="post" action="/missions/{{ mission.id }}/finaliser" class="form">
