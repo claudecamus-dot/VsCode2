@@ -12,6 +12,29 @@ LIRE le code : robustesse, performance, risque technique, failles de sécurité.
 de sécurité déduit de la seule présence de fichiers serait un faux signal — d'où cet
 étage séparé, facturé, à la demande.
 
+## Portée : artefact HUB uniquement, aucun miroir local
+
+Cette skill s'invoque **depuis le hub**, en ciblant un projet de la flotte — jamais
+depuis le projet cible lui-même. `.claude/audits/<projet>.json` (§ Méthode, étape 4)
+s'écrit à la racine du **HUB**, pas dans le dépôt du projet audité : une session qui
+travaille DANS le projet cible n'a **aucune visibilité locale** sur ces résultats, ni
+fichier ni wiki propre. Si elle a besoin de l'état d'audit courant, elle doit
+interroger le hub (message cross-session) — jamais deviner ou relire son propre
+`diagnostic.json`.
+
+**Ne pas confondre avec `diagnostic.json`** (étage `agent-supervisor`, présent lui
+aussi côté hub mais dont l'esprit — findings arbitrés via `arbitrages.json`, clos
+un par un — est parfois reflété localement) : les deux vivent des cycles de vie
+disjoints. Un `diagnostic.json` « clos » ne dit rien sur l'état de l'audit-technique
+le plus récent — un projet peut avoir ses 5 constats de diagnostic arbitrés
+`DÉJÀ RÉSOLU` et remonter `critique` au bandeau exécutif du wiki à cause d'une
+dimension d'audit fraîche. Ce n'est pas une contradiction : ce sont deux
+questions différentes (« mes findings arbitrés sont-ils traités ? » vs « que dit
+la dernière lecture de code réel ? »). Incident vécu le 2026-09-04 : une session
+travaillant sur un projet cible a annoncé ses findings « clos » au moment même où
+le hub venait d'y trouver une dimension sécurité critique — les deux étaient
+vraies, sur deux couches distinctes.
+
 ## Règles
 
 - **Un audit lit le code réel** du projet cible (Read/Grep/Glob), il ne devine pas depuis
@@ -62,7 +85,8 @@ de sécurité déduit de la seule présence de fichiers serait un faux signal �
    retirer tout finding sans `fichier:ligne` ou fonction nommée — la règle « pas de
    constat sans localisation » se vérifie ICI, en re-scannant les findings composés,
    pas seulement en consigne au moment de les rédiger.
-4. **Écrire** dans `.claude/audits/<projet>.json` :
+4. **Écrire** dans `.claude/audits/<projet>.json`, **à la racine du HUB** (jamais dans
+   le dépôt du projet cible — § Portée ci-dessus) :
 
 ```json
 {
