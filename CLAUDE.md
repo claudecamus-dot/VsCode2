@@ -74,4 +74,4 @@ changement sous `app/`, pas seulement en fin d'incrément :
   (`tests/test_deck_qualite.py`), en plus du rendu réel `pptx-verify`.
 
 Et une règle de preuve, transverse : **tout chiffre écrit s'appuie sur la commande qui l'a
-produit.**
+produit — sinon marqué non mesuré.**
