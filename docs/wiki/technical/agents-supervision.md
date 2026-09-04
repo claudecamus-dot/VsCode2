@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-03
+updated: 2026-09-04
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -8,17 +8,17 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-09-03T12:35:47+02:00 · **74 sessions** (transcripts) · **172** invocations de skills · **115** lancements de sous-agents.
+Dernier scan : 2026-09-04T18:24:37+02:00 · **77 sessions** (transcripts) · **179** invocations de skills · **120** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `agent-orchestrator` | projet | 45 | 2026-07-17 | 2026-09-03 |
-| `run-dev-server` | projet | 42 | 2026-07-03 | 2026-09-01 |
+| `agent-orchestrator` | projet | 49 | 2026-07-17 | 2026-09-04 |
+| `run-dev-server` | projet | 44 | 2026-07-03 | 2026-09-04 |
 | `agent-supervisor` | projet | 21 | 2026-07-18 | 2026-09-02 |
 | `bmad-code-review` | BMAD | 13 | 2026-07-20 | 2026-07-31 |
-| `revue-increment` | projet | 12 | 2026-07-18 | 2026-09-01 |
+| `revue-increment` | projet | 13 | 2026-07-18 | 2026-09-04 |
 | `pptx-verify` | global | 10 | 2026-07-03 | 2026-07-29 |
 | `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
 | `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
@@ -41,8 +41,8 @@ Dernier scan : 2026-09-03T12:35:47+02:00 · **74 sessions** (transcripts) · **1
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
 | `general-purpose` | 52 | 2026-07-15 | 2026-09-02 |
-| `Explore` | 34 | 2026-06-30 | 2026-09-03 |
-| `bmad-revue` | 20 | 2026-08-31 | 2026-09-02 |
+| `Explore` | 38 | 2026-06-30 | 2026-09-04 |
+| `bmad-revue` | 21 | 2026-08-31 | 2026-09-04 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
 | `agent-supervisor` | 1 | 2026-09-01 | 2026-09-01 |

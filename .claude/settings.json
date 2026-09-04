@@ -144,7 +144,12 @@
       "Bash(curl -s \"http://127.0.0.1:8000/missions/3/trame/preview\" -o /tmp/p.html -w \"http=%{http_code}\\\\n\")",
       "Bash(curl -s \"http://127.0.0.1:8000/missions/3/trame/preview\")",
       "Bash(PYTHONUTF8=1 PYTHONPATH=. ./.venv/Scripts/python.exe -c ' *)",
-      "Bash(powershell.exe -NoProfile -Command \"Get-Item '.opencode/agents/auditor.md','.opencode/agents/auditor/auditor.md','.opencode/agents/developer.md','.opencode/agents/developer/developer.md' | Select-Object FullName, LastWriteTime\")"
+      "Bash(powershell.exe -NoProfile -Command \"Get-Item '.opencode/agents/auditor.md','.opencode/agents/auditor/auditor.md','.opencode/agents/developer.md','.opencode/agents/developer/developer.md' | Select-Object FullName, LastWriteTime\")",
+      "Bash(.venv/Scripts/python.exe -m pytest *)",
+      "Bash(./.venv/Scripts/python.exe -m pytest *)",
+      "Bash(py -m pytest *)",
+      "Bash(.venv/Scripts/python.exe -m py_compile *)",
+      "Bash(py -m py_compile *)"
     ]
   }
 }
