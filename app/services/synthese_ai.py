@@ -707,6 +707,27 @@ def _clean_swot(data) -> dict:
     return {key: _coerce_bullets(data.get(key)) for key in SWOT_KEYS}
 
 
+def ai_precondition_error(global_synthesis, missing_synthesis_message: str) -> str | None:
+    """Garde commune aux routes qui dérivent un artefact (SWOT, executive summary,
+    difficultés, recommandations) de la synthèse globale déjà produite : service
+    IA indisponible, puis synthèse absente/vide. `None` si les deux préconditions
+    sont réunies — l'appelant peut alors lancer sa génération. Message "service
+    indisponible" partagé (identique aux 4 sites) ; message "synthèse absente"
+    laissé au paramètre car il nomme l'artefact concerné (« la SWOT en
+    découle », etc.). Ne couvre PAS generate_global_synthesis (synthese.py) :
+    cette route dérive d'un précondition différent (matière brute présente),
+    pas de la synthèse globale elle-même — pattern proche en surface mais
+    sémantiquement distinct, volontairement laissé hors de cette factorisation."""
+    if not is_configured():
+        return (
+            "Service IA indisponible — utilisez l'export pour lancer une "
+            "analyse externe, puis importez le résultat."
+        )
+    if global_synthesis is None or not global_synthesis.has_content:
+        return missing_synthesis_message
+    return None
+
+
 def generate_swot(global_synthesis, axes=None) -> dict:
     """Retourne un dict aux 4 clés de `MissionSwot`. Lève SynthesisAIError.
     Dérivée de la synthèse globale (mêmes 5 catégories que les recommandations,

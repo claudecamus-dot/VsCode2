@@ -34,6 +34,7 @@ from ..services.ai_common import api_key_env_name, is_configured
 from ..services.mission_axes import axes_of
 from ..services.synthese_ai import (
     SynthesisAIError,
+    ai_precondition_error,
     generate_difficulties,
     generate_executive_summary,
     generate_swot,
@@ -175,15 +176,10 @@ def generate_swot_view(mission_id: int, request: Request, db: Session = Depends(
     global_synthesis = mission.global_synthesis
     swot = _get_or_create_swot(db, mission)
 
-    error = None
-    if not is_configured():
-        error = (
-            "Service IA indisponible — utilisez l'export pour lancer une "
-            "analyse externe, puis importez le résultat."
-        )
-    elif global_synthesis is None or not global_synthesis.has_content:
-        error = "Générez d'abord la synthèse globale — la SWOT en découle."
-    else:
+    error = ai_precondition_error(
+        global_synthesis, "Générez d'abord la synthèse globale — la SWOT en découle."
+    )
+    if error is None:
         try:
             result = generate_swot(global_synthesis, axes_of(db, mission))
             _apply_swot_result(swot, result)
@@ -207,15 +203,11 @@ def generate_executive_summary_view(
     global_synthesis = mission.global_synthesis
     es = _get_or_create_executive_summary(db, mission)
 
-    error = None
-    if not is_configured():
-        error = (
-            "Service IA indisponible — utilisez l'export pour lancer une "
-            "analyse externe, puis importez le résultat."
-        )
-    elif global_synthesis is None or not global_synthesis.has_content:
-        error = "Générez d'abord la synthèse globale — l'executive summary en découle."
-    else:
+    error = ai_precondition_error(
+        global_synthesis,
+        "Générez d'abord la synthèse globale — l'executive summary en découle.",
+    )
+    if error is None:
         try:
             result = generate_executive_summary(global_synthesis, axes_of(db, mission))
             _apply_executive_summary_result(es, result)
@@ -239,15 +231,11 @@ def generate_difficulties_view(
     mission = _get_mission(db, mission_id)
     global_synthesis = mission.global_synthesis
 
-    error = None
-    if not is_configured():
-        error = (
-            "Service IA indisponible — utilisez l'export pour lancer une "
-            "analyse externe, puis importez le résultat."
-        )
-    elif global_synthesis is None or not global_synthesis.has_content:
-        error = "Générez d'abord la synthèse globale — les difficultés en découlent."
-    else:
+    error = ai_precondition_error(
+        global_synthesis,
+        "Générez d'abord la synthèse globale — les difficultés en découlent.",
+    )
+    if error is None:
         try:
             labels = generate_difficulties(global_synthesis, axes_of(db, mission))
             if not labels:

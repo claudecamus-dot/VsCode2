@@ -32,6 +32,7 @@ from ..services.pptx_export import field_fit_hint
 from ..services.mission_axes import axes_of, creer_axe, supprimer_axe
 from ..services.synthese_ai import (
     SynthesisAIError,
+    ai_precondition_error,
     generate_global_synthesis,
     generate_recommendations,
     generate_swot,
@@ -437,15 +438,11 @@ def generate_recommendations_view(
     mission = _get_mission(db, mission_id)
     global_synthesis = mission.global_synthesis
 
-    error = None
-    if not is_configured():
-        error = (
-            "Service IA indisponible — utilisez l'export pour lancer une "
-            "analyse externe, puis importez le résultat."
-        )
-    elif global_synthesis is None or not global_synthesis.has_content:
-        error = "Générez d'abord la synthèse globale — les recommandations en découlent."
-    else:
+    error = ai_precondition_error(
+        global_synthesis,
+        "Générez d'abord la synthèse globale — les recommandations en découlent.",
+    )
+    if error is None:
         try:
             axes_data = generate_recommendations(global_synthesis, axes_of(db, mission))
             _apply_recommendations_result(db, mission, axes_data)
