@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : baf1584 du 2026-09-07 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`baf1584`, 2026-09-07) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 1e4129a du 2026-09-07 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`1e4129a`, 2026-09-07) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -105,6 +105,16 @@ les autres projets, il est à remonter au hub VSCode5 pour propagation.
   agent/skill évident, micro-tâche, question, correction en cours de tâche.
 - **Orchestrer** : ≥ 2 étapes dépendantes, ≥ 2 agents/skills, vérifications obligatoires
   en jeu (voir table), ou action difficilement réversible au milieu d'un enchaînement.
+  Orchestrer décide de la MÉTHODE (plan, modes, sous-agents) — pas du journal.
+- **Journaliser (`log_run.py`) — uniquement une correction ou un bug traité.** Arbitrage
+  utilisateur du 2026-09-07 : « ne prendre en compte à titre de run que les corrections et
+  bugs ». Un run journalisé est un livrable de correction : correctif de code, bug traité,
+  dette remboursée — avec sa preuve (commit, test) et, s'il ferme un finding, l'arbitrage de
+  clôture qui va avec. Tout le reste, même orchestré — état des lieux, propagation de canon,
+  réception d'un diagnostic ou d'une veille, reprise de travaux, cadrage, rapport — ne
+  s'inscrit PAS dans `runs.jsonl`. Mesuré au wiki du 2026-09-07 : 16 runs à solder, dont 6
+  aller-retours de slides et 6 « réception / reprise / lance les travaux » — du bookkeeping
+  qui gonfle un compteur que personne ne solde, et qui noie les seuls runs qui comptent.
 
 **Un aller-retour sur un livrable pas encore validé n'est jamais une nouvelle orchestration**
 (mesuré au wiki du 2026-09-07 : 38 runs `en-attente-validation` flotte-wide, l'essentiel du
