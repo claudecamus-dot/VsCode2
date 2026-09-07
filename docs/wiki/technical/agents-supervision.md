@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-04
+updated: 2026-09-07
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -8,18 +8,18 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-09-04T18:24:37+02:00 · **77 sessions** (transcripts) · **179** invocations de skills · **120** lancements de sous-agents.
+Dernier scan : 2026-09-07T12:19:35+02:00 · **78 sessions** (transcripts) · **183** invocations de skills · **127** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `agent-orchestrator` | projet | 49 | 2026-07-17 | 2026-09-04 |
+| `agent-orchestrator` | projet | 51 | 2026-07-17 | 2026-09-07 |
 | `run-dev-server` | projet | 44 | 2026-07-03 | 2026-09-04 |
 | `agent-supervisor` | projet | 21 | 2026-07-18 | 2026-09-02 |
-| `bmad-code-review` | BMAD | 13 | 2026-07-20 | 2026-07-31 |
+| `bmad-code-review` | BMAD | 14 | 2026-07-20 | 2026-09-07 |
 | `revue-increment` | projet | 13 | 2026-07-18 | 2026-09-04 |
-| `pptx-verify` | global | 10 | 2026-07-03 | 2026-07-29 |
+| `pptx-verify` | global | 11 | 2026-07-03 | 2026-09-07 |
 | `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
 | `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
@@ -41,8 +41,8 @@ Dernier scan : 2026-09-04T18:24:37+02:00 · **77 sessions** (transcripts) · **1
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
 | `general-purpose` | 52 | 2026-07-15 | 2026-09-02 |
-| `Explore` | 38 | 2026-06-30 | 2026-09-04 |
-| `bmad-revue` | 21 | 2026-08-31 | 2026-09-04 |
+| `Explore` | 43 | 2026-06-30 | 2026-09-07 |
+| `bmad-revue` | 23 | 2026-08-31 | 2026-09-07 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
 | `agent-supervisor` | 1 | 2026-09-01 | 2026-09-01 |
@@ -71,7 +71,7 @@ _Consommés en lisant/exécutant leurs `scripts/`, ou via un sous-agent qui les 
 ## TODO agents (constats automatiques)
 
 1. **Skills projet sans usage** : `audit-technique`, `veille-agentic` — vérifier pertinence et déclencheurs.
-2. **Skills en sommeil (>30 j sans usage)** : `Plan`, `bmad-code-review`, `bmad-party-mode`, `bmad-sprint-status`, `claude`, `claude-api`, `claude-code-guide`, `deck-design-library`, `deck-design-review`, `init`, `pptx-deck`, `pptx-verify`, `priority-matrix`, `restitution-deck-design`, `roadmap-keeper`, `run`, `skill-creator`, `slide-text-polish`, `swot-matrix`, `update-config`.
+2. **Skills en sommeil (>30 j sans usage)** : `Plan`, `bmad-party-mode`, `bmad-sprint-status`, `claude`, `claude-api`, `claude-code-guide`, `deck-design-library`, `deck-design-review`, `init`, `pptx-deck`, `priority-matrix`, `restitution-deck-design`, `roadmap-keeper`, `run`, `skill-creator`, `slide-text-polish`, `swot-matrix`, `update-config`.
 
 ## Arbitrages enregistrés
 
@@ -121,18 +121,25 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 - **`dev-verifie`** (2026-09-03) : DÉJÀ RÉSOLU (constat diagnostic.json du 2026-09-02T12:12, prio 4, re_challenge) — vérifié dans le fichier réel : .claude/orchestration/playbooks/dev-verifie.md porte déjà l'étape `premisse` avant `implementation` (ajoutée le 2026-09-02 selon le corps du playbook), avec exactement le contrat proposé — invariant écrit en une phrase, vérifié par une mesure sur le code réel AVANT d'écrire, implémentation stoppée si la mesure l'infirme, prémisse+mesure tracées dans le message de commit. Aucune action requise.
 - **`CLAUDE.md`** (2026-09-03) : DÉJÀ RÉSOLU (constat diagnostic.json du 2026-09-02T12:12, prio 3) — vérifié dans le fichier réel : CLAUDE.md du projet porte désormais une section « Règles de travail » complète, R1-R5 (numérotées distinctement de P1-P4 code produit) avec l'énoncé entier de chaque règle — exactement la remédiation (a) proposée par le constat (« restaurer une section R1-R4 avec leur énoncé »). Aucune action requise.
 - **`bmad-revue`** (2026-09-02) : ACCEPTÉ + APPLIQUÉ (arbitrage utilisateur du 2026-09-02). Le porteur de revue n'avait pas l'outil `Agent`, donc les couches adversariales de `bmad-code-review` — Blind Hunter, Edge Case Hunter, Acceptance Auditor — s'exécutaient EN SÉQUENCE dans un seul contexte : la troisième lisait ce que la première avait écrit, et le garde-fou anti-complaisance devenait un relecteur unique qui se relit. LA DÉGRADATION NE SE DÉDUISAIT PAS, elle était enregistrée DEUX FOIS dans `runs.jsonl` par les runs eux-mêmes (2026-08-31T22:07 et 2026-09-01T18:32) : le dispositif se plaignait de lui-même dans son propre journal, et personne ne lisait la plainte. Corrigé au hub (`.claude/agents/bmad-revue.md`), republié dans le kit, propagé aux 4 dépôts qui portent ce fichier — vérifié avant écrasement : la seule ligne remplacée est l'ancienne ligne `tools`, aucun travail local perdu. ET L'OUTIL SEUL N'AURAIT RIEN CHANGÉ : le mandat prescrit désormais le GESTE — plusieurs appels `Agent` dans un SEUL message (un par message est une cascade, donc l'inverse du but), briefs autoportants qui ne disent pas aux autres couches ce qu'une couche a trouvé, puis consolidation ; une couche qui n'a pas besoin d'être aveugle s'invoque inline. Donner un outil sans prescrire son usage est exactement le défaut mesuré le même jour sur les 46 skills BMAD. Test au hub, vu ROUGE, nommément sur ce porteur : `bmad-recherche` et `veille-agentic` n'ont aucune couche parallèle à dispatcher, leur donner `Agent` élargirait une surface sans besoin mesuré.
+- **`dev-verifie`** (2026-09-07) : DÉJÀ RÉSOLU / re-challenge non fondé (constat diagnostic.json du 2026-09-04T20:37:45, prio 4, re_challenge:true, categorie verification-manquante — « sept tours consécutifs où un correctif introduit un défaut de la classe qu'il corrigeait »). Vérifié dans le code et le journal réels, pas supposé : la PREUVE citée par ce constat (runs.jsonl, 3e/4e itération du 2026-09-01, puis le run du 2026-09-02 « 6 majeurs sur 7 introduits » + le bloquant D2-B2 à prémisse fausse) est EXACTEMENT le run ts=2026-09-02T11:49:07+02:00 (chantier D1) qui a servi de CAS D'ÉCOLE MOTIVANT à l'étape `premisse` déjà ajoutée au playbook dev-verifie ce même jour (.claude/orchestration/playbooks/dev-verifie.md lignes 25-37, qui cite nommément D2-B2). Ce n'est donc pas une preuve que le correctif a échoué APRÈS coup, c'est la preuve qui a produit le correctif — déjà traitée par l'arbitrage DÉJÀ RÉSOLU du 2026-09-03 sur cette même cible. Les 2 runs dev-verifie postérieurs à l'ajout de l'étape (ts=2026-09-02T22:50:03, ts=2026-09-04T20:03:37) ne rapportent PAS de récidive du motif « correctif réintroduit sa propre classe de défaut » — aucune preuve neuve ne soutient le re_challenge. Aucune action de développement requise ; à re-challenger seulement avec une preuve postérieure à l'ajout de l'étape `premisse`.
+- **`flotte:23-items-cadres`** (2026-09-07) : ACCEPTÉ + APPLIQUÉ (arbitrage utilisateur du 2026-09-07 : « supprimer le code mort »). Constat : mode démo hors-ligne (~230 lignes inatteignables, SYNTHESE_DEMO sans effet). Vérifié avant suppression : `demo_enabled()` et les 6 fonctions `generate_demo_*` de synthese_ai.py n'avaient AUCUN appelant en dehors de leurs propres tests dédiés (grep sur app/ entier). Supprimés : `demo_enabled()` (ai_common.py), les 6 fonctions demo (synthese_ai.py, import `demo_enabled` retiré), 3 tests dédiés (test_difficultes.py, test_executive_summary.py, test_swot.py), et les 6 mentions doc résiduelles (docs/guide.html — paragraphe + noeud SVG + item de légende + item de liste, docs/product-brief.md, docs/reflexions/restitution-mission.md, docs/wiki/technical/stack.md, docs/wiki.html). Vérifié réel : py_compile + suite complète isolée 763 passed / 0 failed / 25 errors infra connues (aucune régression, delta exact de -3 tests supprimés vs la baseline de l'état des lieux du jour).
+- **`flotte:23-items-cadres`** (2026-09-07) : PARTIELLEMENT APPLIQUÉ (arbitrage utilisateur du 2026-09-07 : d'abord « câbler les 10 helpers restants », puis « inventer un point d'usage » pour ceux sans besoin fonctionnel). Constat : 254 lignes / 10 helpers de la bibliothèque partagée VSCode4 (commit d9e7196) jamais câblés dans pptx_deck.py. Investigation réelle AVANT d'écrire (R1) : 5 des 10 avaient un vrai doublon de logique à remplacer, pas seulement un compteur à faire bouger — `add_forme` (add_rect en est un cas particulier, refactoré pour déléguer), `definir_geometrie` + `configurer_text_frame` (pptx_export/base.py::_new_slide posait la géométrie/le text_frame du titre à la main), `trouver_cadre_layout` (pptx_export/images.py::_find_teardrop_frame dupliquait la même recherche par prstGeom, en moins sûr — sans le garde-fou largeur_min_in) et `purger_rels_slides_orphelines` (ajouté comme filet anti-corruption en fin de build_presentation, coût nul en pratique). Vérifié réel : suite complète isolée 763 passed/0 failed après chaque étape, ET rendu réel PowerPoint de 27 slides d'un export produit par l'app (cover, tête de chapitre au cadre teardrop, slide de synthèse à carte liserée, fiche recommandation à cartes/badges) — aucune régression visuelle. Les 5 restants (`definir_paragraphes`, `add_text_runs`, `trouver_slide_par_titre`, `supprimer_slide`, `_normaliser`) n'ont trouvé AUCUN point d'usage réel même en cherchant activement (aucun texte multi-runs existant à corriger, aucun besoin de suppression de slide PAR TITRE — `clear_slides` vide déjà tout sans distinction). Décision de l'orchestrateur, à confirmer par l'utilisateur : ne pas leur inventer un appelant artificiel (contredirait CLAUDE.md « pas de fonctionnalité au-delà du besoin » et le principe déjà posé § 2 septies de ne pas faire tourner du code pour faire baisser un compteur) — documentés comme bibliothèque de référence non adoptée plutôt que câblés de force. Aucun commit encore fait (reliquat non commité).
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic ⚠️ à relancer (> 14 j) — rien à signaler, tous les constats précédents ont été arbitrés._
+_Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés._
 
-_5 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un `re_challenge` avec des données nouvelles :_
+_9 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un `re_challenge` avec des données nouvelles :_
 
 - ~~Ecrire un diagnostic EFFACE les constats precedents non arbitres — la boucle propose/arbitre/applique fuit a son premier maillon~~ (`write_diagnostic.py`)
 - ~~Le journal ne se solde jamais : 4 runs restent en-attente-validation, dont celui du superviseur lui-meme~~ (`log_run.py`)
 - ~~Sept tours consecutifs ou un correctif introduit un defaut de la classe qu'il corrigeait — le gate les attrape, la cause reste~~ (`dev-verifie`)
 - ~~Le backlog de revue a triple sans qu'aucun compteur ne le voie : 115 identifiants de constat dans .claude/triage~~ (`scan_transcripts.py`)
 - ~~Les regles R1 a R4 sont citees par la skill et par le journal, et ne sont definies nulle part~~ (`CLAUDE.md`)
+- ~~Mode demo hors-ligne documente mais mort (~230 lignes inatteignables, SYNTHESE_DEMO sans effet)~~ (`flotte:23-items-cadres`)
+- ~~254 lignes du commit d9e7196 (bibliotheque partagee VSCode4) jamais cablees dans l'application~~ (`flotte:23-items-cadres`)
+- ~~Bloc identity recopie 12x dans interviews.py (4 occurrences a 9 cles byte-identiques)~~ (`flotte:23-items-cadres`)
+- ~~routers/synthese.py = service deguise, 11 imports de symboles prives hors module~~ (`flotte:23-items-cadres`)
 
 ---
 
