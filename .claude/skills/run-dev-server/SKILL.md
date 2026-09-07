@@ -90,33 +90,37 @@ UI testing (e.g. the PPT export/apercu editor):
 ```bash
 BASE=http://127.0.0.1:8010
 COOKIES=/tmp/cj.txt
+ORIGIN="-H Origin:$BASE"   # required since 2026-09-07: CSRF middleware (app/csrf.py)
+                            # fail-closed-rejects any mutating request (POST/PUT/DELETE/
+                            # PATCH) with no Origin/Referer header, which is exactly what
+                            # a bare curl sends — every call below needs $ORIGIN or it 403s.
 
 # 1. Mission
-curl -s -c $COOKIES -X POST "$BASE/missions" -d "name=Smoke Test" -o /dev/null
+curl -s $ORIGIN -c $COOKIES -X POST "$BASE/missions" -d "name=Smoke Test" -o /dev/null
 MID=$(curl -s -b $COOKIES "$BASE/missions" | grep -o '/missions/[0-9]*">Smoke Test' | grep -o '[0-9]*')
 
 # 2. One theme + one question (required before anything else works)
-curl -s -b $COOKIES -X POST "$BASE/missions/$MID/trame/themes" -d "title=Theme Test" -o /dev/null
+curl -s $ORIGIN -b $COOKIES -X POST "$BASE/missions/$MID/trame/themes" -d "title=Theme Test" -o /dev/null
 TID=$(curl -s -b $COOKIES "$BASE/missions/$MID/trame" | grep -o 'themes/[0-9]*/questions' | head -1 | grep -o '[0-9]*')
-curl -s -b $COOKIES -X POST "$BASE/missions/$MID/trame/themes/$TID/questions" -d "label=Question test&qtype=open" -o /dev/null
+curl -s $ORIGIN -b $COOKIES -X POST "$BASE/missions/$MID/trame/themes/$TID/questions" -d "label=Question test&qtype=open" -o /dev/null
 
 # 3. One interview with one answered question (unlocks export/synthesis screens)
-IVID=$(curl -s -b $COOKIES -X POST "$BASE/missions/$MID/interviews" -d "interviewee=Testeur" -D - -o /dev/null | grep -i location | grep -o '[0-9]*')
+IVID=$(curl -s $ORIGIN -b $COOKIES -X POST "$BASE/missions/$MID/interviews" -d "interviewee=Testeur" -D - -o /dev/null | grep -i location | grep -o '[0-9]*')
 QID=$(curl -s -b $COOKIES "$BASE/interviews/$IVID" | grep -o 'answers/[0-9]*' | head -1 | grep -o '[0-9]*')
-curl -s -b $COOKIES -X POST "$BASE/interviews/$IVID/answers/$QID" -d "text=Reponse de test." -o /dev/null
+curl -s $ORIGIN -b $COOKIES -X POST "$BASE/interviews/$IVID/answers/$QID" -d "text=Reponse de test." -o /dev/null
 
 # 4. Shortcut to real global-synthesis + recommendations content: import a
 #    pre-filled analysis markdown instead of generating/typing it by hand.
 #    See _FILLED_ANALYSIS in tests/test_mission_trame_flow.py for the exact
 #    expected format (## SYNTHÈSE GLOBALE / ### <catégorie>, ## RECOMMANDATIONS
 #    / #### Axe N / ##### Recommandation N.M).
-curl -s -b $COOKIES -X POST "$BASE/missions/$MID/import/analyse" -F "file=@analyse.md;type=text/markdown" -o /dev/null
+curl -s $ORIGIN -b $COOKIES -X POST "$BASE/missions/$MID/import/analyse" -F "file=@analyse.md;type=text/markdown" -o /dev/null
 ```
 
 Now `$BASE/missions/$MID/synthese/apercu` (and every other synthesis screen)
 has real content to render.
 
-**Cleanup**: `curl -s -b $COOKIES -X POST "$BASE/missions/$MID/delete"`.
+**Cleanup**: `curl -s $ORIGIN -b $COOKIES -X POST "$BASE/missions/$MID/delete"`.
 
 ## 3. Screenshot a page (visual verification)
 

@@ -86,3 +86,33 @@ try:
     _pytest_pathlib.cleanup_dead_symlinks = _cleanup_dead_symlinks_safe
 except Exception:  # pragma: no cover - garde-fou si l'API interne de pytest change
     pass
+
+
+# --------------------------------------------------------------------------- #
+# Origine par défaut pour TOUS les TestClient (2026-09-04) : le middleware
+# anti-CSRF (`app.csrf.verifier_origine`, finding audit-technique
+# securite:critique) rejette désormais toute méthode mutante (POST/PUT/
+# DELETE/PATCH) sans Origin/Referer correspondant au Host — ce qu'aucun des
+# ~22 fichiers de test n'envoie (`TestClient(app)` nu, comportement httpx par
+# défaut). Patcher `TestClient.__init__` UNE fois ici plutôt que 22 fixtures
+# séparées : un test qui fixe explicitement `headers=` garde la main (on ne
+# force que la valeur par défaut, jamais une valeur déjà posée par l'appelant).
+# `http://testserver` : l'hôte par défaut de httpx/Starlette pour un
+# `TestClient(app)` sans `base_url` explicite (vérifié empiriquement) — les
+# rares tests qui passeraient un `base_url` différent devront fixer `headers`
+# eux-mêmes, ce patch ne devine pas un hôte qu'il ne connaît pas d'avance.
+try:
+    from fastapi.testclient import TestClient as _TestClient
+
+    _orig_testclient_init = _TestClient.__init__
+
+    def _testclient_init_with_origin(self, *args, **kwargs):
+        headers = dict(kwargs.get("headers") or {})
+        if not any(k.lower() == "origin" for k in headers):
+            headers["origin"] = "http://testserver"
+        kwargs["headers"] = headers
+        _orig_testclient_init(self, *args, **kwargs)
+
+    _TestClient.__init__ = _testclient_init_with_origin
+except Exception:  # pragma: no cover - garde-fou si l'API TestClient change
+    pass

@@ -20,6 +20,7 @@ try:
 except ModuleNotFoundError:
     pass
 
+from .csrf import verifier_origine  # noqa: E402
 from .db import init_db  # noqa: E402
 from .routers import agents, entretiens, export, interviews, missions, synthese, trames  # noqa: E402
 from .services import audio_transcribe  # noqa: E402
@@ -61,6 +62,7 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Interview-to-Deck", lifespan=lifespan)
+app.middleware("http")(verifier_origine)
 
 
 @app.get("/__fraicheur")
