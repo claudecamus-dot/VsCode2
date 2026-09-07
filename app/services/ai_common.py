@@ -362,11 +362,6 @@ def is_configured() -> bool:
     return sdk is not None and bool(os.environ.get(_API_KEY_ENV[provider]))
 
 
-def demo_enabled() -> bool:
-    """Vrai si le mode démo hors-ligne (sans IA, sans clé) est activé."""
-    return os.environ.get("SYNTHESE_DEMO", "").strip().lower() in ("1", "true", "yes", "on")
-
-
 def _friendly(exc) -> str:
     name = type(exc).__name__
     if "Authentication" in name or "PermissionDenied" in name:

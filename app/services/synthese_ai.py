@@ -10,10 +10,7 @@ un message lisible.
 """
 from __future__ import annotations
 
-from collections import Counter
-import re
-
-from .ai_common import AIError, call_ai_json, demo_enabled, is_configured, ollama_chunk_max_words
+from .ai_common import AIError, call_ai_json, is_configured, ollama_chunk_max_words
 
 MAX_TOKENS = 2000
 
@@ -68,69 +65,6 @@ def _build_prompt(theme, by_question, verbatims) -> str:
         for v in verbatims:
             lines.append(f"  « {v['quote']} » — {v['interviewee']}")
     return "\n".join(lines)
-
-
-# --------------------------------------------------------------------------- #
-# Mode démo hors-ligne : synthèse par règles (aucun appel réseau, aucun coût).
-# --------------------------------------------------------------------------- #
-_STOP = set(
-    "le la les un une des de du au aux et ou en on nous vous ils elles est "
-    "sont pour par sur dans avec sans plus moins que qui quoi dont mais cette "
-    "ces son ses leur leurs pas tout tous toute toutes c'est qu'il faute "
-    "toujours après coup notre votre cela alors donc être avoir fait".split()
-)
-
-
-def _keywords(texts) -> Counter:
-    c: Counter = Counter()
-    for t in texts:
-        for w in re.findall(r"[a-zàâäéèêëïîôöùûüçœ]{4,}", (t or "").lower()):
-            if w not in _STOP:
-                c[w] += 1
-    return c
-
-
-def generate_demo_synthesis(theme, by_question, verbatims) -> dict:
-    """Synthèse heuristique hors-ligne (mode démo) — pas d'IA.
-
-    summary : sujets récurrents (mots-clés) ; convergences : mots cités par
-    plusieurs personnes ; divergences : écarts sur les questions fermées.
-    """
-    rows = []  # (interviewee, question, texte)
-    for q in theme.questions:
-        for r in by_question.get(q.id) or []:
-            txt = " ".join(p for p in (r.get("value"), r.get("text")) if p)
-            rows.append((r["interviewee"], q, txt))
-
-    kw = _keywords(t for _, _, t in rows)
-    top = [w for w, _ in kw.most_common(5)]
-    summary = "\n".join(f"- Sujet récurrent : « {w} »" for w in top) or \
-        "- Pas assez de matière pour dégager des points saillants."
-
-    by_person: dict[str, list[str]] = {}
-    for who, _, txt in rows:
-        by_person.setdefault(who, []).append(txt.lower())
-    shared = []
-    for w in kw:
-        n = sum(1 for texts in by_person.values() if any(w in t for t in texts))
-        if n >= 2:
-            shared.append((n, w))
-    shared.sort(reverse=True)
-    convergences = "\n".join(f"- « {w} » évoqué par {n} personnes" for n, w in shared[:5]) or \
-        "- Aucun point commun net détecté automatiquement."
-
-    div = []
-    for q in theme.questions:
-        qr = by_question.get(q.id) or []
-        if q.qtype in ("choice", "scale"):
-            vals = {r["interviewee"]: r.get("value") for r in qr if r.get("value")}
-            if len(set(vals.values())) > 1:
-                detail = ", ".join(f"{who} : {v}" for who, v in vals.items())
-                div.append(f"- {q.label} → {detail}")
-    divergences = "\n".join(div) or \
-        "- Pas de divergence marquée sur les questions fermées."
-
-    return {"summary": summary, "convergences": convergences, "divergences": divergences}
 
 
 def _call_claude(system: str, prompt: str, schema: dict, json_hint: str, max_tokens: int = MAX_TOKENS) -> dict:
@@ -410,50 +344,6 @@ def generate_global_synthesis(mission, material_by_theme, material_libre=None, a
     return _reduce_partial_globals(mission, partials, axes)
 
 
-def generate_demo_global_synthesis(mission, material_by_theme, material_libre=None) -> dict:
-    """Version heuristique hors-ligne (mode démo), même principe que
-    `generate_demo_synthesis` mais à l'échelle de la mission entière."""
-    rows = []  # (interviewee, texte)
-    for theme, by_question, _verbatims in material_by_theme:
-        for q in theme.questions:
-            for r in by_question.get(q.id) or []:
-                txt = " ".join(p for p in (r.get("value"), r.get("text")) if p)
-                rows.append((r["interviewee"], txt))
-
-    kw = _keywords(t for _, t in rows)
-    top = [w for w, _ in kw.most_common(5)]
-    contexte = "\n".join(f"- Sujet récurrent : « {w} »" for w in top) or \
-        "- Pas assez de matière pour dégager des points de contexte."
-
-    by_person: dict[str, list[str]] = {}
-    for who, txt in rows:
-        by_person.setdefault(who, []).append(txt.lower())
-    shared = []
-    for w in kw:
-        n = sum(1 for texts in by_person.values() if any(w in t for t in texts))
-        if n >= 2:
-            shared.append((n, w))
-    shared.sort(reverse=True)
-    forces_succes = "\n".join(f"- « {w} » évoqué par {n} personnes" for n, w in shared[:5]) or \
-        "- Aucun point commun net détecté automatiquement."
-
-    result = {
-        "contexte": contexte,
-        "culture_adn": "- Mode démo : pas d'analyse de culture sans IA réelle.",
-        "forces_succes": forces_succes,
-        "points_amelioration": "- Mode démo : pas de détection de douleurs sans IA réelle.",
-        "aspirations": "- Mode démo : pas d'analyse d'aspirations sans IA réelle.",
-    }
-    # Entretiens libres (incr.9) : pas de mode démo dédié pour la répartition
-    # elle-même (déjà produite par generate_repartition_from_turns, IA réelle
-    # requise) — on se contente de la reprendre telle quelle par catégorie.
-    for _interview, repartition in material_libre or []:
-        for key, value in (repartition or {}).items():
-            if value:
-                result[key] = f"{result[key]}\n- {value}"
-    return result
-
-
 # --------------------------------------------------------------------------- #
 # Recommandations (évol) : dérivées de la synthèse globale déjà générée (pas
 # des réponses brutes), regroupées en quelques axes transverses — chaque
@@ -575,32 +465,6 @@ def generate_recommendations(global_synthesis, axes=None) -> list[dict]:
             )
         axes.append({"title": (axis.get("title") or "").strip(), "recommendations": recos})
     return axes
-
-
-def generate_demo_recommendations(global_synthesis) -> list[dict]:
-    """Fallback minimal hors-ligne (mode démo) — ne vise pas la pertinence,
-    seulement à permettre de tester le parcours sans clé API."""
-    return [
-        {
-            "title": "Axe démo — à affiner avec une vraie génération IA",
-            "recommendations": [
-                {
-                    "title": "Explorer les points d'amélioration identifiés",
-                    "objectif": (global_synthesis.points_amelioration or "").strip()[:300]
-                    or "Aucun point d'amélioration détecté en mode démo.",
-                    "acteurs": "À définir",
-                    "valeur": 3,
-                    "complexite": 3,
-                    "proposition_valeur": (
-                        "Recommandation générique de mode démo — activez une "
-                        "vraie clé API pour une analyse réelle."
-                    ),
-                    "plan_actions": "- Atelier de partage des résultats de la synthèse",
-                    "resultats_attendus": "- Alignement sur les priorités à traiter",
-                }
-            ],
-        }
-    ]
 
 
 # --------------------------------------------------------------------------- #
@@ -737,25 +601,6 @@ def generate_swot(global_synthesis, axes=None) -> dict:
     return _clean_swot(data)
 
 
-def generate_demo_swot(global_synthesis) -> dict:
-    """Fallback hors-ligne (mode démo) — reprojette la synthèse existante sans
-    IA : forces/faiblesses depuis les catégories internes, O/M en amorce."""
-    def _short(text: str, fallback: str) -> str:
-        return (text or "").strip()[:400] or fallback
-
-    return {
-        "forces": _short(global_synthesis.forces_succes, "Forces à préciser (mode démo)."),
-        "faiblesses": _short(
-            global_synthesis.points_amelioration, "Faiblesses à préciser (mode démo)."
-        ),
-        "opportunites": _short(
-            global_synthesis.aspirations,
-            "Opportunités externes à identifier — activez une vraie génération IA.",
-        ),
-        "menaces": "Menaces externes à identifier — activez une vraie génération IA.",
-    }
-
-
 # --------------------------------------------------------------------------- #
 # Executive summary (piste F restitution, 2026-07-21) : synthèse d'ouverture
 # « so what » (constat + points clés + message à retenir), dérivée de la synthèse
@@ -829,24 +674,6 @@ def generate_executive_summary(global_synthesis, axes=None) -> dict:
     return _clean_executive_summary(data)
 
 
-def generate_demo_executive_summary(global_synthesis) -> dict:
-    """Repli hors-ligne (mode démo) — reprojette la synthèse sans IA."""
-    gs = global_synthesis
-    forces = (getattr(gs, "forces_succes", "") or "").strip()
-    points = (getattr(gs, "points_amelioration", "") or "").strip()
-    aspir = (getattr(gs, "aspirations", "") or "").strip()
-    corps = "\n".join(x for x in (forces, points) if x)
-    return {
-        "headline": "Restitution : des forces à capitaliser, des points d'amélioration à traiter.",
-        "points": corps or "- Synthèse à générer (mode démo).",
-        "key_message": (
-            aspir.split("\n")[0].lstrip("-•* ").strip()
-            if aspir
-            else "Prioriser les actions à plus forte valeur."
-        ),
-    }
-
-
 # --------------------------------------------------------------------------- #
 # Difficultes (piste F restitution, planche « Difficultes » + inserts citation) :
 # liste ORDONNEE (hierarchie) de difficultes derivees de la synthese globale
@@ -907,11 +734,3 @@ def generate_difficulties(global_synthesis, axes=None) -> list:
         DIFFICULTES_SYSTEM, prompt, DIFFICULTES_SCHEMA, DIFFICULTES_JSON_HINT
     )
     return _clean_difficulties(data)
-
-
-def generate_demo_difficulties(global_synthesis) -> list:
-    """Repli hors-ligne (mode démo) — reprend les puces de points_amelioration."""
-    pts = (getattr(global_synthesis, "points_amelioration", "") or "").strip()
-    lignes = [ln.lstrip("-•* \t").strip() for ln in pts.split("\n") if ln.strip()]
-    lignes = [ln for ln in lignes if ln]
-    return lignes or ["Difficulté à préciser (mode démo)."]

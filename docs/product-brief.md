@@ -51,5 +51,4 @@ le fournisseur local).
 
 - Outil interne : pas d'authentification ni de multi-utilisateurs — un poste,
   une base (`data/app.db`).
-- La qualité de la synthèse dépend du fournisseur IA configuré ; le mode démo
-  (`SYNTHESE_DEMO=1`) sert à évaluer la chaîne, pas la qualité d'analyse.
+- La qualité de la synthèse dépend du fournisseur IA configuré.

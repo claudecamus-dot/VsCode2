@@ -41,7 +41,6 @@ agents: [onboarder, claude]
 
 ## Variables d'environnement requises
 
-- `SYNTHESE_DEMO` — Mode démo hors-ligne (1 = activé, 0 = désactivé)
 - `AI_PROVIDER` — Fournisseur IA actif : `ollama` (défaut, local), `openai` ou `mistral`
 - `OPENAI_API_KEY` / `MISTRAL_API_KEY` — Clé du fournisseur choisi (sans objet pour `ollama`)
 - `OLLAMA_HOST` — Serveur Ollama (défaut : `http://localhost:11434`, optionnel)

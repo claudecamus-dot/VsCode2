@@ -90,13 +90,6 @@ def test_clean_difficulties_flattens_ollama_types(monkeypatch: pytest.MonkeyPatc
     assert result == ["Silos", "Dette technique"]  # dict+liste aplatis, '' et int -> droppés
 
 
-def test_generate_demo_difficulties_reprojects_points() -> None:
-    result = synthese_ai.generate_demo_difficulties(
-        GlobalSynthesis(points_amelioration="- Silos\n- Dette")
-    )
-    assert result == ["Silos", "Dette"]
-
-
 # --------------------------------------------------------------------------- #
 # Routes — génération (dérive de la synthèse) + autosave label + liaison verbatim.
 # --------------------------------------------------------------------------- #

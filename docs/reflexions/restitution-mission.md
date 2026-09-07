@@ -229,8 +229,7 @@ class MissionSwot(Base):           # 1:1 Mission, comme GlobalSynthesis
 Générée par un `generate_swot()` calqué sur `generate_global_synthesis` (même map-reduce,
 schéma `SWOT_SCHEMA` à 4 clés, `SWOT_SYSTEM` demandant des puces factuelles + « ne pas
 inventer ») **nourri de la synthèse globale déjà produite** (comme les recommandations le
-sont) plutôt que des réponses brutes — moins de tokens, plus cohérent. Repli démo
-déterministe (`generate_demo_swot`, cf. `generate_demo_recommendations`).
+sont) plutôt que des réponses brutes — moins de tokens, plus cohérent.
 
 **2.2 Les verbatims comme preuve** — surface l'existant. Deux options de rattachement :
 

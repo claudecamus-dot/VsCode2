@@ -134,18 +134,6 @@ def test_clean_swot_drops_empty_bullet_markers(monkeypatch: pytest.MonkeyPatch) 
     assert result["forces"] == ""   # marqueurs seuls -> vide, pas de faux contenu
 
 
-def test_generate_demo_swot_reprojects_synthesis() -> None:
-    gs = GlobalSynthesis(
-        forces_succes="- Collaboration",
-        points_amelioration="- Silos",
-        aspirations="- Autonomie",
-    )
-    result = synthese_ai.generate_demo_swot(gs)
-    assert "Collaboration" in result["forces"]
-    assert "Silos" in result["faiblesses"]
-    assert set(result) == {"forces", "faiblesses", "opportunites", "menaces"}
-
-
 # --------------------------------------------------------------------------- #
 # Routes — génération (dérive de la synthèse globale) + autosave par quadrant.
 # --------------------------------------------------------------------------- #

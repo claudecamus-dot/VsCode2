@@ -245,7 +245,7 @@
       <div class="concept-card">
         <div class="num">Idée 1</div>
         <h3>Un seul fournisseur IA actif à la fois</h3>
-        <p>Le fournisseur (Ollama en local par défaut, ou OpenAI/Mistral) est choisi une fois par la variable <code>AI_PROVIDER</code>. Il n'y a <strong>pas de repli automatique</strong> vers un autre fournisseur si la clé manque — l'erreur nomme explicitement la variable d'environnement attendue. Sans clé du tout, <code>SYNTHESE_DEMO=1</code> active un mode démo heuristique (sans IA, sans coût) pour rester utilisable hors ligne.</p>
+        <p>Le fournisseur (Ollama en local par défaut, ou OpenAI/Mistral) est choisi une fois par la variable <code>AI_PROVIDER</code>. Il n'y a <strong>pas de repli automatique</strong> vers un autre fournisseur si la clé manque — l'erreur nomme explicitement la variable d'environnement attendue.</p>
       </div>
       <div class="concept-card">
         <div class="num">Idée 2</div>
@@ -410,32 +410,18 @@
           <text x="800" y="906" text-anchor="middle" class="lbl-sub">le garde-fou géométrique ne détecte pas tout</text>
         </g>
         <line x1="680" y1="885" x2="492" y2="812" class="edge-dashed" marker-end="url(#arrow)"></line>
-
-        <!-- mode demo bracket, spanning synthese steps -->
-        <line x1="660" y1="420" x2="660" y2="656" class="edge-dashed"></line>
-        <line x1="660" y1="420" x2="675" y2="420" class="edge-dashed"></line>
-        <line x1="660" y1="656" x2="675" y2="656" class="edge-dashed"></line>
-        <line x1="660" y1="538" x2="680" y2="538" class="edge-dashed"></line>
-        <g class="n-ext">
-          <rect x="680" y="493" width="240" height="90" rx="8"></rect>
-          <text x="800" y="517" text-anchor="middle" class="lbl-small" font-weight="700">Mode démo</text>
-          <text x="800" y="535" text-anchor="middle" class="lbl-sub">SYNTHESE_DEMO=1 — hors-ligne,</text>
-          <text x="800" y="549" text-anchor="middle" class="lbl-sub">sans clé IA, à la place de la</text>
-          <text x="800" y="563" text-anchor="middle" class="lbl-sub">synthèse/recommandations IA</text>
-        </g>
       </svg>
 
       <div class="legend">
         <div class="legend-item"><span class="legend-swatch main"></span> étape du parcours principal (toujours présente)</div>
         <div class="legend-item"><span class="legend-swatch opt"></span> variante au même point du parcours (un choix parmi plusieurs)</div>
-        <div class="legend-item"><span class="legend-swatch ext"></span> mécanisme additif (import, template, mode démo, vérification)</div>
+        <div class="legend-item"><span class="legend-swatch ext"></span> mécanisme additif (import, template, vérification)</div>
       </div>
     </div>
 
     <h3>Ce que le schéma ne montre pas explicitement</h3>
     <ul class="plain">
       <li><strong>L'import de trame ne remplace pas la trame existante.</strong> La fusion se fait par titre de thème : les questions déjà répondues ne sont jamais écrasées.</li>
-      <li><strong>Le mode démo n'est pas réservé aux tests.</strong> Il rend l'outil utilisable de bout en bout sans aucune clé IA configurée — utile pour une démonstration ou un poste sans accès réseau sortant.</li>
       <li><strong>La vérification visuelle réelle n'est déclenchée par aucune étape du logiciel</strong> : c'est un réflexe humain à garder après chaque export, pas un contrôle automatisé de plus.</li>
     </ul>
   </section>

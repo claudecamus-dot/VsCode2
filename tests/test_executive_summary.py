@@ -115,15 +115,6 @@ def test_clean_executive_summary_drops_scalars(monkeypatch: pytest.MonkeyPatch) 
     assert result["key_message"] == ""
 
 
-def test_generate_demo_executive_summary_reprojects_synthesis() -> None:
-    gs = GlobalSynthesis(
-        forces_succes="- Collaboration", points_amelioration="- Silos", aspirations="- Autonomie",
-    )
-    result = synthese_ai.generate_demo_executive_summary(gs)
-    assert set(result) == {"headline", "points", "key_message"}
-    assert "Collaboration" in result["points"] and "Silos" in result["points"]
-
-
 # --------------------------------------------------------------------------- #
 # Routes — génération (dérive de la synthèse globale) + autosave par champ.
 # --------------------------------------------------------------------------- #
