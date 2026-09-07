@@ -443,8 +443,18 @@ class GlobalSynthesis(Base):
     # Contenu par clé d'axe : {"contexte": "...", "axe_6": "..."}. Source de
     # vérité depuis 2026-07-27 (migration additive `db.py`).
     valeurs: Mapped[dict] = mapped_column(JSON, default=dict)
-    # empty | generated | edited
+    # empty | generated | edited — état du CONTENU, orthogonal à
+    # `generation_status` ci-dessous (une synthèse déjà "generated" peut avoir
+    # une régénération "running" en cours).
     status: Mapped[str] = mapped_column(String(20), default="empty")
+    # idle | running | error — génération IA en tâche de fond (2026-09-04,
+    # finding audit-technique performance:critique). Le map-reduce peut
+    # prendre jusqu'à ~100 min ; le générer dans le thread de la requête HTTP
+    # bloquait le navigateur bien au-delà de tout timeout raisonnable. Pendant
+    # de `InterviewSegmentJob.status` (même trio idle/running/error, même
+    # rôle : dire à l'écran où en est une tâche de fond).
+    generation_status: Mapped[str] = mapped_column(String(20), default="idle")
+    generation_error: Mapped[str | None] = mapped_column(Text, default=None)
     generated_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=_utcnow, onupdate=_utcnow

@@ -702,6 +702,7 @@ input[type=text].turn-section-input:placeholder-shown {
 .badge-synth-empty     { background: #eef2f7; color: var(--muted); }
 .badge-synth-generated { background: var(--info-bg); color: var(--accent-dark); }
 .badge-synth-edited    { background: var(--success-bg); color: var(--success-text); }
+.badge-synth-generating { background: var(--info-bg); color: var(--accent-dark); }
 
 .synth-field { display: block; margin-bottom: 14px; }
 .synth-field > span { display: block; font-weight: 600; font-size: .9rem; margin-bottom: 6px; }

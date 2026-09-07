@@ -1,4 +1,4 @@
-{% macro field(mission, name, label, value) %}
+{% macro field(mission, name, label, value, readonly=False) %}
 <label class="synth-field">
   <span>{{ label }}</span>
   <textarea name="value" rows="5"
@@ -6,15 +6,48 @@
     hx-vals='{"field": "{{ name }}"}'
     hx-trigger="keyup changed delay:700ms, blur"
     hx-target="#global-synth-saved" hx-swap="innerHTML"
-    placeholder="—">{{ value or '' }}</textarea>
+    placeholder="—"
+    {% if readonly %}readonly title="Génération en cours — le champ redevient modifiable une fois terminée"{% endif %}>{{ value or '' }}</textarea>
 </label>
 {% endmacro %}
 
-<section class="card" id="global-synth-panel">
+{# Génération IA en tâche de fond (2026-09-04, finding audit-technique
+   performance:critique) : le map-reduce peut dépasser 100 min sur une grosse
+   mission — plus question de le tenir dans le thread de LA requête HTTP qui a
+   cliqué « Générer ». Tant que `generation_status == 'running'`, ce panneau
+   s'auto-interroge (`hx-trigger="load delay:2s"`, motif de polling HTMX
+   standard) sur la route de LECTURE SEULE `/synthese/globale/status` — jamais
+   sur `/generate` (revue adversariale 2026-09-07, bug reproduit : un poll qui
+   reposte sur `/generate` observe tôt ou tard `generation_status == 'idle'`
+   une fois le job fini, et EN RELANCE UN NOUVEAU — boucle de régénération
+   infinie qui écrase aussi le contenu édité à la main, sans le hx-confirm que
+   le bouton porte). `/status` ne fait que re-rendre l'état courant, jamais de
+   mutation — le panneau cesse de se re-déclencher tout seul dès que
+   `run_global_synthesis_job` (services/global_synthesis_job.py) repasse le
+   statut à idle/error. #}
+<section class="card" id="global-synth-panel"
+  {% if global_synthesis.generation_status == 'running' %}
+  hx-trigger="load delay:2s"
+  hx-get="/missions/{{ mission.id }}/synthese/globale/status"
+  hx-target="#global-synth-panel" hx-swap="outerHTML"
+  {% endif %}>
+  {% set generating = global_synthesis.generation_status == 'running' %}
   <div class="card-head">
     <h2>Synthèse globale</h2>
+    {% if generating %}
+    <span class="badge badge-synth-generating" id="global-synth-status">⏳ Génération en cours…</span>
+    {% else %}
     <span class="badge badge-synth-{{ global_synthesis.status }}" id="global-synth-status">{{ global_synthesis.status_label }}</span>
+    {% endif %}
   </div>
+
+  {% if generating %}
+  <p class="muted ai-hint">
+    La synthèse globale est en cours de génération (jusqu'à plusieurs dizaines
+    de minutes sur une mission volumineuse) — cette page se met à jour toute
+    seule, inutile de recharger.
+  </p>
+  {% endif %}
 
   {% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
   {% if not ai_ready %}
@@ -31,18 +64,18 @@
      écrites en dur ici, elles se configurent désormais dans l'onglet
      « Axes d'étude » de l'étape Analyse. #}
   {% for axe in synthesis_axes %}
-  {{ field(mission, axe.key, axe.label, global_synthesis.contenu(axe.key)) }}
+  {{ field(mission, axe.key, axe.label, global_synthesis.contenu(axe.key), readonly=generating) }}
   {% endfor %}
 
   <div class="synth-actions">
-    {% set can_generate = ai_ready and answer_count %}
+    {% set can_generate = ai_ready and answer_count and not generating %}
     <button class="btn btn-primary" type="button"
       hx-post="/missions/{{ mission.id }}/synthese/globale/generate"
       hx-target="#global-synth-panel" hx-swap="outerHTML"
       hx-disabled-elt="this"
       {% if global_synthesis.status != 'empty' %}hx-confirm="Remplacer la synthèse globale actuelle par une nouvelle génération IA ? Le contenu actuel de tous les axes sera perdu."{% endif %}
-      {% if not can_generate %}disabled title="{% if not ai_ready %}Service IA indisponible — définissez {{ api_key_env }}{% else %}Aucune réponse saisie sur la mission{% endif %}"{% endif %}>
-      <span class="htmx-indicator">⏳ </span>{{ 'Générer (IA)' if global_synthesis.status == 'empty' else '↻ Régénérer (IA)' }}
+      {% if not can_generate %}disabled title="{% if generating %}Génération déjà en cours{% elif not ai_ready %}Service IA indisponible — définissez {{ api_key_env }}{% else %}Aucune réponse saisie sur la mission{% endif %}"{% endif %}>
+      <span class="htmx-indicator">⏳ </span>{{ '⏳ Génération en cours…' if generating else ('Générer (IA)' if global_synthesis.status == 'empty' else '↻ Régénérer (IA)') }}
     </button>
     <span id="global-synth-saved" class="saved"></span>
     {% if global_synthesis.generated_at %}<span class="muted">généré le {{ global_synthesis.generated_at.strftime('%d/%m %H:%M') }}</span>{% endif %}

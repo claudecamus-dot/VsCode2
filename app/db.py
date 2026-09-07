@@ -75,7 +75,11 @@ def _add_missing_columns() -> None:
         # colonnes figées à un dictionnaire par clé d'axe. Les colonnes
         # historiques restent (miroir des 5 clés par défaut, cf.
         # `GlobalSynthesis.set_contenu`).
-        "global_syntheses": {"valeurs": "JSON"},
+        "global_syntheses": {
+            "valeurs": "JSON",
+            "generation_status": "TEXT DEFAULT 'idle'",
+            "generation_error": "TEXT",
+        },
         "trames": {"intro_text": "TEXT"},
         "questions": {"help_text": "TEXT"},
         "missions": {"pptx_template_path": "TEXT", "is_draft": "BOOLEAN DEFAULT 0", "restitution_verbatim_ids": "JSON", "is_demo": "BOOLEAN DEFAULT 0"},

@@ -15,7 +15,8 @@ import unicodedata
 from datetime import datetime, timezone
 
 from ..models import Mission
-from ..routers.synthese import _all_theme_material, _total_answer_count
+from .synthese_material import all_theme_material as _all_theme_material
+from .synthese_material import total_answer_count as _total_answer_count
 
 
 def _format_answer(row: dict) -> str:

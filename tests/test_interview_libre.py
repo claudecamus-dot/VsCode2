@@ -970,8 +970,11 @@ def test_synthese_globale_generate_uses_libre_material(
 
     monkeypatch.setattr("app.routers.synthese.is_configured", lambda: True)
     captured = {}
+    appels = 0
 
     def fake_generate_global(mission, material_by_theme, material_libre=None, axes=None):
+        nonlocal appels
+        appels += 1
         captured["material_libre"] = material_libre
         captured["material_by_theme"] = material_by_theme
         return {
@@ -983,7 +986,7 @@ def test_synthese_globale_generate_uses_libre_material(
         }
 
     monkeypatch.setattr(
-        "app.routers.synthese.generate_global_synthesis", fake_generate_global
+        "app.services.global_synthesis_job.generate_global_synthesis", fake_generate_global
     )
 
     # Ne doit pas planter malgré l'absence de trame (garde-fou export.py/
@@ -991,9 +994,19 @@ def test_synthese_globale_generate_uses_libre_material(
     response = client.get(f"/missions/{mission_id}/synthese/export-import")
     assert response.status_code == 200
 
+    # Génération en tâche de fond (2026-09-04) : le POST lance le job et rend
+    # l'état "running" — le job tourne en synchrone sous TestClient (Starlette
+    # exécute les BackgroundTasks avant de rendre la main), donc le résultat
+    # est déjà en base au retour. Le poll qu'un vrai navigateur ferait ensuite
+    # cible /status — EN LECTURE SEULE (revue adversariale 2026-09-07 : cibler
+    # /generate comme avant relance un job à chaque poll, boucle infinie) —
+    # d'où l'assertion sur `appels` : un seul appel réel malgré 2 requêtes HTTP.
     response = client.post(f"/missions/{mission_id}/synthese/globale/generate")
     assert response.status_code == 200
+    response = client.get(f"/missions/{mission_id}/synthese/globale/status")
+    assert response.status_code == 200
     assert "Contexte global" in response.text
+    assert appels == 1
 
     assert captured["material_by_theme"] == []
     assert len(captured["material_libre"]) == 1

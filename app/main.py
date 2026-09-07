@@ -25,6 +25,7 @@ from .db import init_db  # noqa: E402
 from .routers import agents, entretiens, export, interviews, missions, synthese, trames  # noqa: E402
 from .services import audio_transcribe  # noqa: E402
 from .services.ai_common import warm_up_ollama  # noqa: E402
+from .services.global_synthesis_job import reconcile_running_on_startup  # noqa: E402
 
 
 def empreinte_code() -> str:
@@ -50,6 +51,7 @@ EMPREINTE_AU_CHARGEMENT = empreinte_code()
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
+    reconcile_running_on_startup()
     try:
         audio_transcribe.warm_up()
     except Exception:

@@ -19,7 +19,6 @@ from sqlalchemy.orm import Session
 from ..db import PPTX_TEMPLATES_DIR, get_session
 from ..models import Mission
 from ..routers.synthese import (
-    _all_theme_material,
     _apply_difficulties_result,
     _apply_executive_summary_result,
     _apply_global_synthesis_result,
@@ -28,7 +27,6 @@ from ..routers.synthese import (
     _get_or_create_executive_summary,
     _get_or_create_global_synthesis,
     _get_or_create_swot,
-    _total_answer_count,
 )
 from ..services.ai_common import api_key_env_name, is_configured
 from ..services.mission_axes import axes_of
@@ -39,6 +37,8 @@ from ..services.synthese_ai import (
     generate_executive_summary,
     generate_swot,
 )
+from ..services.synthese_material import all_theme_material as _all_theme_material
+from ..services.synthese_material import total_answer_count as _total_answer_count
 from ..services.analyse_import import (
     AnalysisParseError,
     decode_text_upload,

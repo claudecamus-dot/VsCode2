@@ -1374,10 +1374,13 @@ def test_global_synthesis_generate_and_autosave(
 
     monkeypatch.setattr("app.routers.synthese.is_configured", lambda: True)
 
+    appels = []
+
     def fake_generate_global(mission, material_by_theme, material_libre=None, axes=None):
         assert mission.name == "Mission Synthese Globale"
         # Les deux thèmes de la mission doivent être présents, pas un seul.
         assert len(material_by_theme) == 2
+        appels.append(mission.id)
         return {
             "contexte": "- Contexte de test",
             "culture_adn": "- Culture de test",
@@ -1387,12 +1390,22 @@ def test_global_synthesis_generate_and_autosave(
         }
 
     monkeypatch.setattr(
-        "app.routers.synthese.generate_global_synthesis", fake_generate_global
+        "app.services.global_synthesis_job.generate_global_synthesis", fake_generate_global
     )
 
+    # Génération en tâche de fond (2026-09-04) : le POST lance le job et rend
+    # l'état "running" — le job tourne en synchrone sous TestClient (Starlette
+    # exécute les BackgroundTasks avant de rendre la main), donc le résultat
+    # est déjà en base au retour. Le poll qu'un vrai navigateur ferait ensuite
+    # cible /status — EN LECTURE SEULE (revue adversariale 2026-09-07 : cibler
+    # /generate comme avant relance un job à chaque poll, boucle infinie) —
+    # d'où l'assertion sur `appels` : un seul appel réel malgré 2 requêtes HTTP.
     response = client.post(f"/missions/{mission_id}/synthese/globale/generate")
     assert response.status_code == 200
+    response = client.get(f"/missions/{mission_id}/synthese/globale/status")
+    assert response.status_code == 200
     assert "Contexte de test" in response.text
+    assert appels == [int(mission_id)]
 
     session = SessionLocal()
     try:
@@ -1400,6 +1413,7 @@ def test_global_synthesis_generate_and_autosave(
         assert mission.global_synthesis is not None
         assert mission.global_synthesis.contexte == "- Contexte de test"
         assert mission.global_synthesis.status == "generated"
+        assert mission.global_synthesis.generation_status == "idle"
     finally:
         session.close()
 
@@ -1478,7 +1492,7 @@ def test_recommendations_generate_from_global_synthesis(
 
     monkeypatch.setattr("app.routers.synthese.is_configured", lambda: True)
     monkeypatch.setattr(
-        "app.routers.synthese.generate_global_synthesis",
+        "app.services.global_synthesis_job.generate_global_synthesis",
         lambda mission, material_by_theme, material_libre=None, axes=None: {
             "contexte": "- Contexte",
             "culture_adn": "- Culture",

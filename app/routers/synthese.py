@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
@@ -25,9 +25,9 @@ from ..models import (
     MissionSynthesisAxis,
     Recommendation,
     RecommendationAxis,
-    Theme,
 )
 from ..services.ai_common import api_key_env_name
+from ..services.global_synthesis_job import run_global_synthesis_job
 from ..services.pptx_export import field_fit_hint
 from ..services.mission_axes import axes_of, creer_axe, supprimer_axe
 from ..services.synthese_ai import (
@@ -37,6 +37,11 @@ from ..services.synthese_ai import (
     generate_recommendations,
     generate_swot,
     is_configured,
+)
+from ..services.synthese_material import (
+    all_theme_material as _all_theme_material,
+    libre_material as _libre_material,
+    total_answer_count as _total_answer_count,
 )
 from ..templating import templates
 
@@ -154,63 +159,6 @@ def _hint_span(elem_id: str, field_key: str, text: str) -> str:
 _RECO_FIT_KEY = {"title": "reco_title"}
 
 
-def _theme_material(mission: Mission, theme: Theme) -> tuple[dict, list]:
-    """Réponses (par question) et verbatims du thème, tous entretiens confondus."""
-    qids = {q.id for q in theme.questions}
-    by_question: dict[int, list[dict]] = {}
-    verbatims: list[dict] = []
-    for iv in mission.interviews:
-        ans = {a.question_id: a for a in iv.answers}
-        for q in theme.questions:
-            a = ans.get(q.id)
-            content = a and ((a.text or "").strip() or (a.value or "").strip())
-            if content:
-                by_question.setdefault(q.id, []).append(
-                    {
-                        "interviewee": iv.interviewee_name,
-                        "role": iv.interviewee_role,
-                        "text": (a.text or "").strip(),
-                        "value": (a.value or "").strip(),
-                    }
-                )
-        for v in iv.verbatims:
-            if v.question_id in qids:
-                verbatims.append(
-                    {"interviewee": iv.interviewee_name, "quote": v.quote}
-                )
-    return by_question, verbatims
-
-
-def _answer_count(by_question: dict[int, list[dict]]) -> int:
-    return sum(len(v) for v in by_question.values())
-
-
-def _all_theme_material(mission: Mission) -> list[tuple[Theme, dict, list]]:
-    """Matière (réponses + verbatims) de tous les thèmes de la trame — pour
-    la synthèse globale, qui recoupe l'ensemble de la mission plutôt qu'un
-    seul thème. Une mission brouillon née d'un entretien libre (incr.9) n'a
-    pas de trame du tout."""
-    if mission.trame is None:
-        return []
-    return [
-        (theme, *_theme_material(mission, theme)) for theme in mission.trame.themes
-    ]
-
-
-def _libre_material(mission: Mission) -> list[tuple]:
-    """Répartition (5 catégories) de chaque entretien en mode libre (incr.9,
-    US9.6) — matière indépendante des thèmes, injectée à côté de
-    `material_by_theme` dans `generate_global_synthesis`."""
-    return [
-        (iv, iv.repartition) for iv in mission.interviews
-        if iv.mode == "libre" and iv.repartition
-    ]
-
-
-def _total_answer_count(material_by_theme: list[tuple[Theme, dict, list]]) -> int:
-    return sum(_answer_count(by_question) for _theme, by_question, _v in material_by_theme)
-
-
 # --------------------------------------------------------------------------- #
 # Application en base d'un résultat de synthèse globale / recommandations —
 # partagée entre la génération IA et l'import d'une analyse externe (évol),
@@ -272,23 +220,73 @@ def global_synthese_view(
             "interview_count": len(mission.interviews),
             "answer_count": _total_answer_count(material_by_theme),
             "libre_count": len(material_libre),
+            # Erreur d'une génération précédente, en LECTURE SEULE (contrairement
+            # à generate_global, un chargement de page ne l'acquitte/n'efface
+            # jamais) : sans ce champ, un rechargement après échec n'affichait
+            # rien (revue adversariale 2026-09-07).
+            "error": (
+                global_synthesis.generation_error
+                if global_synthesis.generation_status == "error"
+                else None
+            ),
         },
     )
+
+
+def _global_panel_context(
+    request: Request, db: Session, mission: Mission, global_synthesis: GlobalSynthesis, error: str | None,
+) -> dict:
+    material_by_theme = _all_theme_material(mission)
+    return {
+        "request": request,
+        "mission": mission,
+        "global_synthesis": global_synthesis,
+        "synthesis_axes": axes_of(db, mission),
+        "ai_ready": is_configured(),
+        "api_key_env": api_key_env_name(),
+        "error": error,
+        "answer_count": _total_answer_count(material_by_theme),
+    }
 
 
 @router.post("/missions/{mission_id}/synthese/globale/generate")
 def generate_global(
     mission_id: int,
     request: Request,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_session),
 ):
+    """Lance la génération en TÂCHE DE FOND (2026-09-04, finding
+    audit-technique performance:critique) — le map-reduce peut dépasser
+    100 min mesurées, inacceptable dans le thread d'une requête HTTP. N'est
+    JAMAIS la cible du polling (cf. `global_synthesis_status` ci-dessous,
+    en lecture seule) : si elle l'était, un poll arrivant APRÈS la fin d'un
+    job (`generation_status` déjà repassé à `idle`) serait indiscernable
+    d'un clic explicite et relancerait une génération inutile. Le travail
+    réel vit dans `services/global_synthesis_job.run_global_synthesis_job`,
+    qui ouvre sa propre session — celle-ci est fermée dès cette réponse
+    renvoyée."""
     mission = _get_mission(db, mission_id)
     material_by_theme = _all_theme_material(mission)
     material_libre = _libre_material(mission)
     global_synthesis = _get_or_create_global_synthesis(db, mission)
 
     error = None
-    if not is_configured():
+    if global_synthesis.generation_status == "error":
+        # L'erreur reste collée à l'écran (visible au chargement passif de la
+        # page, cf. global_synthese_view) tant qu'aucun clic ne la consomme —
+        # elle n'a donc plus besoin d'être réaffichée ICI : un clic sur ce
+        # bouton VAUT acquittement, il efface le statut d'erreur ET enchaîne
+        # sur la décision de lancement ci-dessous (revue adversariale
+        # 2026-09-07 : avant ce correctif, un premier clic après échec ne
+        # faisait qu'effacer l'erreur SANS relancer, obligeant un second clic).
+        global_synthesis.generation_status = "idle"
+        global_synthesis.generation_error = None
+        db.commit()
+
+    if global_synthesis.generation_status == "running":
+        pass  # défense en profondeur : le bouton est désactivé pendant l'exécution.
+    elif not is_configured():
         error = (
             "Service IA indisponible — utilisez l'export pour lancer une "
             "analyse externe, puis importez le résultat."
@@ -296,27 +294,38 @@ def generate_global(
     elif _total_answer_count(material_by_theme) == 0 and not material_libre:
         error = "Aucune réponse saisie sur la mission — rien à synthétiser."
     else:
-        try:
-            result = generate_global_synthesis(
-                mission, material_by_theme, material_libre, axes=axes_of(db, mission)
-            )
-            _apply_global_synthesis_result(global_synthesis, result)
-            db.commit()
-        except SynthesisAIError as exc:
-            error = str(exc)
+        global_synthesis.generation_status = "running"
+        global_synthesis.generation_error = None
+        db.commit()
+        background_tasks.add_task(run_global_synthesis_job, mission.id)
 
     return templates.TemplateResponse(
         request,
         "synthese/_global_panel.html",
-        {
-            "mission": mission,
-            "global_synthesis": global_synthesis,
-            "synthesis_axes": axes_of(db, mission),
-            "ai_ready": is_configured(),
-            "api_key_env": api_key_env_name(),
-            "error": error,
-            "answer_count": _total_answer_count(material_by_theme),
-        },
+        _global_panel_context(request, db, mission, global_synthesis, error),
+    )
+
+
+@router.get("/missions/{mission_id}/synthese/globale/status")
+def global_synthesis_status(
+    mission_id: int, request: Request, db: Session = Depends(get_session)
+):
+    """Poll en LECTURE SEULE de l'avancement — jamais de mutation ici,
+    contrairement à `generate_global` : ne JAMAIS courir avec un clic
+    explicite sur le même état, et ne jamais confondre un poll arrivé tard
+    avec une demande de nouvelle génération. Cible du `hx-trigger="load
+    delay:2s"` du panneau tant que `generation_status == "running"`."""
+    mission = _get_mission(db, mission_id)
+    global_synthesis = _get_or_create_global_synthesis(db, mission)
+    error = (
+        global_synthesis.generation_error
+        if global_synthesis.generation_status == "error"
+        else None
+    )
+    return templates.TemplateResponse(
+        request,
+        "synthese/_global_panel.html",
+        _global_panel_context(request, db, mission, global_synthesis, error),
     )
 
 
