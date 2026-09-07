@@ -1,6 +1,6 @@
 ---
 name: agent-orchestrator
-description: Orchestrateur des agents et skills du projet — qualifie une demande de travail, compose un plan (cascade / parallèle / asynchrone, modèle par étape), l'exécute en s'appuyant sur le catalogue et les données du superviseur, puis journalise le run. Lance réellement du multi-agents via l'outil Agent (fan-out parallèle dans un même message, arrière-plan notifié, SendMessage pour continuer un sous-agent, isolation worktree pour les écritures concurrentes, modèle par agent). Sait aussi APPLIQUER une recommandation arbitrée du superviseur (findings de diagnostic.json des deux volets — usage des agents ET pratiques test/dev/revue/design) via le playbook evolution-flotte, puis enregistrer l'arbitrage. Traite la commande « adopte <trouvaille> » (verbe d'arbitrage de la veille) : applique la regle_proposee au référentiel/scan et l'action_corrective aux projets concernés, passe l'entrée de veille.json en adopte (ou ecarte) et trace l'arbitrage. CONVOQUE les 12 salles de table ronde du hub (§ 2 septies) quand la demande pose un choix à instruire — refonte, adoption, partition d un chantier, faux consensus — au lieu d un travail à exécuter : la salle délibère et rend un compte rendu qui alimente le plan, elle ne modifie aucun fichier. Route les 46 skills BMAD installées par besoin détecté (table de § 2 quinquies : d'office pour les passes de lecture/critique qui rendent un rapport — revue, recherche, rétrospective ; annoncé-puis-validé dès qu'une skill coûte cher OU écrit un fichier réel — PRD, architecture, stories, code, documentation) et dispose pour cela de trois sous-agents porteurs de l'outil Skill — bmad-revue, bmad-recherche, veille-agentic ; les autres skills partent inline, quatre porteurs jamais invoques ayant ete mis en sommeil le 2026-09-01. Atteignable de trois façons : cette skill, le sous-agent agent-orchestrator (délégation d'une orchestration entière), ou la commande /orchestre. À charger quand une demande implique plusieurs étapes/agents, des vérifications obligatoires, ou « applique/traite la reco du superviseur » — ou quand la grille du hook UserPromptSubmit route ici.
+description: Orchestrateur des agents et skills du projet — qualifie une demande de travail, compose un plan (cascade / parallèle / asynchrone, modèle par étape), l'exécute en s'appuyant sur le catalogue et les données du superviseur, puis journalise le run. Lance réellement du multi-agents via l'outil Agent (fan-out parallèle dans un même message, arrière-plan notifié, SendMessage pour continuer un sous-agent, isolation worktree pour les écritures concurrentes, modèle par agent). Sait aussi APPLIQUER une recommandation arbitrée du superviseur (findings de diagnostic.json des deux volets — usage des agents ET pratiques test/dev/revue/design) via le playbook evolution-flotte, puis enregistrer l'arbitrage. Traite la commande « adopte <trouvaille> » (verbe d'arbitrage de la veille) : applique la regle_proposee au référentiel/scan et l'action_corrective aux projets concernés, passe l'entrée de veille.json en adopte (ou ecarte) et trace l'arbitrage. CONVOQUE les 12 salles de table ronde du hub (§ 2 septies) quand la demande pose un choix à instruire — refonte, adoption, partition d un chantier, faux consensus — au lieu d un travail à exécuter : la salle délibère et rend un compte rendu qui alimente le plan, elle ne modifie aucun fichier. Route les skills BMAD installées par besoin détecté (v6.12.0 : 50 sur le disque, 29 canoniques routées et 21 shims dépréciés jamais routés — table de § 2 quinquies : d'office pour les passes de lecture/critique qui rendent un rapport — revue, recherche, rétrospective ; annoncé-puis-validé dès qu'une skill coûte cher OU écrit un fichier réel — PRD, architecture, stories, code, documentation) et dispose pour cela de trois sous-agents porteurs de l'outil Skill — bmad-revue, bmad-recherche, veille-agentic ; les autres skills partent inline, quatre porteurs jamais invoques ayant ete mis en sommeil le 2026-09-01. Atteignable de trois façons : cette skill, le sous-agent agent-orchestrator (délégation d'une orchestration entière), ou la commande /orchestre. À charger quand une demande implique plusieurs étapes/agents, des vérifications obligatoires, ou « applique/traite la reco du superviseur » — ou quand la grille du hook UserPromptSubmit route ici.
 ---
 
 # Agent orchestrateur (étages O-A + O-B + O-C)
@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : 6ed9058 du 2026-09-03 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`6ed9058`, 2026-09-03) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : baf1584 du 2026-09-07 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`baf1584`, 2026-09-07) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -105,6 +105,16 @@ les autres projets, il est à remonter au hub VSCode5 pour propagation.
   agent/skill évident, micro-tâche, question, correction en cours de tâche.
 - **Orchestrer** : ≥ 2 étapes dépendantes, ≥ 2 agents/skills, vérifications obligatoires
   en jeu (voir table), ou action difficilement réversible au milieu d'un enchaînement.
+
+**Un aller-retour sur un livrable pas encore validé n'est jamais une nouvelle orchestration**
+(mesuré au wiki du 2026-09-07 : 38 runs `en-attente-validation` flotte-wide, l'essentiel du
+motif « refais la slide 3 », « toujours pas assez lisible », « ajoute X » sur un deck en
+cours — pas de nouvelle demande, la continuation de la même). C'est le cas « correction en
+cours de tâche » ci-dessus, donc exécution directe, jamais rejournalisé : le run déjà ouvert
+reste `en-attente-validation` jusqu'à validation (`--solde`) ou jusqu'à une demande qui change
+réellement de sujet (celle-là, orchestrable si elle qualifie). Journaliser un nouveau run à
+chaque aller-retour ne mesure rien : ça dilue le seul signal qui compte (le livrable est-il
+enfin validé ?) dans du bruit qu'aucun humain ne va soldé un par un.
 
 ### 2. Composer le plan
 
@@ -275,9 +285,11 @@ finding Y », « corrige le point de pratique Z » (ou plus large : « traite to
      `pratique-design`) → la proposition installe un outil (coverage, linter), câble un
      hook (revue pré-commit), greffe une skill (`deck-design-review`), ou impose un audit
      `audit-technique` sur un projet cible.
-   - **Documentation** (`pratique-doc`) → remédiation via `bmad-document-project`
-     (brownfield), `bmad-agent-tech-writer` (Paige), `bmad-index-docs`, ou rédaction
-     directe d'un README/CLAUDE.md manquant.
+   - **Documentation** (`pratique-doc`) → remédiation via `bmad-project-context`
+     (règles agent d'un dépôt, brownfield compris), ou rédaction directe d'un
+     README/CLAUDE.md manquant. La v6.12.0 a retiré `bmad-index-docs`, `bmad-shard-doc`
+     et le tech-writer Paige **sans remplaçant** : sur ces trois besoins, la rédaction
+     directe est le seul chemin restant.
    - **Cadrage produit** (`pratique-produit`) → remédiation via `bmad-product-brief`,
      `bmad-prd`, `bmad-forge-idea`, `bmad-agent-analyst`/`bmad-agent-pm` — famille
      `bmad-cadrage`, régime **proposé** (§ 2 quinquies) : l'orchestrateur annonce le
@@ -298,6 +310,21 @@ finding Y », « corrige le point de pratique Z » (ou plus large : « traite to
    fait> »). Le scan clôt alors le finding (le wiki cesse de l'afficher en alerte). Un
    finding **refusé** par l'utilisateur s'y note aussi (« REFUSÉ : <raison> ») pour ne pas
    le re-proposer.
+5. **Un travail laissé OUVERT se journalise en *finding*, jamais en *arbitrage*.**
+   Finding `flotte:23-items-cadres-sans-canal-arbitrable` (2026-09-04) : un cadrage de
+   23 items (aucun corrigé, juste évalués effort/risque) avait été tracé comme une
+   entrée `arbitrages.json` — le fichier des décisions **closes** — alors que son propre
+   texte disait « les items restent ouverts ». Résultat mesuré : `point_du_jour.py`
+   répondait le soir même « rien n'attend votre arbitrage », et les 4 dépôts cibles
+   n'avaient aucune trace locale à consulter en cross-session (2 sans session pair pour
+   recevoir un `SendMessage`). `arbitrages.json` trace une **décision prise** (accepté,
+   refusé, différé sur demande explicite) — jamais une **liste de travail restant à
+   faire**. Un cadrage, une transmission par message à une session pair qui n'a pas
+   encore répondu, ou un item explicitement hors périmètre du tour : ça va dans le
+   `diagnostic.json` de la cible concernée (via `write_diagnostic.py --fusionner`, qui
+   préserve les findings déjà ouverts de cette cible au lieu de les écraser — le mode
+   par défaut n'a de sens que pour le diagnostic du hub lui-même, requalifié en entier
+   à chaque passage d'`agent-supervisor`), jamais dans `arbitrages.json`.
 
 Journaliser le run avec `resolution:` dans les notes et la ou les cibles traitées.
 
@@ -348,8 +375,14 @@ cosmétique.
 
 ### 2 quinquies. Router vers les skills BMAD
 
-BMAD-METHOD est installé ici (v6.10.0, core + bmm) : **46 skills** couvrant cadrage
+BMAD-METHOD est installé ici (**v6.12.0**, core + bmm) : **50 skills sur le disque**, dont
+**29 canoniques** — les seules que la table ci-dessous route — et **21 shims dépréciés** qui
+ne font que rediriger vers leur remplaçante. Elles couvrent cadrage
 produit, conception, planification, implémentation, revue, documentation et recherche.
+La migration 6.10.0 → 6.12.0 (pilote du 2026-09-07) a consolidé cinq familles : les cinq
+lentilles de revue dans `bmad-review`, les trois recherches dans `bmad-deep-recon`, les deux
+skills de contexte projet dans `bmad-project-context`, `bmad-quick-dev`/`bmad-dev-story` dans
+`bmad-build`, et `bmad-sprint-status` dans `bmad-sprint-planning`.
 Jusqu'au 2026-07-30 elles étaient réservées à la « demande explicite, via `bmad-help` » —
 résultat mesuré par l'étage 1 : **0 invocation sur 113 sessions**, et un TODO
 `agent-mort` ouvert au wiki. La règle a changé (arbitrage utilisateur du 2026-07-30) :
@@ -371,6 +404,9 @@ Le second critère est arrivé après coup (finding `orchestrateur:regime-office
 diagnostic du 2026-07-30, arbitré le jour même). La première version ne pesait que le
 coût, et laissait donc partir sans arbitrage `bmad-document-project`, `bmad-index-docs`,
 `bmad-shard-doc` et `bmad-agent-tech-writer` — quatre skills qui écrivent dans le dépôt.
+(Ces quatre noms sont ceux de 2026-07-30 : la v6.12.0 en a retiré trois sans remplaçant et
+a fait de la quatrième un shim vers `bmad-project-context`. Le critère, lui, n'a pas bougé —
+il porte aujourd'hui sur `bmad-project-context`.)
 Or **R4 ne parle pas de coût, il parle d'auto-application** : une écriture non arbitrée
 la viole, qu'elle prenne dix secondes ou dix minutes. Le régime ne juge donc pas la
 qualité d'une skill — il dit qui autorise la dépense *et* qui autorise le diff.
@@ -389,21 +425,13 @@ produirait un artefact sans lecteur.
 | Besoin détecté dans la demande | Skill BMAD | Sous-agent porteur | Déclenchement |
 | --- | --- | --- | --- |
 | Revoir un diff, une PR, du code écrit dans la séance | `bmad-code-review` | `bmad-revue` | d'office |
-| Critiquer un livrable non-code (plan, note, décision) | `bmad-review-adversarial-general` | `bmad-revue` | d'office |
-| Chercher les cas limites non traités d'un code ou d'une spec | `bmad-review-edge-case-hunter` | `bmad-revue` | d'office |
-| Améliorer la qualité rédactionnelle d'un texte | `bmad-editorial-review-prose` | `bmad-revue` | d'office |
-| Réorganiser / élaguer la structure d'un document | `bmad-editorial-review-structure` | `bmad-revue` | d'office |
-| Faire relire un changement par un humain (checkpoint) | `bmad-checkpoint-preview` | `bmad-revue` | d'office |
+| Critiquer un livrable non-code, chasser ses cas limites, ses écarts de vérification, sa prose ou sa structure — lentilles à nommer dans le brief | `bmad-review` | `bmad-revue` | d'office |
+| Faire relire un changement par un humain (checkpoint, walkthrough) | `bmad-walkthrough` | `bmad-revue` | d'office |
 | Approfondir une sortie récente (socratique, prémortem, red team) | `bmad-advanced-elicitation` | `bmad-revue` | d'office |
 | Rétrospective de fin d'epic ou d'incrément | `bmad-retrospective` | `bmad-revue` | d'office |
 | S'orienter dans le catalogue BMAD, choisir la bonne skill | `bmad-help` | `bmad-revue` | d'office |
-| Documenter un projet existant (brownfield) pour le contexte IA | `bmad-document-project` | `inline` | proposé |
-| Créer / rafraîchir l'index d'un dossier de docs | `bmad-index-docs` | `inline` | proposé |
-| Découper un document trop gros en sections navigables | `bmad-shard-doc` | `inline` | proposé |
-| Rédiger ou curer de la documentation technique (Paige) | `bmad-agent-tech-writer` | `inline` | proposé |
-| Recherche technique sur une techno, un framework, une archi | `bmad-technical-research` | `bmad-recherche` | d'office |
-| Recherche sur un domaine métier ou un secteur | `bmad-domain-research` | `bmad-recherche` | d'office |
-| Recherche marché, concurrence, clients | `bmad-market-research` | `bmad-recherche` | d'office |
+| Documenter un dépôt existant (brownfield) et y écrire les règles agent (bloc AGENTS.md) | `bmad-project-context` | `inline` | proposé |
+| Recherche pour décider — technique, domaine/secteur, marché, concurrence, voix client, littérature ; type à nommer dans le brief | `bmad-deep-recon` | `bmad-recherche` | d'office |
 | Idéation cadrée sur un problème ouvert | `bmad-brainstorming` | `bmad-recherche` | d'office |
 | Brief produit initial | `bmad-product-brief` | `inline` | proposé |
 | PRD — créer, éditer ou valider | `bmad-prd` | `inline` | proposé |
@@ -416,25 +444,20 @@ produirait un artefact sans lecteur.
 | Conception système conduite par un architecte (Winston) | `bmad-agent-architect` | `inline` | proposé |
 | Specs UX, patterns d'interaction | `bmad-ux` | `inline` | proposé |
 | Design UX/UI conduit par une designer (Sally) | `bmad-agent-ux-designer` | `inline` | proposé |
-| Écrire les règles IA du projet (project-context.md) | `bmad-generate-project-context` | `inline` | proposé |
 | Table ronde multi-personas / focus group | `bmad-party-mode` | `inline` | proposé |
 | Customiser une skill BMAD (party, personas, overrides de config) | `bmad-customize` | `inline` | proposé |
 | Découper des exigences en epics et stories | `bmad-create-epics-and-stories` | `inline` | proposé |
-| Écrire une story prête à implémenter | `bmad-create-story` | `inline` | proposé |
-| Construire le plan de sprint depuis les epics | `bmad-sprint-planning` | `inline` | proposé |
-| État du sprint, risques à surfacer | `bmad-sprint-status` | `inline` | proposé |
+| Plan de sprint depuis les epics, état du sprint, gate « prêt à implémenter » | `bmad-sprint-planning` | `inline` | proposé |
 | Changement significatif en cours de sprint | `bmad-correct-course` | `inline` | proposé |
-| Vérifier que PRD/UX/archi/epics sont prêts pour l'implémentation | `bmad-check-implementation-readiness` | `inline` | proposé |
-| Implémenter une story déjà spécifiée | `bmad-dev-story` | `inline` | proposé |
-| Boucle de développement non surveillée (une itération) | `bmad-dev-auto` | `inline` | proposé |
-| Implémenter directement une intention / un correctif | `bmad-quick-dev` | `inline` | proposé |
+| Implémenter une intention, une story, un correctif — code écrit, revu, vérifié | `bmad-build` | `inline` | proposé |
+| Boucle de développement non surveillée (une itération) | `bmad-build-auto` | `inline` | proposé |
 | Exécution d'histoire conduite par un dev senior (Amelia) | `bmad-agent-dev` | `inline` | proposé |
 | Générer des tests e2e sur une feature existante | `bmad-qa-generate-e2e-tests` | `inline` | proposé |
 
 **Le gel de `bmad-customize` est LEVÉ** (arbitrage utilisateur du 2026-07-31). L'arbitrage
 `skills-jamais-utilisees` du 2026-07-27 avait posé « aucune customisation jusqu'à la v7 » :
-la customisation attendait une version qui n'est toujours pas sortie (v6.10.0 vérifiée le
-2026-07-30 sur l'API GitHub, aucun tag `v7*`). La décision est de **rester en v6 et de
+la customisation attendait une version qui n'est toujours pas sortie (v6.12.0 installée le
+2026-09-07, aucun tag `v7*`). La décision est de **rester en v6 et de
 customiser dès maintenant** plutôt que d'attendre indéfiniment — un gel conditionné à un
 événement qui ne vient pas est un gel définitif qui ne dit pas son nom.
 
@@ -450,9 +473,24 @@ Ce que la levée change, et ce qu'elle ne change pas :
 - La **migration** vers la v7, quand elle sortira, redevient une décision à part entière :
   les overrides écrits en v6 devront être re-vérifiés à ce moment-là.
 
-**Jamais routées** — **dépréciées par BMAD** (v6.10.0 les a consolidées ; retirées en v7) :
+**Quatre skills ont été RETIRÉES sans shim** par la v6.12.0 — les nommer ne redirige nulle
+part, elles ne sont plus sur le disque : `bmad-index-docs` et `bmad-shard-doc` (aucun
+remplaçant : rédiger directement), `bmad-check-implementation-readiness` (absorbée par
+`bmad-sprint-planning`, qui porte désormais la gate), `bmad-agent-tech-writer` — le persona
+Paige est retiré du catalogue, ce qui fait passer les agents BMAD installés de 6 à 5.
+
+**Jamais routées** — **dépréciées par BMAD**, conservées ici en shims de compatibilité qui
+se contentent de rediriger (21 au total, retirées en v7 ; `installShims: true` au manifeste,
+c'est ce drapeau qui les garde et il est devenu opt-in en v6.12.0) :
 `bmad-create-prd`, `bmad-edit-prd`, `bmad-validate-prd` → utiliser `bmad-prd` ;
-`bmad-create-architecture` → utiliser `bmad-architecture`. Si l'utilisateur les nomme,
+`bmad-create-architecture` → utiliser `bmad-architecture` ;
+`bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-review-verification-gap`, `bmad-editorial-review`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure` → utiliser `bmad-review` et nommer la lentille ;
+`bmad-technical-research`, `bmad-domain-research`, `bmad-market-research` → utiliser `bmad-deep-recon` et nommer le type ;
+`bmad-document-project`, `bmad-generate-project-context` → utiliser `bmad-project-context` ;
+`bmad-quick-dev`, `bmad-dev-story`, `bmad-create-story` → utiliser `bmad-build` ;
+`bmad-dev-auto` → utiliser `bmad-build-auto` ;
+`bmad-checkpoint-preview` → utiliser `bmad-walkthrough` ;
+`bmad-sprint-status` → utiliser `bmad-sprint-planning`. Si l'utilisateur les nomme,
 router vers la skill canonique et le dire.
 
 <!-- BMAD-ROUTAGE:END -->
@@ -612,9 +650,12 @@ vierge, elle n'a ni la table de routage ni le TOML.
 
 Deux points que la mesure impose :
 
-- **Seules les 13 skills du régime « d'office » y figurent**, et un test l'exige. Une salle
+- **Seules les 8 skills du régime « d'office » y figurent**, et un test l'exige. Elles étaient
+  13 avant la migration v6.12.0 : la consolidation des cinq lentilles de revue dans
+  `bmad-review` et des trois recherches dans `bmad-deep-recon` en a retiré cinq **sans rien
+  retirer de couvert** — le besoin est le même, il passe par une skill au lieu de trois. Une salle
   ne modifie aucun fichier : y router une skill qui écrit casserait son invariant, c'est-à-dire
-  la garde de R4 contre une auto-application collective. Les 29 « proposé » restent
+  la garde de R4 contre une auto-application collective. Les 21 « proposé » restent
   atteignables par le porteur ou en inline, sur arbitrage.
 - **`resolve_party.py` ne remonte PAS ce champ** — il ne rend qu'un jeu de clés fixe. C'est
   toi qui lis le TOML, ce que ce paragraphe t'impose déjà pour le manifeste. Patcher le
