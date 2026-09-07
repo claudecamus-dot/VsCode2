@@ -1,0 +1,251 @@
+"""Filet de robustesse sur les points d'entrée utilisateur sans garde
+(constat audit-technique VSCode2, 2026-09-04, dimension robustesse,
+`.claude/audits/VSCode2.json` côté hub) : import .docx corrompu (trame ET
+entretien), champ caché JSON tronqué/altéré à la confirmation d'import de
+trame, template PPTX déclenchant un débordement géométrique à l'export — plus
+le filet de dernier recours applicatif (`@app.exception_handler`) qui
+n'existait pas du tout.
+
+Chaque test reproduit le cas RÉEL nommé par l'audit sur un flux HTTP complet
+(vraies fonctions `python-docx`, `json.loads`, `build_presentation`), pas un
+mock qui esquiverait le chemin de code justement en cause.
+"""
+from __future__ import annotations
+
+import pytest
+from fastapi.testclient import TestClient
+
+from app.db import DB_PATH, SessionLocal, engine, init_db
+from app.main import app
+from app.models import Interview
+
+
+def setup_module() -> None:
+    if DB_PATH.exists():
+        DB_PATH.unlink()
+    init_db()
+
+
+def teardown_module() -> None:
+    try:
+        engine.dispose()
+    except Exception:
+        pass
+    if DB_PATH.exists():
+        DB_PATH.unlink()
+
+
+@pytest.fixture
+def client() -> TestClient:
+    return TestClient(app)
+
+
+@pytest.fixture
+def client_http() -> TestClient:
+    """Client qui n'escamote PAS l'erreur serveur en exception Python : c'est
+    la réponse reçue par le navigateur qu'on veut voir (même convention que
+    `test_interview_pdf_export.py:client_http`)."""
+    return TestClient(app, raise_server_exceptions=False)
+
+
+def _creer_mission(client: TestClient, name: str) -> str:
+    response = client.post(
+        "/missions",
+        data={"name": name, "description": "Description de test"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    return response.headers["location"].rsplit("/", 1)[-1]
+
+
+def _creer_mission_avec_entretien(client: TestClient, name: str) -> str:
+    """`synthese/apercu.html` (rendu par `export_pptx` en cas d'erreur) masque
+    tout — y compris le message d'erreur — derrière l'écran « aucun entretien »
+    tant que la mission n'en a aucun (`{% if not mission.interviews %}`) : il
+    en faut un, minimal, pour observer le comportement réel de la route."""
+    mission_id = _creer_mission(client, name)
+    session = SessionLocal()
+    try:
+        session.add(
+            Interview(
+                mission_id=int(mission_id),
+                interviewee_name="Alice Martin",
+                mode="libre",
+                status="done",
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+    return mission_id
+
+
+# Extension .docx correcte, contenu invalide : ni un zip, ni a fortiori un
+# paquet OPC — reproduit un fichier renommé ou tronqué à l'upload, PAS une
+# erreur d'extraction IA (déjà couverte par ailleurs).
+_DOCX_CORROMPU = b"Ceci n'est pas un fichier .docx valide, juste du texte."
+
+
+# --------------------------------------------------------------------------- #
+# 1. app/routers/trames.py:import_docx — .docx corrompu (audit robustesse #2)
+# --------------------------------------------------------------------------- #
+def test_import_trame_docx_corrompu_ne_leve_pas_500(client: TestClient) -> None:
+    """`parse_docx_bytes` rouvre le fichier via `Document()` (python-docx)
+    sans garde : avant correctif, `zipfile.BadZipFile` remontait telle
+    quelle en 500 brut alors que seule l'extension était vérifiée."""
+    mission_id = _creer_mission(client, "Trame docx corrompu")
+    response = client.post(
+        f"/missions/{mission_id}/trame/import",
+        files={
+            "file": (
+                "import.docx",
+                _DOCX_CORROMPU,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert "invalide ou corrompu" in response.text
+
+
+def test_import_trame_docx_corrompu_en_mode_ia_ne_leve_pas_500(client: TestClient) -> None:
+    """Même contenu corrompu, `ai_mode=True` cette fois : le fichier est relu
+    par `extract_text_bytes` (même famille d'erreur), sur le second des deux
+    call-sites touchés par ce même défaut."""
+    mission_id = _creer_mission(client, "Trame docx corrompu IA")
+    response = client.post(
+        f"/missions/{mission_id}/trame/import",
+        files={
+            "file": (
+                "import.docx",
+                _DOCX_CORROMPU,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+        data={"ai_mode": "true"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert "invalide ou corrompu" in response.text
+
+
+# --------------------------------------------------------------------------- #
+# 2. app/routers/interviews.py — import d'entretien depuis un .docx corrompu
+# --------------------------------------------------------------------------- #
+def test_import_interview_docx_corrompu_ne_leve_pas_500(client: TestClient) -> None:
+    """Même famille de défaut sur le chemin d'import d'entretien depuis un
+    document : le `try/except` existant n'attrapait que
+    `InterviewExtractAIError`, pas l'échec de lecture du fichier lui-même."""
+    mission_id = _creer_mission(client, "Entretien docx corrompu")
+    response = client.post(
+        f"/missions/{mission_id}/interviews/import",
+        files={
+            "file": (
+                "entretien.docx",
+                _DOCX_CORROMPU,
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            )
+        },
+        data={"interviewee_name": "Alice Martin"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert "invalide ou corrompu" in response.text
+
+
+# --------------------------------------------------------------------------- #
+# 3. app/routers/trames.py:import_confirm — champ caché JSON tronqué/altéré
+# --------------------------------------------------------------------------- #
+def test_import_confirm_trame_json_tronque_rend_400_pas_500(client: TestClient) -> None:
+    """`_parsed_from_json` fait `json.loads` sans garde sur le champ caché qui
+    reposte toute la trame — tronqué (navigateur, proxy, taille de champ),
+    `JSONDecodeError` remontait brute avant correctif."""
+    mission_id = _creer_mission(client, "Confirm JSON tronque")
+    response = client.post(
+        f"/missions/{mission_id}/trame/import/confirm",
+        data={"parsed": '{"name": "Trame importée", "themes": [', "keep": []},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert "invalides ou tronquées" in response.json()["detail"]
+
+
+def test_import_confirm_trame_json_pas_un_objet_rend_400_pas_500(client: TestClient) -> None:
+    """Même route : JSON valide mais pas un objet (une liste) — `.get()`
+    appelé sur chaque entrée lève `AttributeError`, pas capturée avant
+    correctif."""
+    mission_id = _creer_mission(client, "Confirm JSON liste")
+    response = client.post(
+        f"/missions/{mission_id}/trame/import/confirm",
+        data={"parsed": '["pas un objet"]', "keep": []},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert "invalides ou tronquées" in response.json()["detail"]
+
+
+# --------------------------------------------------------------------------- #
+# 4. app/routers/export.py:export_pptx — template déclenchant un débordement
+# --------------------------------------------------------------------------- #
+def test_export_pptx_template_incompatible_ne_leve_pas_500(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`build_presentation` lève `RuntimeError` PAR CONCEPTION sur
+    débordement géométrique (garde-fou US7.1, `pptx_export/build.py`) : un
+    template client aux dimensions inattendues ne doit pas faire planter la
+    route qui sert le livrable principal, seulement échouer proprement."""
+    mission_id = _creer_mission_avec_entretien(client, "Export PPTX template incompatible")
+
+    def _echoue(*args, **kwargs):
+        raise RuntimeError("Export PPT : formes hors cadre détectées —\n...")
+
+    monkeypatch.setattr("app.routers.export.build_presentation", _echoue)
+    response = client.get(f"/missions/{mission_id}/export/pptx", follow_redirects=False)
+    assert response.status_code == 200
+    assert "ne convient pas à ce contenu" in response.text
+
+
+def test_export_pptx_slide_manipulation_invalide_ne_leve_pas_500(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Second type d'échec « par conception » du même appel : `ValueError`
+    levée par `pptx_deck.py` sur une manipulation de slides du template
+    incompatible (assertion d'unicité, slide absente de `sldIdLst`)."""
+    mission_id = _creer_mission_avec_entretien(client, "Export PPTX slides incompatibles")
+
+    def _echoue(*args, **kwargs):
+        raise ValueError("slide id=1 absente de sldIdLst")
+
+    monkeypatch.setattr("app.routers.export.build_presentation", _echoue)
+    response = client.get(f"/missions/{mission_id}/export/pptx", follow_redirects=False)
+    assert response.status_code == 200
+    assert "ne convient pas à ce contenu" in response.text
+
+
+# --------------------------------------------------------------------------- #
+# 5. Filet de dernier recours applicatif — app/main.py:erreur_inattendue
+# --------------------------------------------------------------------------- #
+def test_exception_non_prevue_rend_500_propre_pas_de_trace_brute(
+    client_http: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Avant correctif, l'app ne déclarait AUCUN `@app.exception_handler` ni
+    middleware d'erreur : une exception échappant à tous les `try/except`
+    ciblés (régression non prévue, pas nécessairement l'une des 4 ci-dessus)
+    retombait sur le texte brut Starlette « Internal Server Error ». Ici, une
+    exception qu'aucun `except` de la route ne cible (`KeyError`, pas
+    `RuntimeError`/`ValueError`) doit quand même rendre un 500 JSON
+    générique, sans fuiter le type ni le message de l'exception."""
+    mission_id = _creer_mission(client_http, "Filet global")
+
+    def _explose(*args, **kwargs):
+        raise KeyError("régression non prévue, hors du try/except ciblé")
+
+    monkeypatch.setattr("app.routers.export.axes_of", _explose)
+    response = client_http.get(f"/missions/{mission_id}/export/pptx", follow_redirects=False)
+
+    assert response.status_code == 500
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {"detail": "Erreur interne inattendue."}
+    assert "KeyError" not in response.text
+    assert "Traceback" not in response.text

@@ -11,6 +11,7 @@ PowerPoint avec sélection de slides et upload d'un template PPT client
 from __future__ import annotations
 
 import io
+import logging
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
@@ -49,6 +50,8 @@ from ..services.pptx_export import build_presentation
 from ..templating import templates
 
 router = APIRouter(tags=["export"])
+
+logger = logging.getLogger(__name__)
 
 
 def _get_mission(db: Session, mission_id: int) -> Mission:
@@ -262,6 +265,7 @@ def generate_difficulties_view(
 @router.get("/missions/{mission_id}/export/pptx")
 def export_pptx(
     mission_id: int,
+    request: Request,
     db: Session = Depends(get_session),
     config_submitted: bool = False,
     sommaire: bool = False,
@@ -297,13 +301,34 @@ def export_pptx(
     else:
         include_kwargs = {}
 
-    prs = build_presentation(
-        mission, template_path=template_path,
-        axes_etude=axes_of(db, mission), **include_kwargs
-    )
-
-    buf = io.BytesIO()
-    prs.save(buf)
+    try:
+        prs = build_presentation(
+            mission, template_path=template_path,
+            axes_etude=axes_of(db, mission), **include_kwargs
+        )
+        buf = io.BytesIO()
+        prs.save(buf)
+    except (RuntimeError, ValueError):
+        # garde-fou : jamais de 500 brut sur l'export PPT, le livrable principal.
+        # `build_presentation` lève RuntimeError PAR CONCEPTION sur débordement
+        # géométrique (`verifier_geometrie`, build.py) et ValueError sur une
+        # manipulation de slides du template incompatible (pptx_deck.py) — un
+        # template client aux dimensions inattendues déclenche l'un ou l'autre
+        # (constat audit-technique robustesse VSCode2, 2026-09-04).
+        logger.exception("Échec de génération du PPTX (mission %s)", mission_id)
+        return templates.TemplateResponse(
+            request,
+            "synthese/apercu.html",
+            _synthese_context(
+                db,
+                mission,
+                error=(
+                    "Échec de la génération du PowerPoint : le template "
+                    "sélectionné ne convient pas à ce contenu (dimensions ou "
+                    "mise en page incompatibles)."
+                ),
+            ),
+        )
     filename = f"restitution_{slugify(mission.name)}.pptx"
     return Response(
         content=buf.getvalue(),

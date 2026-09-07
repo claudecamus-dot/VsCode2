@@ -1753,3 +1753,50 @@ def test_reduce_demande_les_axes_de_la_mission_pas_les_5_rubriques(
         "outillage_donnees": "- contenu outillage_donnees",
         "gouvernance": "- contenu gouvernance",
     }
+
+
+def test_build_identity_defaults_a_vide_et_neuf_cles() -> None:
+    """`_build_identity()` (extrait le 2026-09-07 d'un bloc à 9 clés recopié
+    12x dans interviews.py, dont 4 occurrences byte-identiques — constat
+    audit-technique `flotte:23-items-cadres`) rend toujours les 9 clés,
+    à leur valeur neutre par défaut quand l'appelant n'en fournit qu'un
+    sous-ensemble (ce que font 10 des 12 sites d'origine)."""
+    from app.routers.interviews import _build_identity
+
+    identity = _build_identity()
+    assert identity == {
+        "interviewee_name": "",
+        "interviewee_role": "",
+        "interviewee_entity": "",
+        "interview_date": "",
+        "audio_backup_path": "",
+        "audio_segments": "[]",
+        "transcript": "",
+        "session_token": "",
+        "segment_tail": "",
+    }
+
+
+def test_build_identity_ne_garde_que_les_champs_fournis_le_reste_neutre() -> None:
+    """Un site qui ne fournit que 4 champs (ex. l'import .docx, avant toute
+    transcription) doit obtenir les 4 valeurs demandées, jamais altérées, et
+    les 5 autres à leur valeur neutre — pas `None`, qui casserait `.strip()`
+    en aval (`_creer_interview_libre`, `_record_error`)."""
+    from app.routers.interviews import _build_identity
+
+    identity = _build_identity(
+        interviewee_name="Jean Dupont",
+        interviewee_role="DSI",
+        interviewee_entity="Acme",
+        interview_date="2026-09-07",
+    )
+    assert identity["interviewee_name"] == "Jean Dupont"
+    assert identity["interviewee_role"] == "DSI"
+    assert identity["interviewee_entity"] == "Acme"
+    assert identity["interview_date"] == "2026-09-07"
+    # Champs non fournis par ce site : valeur neutre, jamais None.
+    assert identity["audio_backup_path"] == ""
+    assert identity["audio_segments"] == "[]"
+    assert identity["transcript"] == ""
+    assert identity["session_token"] == ""
+    assert identity["segment_tail"] == ""

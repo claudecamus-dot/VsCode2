@@ -243,6 +243,40 @@ def _mission_questions(mission: Mission) -> list[Question]:
     return [q for t in mission.trame.themes for q in t.questions]
 
 
+def _build_identity(
+    interviewee_name: str = "",
+    interviewee_role: str = "",
+    interviewee_entity: str = "",
+    interview_date: str = "",
+    audio_backup_path: str = "",
+    audio_segments: str = "[]",
+    transcript: str = "",
+    session_token: str = "",
+    segment_tail: str = "",
+) -> dict:
+    """Construit le dict `identity` porté par les écrans de revue/erreur et
+    consommé à l'enregistrement (`_creer_interview_libre`, `_identite_fusionnee`).
+
+    Un même bloc à 9 clés était recopié à l'identique sur 12 sites de ce
+    fichier (4 occurrences byte-identiques) — chaque route ne fournit que le
+    sous-ensemble de champs qu'elle a réellement collecté à son étape du
+    parcours (formulaire, étape précédente) ; les autres restent à leur valeur
+    neutre par défaut, sans changer la forme lue en aval : toutes les lectures
+    de ce dict passent par `.get(cle, repli)` (constat audit-technique
+    2026-09-04, `flotte:23-items-cadres`)."""
+    return {
+        "interviewee_name": interviewee_name,
+        "interviewee_role": interviewee_role,
+        "interviewee_entity": interviewee_entity,
+        "interview_date": interview_date,
+        "audio_backup_path": audio_backup_path,
+        "audio_segments": audio_segments,
+        "transcript": transcript,
+        "session_token": session_token,
+        "segment_tail": segment_tail,
+    }
+
+
 def _proposed_to_json(identity: dict, extracted: dict[int, dict], tranches_manquantes: int = 0) -> str:
     return json.dumps(
         {
@@ -306,12 +340,12 @@ async def import_interview(
         raise HTTPException(status_code=400, detail="Un fichier .docx est attendu.")
 
     questions = _mission_questions(mission)
-    identity = {
-        "interviewee_name": interviewee_name,
-        "interviewee_role": interviewee_role,
-        "interviewee_entity": interviewee_entity,
-        "interview_date": interview_date,
-    }
+    identity = _build_identity(
+        interviewee_name=interviewee_name,
+        interviewee_role=interviewee_role,
+        interviewee_entity=interviewee_entity,
+        interview_date=interview_date,
+    )
 
     try:
         text = extract_text_bytes(await file.read())
@@ -323,6 +357,23 @@ async def import_interview(
             request,
             "interviews/import.html",
             {"mission": mission, "error": str(exc), "identity": identity},
+        )
+    except Exception:
+        # garde-fou : un .docx corrompu (extension correcte, contenu invalide)
+        # fait lever une erreur AVANT extract_answers_from_text — hors du seul
+        # type capturé ci-dessus (constat audit-technique robustesse VSCode2,
+        # 2026-09-04 : `extract_text_bytes` rouvre le fichier via python-docx
+        # `Document()`, dont l'échec sur un contenu corrompu n'est pas une
+        # sous-classe de `InterviewExtractAIError`).
+        logger.exception("Échec de lecture du .docx importé (mission %s)", mission_id)
+        return templates.TemplateResponse(
+            request,
+            "interviews/import.html",
+            {
+                "mission": mission,
+                "error": "Fichier .docx invalide ou corrompu.",
+                "identity": identity,
+            },
         )
 
     if not extracted:
@@ -514,19 +565,19 @@ def record_interview(
     # depuis 2026-07-25 : à l'arrivée ici il ne reste en général que le
     # reliquat (`segment_tail`) à traiter en synchrone.
     mission = _get_mission(db, mission_id)
-    identity = {
-        "interviewee_name": interviewee_name,
-        "interviewee_role": interviewee_role,
-        "interviewee_entity": interviewee_entity,
-        "interview_date": interview_date,
-        "audio_backup_path": audio_backup_path,
-        # Préservé en cas de ré-affichage du formulaire (erreur d'extraction) :
-        # un transcript peut représenter 1h-1h30 d'entretien, il serait
-        # inacceptable de le perdre parce que l'appel IA a échoué.
-        "transcript": transcript,
-        "session_token": session_token,
-        "segment_tail": segment_tail,
-    }
+    # `transcript` préservé en cas de ré-affichage du formulaire (erreur
+    # d'extraction) : un transcript peut représenter 1h-1h30 d'entretien, il
+    # serait inacceptable de le perdre parce que l'appel IA a échoué.
+    identity = _build_identity(
+        interviewee_name=interviewee_name,
+        interviewee_role=interviewee_role,
+        interviewee_entity=interviewee_entity,
+        interview_date=interview_date,
+        audio_backup_path=audio_backup_path,
+        transcript=transcript,
+        session_token=session_token,
+        segment_tail=segment_tail,
+    )
 
     if not transcript.strip():
         return _record_error(request, mission, identity, "Aucun texte transcrit.")
@@ -572,16 +623,16 @@ def record_from_jobs(
     sont terminés (ou un a échoué) — fusion/récupération bornée puis écran de
     revue. Même helper que `record_interview` sur le chemin sans attente."""
     mission = _get_mission(db, mission_id)
-    identity = {
-        "interviewee_name": interviewee_name,
-        "interviewee_role": interviewee_role,
-        "interviewee_entity": interviewee_entity,
-        "interview_date": interview_date,
-        "audio_backup_path": audio_backup_path,
-        "transcript": transcript,
-        "session_token": session_token,
-        "segment_tail": segment_tail,
-    }
+    identity = _build_identity(
+        interviewee_name=interviewee_name,
+        interviewee_role=interviewee_role,
+        interviewee_entity=interviewee_entity,
+        interview_date=interview_date,
+        audio_backup_path=audio_backup_path,
+        transcript=transcript,
+        session_token=session_token,
+        segment_tail=segment_tail,
+    )
     if not transcript.strip():
         return _record_error(request, mission, identity, "Aucun texte transcrit.")
     return _finalize_record_answers(
@@ -666,9 +717,7 @@ def _libre_turns_error(request, mission, identity, message):
 def _tours_vides() -> dict:
     return {
         "turns": [],
-        "identity": {
-            "interviewee_name": "", "interviewee_role": "", "interviewee_entity": "",
-        },
+        "identity": _build_identity(),
     }
 
 
@@ -831,17 +880,17 @@ def record_libre(
     db: Session = Depends(get_session),
 ):
     mission = _get_mission(db, mission_id)
-    identity = {
-        "interviewee_name": interviewee_name,
-        "interviewee_role": interviewee_role,
-        "interviewee_entity": interviewee_entity,
-        "interview_date": interview_date,
-        "audio_backup_path": audio_backup_path,
-        "audio_segments": audio_segments,
-        "transcript": transcript,
-        "session_token": session_token,
-        "segment_tail": segment_tail,
-    }
+    identity = _build_identity(
+        interviewee_name=interviewee_name,
+        interviewee_role=interviewee_role,
+        interviewee_entity=interviewee_entity,
+        interview_date=interview_date,
+        audio_backup_path=audio_backup_path,
+        audio_segments=audio_segments,
+        transcript=transcript,
+        session_token=session_token,
+        segment_tail=segment_tail,
+    )
 
     if not transcript.strip():
         return _libre_turns_error(request, mission, identity, "Aucun texte transcrit.")
@@ -990,17 +1039,17 @@ def record_libre_from_jobs(
     a échoué), on fusionne/retombe sur le synchrone et on affiche la revue des
     tours. Même helper que `record_libre` sur le chemin sans attente."""
     mission = _get_mission(db, mission_id)
-    identity = {
-        "interviewee_name": interviewee_name,
-        "interviewee_role": interviewee_role,
-        "interviewee_entity": interviewee_entity,
-        "interview_date": interview_date,
-        "audio_backup_path": audio_backup_path,
-        "audio_segments": audio_segments,
-        "transcript": transcript,
-        "session_token": session_token,
-        "segment_tail": segment_tail,
-    }
+    identity = _build_identity(
+        interviewee_name=interviewee_name,
+        interviewee_role=interviewee_role,
+        interviewee_entity=interviewee_entity,
+        interview_date=interview_date,
+        audio_backup_path=audio_backup_path,
+        audio_segments=audio_segments,
+        transcript=transcript,
+        session_token=session_token,
+        segment_tail=segment_tail,
+    )
     return _finalize_libre_turns(
         db, request, mission, identity, transcript, session_token, segment_tail,
     )
@@ -1049,17 +1098,17 @@ def record_libre_enregistrer(
     des tranches encore en traitement — mais la suite enregistre l'entretien au
     lieu d'ouvrir la revue des tours."""
     mission = _get_mission(db, mission_id)
-    identity = {
-        "interviewee_name": interviewee_name,
-        "interviewee_role": interviewee_role,
-        "interviewee_entity": interviewee_entity,
-        "interview_date": interview_date,
-        "audio_backup_path": audio_backup_path,
-        "audio_segments": audio_segments,
-        "transcript": transcript,
-        "session_token": session_token,
-        "segment_tail": segment_tail,
-    }
+    identity = _build_identity(
+        interviewee_name=interviewee_name,
+        interviewee_role=interviewee_role,
+        interviewee_entity=interviewee_entity,
+        interview_date=interview_date,
+        audio_backup_path=audio_backup_path,
+        audio_segments=audio_segments,
+        transcript=transcript,
+        session_token=session_token,
+        segment_tail=segment_tail,
+    )
 
     if not transcript.strip():
         return _libre_turns_error(request, mission, identity, "Aucun texte transcrit.")
@@ -1095,17 +1144,17 @@ def record_libre_enregistrer_from_jobs(
     """Finalisation de l'enregistrement direct après l'écran d'attente — pendant
     synchrone de `record_libre_from_jobs` pour le chemin sans revue."""
     mission = _get_mission(db, mission_id)
-    identity = {
-        "interviewee_name": interviewee_name,
-        "interviewee_role": interviewee_role,
-        "interviewee_entity": interviewee_entity,
-        "interview_date": interview_date,
-        "audio_backup_path": audio_backup_path,
-        "audio_segments": audio_segments,
-        "transcript": transcript,
-        "session_token": session_token,
-        "segment_tail": segment_tail,
-    }
+    identity = _build_identity(
+        interviewee_name=interviewee_name,
+        interviewee_role=interviewee_role,
+        interviewee_entity=interviewee_entity,
+        interview_date=interview_date,
+        audio_backup_path=audio_backup_path,
+        audio_segments=audio_segments,
+        transcript=transcript,
+        session_token=session_token,
+        segment_tail=segment_tail,
+    )
     if not transcript.strip():
         return _libre_turns_error(request, mission, identity, "Aucun texte transcrit.")
     return _enregistrer_libre_direct(
@@ -1138,15 +1187,15 @@ def record_libre_retour(
         {
             "mission": mission,
             "recording_available": audio_transcribe.is_available(),
-            "identity": {
-                "interviewee_name": interviewee_name,
-                "interviewee_role": interviewee_role,
-                "interviewee_entity": interviewee_entity,
-                "interview_date": interview_date,
-                "audio_backup_path": audio_backup_path,
-                "audio_segments": audio_segments,
-                "transcript": transcript,
-            },
+            "identity": _build_identity(
+                interviewee_name=interviewee_name,
+                interviewee_role=interviewee_role,
+                interviewee_entity=interviewee_entity,
+                interview_date=interview_date,
+                audio_backup_path=audio_backup_path,
+                audio_segments=audio_segments,
+                transcript=transcript,
+            ),
         },
     )
 
@@ -1180,14 +1229,14 @@ def record_libre_retour_tours(
             "turns": _parse_turns_from_form(
                 turn_interlocuteur, turn_question, turn_remarque, turn_section_title
             ),
-            "identity": {
-                "interviewee_name": interviewee_name,
-                "interviewee_role": interviewee_role,
-                "interviewee_entity": interviewee_entity,
-                "interview_date": interview_date,
-                "audio_backup_path": audio_backup_path,
-                "audio_segments": audio_segments,
-            },
+            "identity": _build_identity(
+                interviewee_name=interviewee_name,
+                interviewee_role=interviewee_role,
+                interviewee_entity=interviewee_entity,
+                interview_date=interview_date,
+                audio_backup_path=audio_backup_path,
+                audio_segments=audio_segments,
+            ),
             "transcript": transcript,
         },
     )
@@ -1343,14 +1392,14 @@ def record_libre_synthese(
     les 5 catégories de synthèse + le résumé, puis affiche l'écran de revue
     de la synthèse avant enregistrement définitif."""
     mission = _get_mission(db, mission_id)
-    identity = {
-        "interviewee_name": interviewee_name,
-        "interviewee_role": interviewee_role,
-        "interviewee_entity": interviewee_entity,
-        "interview_date": interview_date,
-        "audio_backup_path": audio_backup_path,
-        "audio_segments": audio_segments,
-    }
+    identity = _build_identity(
+        interviewee_name=interviewee_name,
+        interviewee_role=interviewee_role,
+        interviewee_entity=interviewee_entity,
+        interview_date=interview_date,
+        audio_backup_path=audio_backup_path,
+        audio_segments=audio_segments,
+    )
     turns = _parse_turns_from_form(
         turn_interlocuteur, turn_question, turn_remarque, turn_section_title
     )
@@ -1441,14 +1490,14 @@ def record_libre_confirm(
             {
                 "mission": mission,
                 "turns": [],
-                "identity": {
-                    "interviewee_name": interviewee_name,
-                    "interviewee_role": interviewee_role,
-                    "interviewee_entity": interviewee_entity,
-                    "interview_date": interview_date,
-                    "audio_backup_path": audio_backup_path,
-                    "audio_segments": audio_segments,
-                },
+                "identity": _build_identity(
+                    interviewee_name=interviewee_name,
+                    interviewee_role=interviewee_role,
+                    interviewee_entity=interviewee_entity,
+                    interview_date=interview_date,
+                    audio_backup_path=audio_backup_path,
+                    audio_segments=audio_segments,
+                ),
                 "transcript": transcript,
                 "error": "Aucun tour de parole à enregistrer — corrige au moins un tour.",
             },

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import logging
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -20,6 +21,8 @@ from ..services.trame_extract_ai import TrameExtractAIError, extract_trame_from_
 from ..templating import templates
 
 router = APIRouter(prefix="/missions/{mission_id}/trame", tags=["trame"])
+
+logger = logging.getLogger(__name__)
 
 
 def _get_mission(db: Session, mission_id: int) -> Mission:
@@ -199,7 +202,19 @@ async def import_docx(
         raise HTTPException(status_code=400, detail="Un fichier .docx est attendu.")
 
     content = await file.read()
-    parsed = None if ai_mode else parse_docx_bytes(content)
+    try:
+        parsed = None if ai_mode else parse_docx_bytes(content)
+    except Exception:
+        # garde-fou : seule l'extension était vérifiée jusqu'ici — un .docx
+        # corrompu (contenu invalide derrière une extension correcte) fait
+        # lever une erreur brute de python-docx/zipfile, jamais interceptée
+        # (constat audit-technique robustesse VSCode2, 2026-09-04).
+        logger.exception("Échec de lecture du .docx importé (mission %s)", mission_id)
+        return templates.TemplateResponse(
+            request,
+            "trames/import.html",
+            {"mission": mission, "error": "Fichier .docx invalide ou corrompu."},
+        )
 
     ai_error = None
     if parsed is None or not parsed.themes:
@@ -208,6 +223,17 @@ async def import_docx(
         except TrameExtractAIError as exc:
             ai_error = str(exc)
             parsed = parsed or ParsedTrame(name="Trame importée")
+        except Exception:
+            # Même garde-fou : en mode IA (`ai_mode=True`), `extract_text_bytes`
+            # relit le même fichier via `Document()` et peut lever la même
+            # famille d'erreurs, non capturée par le `except` ci-dessus qui ne
+            # couvre que l'échec de l'appel IA lui-même.
+            logger.exception("Échec de lecture du .docx importé (mission %s)", mission_id)
+            return templates.TemplateResponse(
+                request,
+                "trames/import.html",
+                {"mission": mission, "error": "Fichier .docx invalide ou corrompu."},
+            )
 
     if not parsed.themes:
         return templates.TemplateResponse(
@@ -237,7 +263,20 @@ def import_confirm(
     db: Session = Depends(get_session),
 ):
     mission = _get_mission(db, mission_id)
-    parsed_trame = _parsed_from_json(parsed)
+    try:
+        parsed_trame = _parsed_from_json(parsed)
+    except (json.JSONDecodeError, AttributeError, TypeError):
+        # garde-fou : le champ caché transporte toute la trame re-postée par
+        # le navigateur (`_parsed_to_json`) — tronqué, il lève JSONDecodeError ;
+        # valide mais pas un objet (liste/chaîne), le `.get()` sur les entrées
+        # lève AttributeError/TypeError — ni l'un ni l'autre n'était intercepté
+        # (constat audit-technique robustesse VSCode2, 2026-09-04). L'utilisateur
+        # perdrait sinon tout son travail de revue par case à cocher pour un 500 brut.
+        logger.exception("Données d'import de trame invalides (mission %s)", mission_id)
+        raise HTTPException(
+            status_code=400,
+            detail="Données d'import invalides ou tronquées — recommencez l'import.",
+        )
     _merge_parsed_trame(mission, parsed_trame, set(keep))
     db.commit()
     # Après import : on présente l'aperçu (questions importées + actions :

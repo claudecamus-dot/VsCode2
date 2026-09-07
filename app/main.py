@@ -1,11 +1,15 @@
 """Point d'entrée FastAPI — Interview-to-Deck (incrément 1)."""
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -65,6 +69,20 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Interview-to-Deck", lifespan=lifespan)
 app.middleware("http")(verifier_origine)
+
+
+@app.exception_handler(Exception)
+async def erreur_inattendue(request: Request, exc: Exception) -> JSONResponse:
+    """Filet de dernier recours : aucune route ne devrait laisser fuiter une
+    exception non prévue, mais quand une régression en laisse échapper une
+    (cas non couvert par un try/except ciblé), ceci évite qu'elle plante le
+    worker ou renvoie une trace brute au client — 500 générique, détail
+    complet journalisé côté serveur seulement (constat audit-technique
+    robustesse VSCode2, 2026-09-04 : aucun `@app.exception_handler` ni
+    middleware d'erreur n'existait). Sans effet sur les `HTTPException`
+    (gérées par un handler Starlette plus spécifique, jamais atteintes ici)."""
+    logger.exception("Exception non gérée sur %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Erreur interne inattendue."})
 
 
 @app.get("/__fraicheur")
