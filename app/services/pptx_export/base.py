@@ -10,7 +10,7 @@ from pathlib import Path
 from pptx import Presentation
 from pptx.enum.shapes import PP_PLACEHOLDER
 from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
-from pptx.util import Emu, Inches, Pt
+from pptx.util import Emu, Pt
 
 from .. import pptx_deck as D
 from .images import _FRAMED_OK
@@ -222,10 +222,7 @@ def _new_slide(prs: Presentation, title: str, max_title_lines: int = 2):
             # CETTE slide (jamais sur le layout/master : leurs placeholders
             # sont résolus par héritage et se sont révélés instables à muter
             # directement avec python-pptx — cf. essai précédent).
-            title_shape.left = Inches(MARGIN)
-            title_shape.top = Inches(0.3)
-            title_shape.width = Inches(w_in - 2 * MARGIN)
-            title_shape.height = Inches(1.1)
+            D.definir_geometrie(title_shape, MARGIN, 0.3, w_in - 2 * MARGIN, 1.1)
         title_w_in = Emu(title_shape.width).inches if title_shape.width is not None else (w_in - 2 * MARGIN)
         title_top_in = Emu(title_shape.top).inches if title_shape.top is not None else 0.3
         # Jamais de troncature d'un titre de slide (demande 2026-07-23) : un
@@ -239,8 +236,7 @@ def _new_slide(prs: Presentation, title: str, max_title_lines: int = 2):
             size = max(_TITLE_SIZE_MIN, size - 1.0)
         title_shape.text = title
         tf = title_shape.text_frame
-        tf.word_wrap = True
-        tf.auto_size = MSO_AUTO_SIZE.NONE
+        D.configurer_text_frame(tf, wrap=True, autosize=MSO_AUTO_SIZE.NONE)
         for p in tf.paragraphs:
             for run in p.runs:
                 run.font.size = Pt(size)

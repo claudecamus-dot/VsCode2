@@ -221,27 +221,14 @@ def add_text(slide, l, t, w, h, lignes, anchor=MSO_ANCHOR.TOP, align=PP_ALIGN.LE
 
 def add_rect(slide, l, t, w, h, fill=None, line=None, line_w=1.0, rounded=False,
              radius=0.12):
-    shp = slide.shapes.add_shape(
-        MSO_SHAPE.ROUNDED_RECTANGLE if rounded else MSO_SHAPE.RECTANGLE,
-        Inches(l), Inches(t), Inches(w), Inches(h))
-    _no_shadow(shp)
-    if rounded:
-        try:
-            shp.adjustments[0] = radius
-        except Exception:
-            pass
-    if fill is None:
-        shp.fill.background()
-    else:
-        shp.fill.solid()
-        shp.fill.fore_color.rgb = rgb(fill)
-    if line is None:
-        shp.line.fill.background()
-    else:
-        shp.line.color.rgb = rgb(line)
-        shp.line.width = Pt(line_w)
-    shp.text_frame.paragraphs[0].text = ""
-    return shp
+    """Rectangle (droit ou coins arrondis) — cas particulier d'`add_forme`
+    (dont la logique fill/line/ombre/texte vide est identique caractère pour
+    caractère) figé sous ce nom pour ne pas casser les call sites existants,
+    bien plus nombreux que ceux d'`add_forme`."""
+    return add_forme(
+        slide, "roundRect" if rounded else "rect", l, t, w, h,
+        fill=fill, line=line, line_w=line_w, adj=[radius] if rounded else None,
+    )
 
 
 # --- Formes et texte « riches » (remonte depuis VSCode4, arbitrage 2026-09-03) ---
@@ -903,6 +890,16 @@ def sans_puce(paragraph):
 # ---------------------------------------------------------------------------
 # Helpers durcis deck binaire (remontes depuis VSCode4, arbitrage 2026-09-03 —
 # lecons payees la-bas sur le deck OHC, runs du 2026-07-21)
+#
+# STATUT (finding flotte:23-items-cadres, arbitrage 2026-09-07) : trouver_slide_par_titre/
+# supprimer_slide/_normaliser n'ont aucun appelant dans ce projet -- ce depot
+# reconstruit toujours le deck a plat (build_presentation vide TOUTES les slides
+# via clear_slides avant de reecrire), jamais une suppression/remplacement CIBLE
+# par titre. Bibliotheque de reference flotte non encore adoptee ICI, pas du code
+# mort accidentel : conservee pour le jour ou un chantier (edition partielle d'un
+# deck existant, template client a slides mixtes) en aura reellement besoin.
+# Meme statut pour definir_paragraphes/add_text_runs plus haut (aucun texte
+# multi-runs par paragraphe n'existe aujourd'hui dans le generateur).
 # ---------------------------------------------------------------------------
 # Regle AJOUTER-AVANT-SUPPRIMER : quand on remplace une slide d'un deck binaire,
 # creer la nouvelle slide AVANT de supprimer l'ancienne — un delete puis add

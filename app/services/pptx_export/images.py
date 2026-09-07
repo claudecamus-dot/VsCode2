@@ -10,6 +10,8 @@ from pathlib import Path
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Inches
 
+from .. import pptx_deck as D
+
 # --- Cadres photo (têtes de chapitre, P3) : skill pptx-framed-image (greffé,
 # présent dans .claude/skills/). Import gardé — si le skill/Pillow manque, les
 # intercalaires retombent proprement sur leur version texte-seul (cf. _slide_chapitre).
@@ -40,16 +42,15 @@ _SCENE_REQUETE = {
 
 def _find_teardrop_frame(shapes):
     """`(left, top, width, height, geom)` du cadre photo teardrop d'un layout
-    (le layout « 50 - Chapitre » place son cadre en top-level, pas dans un groupe),
-    ou None. Même principe que pptx-framed-image.frame_geometry, cas non groupé."""
-    for sh in shapes:
-        spPr = getattr(sh._element, "spPr", None)
-        if spPr is None:
-            continue
-        g = spPr.find(qn("a:prstGeom"))
-        if g is not None and g.get("prst") == "teardrop":
-            return sh.left, sh.top, sh.width, sh.height, g
-    return None
+    (le layout « 50 - Chapitre » place son cadre en top-level, pas dans un
+    groupe), ou None. Délègue à `pptx_deck.trouver_cadre_layout` (bibliothèque
+    partagée VSCode4, arbitrage 2026-09-07) — même recherche par `prstGeom`,
+    ici sans le param flip (jamais réappliqué à une image, cf. son docstring)."""
+    trouve = D.trouver_cadre_layout(shapes, "teardrop")
+    if trouve is None:
+        return None
+    left, top, width, height, geom, _flip = trouve
+    return left, top, width, height, geom
 
 
 def _resoudre_image_cachee(base: str, scene: str, seed: int, aspect: float,

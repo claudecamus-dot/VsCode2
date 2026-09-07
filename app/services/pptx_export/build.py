@@ -4,6 +4,7 @@ le garde-fou géométrique. Extrait de pptx_export.py (découpage du gros
 module, finding audit 2026-07-24) — code déplacé tel quel."""
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from pptx import Presentation
@@ -12,6 +13,8 @@ from pptx.util import Inches
 from ...models import Mission
 from .. import pptx_deck as D
 from .base import _H_IN, _W_IN, OCTO_TEMPLATE_PATH, _clear_slides
+
+logger = logging.getLogger(__name__)
 from .slides_cadre import (
     _CH_DIAGNOSTIC,
     _CH_PAROLE,
@@ -192,6 +195,20 @@ def build_presentation(
     if problemes:
         raise RuntimeError(
             "Export PPT : formes hors cadre détectées —\n" + "\n".join(problemes)
+        )
+
+    # Filet anti-corruption avant remise au routeur (0 en pratique ici : les
+    # suppressions de slide de ce module passent déjà par drop_rel) — coût nul
+    # dans le cas sain, garde-fou bon marché avant tout save() en aval. Le
+    # retour n'est PAS ignoré (revue adversariale 2026-09-07) : un filet qui
+    # répare en silence ne détecterait jamais la régression qu'il existe pour
+    # attraper.
+    purges = D.purger_rels_slides_orphelines(prs)
+    if purges:
+        logger.warning(
+            "build_presentation : %d relation(s) de slide orpheline(s) purgée(s) "
+            "avant export — une suppression de slide en amont a sauté drop_rel",
+            purges,
         )
 
     return prs
