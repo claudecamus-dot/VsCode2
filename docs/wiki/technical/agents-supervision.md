@@ -8,7 +8,7 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-09-07T12:19:35+02:00 · **78 sessions** (transcripts) · **183** invocations de skills · **127** lancements de sous-agents.
+Dernier scan : 2026-09-07T12:59:27+02:00 · **78 sessions** (transcripts) · **183** invocations de skills · **127** lancements de sous-agents.
 
 ## Skills — usage réel
 
@@ -54,11 +54,11 @@ Dernier scan : 2026-09-07T12:19:35+02:00 · **78 sessions** (transcripts) · **1
 
 `audit-technique`, `veille-agentic`
 
-**BMAD** — 36/39 jamais invoqués :
+**BMAD** — 47/50 jamais invoqués :
 
 <details><summary>Voir la liste</summary>
 
-`bmad-advanced-elicitation`, `bmad-agent-analyst`, `bmad-agent-architect`, `bmad-agent-dev`, `bmad-agent-pm`, `bmad-agent-tech-writer`, `bmad-agent-ux-designer`, `bmad-architecture`, `bmad-brainstorming`, `bmad-check-implementation-readiness`, `bmad-checkpoint-preview`, `bmad-correct-course`, `bmad-create-epics-and-stories`, `bmad-create-story`, `bmad-customize`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-forge-idea`, `bmad-generate-project-context`, `bmad-help`, `bmad-index-docs`, `bmad-market-research`, `bmad-prd`, `bmad-prfaq`, `bmad-product-brief`, `bmad-retrospective`, `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-shard-doc`, `bmad-sprint-planning`, `bmad-technical-research`, `bmad-ux`
+`bmad-advanced-elicitation`, `bmad-agent-analyst`, `bmad-agent-architect`, `bmad-agent-dev`, `bmad-agent-pm`, `bmad-agent-ux-designer`, `bmad-architecture`, `bmad-brainstorming`, `bmad-build`, `bmad-build-auto`, `bmad-checkpoint-preview`, `bmad-correct-course`, `bmad-create-architecture`, `bmad-create-epics-and-stories`, `bmad-create-prd`, `bmad-create-story`, `bmad-customize`, `bmad-deep-recon`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-edit-prd`, `bmad-editorial-review`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-forge-idea`, `bmad-generate-project-context`, `bmad-help`, `bmad-market-research`, `bmad-prd`, `bmad-prfaq`, `bmad-product-brief`, `bmad-project-context`, `bmad-qa-generate-e2e-tests`, `bmad-quick-dev`, `bmad-retrospective`, `bmad-review`, `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-review-verification-gap`, `bmad-spec`, `bmad-sprint-planning`, `bmad-technical-research`, `bmad-ux`, `bmad-validate-prd`, `bmad-walkthrough`
 
 </details>
 

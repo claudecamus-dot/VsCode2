@@ -24,17 +24,6 @@ conformément à la règle de routage BMAD du catalogue.
   ],
   "etapes": [
     {
-      "id": "bmad-product-brief",
-      "agent": "bmad-product-brief",
-      "mode": "cascade",
-      "modele": "(session)",
-      "contrat": {
-        "type": "deterministe",
-        "critere": "artefact « product brief » produit dans planning_artifacts"
-      },
-      "checkpoint": false
-    },
-    {
       "id": "bmad-prd",
       "agent": "bmad-prd",
       "mode": "cascade",
@@ -42,6 +31,17 @@ conformément à la règle de routage BMAD du catalogue.
       "contrat": {
         "type": "deterministe",
         "critere": "artefact « prd » produit dans planning_artifacts"
+      },
+      "checkpoint": false
+    },
+    {
+      "id": "bmad-product-brief",
+      "agent": "bmad-product-brief",
+      "mode": "cascade",
+      "modele": "(session)",
+      "contrat": {
+        "type": "deterministe",
+        "critere": "artefact « product brief » produit dans planning_artifacts"
       },
       "checkpoint": false
     },
@@ -68,17 +68,6 @@ conformément à la règle de routage BMAD du catalogue.
       "checkpoint": false
     },
     {
-      "id": "bmad-check-implementation-readiness",
-      "agent": "bmad-check-implementation-readiness",
-      "mode": "cascade",
-      "modele": "(session)",
-      "contrat": {
-        "type": "deterministe",
-        "critere": "artefact « readiness report » produit dans planning_artifacts"
-      },
-      "checkpoint": "gate humain : PRD/UX/architecture/stories alignés avant d'engager l'implémentation"
-    },
-    {
       "id": "bmad-sprint-planning",
       "agent": "bmad-sprint-planning",
       "mode": "cascade",
@@ -90,36 +79,13 @@ conformément à la règle de routage BMAD du catalogue.
       "checkpoint": false
     },
     {
-      "id": "bmad-create-story-create",
-      "agent": "bmad-create-story:create",
+      "id": "bmad-build",
+      "agent": "bmad-build",
       "mode": "cascade",
       "modele": "(session)",
       "contrat": {
         "type": "deterministe",
-        "critere": "artefact « story » produit dans implementation_artifacts"
-      },
-      "checkpoint": false
-    },
-    {
-      "id": "bmad-create-story-validate",
-      "agent": "bmad-create-story:validate",
-      "mode": "cascade",
-      "modele": "(session)",
-      "contrat": {
-        "type": "deterministe",
-        "critere": "artefact « story validation report » produit dans implementation_artifacts"
-      },
-      "checkpoint": false
-    },
-    {
-      "id": "bmad-dev-story",
-      "agent": "bmad-dev-story",
-      "mode": "cascade",
-      "modele": "(session)",
-      "contrat": {
-        "type": "deterministe",
-        "critere": "story implémentée, suite du projet verte",
-        "commande": "pytest -q"
+        "critere": "artefact « spec and project implementation » produit dans implementation_artifacts"
       },
       "checkpoint": false
     },

@@ -13,7 +13,7 @@
 [core]
 project_name = "VSCode2"
 document_output_language = "English"
-output_folder = "_bmad-output"
+output_folder = "{project-root}/_bmad-output"
 
 [modules.bmm]
 planning_artifacts = "{project-root}/_bmad-output/planning-artifacts"
@@ -27,14 +27,6 @@ name = "Mary"
 title = "Business Analyst"
 icon = "📊"
 description = "Channels Porter's strategic rigor and Minto's Pyramid Principle, grounds every finding in verifiable evidence, represents every stakeholder voice. Speaks like a treasure hunter narrating the find: thrilled by every clue, precise once the pattern emerges."
-
-[agents.bmad-agent-tech-writer]
-module = "bmm"
-team = "software-development"
-name = "Paige"
-title = "Technical Writer"
-icon = "📚"
-description = "Master of CommonMark, DITA, and OpenAPI; turns complex concepts into accessible structured docs, favors diagrams over walls of text, every word earning its place. Speaks like the patient teacher you wish you'd had, using analogies that make complex things feel simple."
 
 [agents.bmad-agent-pm]
 module = "bmm"

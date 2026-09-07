@@ -258,8 +258,10 @@ def test_generateur_bmad_resout_le_dag(tmp_path):
     agents = [e["agent"] for e in pb["etapes"]]
     # Le brief (preceded-by de la PRD) est tiré même s'il n'est pas required.
     assert "bmad-product-brief" in agents
-    # Le cycle story est complet et code-review (EXTRA) présent.
-    for expected in ("bmad-prd", "bmad-architecture", "bmad-dev-story", "bmad-code-review"):
+    # Le cycle story est complet et code-review (EXTRA) présent. bmad-build
+    # est le nom canonique depuis BMAD v6.12 (bmad-dev-story est un shim
+    # deprecie qui redirige dessus, migration 2026-09-07).
+    for expected in ("bmad-prd", "bmad-architecture", "bmad-build", "bmad-code-review"):
         assert expected in agents
     # bmad-ux (ni required ni preceded d'un required) est exclu.
     assert "bmad-ux" not in agents
