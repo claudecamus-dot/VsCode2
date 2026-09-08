@@ -19,6 +19,7 @@ from ..importers.docx_trame import (
 from ..models import Mission, Question, Theme, QUESTION_TYPES
 from ..services.trame_extract_ai import TrameExtractAIError, extract_trame_from_text
 from ..templating import templates
+from ..uploads import UploadTropVolumineux, lire_upload_borne, verifier_zip_borne
 
 router = APIRouter(prefix="/missions/{mission_id}/trame", tags=["trame"])
 
@@ -201,7 +202,26 @@ async def import_docx(
     if not (file.filename or "").lower().endswith(".docx"):
         raise HTTPException(status_code=400, detail="Un fichier .docx est attendu.")
 
-    content = await file.read()
+    try:
+        # Bornes AVANT tout dépaquetage (finding audit-technique securite du
+        # 2026-09-04) : `await file.read()` nu matérialisait tout le corps en
+        # RAM, et python-docx dépaquetait l'archive sans plafond (zip-bomb).
+        content = await lire_upload_borne(file)
+        verifier_zip_borne(content)
+    except UploadTropVolumineux as exc:
+        return templates.TemplateResponse(
+            request,
+            "trames/import.html",
+            {"mission": mission, "error": str(exc)},
+        )
+    except Exception:
+        logger.exception("Archive .docx illisible à l'import (mission %s)", mission_id)
+        return templates.TemplateResponse(
+            request,
+            "trames/import.html",
+            {"mission": mission, "error": "Fichier .docx invalide ou corrompu."},
+        )
+
     try:
         parsed = None if ai_mode else parse_docx_bytes(content)
     except Exception:

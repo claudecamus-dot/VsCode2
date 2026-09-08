@@ -48,6 +48,7 @@ from ..services.analyse_import import (
 from ..services.mission_export import build_export_markdown, slugify
 from ..services.pptx_export import build_presentation
 from ..templating import templates
+from ..uploads import UploadTropVolumineux, lire_upload_borne, verifier_zip_borne
 
 router = APIRouter(tags=["export"])
 
@@ -133,7 +134,7 @@ async def import_analyse(
     global_synthesis = _get_or_create_global_synthesis(db, mission)
     db.commit()
     try:
-        raw = await file.read()
+        raw = await lire_upload_borne(file)
         text = decode_text_upload(raw)
         parsed = parse_analysis_markdown(text, axes_of(db, mission))
 
@@ -142,7 +143,10 @@ async def import_analyse(
         if parsed["axes"]:
             _apply_recommendations_result(db, mission, parsed["axes"])
         db.commit()
-    except AnalysisParseError as exc:
+    except (AnalysisParseError, UploadTropVolumineux) as exc:
+        # Deux exceptions PORTEUSES d'un message écrit pour l'utilisateur (le
+        # détail du parsing, ou le plafond dépassé) : rendues telles quelles,
+        # à la différence du garde-fou générique ci-dessous.
         db.rollback()
         return templates.TemplateResponse(
             request, "synthese/export_import.html", _synthese_context(db, mission, error=str(exc))
@@ -355,11 +359,21 @@ async def upload_pptx_template(
             _synthese_context(db, mission, error="Un fichier .pptx est attendu."),
         )
 
-    content = await file.read()
     try:
         from pptx import Presentation
 
+        # Bornes AVANT que python-pptx ne dépaquette (finding audit-technique
+        # securite du 2026-09-04) : le .pptx est une archive ZIP, un template
+        # « client » forgé pouvait faire exploser la RAM au dépaquetage.
+        content = await lire_upload_borne(file)
+        verifier_zip_borne(content)
         Presentation(io.BytesIO(content))  # valide que le fichier est un vrai .pptx
+    except UploadTropVolumineux as exc:
+        return templates.TemplateResponse(
+            request,
+            "synthese/apercu.html",
+            _synthese_context(db, mission, error=str(exc)),
+        )
     except Exception:
         return templates.TemplateResponse(
             request,

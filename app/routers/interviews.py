@@ -81,6 +81,7 @@ from ..services.interview_segment_jobs import (
 )
 from ..services.mission_axes import axes_of
 from ..templating import templates
+from ..uploads import UploadTropVolumineux, lire_upload_borne, verifier_zip_borne
 
 
 def _parse_repartition(repartition_json: str, valeurs_nommees: tuple) -> dict:
@@ -348,11 +349,22 @@ async def import_interview(
     )
 
     try:
-        text = extract_text_bytes(await file.read())
+        # Bornes AVANT que python-docx ne dépaquette (finding audit-technique
+        # securite du 2026-09-04) : `await file.read()` nu matérialisait tout
+        # le corps en RAM, et l'archive était dépaquetée sans plafond.
+        contenu = await lire_upload_borne(file)
+        verifier_zip_borne(contenu)
+        text = extract_text_bytes(contenu)
         # L'extraction IA dure des minutes (appels LLM par question) : hors de la
         # boucle d'événements, sinon toute l'app est gelée pendant l'import.
         extracted = await asyncio.to_thread(extract_answers_from_text, questions, text)
     except InterviewExtractAIError as exc:
+        return templates.TemplateResponse(
+            request,
+            "interviews/import.html",
+            {"mission": mission, "error": str(exc), "identity": identity},
+        )
+    except UploadTropVolumineux as exc:
         return templates.TemplateResponse(
             request,
             "interviews/import.html",
