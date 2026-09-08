@@ -14,9 +14,12 @@ Rappels que la commande ne dispense pas de lire dans la skill :
 - insérer d'office les `verifications_oubliees` de `.claude/orchestration/routing-hints.json` ;
 - **R4** — si la demande implique d'appliquer une reco du superviseur ou d'adopter une
   trouvaille de veille non encore arbitrée, présenter et attendre l'arbitrage ;
-- **journaliser** le run en fin de course avec `py .claude/orchestration/log_run.py`, avec
-  un `resultat` discriminant (`en-attente-validation` tant que l'utilisateur n'a pas validé
-  un livrable qui lui est destiné).
+- **journaliser** le run en fin de course avec `py .claude/orchestration/log_run.py` —
+  **uniquement si le livrable est une correction ou un bug traité** (règle du 2026-09-07 :
+  un état des lieux, une propagation, une réception de diagnostic ou une reprise de travaux
+  ne sont pas des runs). Avec un `resultat` discriminant (`en-attente-validation` tant que
+  l'utilisateur n'a pas validé un livrable qui lui est destiné) et, si le run ferme un
+  finding, l'arbitrage de clôture citant le commit — sans lui, le compteur ne bouge pas.
 
 Demande à orchestrer :
 
