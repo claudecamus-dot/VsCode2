@@ -1,6 +1,6 @@
 ---
 name: agent-orchestrator
-description: Orchestrateur des agents et skills du projet — qualifie une demande de travail, compose un plan (cascade / parallèle / asynchrone, modèle par étape), l'exécute en s'appuyant sur le catalogue et les données du superviseur, puis journalise le run. Lance réellement du multi-agents via l'outil Agent (fan-out parallèle dans un même message, arrière-plan notifié, SendMessage pour continuer un sous-agent, isolation worktree pour les écritures concurrentes, modèle par agent). Sait aussi APPLIQUER une recommandation arbitrée du superviseur (findings de diagnostic.json des deux volets — usage des agents ET pratiques test/dev/revue/design) via le playbook evolution-flotte, puis enregistrer l'arbitrage. Traite la commande « adopte <trouvaille> » (verbe d'arbitrage de la veille) : applique la regle_proposee au référentiel/scan et l'action_corrective aux projets concernés, passe l'entrée de veille.json en adopte (ou ecarte) et trace l'arbitrage. CONVOQUE les 12 salles de table ronde du hub (§ 2 septies) quand la demande pose un choix à instruire — refonte, adoption, partition d un chantier, faux consensus — au lieu d un travail à exécuter : la salle délibère et rend un compte rendu qui alimente le plan, elle ne modifie aucun fichier. Route les skills BMAD installées par besoin détecté (v6.12.0 : 50 sur le disque, 29 canoniques routées et 21 shims dépréciés jamais routés — table de § 2 quinquies : d'office pour les passes de lecture/critique qui rendent un rapport — revue, recherche, rétrospective ; annoncé-puis-validé dès qu'une skill coûte cher OU écrit un fichier réel — PRD, architecture, stories, code, documentation) et dispose pour cela de trois sous-agents porteurs de l'outil Skill — bmad-revue, bmad-recherche, veille-agentic ; les autres skills partent inline, quatre porteurs jamais invoques ayant ete mis en sommeil le 2026-09-01. Atteignable de trois façons : cette skill, le sous-agent agent-orchestrator (délégation d'une orchestration entière), ou la commande /orchestre. À charger quand une demande implique plusieurs étapes/agents, des vérifications obligatoires, ou « applique/traite la reco du superviseur » — ou quand la grille du hook UserPromptSubmit route ici.
+description: Orchestrateur des agents et skills du projet — qualifie une demande de travail, compose un plan (cascade / parallèle / asynchrone, modèle par étape), l'exécute en s'appuyant sur le catalogue et les données du superviseur, puis journalise le run. Lance réellement du multi-agents via l'outil Agent (fan-out parallèle dans un même message, arrière-plan notifié, SendMessage pour continuer un sous-agent, isolation worktree pour les écritures concurrentes, modèle par agent). Sait aussi APPLIQUER une recommandation arbitrée du superviseur (findings de diagnostic.json des deux volets — usage des agents ET pratiques test/dev/revue/design) via le playbook evolution-flotte, puis enregistrer l'arbitrage. Traite la commande « adopte <trouvaille> » (verbe d'arbitrage de la veille) : applique la regle_proposee au référentiel/scan et l'action_corrective aux projets concernés, passe l'entrée de veille.json en adopte (ou ecarte) et trace l'arbitrage. CONVOQUE les 12 salles de table ronde du hub (§ 2 septies) quand la demande pose un choix à instruire — refonte, adoption, partition d un chantier, faux consensus — au lieu d un travail à exécuter : la salle délibère et rend un compte rendu qui alimente le plan, elle ne modifie aucun fichier. Route les skills BMAD installées par besoin détecté (v6.12.0 : 29 canoniques routées ; les 21 shims dépréciés, jamais invoqués, ont été retirés du hub le 2026-09-08 — table de § 2 quinquies : d'office pour les passes de lecture/critique qui rendent un rapport — revue, recherche, rétrospective ; annoncé-puis-validé dès qu'une skill coûte cher OU écrit un fichier réel — PRD, architecture, stories, code, documentation) et dispose pour cela de trois sous-agents porteurs de l'outil Skill — bmad-revue, bmad-recherche, veille-agentic ; les autres skills partent inline, quatre porteurs jamais invoques ayant ete mis en sommeil le 2026-09-01. Atteignable de trois façons : cette skill, le sous-agent agent-orchestrator (délégation d'une orchestration entière), ou la commande /orchestre. À charger quand une demande implique plusieurs étapes/agents, des vérifications obligatoires, ou « applique/traite la reco du superviseur » — ou quand la grille du hook UserPromptSubmit route ici.
 ---
 
 # Agent orchestrateur (étages O-A + O-B + O-C)
@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : 1e4129a du 2026-09-07 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`1e4129a`, 2026-09-07) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : da014a2 du 2026-09-08 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`da014a2`, 2026-09-08) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -385,10 +385,17 @@ cosmétique.
 
 ### 2 quinquies. Router vers les skills BMAD
 
-BMAD-METHOD est installé ici (**v6.12.0**, core + bmm) : **50 skills sur le disque**, dont
-**29 canoniques** — les seules que la table ci-dessous route — et **21 shims dépréciés** qui
-ne font que rediriger vers leur remplaçante. Elles couvrent cadrage
-produit, conception, planification, implémentation, revue, documentation et recherche.
+BMAD-METHOD est installé ici (**v6.12.0**, core + bmm) : **29 skills canoniques sur le
+disque du hub** — les seules que la table ci-dessous route. Les **21 shims dépréciés** que la
+migration avait retenus par défaut ont été **retirés du hub le 2026-09-08** : 0 invocation
+depuis leur installation et ~2 180 tokens de listing payés à chaque tour (finding
+`VScode5:33-skills-bmad-jamais-invoquees-cout-listing`, mesuré par `/skill-doctor` du
+2026-09-07). Les projets de la flotte les portent encore tant que leur propre mesure ne les a
+pas jugés : leur compte reste plus élevé que celui du hub, et il n'est pas uniforme —
+mesuré le 2026-09-08, 46 chez VSCode1, 50 chez VSCode2/3/4, 71 chez VSCode. Un chiffre lu
+ici ne vaut donc que pour le hub ; sur une cible, le compter avant de s'en réclamer.
+Elles couvrent cadrage produit, conception, planification, implémentation, revue,
+documentation et recherche.
 La migration 6.10.0 → 6.12.0 (pilote du 2026-09-07) a consolidé cinq familles : les cinq
 lentilles de revue dans `bmad-review`, les trois recherches dans `bmad-deep-recon`, les deux
 skills de contexte projet dans `bmad-project-context`, `bmad-quick-dev`/`bmad-dev-story` dans
@@ -489,9 +496,11 @@ remplaçant : rédiger directement), `bmad-check-implementation-readiness` (abso
 `bmad-sprint-planning`, qui porte désormais la gate), `bmad-agent-tech-writer` — le persona
 Paige est retiré du catalogue, ce qui fait passer les agents BMAD installés de 6 à 5.
 
-**Jamais routées** — **dépréciées par BMAD**, conservées ici en shims de compatibilité qui
-se contentent de rediriger (21 au total, retirées en v7 ; `installShims: true` au manifeste,
-c'est ce drapeau qui les garde et il est devenu opt-in en v6.12.0) :
+**Jamais routées** — **dépréciées par BMAD** (21 noms, retirés en v7). Au hub, leurs shims
+de compatibilité ont été **retirés du disque le 2026-09-08** et `installShims` passé à
+`false` au manifeste (c'est ce drapeau, opt-in depuis la v6.12.0, qui les réinstallerait à
+la prochaine mise à jour) ; chez les cibles ils peuvent subsister. Dans les deux cas, si
+l'utilisateur les nomme, router vers la skill canonique et le dire :
 `bmad-create-prd`, `bmad-edit-prd`, `bmad-validate-prd` → utiliser `bmad-prd` ;
 `bmad-create-architecture` → utiliser `bmad-architecture` ;
 `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-review-verification-gap`, `bmad-editorial-review`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure` → utiliser `bmad-review` et nommer la lentille ;
@@ -500,8 +509,7 @@ c'est ce drapeau qui les garde et il est devenu opt-in en v6.12.0) :
 `bmad-quick-dev`, `bmad-dev-story`, `bmad-create-story` → utiliser `bmad-build` ;
 `bmad-dev-auto` → utiliser `bmad-build-auto` ;
 `bmad-checkpoint-preview` → utiliser `bmad-walkthrough` ;
-`bmad-sprint-status` → utiliser `bmad-sprint-planning`. Si l'utilisateur les nomme,
-router vers la skill canonique et le dire.
+`bmad-sprint-status` → utiliser `bmad-sprint-planning`.
 
 <!-- BMAD-ROUTAGE:END -->
 
