@@ -834,12 +834,12 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-09-07T12:59:27+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-09-08T17:47:51+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>78 sessions</strong> couvertes · <strong>183</strong> invocations de skills · <strong>127</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>80 sessions</strong> couvertes · <strong>187</strong> invocations de skills · <strong>133</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-09-07 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
+        <div class="tag-source">scan_transcripts.py · 2026-09-08 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
 
       <h3>Skills — usage réel</h3>
@@ -847,17 +847,17 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Skill</th><th>Famille</th><th>Invocations</th><th>Première</th><th>Dernière</th></tr></thead>
           <tbody>
-            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>51</td><td>2026-07-17</td><td>2026-09-07</td></tr>
-            <tr><td><code>run-dev-server</code></td><td>projet</td><td>44</td><td>2026-07-03</td><td>2026-09-04</td></tr>
-            <tr><td><code>agent-supervisor</code></td><td>projet</td><td>21</td><td>2026-07-18</td><td>2026-09-02</td></tr>
+            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>52</td><td>2026-07-17</td><td>2026-09-08</td></tr>
+            <tr><td><code>run-dev-server</code></td><td>projet</td><td>45</td><td>2026-07-03</td><td>2026-09-08</td></tr>
+            <tr><td><code>agent-supervisor</code></td><td>projet</td><td>22</td><td>2026-07-18</td><td>2026-09-07</td></tr>
             <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>14</td><td>2026-07-20</td><td>2026-09-07</td></tr>
-            <tr><td><code>revue-increment</code></td><td>projet</td><td>13</td><td>2026-07-18</td><td>2026-09-04</td></tr>
-            <tr><td><code>pptx-verify</code></td><td>global</td><td>11</td><td>2026-07-03</td><td>2026-09-07</td></tr>
+            <tr><td><code>revue-increment</code></td><td>projet</td><td>14</td><td>2026-07-18</td><td>2026-09-08</td></tr>
+            <tr><td><code>pptx-verify</code></td><td>projet</td><td>11</td><td>2026-07-03</td><td>2026-09-07</td></tr>
             <tr><td><code>update-config</code></td><td>(builtin/session)</td><td>6</td><td>2026-07-03</td><td>2026-07-16</td></tr>
             <tr><td><code>roadmap-keeper</code></td><td>global</td><td>4</td><td>2026-06-29</td><td>2026-07-15</td></tr>
             <tr><td><code>run</code></td><td>(builtin/session)</td><td>3</td><td>2026-06-29</td><td>2026-07-03</td></tr>
             <tr><td><code>deck-design-review</code></td><td>projet</td><td>2</td><td>2026-07-22</td><td>2026-07-28</td></tr>
-            <tr><td><code>pptx-deck</code></td><td>global</td><td>2</td><td>2026-07-02</td><td>2026-07-03</td></tr>
+            <tr><td><code>pptx-deck</code></td><td>projet</td><td>2</td><td>2026-07-02</td><td>2026-07-03</td></tr>
             <tr><td><code>skill-creator</code></td><td>global</td><td>2</td><td>2026-07-03</td><td>2026-07-03</td></tr>
             <tr><td><code>slide-text-polish</code></td><td>projet</td><td>2</td><td>2026-07-22</td><td>2026-07-22</td></tr>
             <tr><td><code>bmad-party-mode</code></td><td>BMAD</td><td>1</td><td>2026-07-31</td><td>2026-07-31</td></tr>
@@ -866,7 +866,7 @@ pytest -k "pptx or export"                                                     #
             <tr><td><code>deck-design-library</code></td><td>projet</td><td>1</td><td>2026-07-28</td><td>2026-07-28</td></tr>
             <tr><td><code>init</code></td><td>(builtin/session)</td><td>1</td><td>2026-07-03</td><td>2026-07-03</td></tr>
             <tr><td><code>priority-matrix</code></td><td>projet</td><td>1</td><td>2026-07-28</td><td>2026-07-28</td></tr>
-            <tr><td><code>restitution-deck-design</code></td><td>global</td><td>1</td><td>2026-07-22</td><td>2026-07-22</td></tr>
+            <tr><td><code>restitution-deck-design</code></td><td>projet</td><td>1</td><td>2026-07-22</td><td>2026-07-22</td></tr>
             <tr><td><code>swot-matrix</code></td><td>projet</td><td>1</td><td>2026-07-28</td><td>2026-07-28</td></tr>
           </tbody>
         </table>
@@ -877,9 +877,9 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Sous-agent</th><th>Lancements</th><th>Premier</th><th>Dernier</th></tr></thead>
           <tbody>
-            <tr><td><code>general-purpose</code></td><td>52</td><td>2026-07-15</td><td>2026-09-02</td></tr>
-            <tr><td><code>Explore</code></td><td>43</td><td>2026-06-30</td><td>2026-09-07</td></tr>
-            <tr><td><code>bmad-revue</code></td><td>23</td><td>2026-08-31</td><td>2026-09-07</td></tr>
+            <tr><td><code>general-purpose</code></td><td>55</td><td>2026-07-15</td><td>2026-09-08</td></tr>
+            <tr><td><code>Explore</code></td><td>45</td><td>2026-06-30</td><td>2026-09-07</td></tr>
+            <tr><td><code>bmad-revue</code></td><td>24</td><td>2026-08-31</td><td>2026-09-08</td></tr>
             <tr><td><code>claude</code></td><td>4</td><td>2026-07-16</td><td>2026-07-16</td></tr>
             <tr><td><code>Plan</code></td><td>3</td><td>2026-07-06</td><td>2026-07-17</td></tr>
             <tr><td><code>agent-supervisor</code></td><td>1</td><td>2026-09-01</td><td>2026-09-01</td></tr>
@@ -889,21 +889,21 @@ pytest -k "pptx or export"                                                     #
       </div>
 
       <h3>Jamais utilisés</h3>
-      <p><strong>projet</strong> — 2/13 jamais invoqués : <code>audit-technique</code>, <code>veille-agentic</code></p>
+      <p><strong>projet</strong> — 2/17 jamais invoqués : <code>audit-technique</code>, <code>veille-agentic</code></p>
       <p><strong>BMAD</strong> — 47/50 jamais invoqués : <details><summary>Voir la liste (47)</summary><p><code>bmad-advanced-elicitation</code>, <code>bmad-agent-analyst</code>, <code>bmad-agent-architect</code>, <code>bmad-agent-dev</code>, <code>bmad-agent-pm</code>, <code>bmad-agent-ux-designer</code>, <code>bmad-architecture</code>, <code>bmad-brainstorming</code>, <code>bmad-build</code>, <code>bmad-build-auto</code>, <code>bmad-checkpoint-preview</code>, <code>bmad-correct-course</code>, <code>bmad-create-architecture</code>, <code>bmad-create-epics-and-stories</code>, <code>bmad-create-prd</code>, <code>bmad-create-story</code>, <code>bmad-customize</code>, <code>bmad-deep-recon</code>, <code>bmad-dev-auto</code>, <code>bmad-dev-story</code>, <code>bmad-document-project</code>, <code>bmad-domain-research</code>, <code>bmad-edit-prd</code>, <code>bmad-editorial-review</code>, <code>bmad-editorial-review-prose</code>, <code>bmad-editorial-review-structure</code>, <code>bmad-forge-idea</code>, <code>bmad-generate-project-context</code>, <code>bmad-help</code>, <code>bmad-market-research</code>, <code>bmad-prd</code>, <code>bmad-prfaq</code>, <code>bmad-product-brief</code>, <code>bmad-project-context</code>, <code>bmad-qa-generate-e2e-tests</code>, <code>bmad-quick-dev</code>, <code>bmad-retrospective</code>, <code>bmad-review</code>, <code>bmad-review-adversarial-general</code>, <code>bmad-review-edge-case-hunter</code>, <code>bmad-review-verification-gap</code>, <code>bmad-spec</code>, <code>bmad-sprint-planning</code>, <code>bmad-technical-research</code>, <code>bmad-ux</code>, <code>bmad-validate-prd</code>, <code>bmad-walkthrough</code></p></details></p>
-      <p><strong>bibliothèque / référence</strong> — usage via scripts/sous-agent, non capté par le compteur (n=0 ≠ mort, constat #2) : <code>pdf-quality</code>, <code>pptx-framed-image</code></p>
+      <p><strong>bibliothèque / référence</strong> — usage via scripts/sous-agent, non capté par le compteur (n=0 ≠ mort, constat #2) : <code>pdf-quality</code>, <code>pptx-framed-image</code>, <code>revue-ui-web</code></p>
 
 
       <h3>TODO agents — chantiers à lancer (constats automatiques)</h3>
       <div class="critical">
         <p><strong>Skills projet sans usage</strong> : <code>audit-technique</code>, <code>veille-agentic</code> — vérifier pertinence et déclencheurs.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-09-07 · transcripts de session</div>
+        <div class="tag-source">scan_transcripts.py · 2026-09-08 · transcripts de session</div>
       </div>
       <div class="critical">
         <p><strong>Skills en sommeil (&gt;30 j sans usage)</strong> : <code>Plan</code>, <code>bmad-party-mode</code>, <code>bmad-sprint-status</code>, <code>claude</code>, <code>claude-api</code>, <code>claude-code-guide</code>, <code>deck-design-library</code>, <code>deck-design-review</code>, <code>init</code>, <code>pptx-deck</code>, <code>priority-matrix</code>, <code>restitution-deck-design</code>, <code>roadmap-keeper</code>, <code>run</code>, <code>skill-creator</code>, <code>slide-text-polish</code>, <code>swot-matrix</code>, <code>update-config</code>.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-09-07 · transcripts de session</div>
+        <div class="tag-source">scan_transcripts.py · 2026-09-08 · transcripts de session</div>
       </div>
 
       <h3>Arbitrages enregistrés</h3>
@@ -956,11 +956,39 @@ pytest -k "pptx or export"                                                     #
         <li><strong><code>dev-verifie</code></strong> (2026-09-07) : DÉJÀ RÉSOLU / re-challenge non fondé (constat diagnostic.json du 2026-09-04T20:37:45, prio 4, re_challenge:true, categorie verification-manquante — « sept tours consécutifs où un correctif introduit un défaut de la classe qu'il corrigeait »). Vérifié dans le code et le journal réels, pas supposé : la PREUVE citée par ce constat (runs.jsonl, 3e/4e itération du 2026-09-01, puis le run du 2026-09-02 « 6 majeurs sur 7 introduits » + le bloquant D2-B2 à prémisse fausse) est EXACTEMENT le run ts=2026-09-02T11:49:07+02:00 (chantier D1) qui a servi de CAS D'ÉCOLE MOTIVANT à l'étape `premisse` déjà ajoutée au playbook dev-verifie ce même jour (.claude/orchestration/playbooks/dev-verifie.md lignes 25-37, qui cite nommément D2-B2). Ce n'est donc pas une preuve que le correctif a échoué APRÈS coup, c'est la preuve qui a produit le correctif — déjà traitée par l'arbitrage DÉJÀ RÉSOLU du 2026-09-03 sur cette même cible. Les 2 runs dev-verifie postérieurs à l'ajout de l'étape (ts=2026-09-02T22:50:03, ts=2026-09-04T20:03:37) ne rapportent PAS de récidive du motif « correctif réintroduit sa propre classe de défaut » — aucune preuve neuve ne soutient le re_challenge. Aucune action de développement requise ; à re-challenger seulement avec une preuve postérieure à l'ajout de l'étape `premisse`.</li>
         <li><strong><code>flotte:23-items-cadres</code></strong> (2026-09-07) : ACCEPTÉ + APPLIQUÉ (arbitrage utilisateur du 2026-09-07 : « supprimer le code mort »). Constat : mode démo hors-ligne (~230 lignes inatteignables, SYNTHESE_DEMO sans effet). Vérifié avant suppression : `demo_enabled()` et les 6 fonctions `generate_demo_*` de synthese_ai.py n'avaient AUCUN appelant en dehors de leurs propres tests dédiés (grep sur app/ entier). Supprimés : `demo_enabled()` (ai_common.py), les 6 fonctions demo (synthese_ai.py, import `demo_enabled` retiré), 3 tests dédiés (test_difficultes.py, test_executive_summary.py, test_swot.py), et les 6 mentions doc résiduelles (docs/guide.html — paragraphe + noeud SVG + item de légende + item de liste, docs/product-brief.md, docs/reflexions/restitution-mission.md, docs/wiki/technical/stack.md, docs/wiki.html). Vérifié réel : py_compile + suite complète isolée 763 passed / 0 failed / 25 errors infra connues (aucune régression, delta exact de -3 tests supprimés vs la baseline de l'état des lieux du jour).</li>
         <li><strong><code>flotte:23-items-cadres</code></strong> (2026-09-07) : PARTIELLEMENT APPLIQUÉ (arbitrage utilisateur du 2026-09-07 : d'abord « câbler les 10 helpers restants », puis « inventer un point d'usage » pour ceux sans besoin fonctionnel). Constat : 254 lignes / 10 helpers de la bibliothèque partagée VSCode4 (commit d9e7196) jamais câblés dans pptx_deck.py. Investigation réelle AVANT d'écrire (R1) : 5 des 10 avaient un vrai doublon de logique à remplacer, pas seulement un compteur à faire bouger — `add_forme` (add_rect en est un cas particulier, refactoré pour déléguer), `definir_geometrie` + `configurer_text_frame` (pptx_export/base.py::_new_slide posait la géométrie/le text_frame du titre à la main), `trouver_cadre_layout` (pptx_export/images.py::_find_teardrop_frame dupliquait la même recherche par prstGeom, en moins sûr — sans le garde-fou largeur_min_in) et `purger_rels_slides_orphelines` (ajouté comme filet anti-corruption en fin de build_presentation, coût nul en pratique). Vérifié réel : suite complète isolée 763 passed/0 failed après chaque étape, ET rendu réel PowerPoint de 27 slides d'un export produit par l'app (cover, tête de chapitre au cadre teardrop, slide de synthèse à carte liserée, fiche recommandation à cartes/badges) — aucune régression visuelle. Les 5 restants (`definir_paragraphes`, `add_text_runs`, `trouver_slide_par_titre`, `supprimer_slide`, `_normaliser`) n'ont trouvé AUCUN point d'usage réel même en cherchant activement (aucun texte multi-runs existant à corriger, aucun besoin de suppression de slide PAR TITRE — `clear_slides` vide déjà tout sans distinction). Décision de l'orchestrateur, à confirmer par l'utilisateur : ne pas leur inventer un appelant artificiel (contredirait CLAUDE.md « pas de fonctionnalité au-delà du besoin » et le principe déjà posé § 2 septies de ne pas faire tourner du code pour faire baisser un compteur) — documentés comme bibliothèque de référence non adoptée plutôt que câblés de force. Aucun commit encore fait (reliquat non commité).</li>
+        <li><strong><code>write_diagnostic.py</code></strong> (2026-09-07) : REFERME (resynchronisation diagnostic.json avec les decisions existantes) : ce finding etait deja marque DEJA RESOLU par une arbitrage du 2026-09-03, mais le diagnostic.json avait ete reecrit le 2026-09-04 sans que le mecanisme de fermeture ne le voie (vu_le reinitialise a la reecriture). Aucun travail nouveau : simple resynchronisation, hub VScode5.</li>
+        <li><strong><code>log_run.py</code></strong> (2026-09-07) : REFERME (resynchronisation diagnostic.json) : deja marque DEJA RESOLU par arbitrage du 2026-09-03 (scan_transcripts.py::runs_a_solder implemente), diagnostic.json non resynchronise depuis. Hub VScode5.</li>
+        <li><strong><code>scan_transcripts.py</code></strong> (2026-09-07) : REFERME (resynchronisation diagnostic.json) : deja marque DEJA RESOLU par arbitrage du 2026-09-03 (backlog de triage compte). Hub VScode5.</li>
+        <li><strong><code>CLAUDE.md</code></strong> (2026-09-07) : REFERME (resynchronisation diagnostic.json) : deja marque DEJA RESOLU par arbitrage du 2026-09-03 (section R1-R4 restauree). Hub VScode5.</li>
+        <li><strong><code>flotte:23-items-cadres</code></strong> (2026-09-07) : ACCEPTE + APPLIQUE (campagne de nettoyage mecanique du 2026-09-07, mandat utilisateur) : bloc identity recopie 12x dans interviews.py -&gt; helper _build_identity(...) a 9 parametres, les 12 sites le consomment, commit 9ea45c4 (6 fichiers, 548+/119-). Verifie : 435 tests des fichiers impactes rejoues isolement, verts, plus 2 tests unitaires dedies. RESTE OUVERT et non couvert : routers/synthese.py = service deguise, 11 imports de symboles prives hors module (refactor traversant 3 fichiers, risque import circulaire) -- reconduit au diagnostic.</li>
       </ul>
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
-      <p><em>Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés.</em></p>
-      <p><em>9 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un <code>re_challenge</code> avec des données nouvelles :</em></p>
-      <ul><li><s>Ecrire un diagnostic EFFACE les constats precedents non arbitres — la boucle propose/arbitre/applique fuit a son premier maillon</s> (<code>write_diagnostic.py</code>)</li><li><s>Le journal ne se solde jamais : 4 runs restent en-attente-validation, dont celui du superviseur lui-meme</s> (<code>log_run.py</code>)</li><li><s>Sept tours consecutifs ou un correctif introduit un defaut de la classe qu'il corrigeait — le gate les attrape, la cause reste</s> (<code>dev-verifie</code>)</li><li><s>Le backlog de revue a triple sans qu'aucun compteur ne le voie : 115 identifiants de constat dans .claude/triage</s> (<code>scan_transcripts.py</code>)</li><li><s>Les regles R1 a R4 sont citees par la skill et par le journal, et ne sont definies nulle part</s> (<code>CLAUDE.md</code>)</li><li><s>Mode demo hors-ligne documente mais mort (~230 lignes inatteignables, SYNTHESE_DEMO sans effet)</s> (<code>flotte:23-items-cadres</code>)</li><li><s>254 lignes du commit d9e7196 (bibliotheque partagee VSCode4) jamais cablees dans l'application</s> (<code>flotte:23-items-cadres</code>)</li><li><s>Bloc identity recopie 12x dans interviews.py (4 occurrences a 9 cles byte-identiques)</s> (<code>flotte:23-items-cadres</code>)</li><li><s>routers/synthese.py = service deguise, 11 imports de symboles prives hors module</s> (<code>flotte:23-items-cadres</code>)</li></ul>
+      <p><em>Diagnostic à jour.</em></p>
+      <div class="critical">
+        <p><strong>Le code produit n'existe pour le journal et le gate qu'au commit : deux chantiers app/ en trois jours sans aucun run, l'un portant un bloquant</strong> — Rendre un chantier visible des sa premiere ecriture sous app/, pas a son commit : le gate ne protege que ce que le journal voit, et le rappel de reliquat ne declenche rien. · <strong>Proposition</strong> : (a) agent-orchestrator §5 + etape <code>cadrage</code> de dev-verifie (LOCAL) : <code>log_run.py</code> avec <code>resultat: en-cours</code> des la premiere etape d'ecriture sous app/, solde a la remise (le mecanisme existe deja). (b) scan_transcripts.py (CANON) : quand arbre_sale() compte &gt; 5 fichiers app/ (le seuil de revue-increment), la ligne SessionStart devient « gate d'abord » — la premiere etape autorisee de la seance est la revue adversariale du reliquat, avant toute reprise. (c) log_run.py (CANON) : ignorer un <code>ts</code> fourni et poser l'heure d'ecriture. Contrat verifiable : en_cours &gt; 0 dans routing-hints au prochain scan ; zero commit touchant app/ sans un run dont le ts precede le commit.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">agent-supervisor · étage 2</div>
+      </div>
+      <div class="critical">
+        <p><strong>La boucle propose-&gt;arbitre re-emet ses propres fermetures, puis les referme sans <code>categories</code> : quatre cibles sont redevenues sourdes</strong> — Une fermeture ne se re-emet jamais, et une entree sans <code>categories</code>/<code>source</code> ne s'ecrit jamais : le fichier d'arbitrages est un contrat, pas un journal libre. · <strong>Proposition</strong> : (a) write_diagnostic.py (CANON) : a la reconduction, un constat dont (cible, categorie) est ferme par un arbitrage date &gt;= sa PREMIERE apparition dans l'historique git de diagnostic.json (pas seulement le <code>vu_le</code> courant, reinitialisable) est ABANDONNE, pas reporte. (b) Tout script qui ecrit arbitrages.json (refuser_arbitrage.py, script de resynchronisation du hub) exige <code>categories</code> non vide et <code>source</code>, et ecrit en indent=2. (c) scan_transcripts.py::categories_inconnues signale aussi <code>categories</code> ABSENT sur toute entree datee apres 2026-07-28. (d) Corriger les 4 entrees [47]-[50] : categories = celles du constat ferme (interaction / interaction / autre / interaction), source = "hub". Contrat : un constat-test sur write_diagnostic.py, categorie verification-manquante, s'affiche au prochain scan.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">agent-supervisor · étage 2</div>
+      </div>
+      <div class="critical">
+        <p><strong>25 erreurs identiques a chaque suite complete (6/6 ce jour) : l'arbitrage du 2026-07-21 disait « exit 0 », le verdict se lit depuis en comptant les points</strong> — La suite doit pouvoir sortir 0 sur le poste de developpement : c'est le seul signal binaire disponible, et il est eteint en permanence depuis au moins le 2026-09-01. · <strong>Proposition</strong> : tests/conftest.py (LOCAL, effort S) : base SQLite et RECORDINGS_DIR PAR MODULE — fixture autouse scope=module qui pose APP_DB_PATH sur un fichier unique (tmp_path_factory) et appelle engine.dispose() en finalizer — au lieu d'une base unique en %TEMP% ; puis supprimer les 24 setup_module/teardown_module <code>unlink</code> devenus inutiles. Contrat : <code>pytest -q</code> exit 0 et ligne « N passed » seule, 3 runs consecutifs ; test_mission_backups.py stable sur ces 3 runs.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">agent-supervisor · étage 2</div>
+      </div>
+      <div class="critical">
+        <p><strong>57 constats de revue ouverts (le plus vieux : 7 j), 89 lignes non comptees, 0 ligne au tableau de bord — « compte » deux fois par arbitrage, lu par personne</strong> — La dette que le dispositif fabrique lui-meme (revues adversariales payantes) se compte juste et s'affiche la ou l'on decide ; sinon chaque revue ajoute du backlog sans retour. · <strong>Proposition</strong> : (a) LOCAL, effort S : normaliser les 89 lignes des 4 fichiers au gabarit (statut explicite ouvert/differe/corrige/ecarte/traite), puis solder ce que le code a deja corrige — les commits 9cdb110..9ea45c4 du 2026-09-07 couvrent plusieurs constats du 2026-09-04. (b) CANON : une ligne « backlog de revue : N ouverts, plus ancien J j » dans le bloc genere du wiki, TODO au-dela de 30 ouverts ou 14 j. (c) revue-increment §4 : une seance ne se clot pas avec un fichier de triage hors gabarit. Contrat : compter_triage.py rend 0 ligne hors vocabulaire ; la ligne apparait dans agents-supervision.md au prochain scan.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">agent-supervisor · étage 2</div>
+      </div>
+      <div class="critical">
+        <p><strong>routers/synthese.py = service deguise, 11 imports de symboles prives hors module</strong> — Deplacer les fonctions privees partagees vers un module de service dedie. · <strong>Proposition</strong> : Effort L, risque moyen. A arbitrer : refactor sequence (extraire le service, puis rediriger les 11 imports, tests a chaque etape) ou dette assumee.</p>
+        <span class="tag tag-confirme">CONFIRMÉ</span>
+        <div class="tag-source">agent-supervisor · étage 2</div>
+      </div>
     </section>
 <!-- TODO-AGENTS-HTML:END -->
 

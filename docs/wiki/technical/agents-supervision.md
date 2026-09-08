@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-07
+updated: 2026-09-08
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -8,23 +8,23 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-09-07T12:59:27+02:00 · **78 sessions** (transcripts) · **183** invocations de skills · **127** lancements de sous-agents.
+Dernier scan : 2026-09-08T17:47:51+02:00 · **80 sessions** (transcripts) · **187** invocations de skills · **133** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `agent-orchestrator` | projet | 51 | 2026-07-17 | 2026-09-07 |
-| `run-dev-server` | projet | 44 | 2026-07-03 | 2026-09-04 |
-| `agent-supervisor` | projet | 21 | 2026-07-18 | 2026-09-02 |
+| `agent-orchestrator` | projet | 52 | 2026-07-17 | 2026-09-08 |
+| `run-dev-server` | projet | 45 | 2026-07-03 | 2026-09-08 |
+| `agent-supervisor` | projet | 22 | 2026-07-18 | 2026-09-07 |
 | `bmad-code-review` | BMAD | 14 | 2026-07-20 | 2026-09-07 |
-| `revue-increment` | projet | 13 | 2026-07-18 | 2026-09-04 |
-| `pptx-verify` | global | 11 | 2026-07-03 | 2026-09-07 |
+| `revue-increment` | projet | 14 | 2026-07-18 | 2026-09-08 |
+| `pptx-verify` | projet | 11 | 2026-07-03 | 2026-09-07 |
 | `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
 | `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
 | `deck-design-review` | projet | 2 | 2026-07-22 | 2026-07-28 |
-| `pptx-deck` | global | 2 | 2026-07-02 | 2026-07-03 |
+| `pptx-deck` | projet | 2 | 2026-07-02 | 2026-07-03 |
 | `skill-creator` | global | 2 | 2026-07-03 | 2026-07-03 |
 | `slide-text-polish` | projet | 2 | 2026-07-22 | 2026-07-22 |
 | `bmad-party-mode` | BMAD | 1 | 2026-07-31 | 2026-07-31 |
@@ -33,16 +33,16 @@ Dernier scan : 2026-09-07T12:59:27+02:00 · **78 sessions** (transcripts) · **1
 | `deck-design-library` | projet | 1 | 2026-07-28 | 2026-07-28 |
 | `init` | (builtin/session) | 1 | 2026-07-03 | 2026-07-03 |
 | `priority-matrix` | projet | 1 | 2026-07-28 | 2026-07-28 |
-| `restitution-deck-design` | global | 1 | 2026-07-22 | 2026-07-22 |
+| `restitution-deck-design` | projet | 1 | 2026-07-22 | 2026-07-22 |
 | `swot-matrix` | projet | 1 | 2026-07-28 | 2026-07-28 |
 
 ## Sous-agents
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 52 | 2026-07-15 | 2026-09-02 |
-| `Explore` | 43 | 2026-06-30 | 2026-09-07 |
-| `bmad-revue` | 23 | 2026-08-31 | 2026-09-07 |
+| `general-purpose` | 55 | 2026-07-15 | 2026-09-08 |
+| `Explore` | 45 | 2026-06-30 | 2026-09-07 |
+| `bmad-revue` | 24 | 2026-08-31 | 2026-09-08 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
 | `agent-supervisor` | 1 | 2026-09-01 | 2026-09-01 |
@@ -50,7 +50,7 @@ Dernier scan : 2026-09-07T12:59:27+02:00 · **78 sessions** (transcripts) · **1
 
 ## Jamais utilisés
 
-**projet** — 2/13 jamais invoqués :
+**projet** — 2/17 jamais invoqués :
 
 `audit-technique`, `veille-agentic`
 
@@ -66,7 +66,7 @@ Dernier scan : 2026-09-07T12:59:27+02:00 · **78 sessions** (transcripts) · **1
 
 _Consommés en lisant/exécutant leurs `scripts/`, ou via un sous-agent qui les suit (ex. `ppt-designer`, qui n'a pas l'outil Skill) — le compteur d'invocations ne peut structurellement pas les voir. `n=0` n'y vaut donc PAS « mort » : ne pas désinstaller sur ce seul signal (constat superviseur #2)._
 
-`pdf-quality`, `pptx-framed-image`
+`pdf-quality`, `pptx-framed-image`, `revue-ui-web`
 
 ## TODO agents (constats automatiques)
 
@@ -124,22 +124,21 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 - **`dev-verifie`** (2026-09-07) : DÉJÀ RÉSOLU / re-challenge non fondé (constat diagnostic.json du 2026-09-04T20:37:45, prio 4, re_challenge:true, categorie verification-manquante — « sept tours consécutifs où un correctif introduit un défaut de la classe qu'il corrigeait »). Vérifié dans le code et le journal réels, pas supposé : la PREUVE citée par ce constat (runs.jsonl, 3e/4e itération du 2026-09-01, puis le run du 2026-09-02 « 6 majeurs sur 7 introduits » + le bloquant D2-B2 à prémisse fausse) est EXACTEMENT le run ts=2026-09-02T11:49:07+02:00 (chantier D1) qui a servi de CAS D'ÉCOLE MOTIVANT à l'étape `premisse` déjà ajoutée au playbook dev-verifie ce même jour (.claude/orchestration/playbooks/dev-verifie.md lignes 25-37, qui cite nommément D2-B2). Ce n'est donc pas une preuve que le correctif a échoué APRÈS coup, c'est la preuve qui a produit le correctif — déjà traitée par l'arbitrage DÉJÀ RÉSOLU du 2026-09-03 sur cette même cible. Les 2 runs dev-verifie postérieurs à l'ajout de l'étape (ts=2026-09-02T22:50:03, ts=2026-09-04T20:03:37) ne rapportent PAS de récidive du motif « correctif réintroduit sa propre classe de défaut » — aucune preuve neuve ne soutient le re_challenge. Aucune action de développement requise ; à re-challenger seulement avec une preuve postérieure à l'ajout de l'étape `premisse`.
 - **`flotte:23-items-cadres`** (2026-09-07) : ACCEPTÉ + APPLIQUÉ (arbitrage utilisateur du 2026-09-07 : « supprimer le code mort »). Constat : mode démo hors-ligne (~230 lignes inatteignables, SYNTHESE_DEMO sans effet). Vérifié avant suppression : `demo_enabled()` et les 6 fonctions `generate_demo_*` de synthese_ai.py n'avaient AUCUN appelant en dehors de leurs propres tests dédiés (grep sur app/ entier). Supprimés : `demo_enabled()` (ai_common.py), les 6 fonctions demo (synthese_ai.py, import `demo_enabled` retiré), 3 tests dédiés (test_difficultes.py, test_executive_summary.py, test_swot.py), et les 6 mentions doc résiduelles (docs/guide.html — paragraphe + noeud SVG + item de légende + item de liste, docs/product-brief.md, docs/reflexions/restitution-mission.md, docs/wiki/technical/stack.md, docs/wiki.html). Vérifié réel : py_compile + suite complète isolée 763 passed / 0 failed / 25 errors infra connues (aucune régression, delta exact de -3 tests supprimés vs la baseline de l'état des lieux du jour).
 - **`flotte:23-items-cadres`** (2026-09-07) : PARTIELLEMENT APPLIQUÉ (arbitrage utilisateur du 2026-09-07 : d'abord « câbler les 10 helpers restants », puis « inventer un point d'usage » pour ceux sans besoin fonctionnel). Constat : 254 lignes / 10 helpers de la bibliothèque partagée VSCode4 (commit d9e7196) jamais câblés dans pptx_deck.py. Investigation réelle AVANT d'écrire (R1) : 5 des 10 avaient un vrai doublon de logique à remplacer, pas seulement un compteur à faire bouger — `add_forme` (add_rect en est un cas particulier, refactoré pour déléguer), `definir_geometrie` + `configurer_text_frame` (pptx_export/base.py::_new_slide posait la géométrie/le text_frame du titre à la main), `trouver_cadre_layout` (pptx_export/images.py::_find_teardrop_frame dupliquait la même recherche par prstGeom, en moins sûr — sans le garde-fou largeur_min_in) et `purger_rels_slides_orphelines` (ajouté comme filet anti-corruption en fin de build_presentation, coût nul en pratique). Vérifié réel : suite complète isolée 763 passed/0 failed après chaque étape, ET rendu réel PowerPoint de 27 slides d'un export produit par l'app (cover, tête de chapitre au cadre teardrop, slide de synthèse à carte liserée, fiche recommandation à cartes/badges) — aucune régression visuelle. Les 5 restants (`definir_paragraphes`, `add_text_runs`, `trouver_slide_par_titre`, `supprimer_slide`, `_normaliser`) n'ont trouvé AUCUN point d'usage réel même en cherchant activement (aucun texte multi-runs existant à corriger, aucun besoin de suppression de slide PAR TITRE — `clear_slides` vide déjà tout sans distinction). Décision de l'orchestrateur, à confirmer par l'utilisateur : ne pas leur inventer un appelant artificiel (contredirait CLAUDE.md « pas de fonctionnalité au-delà du besoin » et le principe déjà posé § 2 septies de ne pas faire tourner du code pour faire baisser un compteur) — documentés comme bibliothèque de référence non adoptée plutôt que câblés de force. Aucun commit encore fait (reliquat non commité).
+- **`write_diagnostic.py`** (2026-09-07) : REFERME (resynchronisation diagnostic.json avec les decisions existantes) : ce finding etait deja marque DEJA RESOLU par une arbitrage du 2026-09-03, mais le diagnostic.json avait ete reecrit le 2026-09-04 sans que le mecanisme de fermeture ne le voie (vu_le reinitialise a la reecriture). Aucun travail nouveau : simple resynchronisation, hub VScode5.
+- **`log_run.py`** (2026-09-07) : REFERME (resynchronisation diagnostic.json) : deja marque DEJA RESOLU par arbitrage du 2026-09-03 (scan_transcripts.py::runs_a_solder implemente), diagnostic.json non resynchronise depuis. Hub VScode5.
+- **`scan_transcripts.py`** (2026-09-07) : REFERME (resynchronisation diagnostic.json) : deja marque DEJA RESOLU par arbitrage du 2026-09-03 (backlog de triage compte). Hub VScode5.
+- **`CLAUDE.md`** (2026-09-07) : REFERME (resynchronisation diagnostic.json) : deja marque DEJA RESOLU par arbitrage du 2026-09-03 (section R1-R4 restauree). Hub VScode5.
+- **`flotte:23-items-cadres`** (2026-09-07) : ACCEPTE + APPLIQUE (campagne de nettoyage mecanique du 2026-09-07, mandat utilisateur) : bloc identity recopie 12x dans interviews.py -> helper _build_identity(...) a 9 parametres, les 12 sites le consomment, commit 9ea45c4 (6 fichiers, 548+/119-). Verifie : 435 tests des fichiers impactes rejoues isolement, verts, plus 2 tests unitaires dedies. RESTE OUVERT et non couvert : routers/synthese.py = service deguise, 11 imports de symboles prives hors module (refactor traversant 3 fichiers, risque import circulaire) -- reconduit au diagnostic.
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés._
+_Diagnostic à jour._
 
-_9 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un `re_challenge` avec des données nouvelles :_
-
-- ~~Ecrire un diagnostic EFFACE les constats precedents non arbitres — la boucle propose/arbitre/applique fuit a son premier maillon~~ (`write_diagnostic.py`)
-- ~~Le journal ne se solde jamais : 4 runs restent en-attente-validation, dont celui du superviseur lui-meme~~ (`log_run.py`)
-- ~~Sept tours consecutifs ou un correctif introduit un defaut de la classe qu'il corrigeait — le gate les attrape, la cause reste~~ (`dev-verifie`)
-- ~~Le backlog de revue a triple sans qu'aucun compteur ne le voie : 115 identifiants de constat dans .claude/triage~~ (`scan_transcripts.py`)
-- ~~Les regles R1 a R4 sont citees par la skill et par le journal, et ne sont definies nulle part~~ (`CLAUDE.md`)
-- ~~Mode demo hors-ligne documente mais mort (~230 lignes inatteignables, SYNTHESE_DEMO sans effet)~~ (`flotte:23-items-cadres`)
-- ~~254 lignes du commit d9e7196 (bibliotheque partagee VSCode4) jamais cablees dans l'application~~ (`flotte:23-items-cadres`)
-- ~~Bloc identity recopie 12x dans interviews.py (4 occurrences a 9 cles byte-identiques)~~ (`flotte:23-items-cadres`)
-- ~~routers/synthese.py = service deguise, 11 imports de symboles prives hors module~~ (`flotte:23-items-cadres`)
+1. **Le code produit n'existe pour le journal et le gate qu'au commit : deux chantiers app/ en trois jours sans aucun run, l'un portant un bloquant** — Rendre un chantier visible des sa premiere ecriture sous app/, pas a son commit : le gate ne protege que ce que le journal voit, et le rappel de reliquat ne declenche rien. · **Proposition** : (a) agent-orchestrator §5 + etape `cadrage` de dev-verifie (LOCAL) : `log_run.py` avec `resultat: en-cours` des la premiere etape d'ecriture sous app/, solde a la remise (le mecanisme existe deja). (b) scan_transcripts.py (CANON) : quand arbre_sale() compte > 5 fichiers app/ (le seuil de revue-increment), la ligne SessionStart devient « gate d'abord » — la premiere etape autorisee de la seance est la revue adversariale du reliquat, avant toute reprise. (c) log_run.py (CANON) : ignorer un `ts` fourni et poser l'heure d'ecriture. Contrat verifiable : en_cours > 0 dans routing-hints au prochain scan ; zero commit touchant app/ sans un run dont le ts precede le commit.
+2. **La boucle propose->arbitre re-emet ses propres fermetures, puis les referme sans `categories` : quatre cibles sont redevenues sourdes** — Une fermeture ne se re-emet jamais, et une entree sans `categories`/`source` ne s'ecrit jamais : le fichier d'arbitrages est un contrat, pas un journal libre. · **Proposition** : (a) write_diagnostic.py (CANON) : a la reconduction, un constat dont (cible, categorie) est ferme par un arbitrage date >= sa PREMIERE apparition dans l'historique git de diagnostic.json (pas seulement le `vu_le` courant, reinitialisable) est ABANDONNE, pas reporte. (b) Tout script qui ecrit arbitrages.json (refuser_arbitrage.py, script de resynchronisation du hub) exige `categories` non vide et `source`, et ecrit en indent=2. (c) scan_transcripts.py::categories_inconnues signale aussi `categories` ABSENT sur toute entree datee apres 2026-07-28. (d) Corriger les 4 entrees [47]-[50] : categories = celles du constat ferme (interaction / interaction / autre / interaction), source = "hub". Contrat : un constat-test sur write_diagnostic.py, categorie verification-manquante, s'affiche au prochain scan.
+3. **25 erreurs identiques a chaque suite complete (6/6 ce jour) : l'arbitrage du 2026-07-21 disait « exit 0 », le verdict se lit depuis en comptant les points** — La suite doit pouvoir sortir 0 sur le poste de developpement : c'est le seul signal binaire disponible, et il est eteint en permanence depuis au moins le 2026-09-01. · **Proposition** : tests/conftest.py (LOCAL, effort S) : base SQLite et RECORDINGS_DIR PAR MODULE — fixture autouse scope=module qui pose APP_DB_PATH sur un fichier unique (tmp_path_factory) et appelle engine.dispose() en finalizer — au lieu d'une base unique en %TEMP% ; puis supprimer les 24 setup_module/teardown_module `unlink` devenus inutiles. Contrat : `pytest -q` exit 0 et ligne « N passed » seule, 3 runs consecutifs ; test_mission_backups.py stable sur ces 3 runs.
+4. **57 constats de revue ouverts (le plus vieux : 7 j), 89 lignes non comptees, 0 ligne au tableau de bord — « compte » deux fois par arbitrage, lu par personne** — La dette que le dispositif fabrique lui-meme (revues adversariales payantes) se compte juste et s'affiche la ou l'on decide ; sinon chaque revue ajoute du backlog sans retour. · **Proposition** : (a) LOCAL, effort S : normaliser les 89 lignes des 4 fichiers au gabarit (statut explicite ouvert/differe/corrige/ecarte/traite), puis solder ce que le code a deja corrige — les commits 9cdb110..9ea45c4 du 2026-09-07 couvrent plusieurs constats du 2026-09-04. (b) CANON : une ligne « backlog de revue : N ouverts, plus ancien J j » dans le bloc genere du wiki, TODO au-dela de 30 ouverts ou 14 j. (c) revue-increment §4 : une seance ne se clot pas avec un fichier de triage hors gabarit. Contrat : compter_triage.py rend 0 ligne hors vocabulaire ; la ligne apparait dans agents-supervision.md au prochain scan.
+5. **routers/synthese.py = service deguise, 11 imports de symboles prives hors module** — Deplacer les fonctions privees partagees vers un module de service dedie. · **Proposition** : Effort L, risque moyen. A arbitrer : refactor sequence (extraire le service, puis rediriger les 11 imports, tests a chaque etape) ou dette assumee.
 
 ---
 

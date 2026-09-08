@@ -50,7 +50,13 @@ ARBITRAGES_PATH = os.environ.get("AGENT_SUPERVISION_ARBITRAGES") or os.path.join
 )
 CATEGORIES = (
     "ko-repete", "inefficacite", "agent-mort", "interaction",
-    "verification-manquante", "non-convergence", "autre",
+    "verification-manquante", "non-convergence",
+    # Volet 2 — pratiques d'ingénierie, que la skill agent-supervisor prescrit et que
+    # cette copie refusait (finding flotte:write_diagnostic-deploye-refuse-les-categories-
+    # pratique, 2026-09-08). Ajout minimal : cette lignée garde son registre à état.
+    "pratique-test", "pratique-dev", "pratique-revue", "pratique-design",
+    "pratique-doc", "pratique-produit",
+    "autre",
 )
 # Plafond de la skill agent-supervisor (§ « 5 constats max, priorisés ») — appliqué ici
 # parce que le scan n'affiche que les 5 premiers : au-delà, un constat se perdait sans trace.
