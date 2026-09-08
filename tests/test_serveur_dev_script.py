@@ -122,3 +122,15 @@ def test_le_port_se_lit_dans_la_ligne_de_commande_uvicorn(source: str) -> None:
     corps = source[debut:source.index("function", debut + 10)]
     assert "--port[ =]" in corps
     assert "8000" in corps
+
+
+def test_le_journal_precedent_est_conserve_avant_le_lancement(source: str) -> None:
+    """`Start-Process -RedirectStandardOutput` ÉCRASE le journal à chaque
+    lancement : le 2026-09-08, un redémarrage en cours d'entretien a effacé les
+    deux premières heures de requêtes — exactement celles qu'il fallait lire
+    pour comprendre l'absence de sauvegarde audio. Une génération est gardée
+    (`.prev`), et la rotation précède le lancement."""
+    rotation = source.index('Move-Item -Force -Path $ancien -Destination ($ancien + ".prev")')
+    lancement = source.index("$proc = Start-Process")
+    assert rotation < lancement
+    assert '($journal + ".err")' in source[rotation - 400:rotation], "le .err tourne avec le journal"

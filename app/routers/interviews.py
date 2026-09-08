@@ -1940,10 +1940,24 @@ async def save_record_backup(
         # enregistrement complet de 1h30-3h passait entièrement en RAM via
         # file.read(). copyfileobj lit/écrit en chunks ; dans un thread pour ne
         # pas bloquer la boucle sur l'I/O disque.
-        def _ecrire():
+        def _ecrire() -> int:
             with open(RECORDINGS_DIR / filename, "wb") as out:
                 shutil.copyfileobj(file.file, out, length=1024 * 1024)
-        await asyncio.to_thread(_ecrire)
+                return out.tell()
+        octets = await asyncio.to_thread(_ecrire)
+        # Trace POSITIVE dans le journal serveur (incident du 2026-09-08 : zéro
+        # tranche audio sur 2h d'entretien, et rien pour dire si le client n'a
+        # jamais envoyé ou si le serveur n'a jamais écrit — seule l'exception
+        # était journalisée). Le nom seul, jamais le chemin absolu.
+        logger.info(
+            "Sauvegarde audio de secours écrite : %s (%d octets, mission %s)",
+            filename, octets, mission_id,
+        )
+        if not octets:
+            # Un fichier vide n'est pas une sauvegarde : c'est exactement le
+            # symptôme du 2026-09-08 (zéro octet d'audio sur 2h), à faire
+            # ressortir plutôt que le laisser passer pour « écrite ».
+            logger.warning("Sauvegarde audio de secours VIDE : %s (mission %s)", filename, mission_id)
     except Exception:
         logger.exception("Échec de la sauvegarde audio de secours")
         return JSONResponse(

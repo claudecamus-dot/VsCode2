@@ -122,6 +122,68 @@ def _is_stale(job: InterviewSegmentJob, now: datetime) -> bool:
     return (now - created) > timedelta(seconds=segment_job_stale_after_s())
 
 
+def reconcile_running_on_startup() -> int:
+    """Repasse à `failed` toute tranche restée `pending`/`running` d'une séance
+    précédente, et rend leur nombre.
+
+    Une tâche de fond ne survit pas à son processus : au démarrage, plus aucun
+    `run_segment_job` d'avant ne tourne, donc tout job encore `pending`/
+    `running` en base est un mort dont personne ne ramassait le corps. Il
+    restait `running` À VIE — `_is_stale` ne le compte comme bloqué qu'au bout
+    de 45min et seulement quand quelqu'un DEMANDE le statut, et
+    `recover_stalled_or_failed_jobs` n'est appelé que par une route de
+    finalisation. Une session jamais finalisée (onglet fermé, serveur coupé en
+    fin d'entretien) n'appelle jamais ni l'un ni l'autre.
+
+    Mesuré le 2026-09-08 sur un entretien réel de 2h : 3 tranches figées en
+    `running` depuis 5h30, alors qu'un vrai timeout Ollama est borné à 3 appels
+    x 2 tentatives x 300s = 30min au pire (`ai_common`) — la durée seule
+    prouvait déjà le processus mort, pas l'IA lente.
+
+    Symétrique EXACT de `global_synthesis_job.reconcile_running_on_startup`,
+    posé le 2026-09-07 : son propre docstring se présentait comme « le pendant
+    du pattern déjà en place pour `interview_segment_jobs.run_segment_job` »,
+    mais la symétrie n'était écrite que dans le commentaire. Le filet de
+    `run_segment_job` couvre l'échec DANS le processus ; celui-ci couvre le
+    processus qui n'existe plus.
+
+    `failed` plutôt que `pending` : le texte de la tranche est intact en base
+    (colonne `text`), donc `recover_stalled_or_failed_jobs` la re-traitera
+    telle quelle à la finalisation — et `any_failed` fait sortir l'écran
+    d'attente au lieu de le laisser tourner à vide sur un job qui ne bougera
+    plus jamais.
+
+    Limite ASSUMÉE (revue du 2026-09-08, F3, arbitrée « accepter et
+    documenter ») : aucune notion de propriétaire — un SECOND serveur démarré
+    sur la même base passerait en `failed` les tranches encore vivantes du
+    premier, dont la finalisation les retraiterait alors une seconde fois
+    (double appel IA, jamais une perte : le résultat ne garde qu'une version).
+    Le modèle de déploiement est un serveur par base ; deux serveurs de dev sur
+    `data/app.db` est l'exception, et la trace INFO du `lifespan` la rend
+    visible. Une colonne « propriétaire » (migration + test de vie du
+    processus) a été jugée disproportionnée pour ce cas."""
+    db = SessionLocal()
+    try:
+        bloquees = list(
+            db.scalars(
+                select(InterviewSegmentJob).where(
+                    InterviewSegmentJob.status.in_(("pending", "running"))
+                )
+            )
+        )
+        for job in bloquees:
+            job.status = "failed"
+            job.error = (
+                "Tranche interrompue par un redémarrage du serveur — son texte "
+                "est conservé, l'extraction sera rejouée à l'enregistrement."
+            )
+        if bloquees:
+            db.commit()
+        return len(bloquees)
+    finally:
+        db.close()
+
+
 def run_segment_job(job_id: int) -> None:
     """Tâche de fond : extrait les tours d'UNE tranche de texte (lue depuis la
     colonne `text`, persistée à la création du job — jamais seulement portée
@@ -146,6 +208,11 @@ def run_segment_job(job_id: int) -> None:
             return
         job.turns_result = result
         job.status = "done"
+        # Comme `recover_stalled_or_failed_jobs` : un `done` ne porte jamais
+        # une erreur périmée (revue du 2026-09-08, F5 — un motif posé par la
+        # réconciliation restait collé à une tranche qui aboutissait ensuite,
+        # et l'écran l'affichait comme LA cause).
+        job.error = None
         db.commit()
     except Exception as exc:  # garde-fou : un job planté ne doit pas rester "running"
         try:

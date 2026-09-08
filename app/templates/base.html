@@ -36,6 +36,10 @@
      l'analyse du <body>. Avec `defer`, il serait encore indéfini à l'appel —
      sans erreur au chargement, la page « marcherait » jusqu'au premier upload. #}
   <script src="/static/rec_fetch.js"></script>
+  {# Même règle encore : `recDraft` (brouillon local d'un entretien libre,
+     incident du 2026-09-08) est appelé par le <script> inline de
+     record_libre.html dès l'analyse. Testé par tests/test_session_libre_reprise.py. #}
+  <script src="/static/rec_draft.js"></script>
 </head>
 <body>
   {% if est_mode_demo(request) %}

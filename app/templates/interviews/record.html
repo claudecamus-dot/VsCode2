@@ -135,7 +135,10 @@
     la seule façon de garder le texte, et il se télécharge sans quitter cette
     page.
   </div>
-  <div class="autosave-line"><span class="muted" id="rec-backup-status"></span></div>
+  <div class="autosave-line"><span class="muted" id="rec-backup-status"></span>
+    <!-- Tranche d'extraction non transmise (même filet que record_libre.html,
+         revue du 2026-09-08, F7) : avant, ce POST échouait en silence. -->
+    <span class="muted" id="rec-job-status"></span></div>
   <div class="autosave-line" id="rec-audio-playback" hidden>
     <audio controls id="rec-audio-player" class="record-audio-player"></audio>
     <a class="btn-link" id="rec-audio-download" download>Télécharger l'enregistrement</a>
@@ -309,6 +312,11 @@
   // (l'ancienne 3e valeur était morte — revue R3-m3 du 2026-08-31, cf.
   // record_libre.html).
   var SEGMENT_RETRY_DELAYS_MS = [2000, 6000];
+  // Relances de la CRÉATION d'une tranche d'extraction — même filet que
+  // record_libre.html (incident du 2026-09-08 : un POST muet, trois échecs de
+  // suite, une tranche de deux fois le gabarit, un timeout Ollama). Le texte
+  // n'est jamais perdu ; rejouer plus tôt garde les tranches à leur taille.
+  var JOB_RETRY_DELAYS_MS = [15000, 45000];
   // Nombre maximum de lignes de segments non aboutis affichées (cf.
   // `refreshLostBanner`, même plafond que record_libre.html).
   var LOST_LIST_MAX = 8;
@@ -352,6 +360,9 @@
   var sessionToken = {{ (identity.session_token if identity else '') | default('', true) | tojson }};
   var segmentJobPosition = 0;
   var coveredLen = 0;
+  var jobEchecsConsecutifs = 0;
+  var jobRetryTimer;
+  var jobStatusEl = document.getElementById('rec-job-status');
   // Frontière (exclusive) de la tranche du POST /interviews/segment-jobs en
   // vol, maintenue EN COORDONNÉES COURANTES : toute substitution de marqueur
   // qui change la longueur du texte AVANT cette frontière la décale du même
@@ -444,13 +455,37 @@
         // paroles récupérées pendant son vol, qui ne sont PAS dans son
         // contenu (figé à l'envoi). Elles ont donc besoin de leur job.
         recuperesEnAttente.forEach(postRecoveredJob);
+        jobEchecsConsecutifs = 0;
+        jobStatusEl.textContent = '';
       })
-      .catch(function () {
+      .catch(function (err) {
         // Création KO (réseau/serveur) : on NE fait PAS avancer coveredLen —
         // ce texte reste dans le reliquat (segment_tail), traité en synchrone
         // à l'envoi. Aucune tranche perdue. Les paroles récupérées pendant le
         // vol y restent aussi : pas de job dédié, sinon elles seraient
         // extraites DEUX fois (re-revue F1).
+        //
+        // Mais pas en silence, et pas jusqu'au tick suivant (même filet que
+        // record_libre.html, cf. JOB_RETRY_DELAYS_MS) : on le DIT et on rejoue
+        // plus tôt — la relance n'est qu'un tick anticipé, elle re-découpe
+        // depuis coveredLen. Gardes de génération et d'enregistrement actif.
+        var raison = (err && err.message) || 'erreur inconnue';
+        jobEchecsConsecutifs++;
+        if (gen !== recGeneration || !recordingActive) return;
+        if (jobEchecsConsecutifs <= JOB_RETRY_DELAYS_MS.length) {
+          var delai = JOB_RETRY_DELAYS_MS[jobEchecsConsecutifs - 1];
+          jobStatusEl.textContent = 'Tranche d\'extraction non transmise (' + raison
+            + ') — nouvelle tentative dans ' + Math.round(delai / 1000) + ' s ('
+            + (jobEchecsConsecutifs + 1) + '/' + (JOB_RETRY_DELAYS_MS.length + 1) + ')…';
+          clearTimeout(jobRetryTimer);
+          jobRetryTimer = setTimeout(function () {
+            if (gen !== recGeneration || !recordingActive) return;
+            submitSegmentJob();
+          }, delai);
+        } else {
+          jobStatusEl.textContent = 'Tranches d\'extraction non transmises (' + raison
+            + ') — le texte est conservé, il sera traité à l\'envoi.';
+        }
       })
       .finally(function () {
         recuperesEnAttente = [];  // soumises au succès, laissées au reliquat sinon
@@ -1815,6 +1850,10 @@
       finalizing = false;
       finalizingRecorders = 0;
       recGeneration++;  // nouvelle session : les requêtes en vol de l'ancienne seront ignorées
+      // Budget de relance des tranches d'extraction : par session (F2).
+      jobEchecsConsecutifs = 0;
+      clearTimeout(jobRetryTimer);
+      jobStatusEl.textContent = '';
       transcriptSoFar = '';
       transcriptEl.value = '';
       transcriptHidden.value = '';
@@ -1883,6 +1922,7 @@
     recordingActive = false;
     clearInterval(rotationTimer);
     clearInterval(jobSubmitTimer);
+    clearTimeout(jobRetryTimer);
     clearInterval(timerId);
     // Gate la soumission tant que les enregistreurs arrêtés n'ont pas livré leur
     // dernière tranche via leur évènement `stop` asynchrone (voir finalizing).
@@ -1916,6 +1956,9 @@
     finalizing = false;
     finalizingRecorders = 0;
     recGeneration++;  // une requête encore en vol ne repeuplera pas l'écran remis à zéro
+    jobEchecsConsecutifs = 0;  // budget de relance par session (F2)
+    clearTimeout(jobRetryTimer);
+    jobStatusEl.textContent = '';
     transcriptSoFar = '';
     transcriptEl.value = '';
     transcriptHidden.value = '';

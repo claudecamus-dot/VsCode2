@@ -31,6 +31,9 @@ from .routers import agents, entretiens, export, interviews, missions, synthese,
 from .services import audio_transcribe  # noqa: E402
 from .services.ai_common import warm_up_ollama  # noqa: E402
 from .services.global_synthesis_job import reconcile_running_on_startup  # noqa: E402
+from .services.interview_segment_jobs import (  # noqa: E402
+    reconcile_running_on_startup as reconcile_segment_jobs_on_startup,
+)
 
 
 def empreinte_code() -> str:
@@ -57,6 +60,15 @@ EMPREINTE_AU_CHARGEMENT = empreinte_code()
 async def lifespan(_app: FastAPI):
     init_db()
     reconcile_running_on_startup()
+    # Même filet pour les tranches d'entretien : sans lui, une tranche tuée par
+    # un redémarrage restait « running » à vie (incident du 2026-09-08, 3
+    # tranches figées 5h30 sur un entretien réel de 2h).
+    liberees = reconcile_segment_jobs_on_startup()
+    if liberees:
+        logging.getLogger(__name__).info(
+            "%d tranche(s) d'entretien interrompue(s) par un redémarrage, "
+            "repassée(s) en échec rejouable", liberees,
+        )
     try:
         audio_transcribe.warm_up()
     except Exception:

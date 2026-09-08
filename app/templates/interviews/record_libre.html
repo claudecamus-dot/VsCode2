@@ -153,7 +153,24 @@
     transcription (PDF) »</strong> — c'est la seule façon de garder le texte, et
     il se télécharge sans quitter cette page.
   </div>
-  <div class="autosave-line"><span class="muted" id="rec-backup-status"></span></div>
+  <!-- Reprise d'une session locale (incident du 2026-09-08 : 2h d'entretien
+       jamais enregistrées, la transcription ne vivait que dans l'onglet). Le
+       texte est sauvegardé en continu dans le navigateur (rec_draft.js) ; à la
+       réouverture, on le PROPOSE — jamais restauré en silence, l'utilisateur
+       peut vouloir repartir de zéro. -->
+  <div class="notice" id="rec-draft-banner" hidden>
+    <span id="rec-draft-text"></span>
+    <button class="btn btn-sm" type="button" id="rec-draft-restore">↩ Reprendre cette session</button>
+    <button class="btn btn-sm" type="button" id="rec-draft-discard">Ignorer</button>
+  </div>
+  <div class="autosave-line"><span class="muted" id="rec-backup-status"></span>
+    <!-- Tranche d'extraction non transmise : avant le 2026-09-08 ce POST échouait
+         en silence (aucune relance, aucun mot à l'écran) — cf. submitSegmentJob. -->
+    <span class="muted" id="rec-job-status"></span>
+    <!-- Brouillon local indisponible (navigation privée, stockage bloqué,
+         quota) : dit UNE fois — sinon l'utilisateur croit protégé un texte qui
+         ne l'est pas (revue du 2026-09-08, F4). -->
+    <span class="muted" id="rec-draft-status"></span></div>
   <!-- Une ligne PAR tranche sauvegardée, ajoutée dès que son upload aboutit :
        pendant l'enregistrement (rotation) comme à l'arrêt. Avant (2026-07-29)
        un lecteur unique était réécrit à chaque tranche — au-delà de la
@@ -333,6 +350,13 @@
   // length` ne lisait jamais l'indice 2, et un lecteur y voyait 4 tentatives ;
   // revue R3-m3 du 2026-08-31.)
   var SEGMENT_RETRY_DELAYS_MS = [2000, 6000];
+  // Relances de la CRÉATION d'une tranche d'extraction (POST /interviews/
+  // segment-jobs), incident du 2026-09-08 : ce POST était un tir unique et
+  // muet — sur échec, le texte restait en réserve jusqu'au tick suivant (5 min),
+  // et trois échecs de suite ont fabriqué une tranche de deux fois le gabarit,
+  // qui a fini en timeout Ollama. Le texte n'était pas perdu ; la tranche hors
+  // gabarit, elle, l'était. Rejouer plus tôt garde les tranches à leur taille.
+  var JOB_RETRY_DELAYS_MS = [15000, 45000];
   // Nombre maximum de lignes de segments non aboutis affichées (les plus
   // récentes) — cf. le plafond appliqué dans `refreshLostBanner`.
   var LOST_LIST_MAX = 8;
@@ -395,6 +419,43 @@
   var sessionToken = {{ (identity.session_token if identity else '') | default('', true) | tojson }};
   var segmentJobPosition = 0;
   var coveredLen = 0;
+  var MISSION_ID = {{ mission.id }};
+  var jobEchecsConsecutifs = 0;
+  var jobRetryTimer;
+  var jobStatusEl = document.getElementById('rec-job-status');
+
+  // Brouillon local (rec_draft.js) : l'état qu'il faut pour reprendre la
+  // session après un F5, une fermeture d'onglet ou un plantage — texte,
+  // jeton (retrouve les tranches déjà calculées côté serveur), curseurs de
+  // découpage, tranches audio déjà rangées. Le journal d'évènements déjà écrit
+  // est conservé ; `envoyeLe` ne l'est pas : un nouveau texte est une nouvelle
+  // session. Inerte si le stockage est indisponible.
+  var brouillonIndisponibleDit = false;
+  function persistDraft() {
+    if (typeof recDraft === 'undefined') return;
+    var ancien = recDraft.charger(MISSION_ID) || {};
+    var ok = recDraft.sauver(MISSION_ID, {
+      transcript: transcriptSoFar,
+      sessionToken: sessionToken,
+      coveredLen: coveredLen,
+      segmentJobPosition: segmentJobPosition,
+      backupSegments: backupSegments,
+      journal: ancien.journal || []
+    });
+    // Le filet peut être hors service sans qu'un mot ne le dise (F4) : on le
+    // dit une fois, sans bloquer — l'enregistrement continue comme avant.
+    if (!ok && !brouillonIndisponibleDit) {
+      brouillonIndisponibleDit = true;
+      var draftStatusEl = document.getElementById('rec-draft-status');
+      if (draftStatusEl) {
+        draftStatusEl.textContent = 'Sauvegarde locale de la transcription indisponible '
+          + '(navigation privée ou stockage bloqué) — ne ferme pas cet onglet avant d\'avoir enregistré.';
+      }
+    }
+  }
+  function noterEvenement(evenement) {
+    if (typeof recDraft !== 'undefined') recDraft.noter(MISSION_ID, evenement);
+  }
   // Frontière (exclusive) de la tranche du POST /interviews/segment-jobs en
   // vol, maintenue EN COORDONNÉES COURANTES : toute substitution de marqueur
   // qui change la longueur du texte AVANT cette frontière la décale du même
@@ -504,13 +565,41 @@
         // paroles récupérées pendant son vol, qui ne sont PAS dans son
         // contenu (figé à l'envoi). Elles ont donc besoin de leur job.
         recuperesEnAttente.forEach(postRecoveredJob);
+        jobEchecsConsecutifs = 0;
+        jobStatusEl.textContent = '';
+        persistDraft();  // coveredLen/position ont bougé : la reprise doit les connaître
       })
-      .catch(function () {
+      .catch(function (err) {
         // Création KO (réseau/serveur) : on NE fait PAS avancer coveredLen —
         // ce texte reste dans le reliquat (segment_tail), traité en synchrone
         // à l'arrêt. Aucune tranche perdue. Les paroles récupérées pendant le
         // vol y restent aussi : pas de job dédié, sinon elles seraient
         // extraites DEUX fois (re-revue F1).
+        //
+        // Mais pas en silence, et pas jusqu'au tick suivant (incident du
+        // 2026-09-08, cf. JOB_RETRY_DELAYS_MS) : on le DIT, on le journalise
+        // dans le brouillon local (survit à l'onglet), et on rejoue plus tôt —
+        // la relance n'est qu'un tick anticipé, elle re-découpe depuis
+        // coveredLen comme n'importe quel tick. Garde de génération et
+        // d'enregistrement actif : rien ne repart sur une session abandonnée.
+        var raison = (err && err.message) || 'erreur inconnue';
+        jobEchecsConsecutifs++;
+        noterEvenement({ type: 'job-ko', position: pos, raison: raison, essai: jobEchecsConsecutifs });
+        if (gen !== backupGeneration || !recordingActive) return;
+        if (jobEchecsConsecutifs <= JOB_RETRY_DELAYS_MS.length) {
+          var delai = JOB_RETRY_DELAYS_MS[jobEchecsConsecutifs - 1];
+          jobStatusEl.textContent = 'Tranche d\'extraction non transmise (' + raison
+            + ') — nouvelle tentative dans ' + Math.round(delai / 1000) + ' s ('
+            + (jobEchecsConsecutifs + 1) + '/' + (JOB_RETRY_DELAYS_MS.length + 1) + ')…';
+          clearTimeout(jobRetryTimer);
+          jobRetryTimer = setTimeout(function () {
+            if (gen !== backupGeneration || !recordingActive) return;
+            submitSegmentJob();
+          }, delai);
+        } else {
+          jobStatusEl.textContent = 'Tranches d\'extraction non transmises (' + raison
+            + ') — le texte est conservé, il sera traité à l\'enregistrement.';
+        }
       })
       .finally(function () {
         recuperesEnAttente = [];  // soumises au succès, laissées au reliquat sinon
@@ -579,6 +668,7 @@
     transcriptEl.scrollTop = transcriptEl.scrollHeight;
     transcriptHidden.value = transcriptSoFar;
     refreshSegmentTail();
+    persistDraft();
   }
 
   function startSegment() {
@@ -928,6 +1018,7 @@
     transcriptEl.value = transcriptSoFar;
     transcriptEl.scrollTop = transcriptEl.scrollHeight;
     transcriptHidden.value = transcriptSoFar;
+    persistDraft();
     var delta = text.length - marker.length;
     // Les deux tests se font AVANT toute mutation : `coveredLen` bouge juste
     // en dessous, et un delta négatif le ferait repasser sous `pos`.
@@ -990,6 +1081,7 @@
       coveredLen += delta;
     }
     refreshSegmentTail();
+    persistDraft();  // 4e site où le texte et le curseur bougent (revue 2026-09-08, F9)
   }
 
   // Job d'extraction pour un texte récupéré hors séquence — n'avance PAS
@@ -1231,6 +1323,7 @@
     });
     backupRecorder.addEventListener('stop', function () {
       var blob = new Blob(backupChunks, { type: backupRecorder.mimeType || 'audio/webm' });
+      noterEvenement({ type: 'backup-rotation', octets: blob.size, actif: recordingActive });
       uploadBackup(blob);
       // Reprise immédiate si l'entretien continue, même principe que
       // startSegment() pour la transcription : le micro (stream) n'est
@@ -1593,6 +1686,11 @@
     // échec (micro-coupure réseau, 5xx passager) faisait un trou définitif dans
     // l'audio de l'entretien. Même politique de reprise que `uploadSegment`.
     function retryOrGiveUp(reason, timedOut) {
+      // Journalisé AVANT toute décision, y compris pour une session abandonnée :
+      // le 2026-09-08, zéro tranche audio sur 2h d'entretien, et plus aucune
+      // trace pour dire pourquoi (journal serveur tronqué, onglet mort).
+      noterEvenement({ type: 'backup-ko', position: position, raison: reason,
+                       essai: attempt + 1, delaiDepasse: !!timedOut });
       if (gen !== backupGeneration) { settle(); return; }
       // Délai maximal atteint (err.recTimeout — revue R3-M5/M6) : pas de
       // relance automatique. L'upload est borné par la bande passante, pas par
@@ -1621,6 +1719,7 @@
 
     if (!attempt) {
       backupStatusEl.textContent = 'Sauvegarde audio en cours (tranche ' + (position + 1) + ')…';
+      noterEvenement({ type: 'backup-envoi', position: position, octets: blob.size });
     }
     var formData = new FormData();
     formData.append('file', new File([blob], 'entretien.webm', { type: blob.type }));
@@ -1643,6 +1742,8 @@
           backupPathHidden.value = backupSegments[backupSegments.length - 1].filename;
           refreshBackupStatus();
           refreshBackupList();
+          noterEvenement({ type: 'backup-ok', position: position, fichier: result.data.path });
+          persistDraft();  // la reprise doit retrouver les tranches déjà rangées
           settle();
         } else {
           console.error('sauvegarde audio échouée', result.data);
@@ -2053,6 +2154,19 @@
         !confirm('Un texte transcrit est déjà présent — le remplacer par un nouvel enregistrement ?')) {
       return;
     }
+    // Brouillon PROPOSÉ (bandeau) mais pas repris : le premier mot transcrit de
+    // la nouvelle session le réécrirait (persistDraft), sans retour arrière —
+    // le filet détruisait ce qu'il protège (revue du 2026-09-08, F1 bloquant).
+    // Même geste que « Ignorer » : une confirmation explicite.
+    if (!transcriptSoFar.trim() && typeof recDraft !== 'undefined') {
+      var enAttente = recDraft.decision(recDraft.charger(MISSION_ID), Date.now());
+      if (enAttente && enAttente.mode === 'reprise' &&
+          !confirm('Une session non enregistrée attend dans le bandeau ci-dessus. '
+            + 'Démarrer un nouvel enregistrement l\'effacera définitivement.\n\n'
+            + 'Continuer sans la reprendre ?')) {
+        return;
+      }
+    }
     // Garde de fond : le bouton est déjà désactivé tant que la source n'est pas
     // prête, mais on ne démarre JAMAIS un entretien à distance sans son d'onglet
     // par un autre chemin (rappel programmatique, restauration de page).
@@ -2077,6 +2191,10 @@
       backupSegments = [];
       backupPerdus = [];   // nouvelle session : les pertes de la précédente ne la concernent plus
       nextBackupPosition = 0;
+      // Budget de relance des tranches d'extraction : par session (F2, cf. resetBtn).
+      jobEchecsConsecutifs = 0;
+      clearTimeout(jobRetryTimer);
+      jobStatusEl.textContent = '';
       audioSegmentsHidden.value = '[]';
       // Palier 2 : nouvelle session de jobs à chaque enregistrement.
       sessionToken = newSessionToken();
@@ -2175,6 +2293,7 @@
     clearInterval(rotationTimer);
     clearInterval(backupRotationTimer);
     clearInterval(jobSubmitTimer);
+    clearTimeout(jobRetryTimer);
     clearInterval(timerId);
     // Chaque enregistreur encore actif va livrer une dernière tranche via son
     // évènement `stop` asynchrone : on gate la soumission (finalizing) jusqu'à
@@ -2209,6 +2328,12 @@
     finalizing = false;
     finalizingRecorders = 0;
     backupGeneration++;  // une tranche encore en vol ne repeuplera pas l'affichage remis à zéro
+    // Budget de relance des tranches d'extraction : par SESSION, pas par
+    // chargement de page (revue du 2026-09-08, F2 — sinon la 2e session
+    // repartait avec le compteur de la 1re et ne relançait plus rien).
+    jobEchecsConsecutifs = 0;
+    clearTimeout(jobRetryTimer);
+    jobStatusEl.textContent = '';
     transcriptSoFar = '';
     transcriptEl.value = '';
     transcriptHidden.value = '';
@@ -2344,6 +2469,61 @@
   // qu'aucun enregistrement n'a démarré). Vanilla JS + JSON, comme l'écran
   // d'attente ; l'onglet 2 se remplit au fil des jobs 5 min terminés en fond.
   setInterval(pollRepartition, 5000);
+
+  // ---- Reprise d'une session locale (rec_draft.js, incident du 2026-09-08) ----
+  // Proposée, jamais imposée : l'utilisateur choisit. Rien n'est proposé quand
+  // le serveur a déjà rendu un texte (retour d'étape : `identity.transcript`).
+  // DANS la fermeture principale : `transcriptSoFar`, `MISSION_ID` et les
+  // éléments ne sont pas globaux — posé après le `})();` ci-dessous, ce bloc
+  // échouait sur une référence inconnue, sans rien à l'écran (constaté en Edge
+  // headless le 2026-09-08 ; tests/test_session_libre_reprise.py le garde).
+  (function proposerReprise() {
+    var banner = document.getElementById('rec-draft-banner');
+    if (!banner || typeof recDraft === 'undefined') return;
+    if (transcriptSoFar.trim()) return;
+    var brouillon = recDraft.charger(MISSION_ID);
+    var dec = recDraft.decision(brouillon, Date.now());
+    if (!dec) return;
+    document.getElementById('rec-draft-text').textContent = dec.libelle;
+    banner.classList.toggle('rec-draft-discret', dec.mode === 'discret');
+    banner.hidden = false;
+    document.getElementById('rec-draft-restore').addEventListener('click', function () {
+      transcriptSoFar = brouillon.transcript;
+      transcriptEl.value = transcriptSoFar;
+      transcriptHidden.value = transcriptSoFar;
+      // Le jeton retrouve, côté serveur, les tranches déjà structurées de cette
+      // session (tant que la purge à 7 jours ne les a pas emportées) : la
+      // finalisation ne refait que le reliquat, pas tout l'entretien.
+      if (brouillon.sessionToken) {
+        sessionToken = brouillon.sessionToken;
+        sessionTokenHidden.value = sessionToken;  // même geste que les trois sites qui génèrent un jeton
+      }
+      coveredLen = Math.min(brouillon.coveredLen || 0, transcriptSoFar.length);
+      segmentJobPosition = brouillon.segmentJobPosition || 0;
+      if (Array.isArray(brouillon.backupSegments) && brouillon.backupSegments.length) {
+        backupSegments = brouillon.backupSegments;
+        nextBackupPosition = backupSegments.length;  // une tranche suivante ne réutilise pas un numéro (F15)
+        audioSegmentsHidden.value = JSON.stringify(backupSegments);
+        backupPathHidden.value = backupSegments[backupSegments.length - 1].filename;
+        refreshBackupStatus();
+        refreshBackupList();
+      }
+      refreshSegmentTail();
+      banner.hidden = true;
+      statusEl.textContent = 'Session restaurée — tu peux l\'enregistrer telle quelle avec « Enregistrer l\'entretien ».';
+      updateSubmitState();
+    });
+    document.getElementById('rec-draft-discard').addEventListener('click', function () {
+      if (!confirm('Oublier définitivement cette session gardée en local ?')) return;
+      recDraft.effacer(MISSION_ID);
+      banner.hidden = true;
+    });
+  })();
+  // « Enregistrer l'entretien » : le brouillon est marqué envoyé, pas effacé —
+  // si la requête échoue après la redirection, il reste restaurable sept jours.
+  document.getElementById('record-form').addEventListener('submit', function () {
+    if (typeof recDraft !== 'undefined') recDraft.marquerEnvoye(MISSION_ID);
+  });
 })();
 </script>
 {% endif %}

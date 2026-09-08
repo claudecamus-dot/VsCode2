@@ -723,6 +723,12 @@ input[type=text].turn-section-input:placeholder-shown {
 /* Variante neutre/informative (rappel de portée plutôt qu'avertissement) —
    même gabarit que .notice, tokens "info" au lieu de "warning". */
 .notice-info { background: var(--info-bg); color: var(--accent-dark); border-color: var(--border); }
+/* Bandeau de reprise d'une session locale (record_libre.html) APRÈS un envoi
+   réussi : le texte est normalement en base, on le garde atteignable sans
+   insister — mêmes tokens "info". Sans cette règle, le mode « discret » calculé
+   par rec_draft.js n'avait aucun effet et le bandeau restait un avertissement
+   pleine force pendant 7 jours après chaque entretien (revue 2026-09-08, F6). */
+.notice.rec-draft-discret { background: var(--info-bg); color: var(--accent-dark); border-color: var(--border); }
 .ai-hint code { background: #eef2f7; padding: 1px 5px; border-radius: 4px; font-size: .85em; }
 
 .material { background: var(--surface-subtle); }

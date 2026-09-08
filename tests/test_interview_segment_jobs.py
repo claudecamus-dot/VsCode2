@@ -876,3 +876,90 @@ def test_fenetre_de_recuperation_ignore_les_tranches_abouties() -> None:
     fenetre = _fenetre_recuperation([faite, restante],
                                     lambda j: bool(j.turns_result))
     assert fenetre == [restante]
+
+
+# --- Réconciliation au démarrage (incident du 2026-09-08) -------------------
+#
+# Une tâche de fond ne survit pas à son processus. Avant ce correctif, rien ne
+# ramassait au démarrage les tranches laissées `pending`/`running` par le
+# processus d'avant : elles restaient `running` À VIE. Mesuré sur un entretien
+# réel de 2h le 2026-09-08 — 3 tranches figées depuis 5h30, alors qu'un vrai
+# timeout Ollama est borné à 30min au pire.
+#
+# Ces deux tests échouent sur le code d'avant : la fonction n'existait pas
+# (ImportError), et le `lifespan` ne l'appelait pas.
+
+
+def _job(db, *, position: int, status: str, text: str = "du texte") -> int:
+    job = InterviewSegmentJob(
+        session_token="tok-reconcile", position=position, status=status, text=text
+    )
+    db.add(job)
+    db.commit()
+    return job.id
+
+
+def test_reconcile_au_demarrage_libere_les_tranches_figees() -> None:
+    """Une tranche `running` ou `pending` héritée d'un processus mort repasse en
+    `failed` avec un motif lisible — donc rejouable par
+    `recover_stalled_or_failed_jobs`, au lieu de rester bloquée pour toujours."""
+    db = SessionLocal()
+    try:
+        id_running = _job(db, position=0, status="running")
+        id_pending = _job(db, position=1, status="pending")
+        id_done = _job(db, position=2, status="done")
+    finally:
+        db.close()
+
+    # `>= 2` et non `== 2` : la base de test est partagée par toute la session
+    # (chemin fixe, conftest.py) — d'autres modules peuvent y laisser des
+    # tranches non abouties. L'assertion exacte porte sur NOS trois lignes.
+    nombre = interview_segment_jobs.reconcile_running_on_startup()
+    assert nombre >= 2, "les tranches running ET pending doivent être ramassées"
+
+    db = SessionLocal()
+    try:
+        running = db.get(InterviewSegmentJob, id_running)
+        pending = db.get(InterviewSegmentJob, id_pending)
+        done = db.get(InterviewSegmentJob, id_done)
+
+        assert running.status == "failed"
+        assert pending.status == "failed"
+        assert "redémarrage" in (running.error or "")
+        # Le texte reste intact : c'est lui qui permet de rejouer la tranche
+        # sans retoucher à la transcription entière.
+        assert running.text == "du texte"
+        # Une tranche déjà aboutie n'est jamais touchée.
+        assert done.status == "done"
+        assert done.error is None
+    finally:
+        db.close()
+
+
+def test_le_demarrage_de_l_application_declenche_la_reconciliation(monkeypatch) -> None:
+    """Le câblage lui-même, pas seulement la fonction : c'est le `lifespan` qui
+    doit l'appeler. Sans cette assertion, retirer l'appel de `app/main.py`
+    laisserait le test précédent vert et le bug reviendrait entier.
+
+    Les préchauffages (Whisper, Ollama) sont neutralisés : ils sont lents et
+    sans rapport avec ce qu'on vérifie ici."""
+    from app import main as app_main
+
+    monkeypatch.setattr(app_main, "warm_up_ollama", lambda: None)
+    monkeypatch.setattr(app_main.audio_transcribe, "warm_up", lambda: None)
+
+    db = SessionLocal()
+    try:
+        id_running = _job(db, position=10, status="running")
+    finally:
+        db.close()
+
+    # Le context manager du TestClient joue le `lifespan` de l'application.
+    with TestClient(app_main.app):
+        pass
+
+    db = SessionLocal()
+    try:
+        assert db.get(InterviewSegmentJob, id_running).status == "failed"
+    finally:
+        db.close()

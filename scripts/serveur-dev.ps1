@@ -254,6 +254,13 @@ Get-ChildItem -Path (Join-Path $racine "app") -Recurse -Directory -Filter "__pyc
 
 # ---- 3. Lancement --reload (obligatoire, cf. run-dev-server) ----
 if (-not (Test-Path $python)) { Write-Error "venv introuvable : $python"; exit 1 }
+# Rotation du journal (2026-09-08) : -RedirectStandardOutput ECRASE le fichier a
+# chaque lancement, et le journal de la session precedente disparaissait avec lui
+# (les deux premieres heures d'un entretien reel, le jour ou il aurait fallu le
+# lire). Une generation est conservee : <journal>.prev et <journal>.err.prev.
+foreach ($ancien in @($journal, ($journal + ".err"))) {
+    if (Test-Path $ancien) { Move-Item -Force -Path $ancien -Destination ($ancien + ".prev") }
+}
 $proc = Start-Process -FilePath $python `
     -ArgumentList "-m", "uvicorn", "app.main:app", "--port", "$Port", "--reload" `
     -WorkingDirectory $racine -WindowStyle Hidden -PassThru `
