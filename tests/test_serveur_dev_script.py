@@ -97,3 +97,28 @@ def test_un_listener_non_python_n_est_jamais_tue(source: str) -> None:
     l'avoir dilué — on ne tue pas l'appli tierce qui occupe le port."""
     assert 'ProcessName -ne "python"' in source
     assert "non tué" in source
+
+
+def test_la_purge_des_racines_est_scopee_au_port(source: str) -> None:
+    """Bug réel du 2026-09-08 : la purge tuait TOUS les uvicorn du repo, quel
+    que soit leur port — lancer `-Port 8040` pendant qu'un entretien
+    s'enregistrait sur 8020 a tué ce serveur en vol (9 segments de
+    transcription perdus côté navigateur, un job de répartition figé
+    `running`). Les racines doivent être filtrées sur le port de leur ligne
+    de commande, et la purge doit transmettre le port visé."""
+    debut = source.index("function Get-ProcessusServeur")
+    corps = source[debut:source.index("function", debut + 10)]
+    racines = corps.split("Get-DescendantsProcessus", 1)[0]
+    assert "Test-CommandeSurLePort" in racines, "les racines doivent être filtrées sur le port"
+    ligne = next(l for l in source.splitlines() if l.strip().startswith("$aTuer ="))
+    assert "Get-ProcessusServeur -NumPort $Port" in ligne
+
+
+def test_le_port_se_lit_dans_la_ligne_de_commande_uvicorn(source: str) -> None:
+    """`--port 8040` (forme du script) comme `--port=8040` doivent être
+    reconnus ; sans `--port`, uvicorn écoute sur 8000 — un serveur lancé sans
+    option ne doit être purgé que par un `-Port 8000`."""
+    debut = source.index("function Test-CommandeSurLePort")
+    corps = source[debut:source.index("function", debut + 10)]
+    assert "--port[ =]" in corps
+    assert "8000" in corps

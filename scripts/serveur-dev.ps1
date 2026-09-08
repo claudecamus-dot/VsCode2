@@ -23,6 +23,14 @@
 # socket du port visé — quel que soit leur interpréteur (cf.
 # Get-WorkersOrphelinsDuPort).
 #
+# Scopé au PORT (2026-09-08) : la purge tuait TOUS les serveurs du repo, sur
+# n'importe quel port. Lancer un second serveur (-Port 8040) pendant qu'un
+# entretien s'enregistrait sur 8020 a tué ce dernier en vol : 9 segments de
+# transcription perdus côté navigateur, un job de répartition figé « running ».
+# Les racines sont désormais filtrées sur le `--port <N>` de leur ligne de
+# commande (cf. Test-CommandeSurLePort) ; les orphelins restent cherchés par
+# le socket du port visé. Deux serveurs du même repo coexistent donc.
+#
 # Usage :  powershell -ExecutionPolicy Bypass -File scripts/serveur-dev.ps1
 #          [-Port 8020] [-StopOnly] [-KeepIfFresh]
 
@@ -66,7 +74,16 @@ function Get-DescendantsProcessus {
     return $resultat
 }
 
+function Test-CommandeSurLePort {
+    # Vrai si cette ligne de commande uvicorn sert LE port visé (`--port 8040`
+    # comme `--port=8040`). Sans `--port` explicite, uvicorn écoute sur 8000.
+    param([string]$Commande, [int]$NumPort)
+    if ($Commande -match '--port[ =]"?(\d+)') { return ([int]$Matches[1] -eq $NumPort) }
+    return ($NumPort -eq 8000)
+}
+
 function Get-ProcessusServeur {
+    param([int]$NumPort)
     # Tous les process liés au serveur DE CE REPO. Les RACINES restent scopées à
     # $racine (ExecutablePath sous la racine + ligne de commande uvicorn) — on
     # ne tue jamais l'uvicorn d'un repo frère ni un process tiers. Mais on tue
@@ -82,7 +99,8 @@ function Get-ProcessusServeur {
     # parent mort. Un port de plus condamné à chaque redémarrage.
     $racines = @(Get-CimInstance Win32_Process -Filter "Name='python.exe'" |
         Where-Object {
-            $_.ExecutablePath -like "$racine\*" -and $_.CommandLine -like "*uvicorn app.main*"
+            $_.ExecutablePath -like "$racine\*" -and $_.CommandLine -like "*uvicorn app.main*" -and
+            (Test-CommandeSurLePort -Commande $_.CommandLine -NumPort $NumPort)  # jamais un autre port de CE repo (2026-09-08)
         })
     if ($racines.Count -eq 0) { return @() }
     return @($racines) + @(Get-DescendantsProcessus -Racines @($racines | ForEach-Object { [int]$_.ProcessId }))
@@ -200,7 +218,7 @@ if ($KeepIfFresh -and -not $StopOnly -and (Test-PortRepond -NumPort $Port)) {
 # détectable seulement à la 2e — sans elle, le port était déclaré hanté alors
 # qu'une simple reprise suffisait (vécu le 2026-07-27).
 foreach ($passe in 1..2) {
-    $aTuer = @(Get-ProcessusServeur) + @(Get-WorkersOrphelinsDuPort -NumPort $Port)
+    $aTuer = @(Get-ProcessusServeur -NumPort $Port) + @(Get-WorkersOrphelinsDuPort -NumPort $Port)
     $ecoute = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     foreach ($c in @($ecoute)) {
         $p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
