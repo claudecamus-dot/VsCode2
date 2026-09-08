@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : da014a2 du 2026-09-08 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`da014a2`, 2026-09-08) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 3b9feba du 2026-09-08 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`3b9feba`, 2026-09-08) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -163,7 +163,12 @@ description d'intention. Les gestes exacts :
   qu'à la fin du 1er). Chaque sous-agent part avec un contexte VIERGE : son prompt
   doit être un **brief autoportant** — chemins absolus, exigence vérifiable, format
   de réponse attendu (« données brutes », pas de prose), et le rappel qu'il rend un
-  RÉSULTAT (son texte final), pas un message à l'utilisateur.
+  RÉSULTAT (son texte final), pas un message à l'utilisateur. Et dès que le brief
+  autorise à « lancer l'app et regarder le rendu », la clause : **n'utiliser qu'un
+  serveur déjà en écoute qu'on n'a pas démarré ; ne jamais démarrer, redémarrer ni
+  purger un service du dépôt** — sinon écrire « non vérifié au rendu ». Une
+  vérification manquante annoncée vaut mieux qu'un service tiers tué (finding
+  `flotte:depot-au-repos-ne-voit-pas-un-serveur-en-cours`, § non-convergence).
 - **Arrière-plan** : `run_in_background: true` (défaut) rend la main immédiatement,
   la notification arrive à la fin — ne jamais écrire le résultat à sa place ; s'il
   faut le résultat pour continuer, `run_in_background: false` (synchrone).
@@ -224,7 +229,16 @@ description d'intention. Les gestes exacts :
   mode asynchrone ci-dessus, étendue au silence total). Avant de dispatcher un
   sous-agent de lecture/audit sur un dépôt distant de la flotte, vérifier qu'il
   est au repos (deux relevés `git status --porcelain` espacés qui diffèrent =
-  session tierce active, cause probable de non-convergence par contention).
+  session tierce active, cause probable de non-convergence par contention)
+  **et qu'il n'est pas en usage** — un dépôt propre côté git peut être en pleine
+  utilisation. Relever les processus dont la ligne de commande cite le chemin du
+  dépôt et leurs ports en écoute :
+  `Get-CimInstance Win32_Process | ? { $_.CommandLine -like '*<dépôt>*' } | select ProcessId, CommandLine`
+  puis `Get-NetTCPConnection -State Listen -OwningProcess <pid>`. **Un port actif =
+  aucune étape qui lance, redémarre ou purge un service**, ou la dégrader en lecture
+  seule. Finding `flotte:depot-au-repos-ne-voit-pas-un-serveur-en-cours` (2026-09-08) :
+  le contrôle git était passé, et le sous-agent a tué le serveur 8020 de l'utilisateur
+  en pleine session d'enregistrement — 9 segments de transcription perdus.
 
 **Sous-agents ou agent team ?** (veille 2026-07-29, doc officielle Anthropic). Les
 sous-agents restent le DÉFAUT : ils rendent un résultat au demandeur et ne se parlent

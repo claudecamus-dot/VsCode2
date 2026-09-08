@@ -43,7 +43,7 @@ vraies, sur deux couches distinctes.
 - **Pas de constat sans localisation** : chaque point porte `fichier:ligne` ou une
   fonction nommée. Un ressenti n'est pas un finding.
 - **Réutiliser l'existant** avant de re-analyser à la main : `/security-review` (sécurité
-  des changements), `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`
+  des changements), `bmad-review` et ses lentilles adverse et cas limites
   (robustesse / cas limites). Cet audit les **oriente et consolide**, il ne les remplace
   pas.
 - **Niveaux** : `ok` (rien de significatif), `moyen` (points à traiter, non bloquants),
@@ -74,6 +74,12 @@ vraies, sur deux couches distinctes.
    `git status --porcelain` du dépôt cible espacés de quelques secondes qui diffèrent
    signalent une session tierce active — un audit sur un dépôt qui bouge sous lui est le
    scénario le plus probable derrière un sous-agent qui ne converge jamais (§ Cadence).
+   **Au repos côté git n'est pas inutilisé** : relever aussi les processus dont la ligne
+   de commande cite le dépôt (`Get-CimInstance Win32_Process | ? { $_.CommandLine -like
+   '*<dépôt>*' }`) et leurs ports en écoute (`Get-NetTCPConnection -State Listen`). Un
+   port actif interdit toute étape de l'audit qui lancerait, redémarrerait ou purgerait
+   un service — l'audit lit, il n'exploite pas (finding
+   `flotte:depot-au-repos-ne-voit-pas-un-serveur-en-cours`, 2026-09-08).
 2. **Explorer** (fan-out `Explore` si volumineux) : une passe par dimension, ou par zone
    de code selon ce qui est le plus efficace. Lancer `/security-review` sur le diff
    courant si pertinent.
