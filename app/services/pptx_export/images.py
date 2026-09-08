@@ -53,6 +53,35 @@ def _find_teardrop_frame(shapes):
     return left, top, width, height, geom
 
 
+# Échecs de fetch Openverse déjà constatés DANS CE PROCESSUS, par (requête,
+# orientation). Un export pose plusieurs zones de même scène : sans ça, chacune
+# repayait 2 variantes x 2 tentatives x 35 s = jusqu'à 140 s pour rien (finding
+# audit-technique performance:critique du 2026-09-04).
+#
+# Volontairement en mémoire de processus, et NON sur disque : un échec ne doit
+# jamais occuper durablement le slot photo — c'est la leçon du 2026-07-22
+# (« images générées servies à vie »). Un redémarrage du serveur retente donc la
+# vraie photo, exactement comme avant.
+_ECHECS_FETCH: set[tuple[str, str]] = set()
+
+
+def _cle_cache_aspect(aspect: float) -> str:
+    """Composante « forme » de la clé de cache image, ARRONDIE.
+
+    La clé intégrait `px_h = round(900/aspect)` dérivé de la géométrie vivante
+    de la zone : 1 px d'écart fabriquait une entrée neuve, donc un fetch neuf.
+    Mesuré sur le cache réel du dépôt le 2026-09-08 : 38 `_proc` pour 27
+    `_photo`, avec les paires `900x1310`/`900x1311` et `900x910`/`900x911` que
+    l'audit cite — deux formes identiques à 0,08 % près.
+
+    Arrondir l'aspect à 2 décimales fusionne ces paires (0.687 et 0.6865 -> 0.69)
+    sans confondre des formes réellement différentes (1277 -> 0.70 reste distinct
+    de 1310 -> 0.69). L'image, elle, reste recadrée à l'aspect EXACT de la zone :
+    seule la clé est arrondie, jamais le rendu.
+    """
+    return f"a{round(aspect, 2):.2f}"
+
+
 def _resoudre_image_cachee(base: str, scene: str, seed: int, aspect: float,
                            px_w: int, px_h: int, requete: str):
     """Résout l'image d'une zone : vraie photo Openverse CC0 si le fetch est permis
@@ -84,6 +113,8 @@ def _resoudre_image_cachee(base: str, scene: str, seed: int, aspect: float,
         if simple != requete:
             variantes.append(simple)
         for req in variantes:
+            if (req, ar) in _ECHECS_FETCH:
+                continue  # déjà 2 tentatives infructueuses dans ce processus
             for _tentative in range(2):
                 try:
                     brut = _IMG_CACHE / f"_brut_{scene}_{seed}.jpg"
@@ -92,6 +123,9 @@ def _resoudre_image_cachee(base: str, scene: str, seed: int, aspect: float,
                     return photo
                 except Exception:
                     continue  # réseau/API KO : tentative/variante suivante
+            # Les 2 tentatives ont échoué : on ne les rejoue plus pour les
+            # autres zones de cet export.
+            _ECHECS_FETCH.add((req, ar))
         # tout a échoué : repli procédural ci-dessous, slot photo intact
     if not proc.exists():
         _nature_images.generate_to(str(proc), scene, px_w, px_h, seed=seed)
@@ -110,7 +144,7 @@ def _remplir_cadre_chapitre(slide, cadre, scene: str, seed: int = 0) -> None:
         px_w = 900
         px_h = max(1, int(round(px_w / aspect)))
         path = _resoudre_image_cachee(
-            f"{scene}_{seed}_{px_w}x{px_h}", scene, seed, aspect, px_w, px_h,
+            f"{scene}_{seed}_{_cle_cache_aspect(aspect)}", scene, seed, aspect, px_w, px_h,
             requete=_SCENE_REQUETE.get(scene, scene),
         )
         _place_image_in_frame(slide, str(path), left, top, width, height, geom=geom)
@@ -131,7 +165,7 @@ def _image_dans_zone(slide, left, top, width, height, scene: str, requete: str,
         px_w = 900
         px_h = max(1, int(round(px_w / aspect)))
         path = _resoudre_image_cachee(
-            f"zone_{scene}_{seed}_{px_w}x{px_h}", scene, seed, aspect, px_w, px_h,
+            f"zone_{scene}_{seed}_{_cle_cache_aspect(aspect)}", scene, seed, aspect, px_w, px_h,
             requete=requete,
         )
         pic = slide.shapes.add_picture(str(path), Inches(left), Inches(top),
