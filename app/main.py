@@ -25,6 +25,7 @@ except ModuleNotFoundError:
     pass
 
 from .csrf import verifier_origine  # noqa: E402
+from .entetes_securite import entetes_securite  # noqa: E402
 from .db import init_db  # noqa: E402
 from .routers import agents, entretiens, export, interviews, missions, synthese, trames  # noqa: E402
 from .services import audio_transcribe  # noqa: E402
@@ -69,6 +70,9 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Interview-to-Deck", lifespan=lifespan)
 app.middleware("http")(verifier_origine)
+# Ajouté APRÈS la garde CSRF, donc exécuté AVANT elle (Starlette empile à
+# l'envers) : les en-têtes couvrent aussi la réponse 403 qu'elle renvoie.
+app.middleware("http")(entetes_securite)
 
 
 @app.exception_handler(Exception)
