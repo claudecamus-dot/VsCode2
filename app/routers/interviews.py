@@ -1567,9 +1567,17 @@ async def transcribe_segment(file: UploadFile = File(...)):
         return JSONResponse({"error": str(exc), "code": "no_speech"}, status_code=422)
     except audio_transcribe.TranscriptionError as exc:
         return JSONResponse({"error": str(exc)}, status_code=422)
-    except Exception as exc:
+    except Exception:
+        # Message FIXE, jamais `str(exc)` : sur ce chemin l'exception est
+        # quelconque (OSError de whisper, disque plein…) et son texte porte
+        # les chemins absolus du poste. Le détail complet reste dans le
+        # journal serveur, où il sert au diagnostic sans être publié au
+        # client (finding audit-technique securite du 2026-09-04).
         logger.exception("Échec inattendu de la transcription d'un segment")
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        return JSONResponse(
+            {"error": "Échec inattendu de la transcription de ce segment."},
+            status_code=500,
+        )
     return JSONResponse({"text": text})
 
 
@@ -1646,9 +1654,13 @@ async def transcribe_file(
             with open(RECORDINGS_DIR / filename, "wb") as out:
                 shutil.copyfileobj(file.file, out, length=1024 * 1024)
         await asyncio.to_thread(_ecrire)
-    except Exception as exc:
+    except Exception:
+        # Même règle qu'au-dessus : l'écriture disque échoue avec un message
+        # qui contient RECORDINGS_DIR en absolu.
         logger.exception("Échec de l'import du fichier audio à transcrire")
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        return JSONResponse(
+            {"error": "Échec de l'import du fichier audio."}, status_code=500
+        )
 
     try:
         purge_stale_audio_file_jobs(db)
@@ -1662,7 +1674,7 @@ async def transcribe_file(
         db.add(job)
         db.commit()
         db.refresh(job)
-    except Exception as exc:
+    except Exception:
         # Fichier déjà écrit mais aucun job pour le référencer. Il n'est PLUS
         # supprimé (2026-09-01) : la revue adversariale du 2026-07-27 le
         # retirait parce que rien ne pouvait plus le retrouver — ce n'est plus
@@ -1671,7 +1683,13 @@ async def transcribe_file(
         # clic » et « l'audio d'un entretien détruit par le serveur », la règle
         # du projet tranche : l'audio ne se supprime que par une action du site.
         logger.exception("Création du job de transcription de fichier impossible")
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        return JSONResponse(
+            {
+                "error": "Le fichier a bien été reçu, mais sa transcription "
+                "n'a pas pu être lancée."
+            },
+            status_code=500,
+        )
     background_tasks.add_task(run_audio_file_job, job.id)
     return JSONResponse(
         {"job_id": job.id, "status": "pending", "block_seconds": job.block_seconds}
@@ -1926,9 +1944,11 @@ async def save_record_backup(
             with open(RECORDINGS_DIR / filename, "wb") as out:
                 shutil.copyfileobj(file.file, out, length=1024 * 1024)
         await asyncio.to_thread(_ecrire)
-    except Exception as exc:
+    except Exception:
         logger.exception("Échec de la sauvegarde audio de secours")
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        return JSONResponse(
+            {"error": "Échec de la sauvegarde audio de secours."}, status_code=500
+        )
     return JSONResponse({"path": filename, "mission_absente": mission_absente})
 
 
@@ -3008,9 +3028,12 @@ async def transcribe_notes(
         db.commit()
     except audio_transcribe.TranscriptionError as exc:
         return JSONResponse({"error": str(exc)}, status_code=422)
-    except Exception as exc:
+    except Exception:
         logger.exception("Échec inattendu de la transcription des notes libres")
-        return JSONResponse({"error": str(exc)}, status_code=500)
+        return JSONResponse(
+            {"error": "Échec inattendu de la transcription des notes."},
+            status_code=500,
+        )
 
     return JSONResponse({"free_notes": interview.free_notes})
 

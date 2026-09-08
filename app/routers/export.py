@@ -151,12 +151,21 @@ async def import_analyse(
         return templates.TemplateResponse(
             request, "synthese/export_import.html", _synthese_context(db, mission, error=str(exc))
         )
-    except Exception as exc:  # garde-fou : jamais de 500 brute sur un import utilisateur
+    except Exception:  # garde-fou : jamais de 500 brute sur un import utilisateur
+        # Message FIXE : l'exception attrapée ici est quelconque, son texte
+        # peut porter les chemins absolus du poste. Détail dans le journal
+        # serveur (même règle que les 5 sites de `interviews.py`, finding
+        # audit-technique securite du 2026-09-04).
+        logger.exception("Échec inattendu de l'import d'analyse (mission %s)", mission_id)
         db.rollback()
         return templates.TemplateResponse(
             request,
             "synthese/export_import.html",
-            _synthese_context(db, mission, error=f"Échec de l'import : {exc}"),
+            _synthese_context(
+                db,
+                mission,
+                error="Échec de l'import : le fichier n'a pas pu être lu.",
+            ),
         )
 
     # Suite logique du parcours : aller relire/éditer la synthèse globale
