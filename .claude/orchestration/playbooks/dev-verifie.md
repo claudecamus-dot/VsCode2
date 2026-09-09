@@ -72,7 +72,7 @@ PPT complète (cadres photo, polish, passe design).
       "modele": "(session)",
       "contrat": {
         "type": "deterministe",
-        "critere": "fichiers concernés lus, appelants des fonctions/champs partagés grep-és avant modification"
+        "critere": "fichiers concernés lus, appelants des fonctions/champs partagés grep-és avant modification ; ET le run est journalisé `en-cours` (py .claude/orchestration/log_run.py, resultat en-cours) AVANT la première écriture sous app/ — soldé (--solde) à la remise. Finding prio 5 du 2026-09-07 : le code produit n'existait pour le journal et le gate qu'au commit"
       },
       "checkpoint": false
     },

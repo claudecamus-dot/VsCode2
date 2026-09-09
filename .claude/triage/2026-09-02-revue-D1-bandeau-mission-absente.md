@@ -24,11 +24,9 @@ Le chantier D1 remplace un 404 par une écriture + un bandeau qui dit à l'utili
 son audio a été rangé. Les trois affirmations de ce bandeau ont été vérifiées une par une,
 et chacune est fausse dans un cas atteignable.
 
-| Promesse | Mesure | Constat |
-| --- | --- | --- |
-| « rangé dans Audio sans mission » | 23 noms sur 37 s'écrivent hors de l'inventaire et sortent en 404 | `D1-B1-BIS` |
-| « tu peux l'écouter » | 3 tranches sur 4 gardent l'URL par mission, qui rend 404 | `D1-F1` |
-| « le rattacher à une autre mission » | L'écran n'expose que *Télécharger* et *Supprimer* | `D1-F4` |
+- Promesse : « rangé dans Audio sans mission » · Mesure : 23 noms sur 37 s'écrivent hors de l'inventaire et sortent en 404 · Constat : `D1-B1-BIS`
+- Promesse : « tu peux l'écouter » · Mesure : 3 tranches sur 4 gardent l'URL par mission, qui rend 404 · Constat : `D1-F1`
+- Promesse : « le rattacher à une autre mission » · Mesure : L'écran n'expose que *Télécharger* et *Supprimer* · Constat : `D1-F4`
 
 ---
 
@@ -154,21 +152,21 @@ promesse du bandeau : l'audio peut être ailleurs, chez quelqu'un d'autre.
 
 ## MINEURS — NON ARBITRÉS, consignés
 
-| id | Fichier | Constat |
-| --- | --- | --- |
-| `MP4-STOWAWAY` | `mission_backups.py:45` | `.mp4` passe de `audio/mp4` à `video/mp4` : passager clandestin, non nécessaire à D1-B1, contredit le docstring, 0 test. Rayon mesuré : 0 fichier concerné aujourd'hui |
-| `CMT-8EXT` | `mission_backups.py:56-59` | Le commentaire dit « les 8 extensions ci-dessus » en désignant un dictionnaire que le même diff porte à 15 entrées |
-| `MID-NEG` | `interviews.py:1824` | En retirant le 404, le diff ouvre la route à `mission_id <= 0` que le jumeau refuse en 400. L'écran affiche alors une raison **fausse** (« mission n° 0 supprimée ») |
-| `PARTIAL-WRITE` | `interviews.py:1853-1859` | Sur échec en cours d'écriture, le fichier tronqué reste sur disque et le client ne reçoit jamais son nom. Préexistant |
-| `TEST-HYGIENE` | `tests/test_mission_backups.py` | 4 fragilités : `status_code` hors du `try` (2×), `'target="_blank"' in source` correct par accident, `cursor: not-allowed` décorrélé de son sélecteur, tests de template dans un module de service |
-| `CHURN` | `interviews.py:15,49-88,1716,2377` | Le diff mêle isort + `timezone.utc` → `UTC` à un correctif de sûreté. C'est `C15` à nouveau |
-| `D1-F6` | `record_libre.html:567-575` | « Enregistrement terminé — prêt à envoyer. » s'affiche alors que le bouton vient d'être verrouillé |
-| `D1-F7` | les deux templates | Le paragraphe « Les lignes deja construites… » est présent **deux fois de suite**, dans les deux templates, en deux rédactions qui se contredisent |
-| `D1-F8` | `record_libre.html:2111-2142` | Ni « Recommencer » ni « Démarrer » ne remettent `missionAbsente`/`fichiersOrphelins` à zéro |
-| `D1-F9` | `record_libre.html:207-210` | Le bandeau ordonne de cliquer un bouton qui vit dans `#tab-transcription`, masqué dès qu'on est sur l'onglet Répartition |
-| `D1-F10` | `app.css:118-122` | `.btn:disabled:hover` ne neutralise que `border-color` : `.btn-danger:hover` continue de peindre le fond. Aucun bouton danger désactivé aujourd'hui |
-| `D1-F11` | `app.css:118-119` vs `:127` | `.btn:disabled` (0,2,0) l'emporte sur `button.htmx-request` (0,1,1) : le curseur `wait` d'htmx est désarmé. Cosmétique |
-| `D1-F12` | `record_libre.html:1262` vs `:1404` | `urlAudio` (hissée) déréférence une `var` déclarée 146 lignes plus bas. Sans effet aujourd'hui ; le premier appel de niveau supérieur lèverait un `TypeError` fatal qui couperait l'IIFE |
+| id | Fichier | Constat | statut |
+| --- | --- | --- | --- |
+| `MP4-STOWAWAY` | `mission_backups.py:45` | `.mp4` passe de `audio/mp4` à `video/mp4` : passager clandestin, non nécessaire à D1-B1, contredit le docstring, 0 test. Rayon mesuré : 0 fichier concerné aujourd'hui | differe — non arbitré (mineur, consigné le 2026-09-02) |
+| `CMT-8EXT` | `mission_backups.py:56-59` | Le commentaire dit « les 8 extensions ci-dessus » en désignant un dictionnaire que le même diff porte à 15 entrées | differe — non arbitré (mineur, consigné le 2026-09-02) |
+| `MID-NEG` | `interviews.py:1824` | En retirant le 404, le diff ouvre la route à `mission_id <= 0` que le jumeau refuse en 400. L'écran affiche alors une raison **fausse** (« mission n° 0 supprimée ») | differe — non arbitré (mineur, consigné le 2026-09-02) |
+| `PARTIAL-WRITE` | `interviews.py:1853-1859` | Sur échec en cours d'écriture, le fichier tronqué reste sur disque et le client ne reçoit jamais son nom. Préexistant | differe — non arbitré (mineur, consigné le 2026-09-02) |
+| `TEST-HYGIENE` | `tests/test_mission_backups.py` | 4 fragilités : `status_code` hors du `try` (2×), `'target="_blank"' in source` correct par accident, `cursor: not-allowed` décorrélé de son sélecteur, tests de template dans un module de service | differe — non arbitré (mineur, consigné le 2026-09-02) |
+| `CHURN` | `interviews.py:15,49-88,1716,2377` | Le diff mêle isort + `timezone.utc` → `UTC` à un correctif de sûreté. C'est `C15` à nouveau | differe — non arbitré (mineur, consigné le 2026-09-02) |
+| `D1-F6` | `record_libre.html:567-575` | « Enregistrement terminé — prêt à envoyer. » s'affiche alors que le bouton vient d'être verrouillé | differe — non arbitré (mineur, consigné le 2026-09-02) |
+| `D1-F7` | les deux templates | Le paragraphe « Les lignes deja construites… » est présent **deux fois de suite**, dans les deux templates, en deux rédactions qui se contredisent | differe — non arbitré (mineur, consigné le 2026-09-02) |
+| `D1-F8` | `record_libre.html:2111-2142` | Ni « Recommencer » ni « Démarrer » ne remettent `missionAbsente`/`fichiersOrphelins` à zéro | differe — non arbitré (mineur, consigné le 2026-09-02) |
+| `D1-F9` | `record_libre.html:207-210` | Le bandeau ordonne de cliquer un bouton qui vit dans `#tab-transcription`, masqué dès qu'on est sur l'onglet Répartition | differe — non arbitré (mineur, consigné le 2026-09-02) |
+| `D1-F10` | `app.css:118-122` | `.btn:disabled:hover` ne neutralise que `border-color` : `.btn-danger:hover` continue de peindre le fond. Aucun bouton danger désactivé aujourd'hui | differe — non arbitré (mineur, consigné le 2026-09-02) |
+| `D1-F11` | `app.css:118-119` vs `:127` | `.btn:disabled` (0,2,0) l'emporte sur `button.htmx-request` (0,1,1) : le curseur `wait` d'htmx est désarmé. Cosmétique | differe — non arbitré (mineur, consigné le 2026-09-02) |
+| `D1-F12` | `record_libre.html:1262` vs `:1404` | `urlAudio` (hissée) déréférence une `var` déclarée 146 lignes plus bas. Sans effet aujourd'hui ; le premier appel de niveau supérieur lèverait un `TypeError` fatal qui couperait l'IIFE | differe — non arbitré (mineur, consigné le 2026-09-02) |
 
 ---
 
@@ -246,8 +244,8 @@ On le dit, avec une phrase qui ne s'affiche que dans cet état, plutôt que d'af
 
 | id | Constat | Traitement |
 | --- | --- | --- |
-| `D2-M1` | `error` sur un `<audio>` ne dit pas « 404 », il dit « je n'ai pas su jouer ça » — mesuré en navigateur : un conteneur non décodé et une route qui refuse rendent le **même** code (4). Le repli réécrivait donc le lien « Télécharger », qui fonctionnait, vers une URL en 404 : on cassait le dernier recours pour cause de codec manquant | Sonde `HEAD` via `recFetch` avant de basculer — on ne dégrade que vers du **prouvé**. Réseau muet, on ne touche à rien |
-| `D2-M2` | Mon test de template laissait passer **cinq** mutations qui défont le correctif, dont la suppression pure et simple de `repointerLignesAudio` | Regex tolérante aux sauts de ligne pour l'URL en dur ; sites d'appel comptés **hors définition** ; ordre du gate vérifié ; `repointerLignesAudio` et le verrou explicitement assertés |
+| `D2-M1` | `error` sur un `<audio>` ne dit pas « 404 », il dit « je n'ai pas su jouer ça » — mesuré en navigateur : un conteneur non décodé et une route qui refuse rendent le **même** code (4). Le repli réécrivait donc le lien « Télécharger », qui fonctionnait, vers une URL en 404 : on cassait le dernier recours pour cause de codec manquant | corrigé — Sonde `HEAD` via `recFetch` avant de basculer — on ne dégrade que vers du **prouvé**. Réseau muet, on ne touche à rien |
+| `D2-M2` | Mon test de template laissait passer **cinq** mutations qui défont le correctif, dont la suppression pure et simple de `repointerLignesAudio` | corrigé — Regex tolérante aux sauts de ligne pour l'URL en dur ; sites d'appel comptés **hors définition** ; ordre du gate vérifié ; `repointerLignesAudio` et le verrou explicitement assertés |
 
 ## Mineurs traités (les trois qui portaient sur mon propre code)
 

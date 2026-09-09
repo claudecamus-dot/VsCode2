@@ -114,6 +114,16 @@ ci-dessus plutôt que d'en dupliquer la logique.
 - [ ] Toute surface runtime touchée **exercée pour de vrai**, pas seulement en
       unitaire :
   - écran / template / CSS / HTMX → `run-dev-server` (screenshot regardé).
+  - **enregistrement libre, transcription, tour de table** → `tests/test_e2e_enregistrement_libre.py`
+    (faux micro Chromium + vraie transcription `tiny` + faux Ollama HTTP) joué,
+    et allongé si l'écran d'enregistrement ou le rejeu changent.
+  - **formulaire, route POST, middleware, en-tête HTTP, garde CSRF** → le parcours
+    **vrai navigateur** `tests/test_e2e_premiers_clics.py` (Edge/Chrome headless via
+    CDP, `tests/navigateur_cdp.py`) joué ET allongé du clic touché. Demande
+    utilisateur du 2026-09-08 : « plus de test utilisateur » — le site avait été
+    mis en service avec un 403 CSRF dès Supprimer / Démarrer, suite verte
+    (`TestClient` reçoit un Origin injecté ; seul un navigateur envoie `Origin:
+    null` sous `no-referrer`). Un `TestClient` prouve la route, pas le clic.
   - export `.pptx` → `pptx-verify` (rendu regardé) — python-pptx est un parseur tolérant.
   - correctif **timeout/perf/modèle/prompt IA** → **trois** exigences, pas une
     mesure isolée (leçon du 2026-07-22, où une mesure en script — pas le flux réel —
@@ -242,6 +252,9 @@ ci-dessus plutôt que d'en dupliquer la logique.
       adversariale est la dépense la plus lourde du dispositif ; ce qu'elle laisse ouvert
       doit se compter, sinon elle ne rembourse pas. Un `sans_statut` non nul veut dire
       qu'un fichier de triage échappe au comptage — le mettre au gabarit ci-dessous.
+      **Une séance ne se clôt pas avec un fichier de triage hors gabarit** (finding
+      superviseur du 2026-09-07, arbitré le 2026-09-09 : 89 lignes de 4 fichiers
+      invisibles du compteur, 14 constats ouverts non comptés).
 
 ### Gabarit d'un fichier de triage (figé le 2026-09-02)
 

@@ -20,15 +20,13 @@ obtenu et regardé. `LECTURE` = établi par lecture de code, non rejoué.
 Vérifications faites sur le serveur de développement lancé sur un port vierge, contre la
 base de développement, avec Ollama et faster-whisper réellement sollicités.
 
-| Exigence | Vérification | Résultat |
-| --- | --- | --- |
-| Audio présent par tranche | 3 tranches postées sur la route de sauvegarde, puis inventaire de mission et ré-écoute de chacune | MESURE — 3/3 listées, HTTP 200, 44 233 octets rendus intacts |
-| Tranches sur la fiche d'entretien | Entretien enregistré avec ses trois tranches, fiche rechargée | MESURE — 3 lecteurs audio, libellé « par tranche de 20 min », les 3 noms présents |
-| Transcription | Fichier audio porteur de vraie parole importé par la route d'import, statut poursuivi jusqu'à `done` | MESURE — texte transcrit exact, bloc par bloc |
-| Répartition Q/R au fil de l'eau | 2 tranches de texte soumises successivement pendant que la précédente était traitée | MESURE — 2 tours après la 1ʳᵉ tranche, 4 après la 2ᵉ : la fusion est bien incrémentale |
-| Export PDF de l'onglet Répartition | Route d'export appelée, PDF passé au vérificateur du projet | MESURE — verdict OK, 0 bloquant, une seule abscisse gauche, polices embarquées |
-| Écran d'enregistrement libre | Capture de la page servie par le serveur | RENDU — les deux onglets présents, mise en page intacte |
-| Non-régression | Suite complète avant et après | MESURE — 715 passed avant, 734 passed après (715 + 19 tests ajoutés), 0 failed, 0 skipped |
+- Exigence : Audio présent par tranche · Vérification : 3 tranches postées sur la route de sauvegarde, puis inventaire de mission et ré-écoute de chacune · Résultat : MESURE — 3/3 listées, HTTP 200, 44 233 octets rendus intacts
+- Exigence : Tranches sur la fiche d'entretien · Vérification : Entretien enregistré avec ses trois tranches, fiche rechargée · Résultat : MESURE — 3 lecteurs audio, libellé « par tranche de 20 min », les 3 noms présents
+- Exigence : Transcription · Vérification : Fichier audio porteur de vraie parole importé par la route d'import, statut poursuivi jusqu'à `done` · Résultat : MESURE — texte transcrit exact, bloc par bloc
+- Exigence : Répartition Q/R au fil de l'eau · Vérification : 2 tranches de texte soumises successivement pendant que la précédente était traitée · Résultat : MESURE — 2 tours après la 1ʳᵉ tranche, 4 après la 2ᵉ : la fusion est bien incrémentale
+- Exigence : Export PDF de l'onglet Répartition · Vérification : Route d'export appelée, PDF passé au vérificateur du projet · Résultat : MESURE — verdict OK, 0 bloquant, une seule abscisse gauche, polices embarquées
+- Exigence : Écran d'enregistrement libre · Vérification : Capture de la page servie par le serveur · Résultat : RENDU — les deux onglets présents, mise en page intacte
+- Exigence : Non-régression · Vérification : Suite complète avant et après · Résultat : MESURE — 715 passed avant, 734 passed après (715 + 19 tests ajoutés), 0 failed, 0 skipped
 
 ---
 
@@ -52,20 +50,16 @@ Aucun.
 Mesure du 2026-09-02 sur le chemin réel (`extract_turns_from_text`, retries compris),
 trois tranches d'entretien typées, CPU local :
 
-| modèle | durée totale | couverture moyenne du texte | tours portant une question |
-| --- | --- | --- | --- |
-| `qwen2.5:3b-instruct` (défaut actuel) | 166 s | 79 % | **0** |
-| `llama3.1:8b` | 269 s | **100 %** | **9** |
+- modèle : `qwen2.5:3b-instruct` (défaut actuel) · durée totale : 166 s · couverture moyenne du texte : 79 % · tours portant une question : **0**
+- modèle : `llama3.1:8b` · durée totale : 269 s · couverture moyenne du texte : **100 %** · tours portant une question : **9**
 
 Détail par cas — le premier est un dialogue question/réponse, le deuxième un monologue
 (qui ne contient légitimement aucune question), le troisième un enchaînement dense de
 questions courtes :
 
-| cas | `qwen2.5:3b` | `llama3.1:8b` |
-| --- | --- | --- |
-| dialogue Q/R | 77 s · 45 % · 0 question | 80 s · 100 % · 4 questions |
-| monologue | 40 s · 93 % · 0 question | 85 s · 100 % · 0 question |
-| Q/R dense | 49 s · 100 % · 0 question | 105 s · 100 % · 5 questions |
+- cas : dialogue Q/R · `qwen2.5:3b` : 77 s · 45 % · 0 question · `llama3.1:8b` : 80 s · 100 % · 4 questions
+- cas : monologue · `qwen2.5:3b` : 40 s · 93 % · 0 question · `llama3.1:8b` : 85 s · 100 % · 0 question
+- cas : Q/R dense · `qwen2.5:3b` : 49 s · 100 % · 0 question · `llama3.1:8b` : 105 s · 100 % · 5 questions
 
 Deux faits, distincts, tous deux mesurés :
 
@@ -138,19 +132,17 @@ suite de l'acquisition du micro — exécuter le corps synchrone n'aurait rien p
 Les douze mutations ont été rejouées sur la version refondue : **douze détectées, zéro
 faux négatif.**
 
-| mutation | verdict |
-| --- | --- |
-| vidage sous `if (false)` | rouge |
-| vidage commenté en bloc | rouge |
-| vidage différé par `setTimeout` | rouge |
-| `return` avant le vidage | rouge |
-| garde masquée par une variable locale (structuré) | rouge |
-| garde évaluée puis ignorée (structuré) | rouge |
-| jeton figé après le départ de la requête (structuré) | rouge |
-| garde acceptant tout jeton non vide (libre) | rouge |
-| mémoire de l'export non vidée | rouge |
-| cadence du poll portée à une heure (les deux écrans) | rouge |
-| échappement d'un titre de section retiré | rouge |
+- mutation : vidage sous `if (false)` · verdict : rouge
+- mutation : vidage commenté en bloc · verdict : rouge
+- mutation : vidage différé par `setTimeout` · verdict : rouge
+- mutation : `return` avant le vidage · verdict : rouge
+- mutation : garde masquée par une variable locale (structuré) · verdict : rouge
+- mutation : garde évaluée puis ignorée (structuré) · verdict : rouge
+- mutation : jeton figé après le départ de la requête (structuré) · verdict : rouge
+- mutation : garde acceptant tout jeton non vide (libre) · verdict : rouge
+- mutation : mémoire de l'export non vidée · verdict : rouge
+- mutation : cadence du poll portée à une heure (les deux écrans) · verdict : rouge
+- mutation : échappement d'un titre de section retiré · verdict : rouge
 
 ---
 

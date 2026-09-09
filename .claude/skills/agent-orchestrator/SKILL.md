@@ -27,6 +27,7 @@ de l'écran.** Ne pas plaquer un pattern générique là où le projet a déjà 
 | Si le plan touche… | Alors le plan contient… |
 | --- | --- |
 | Template Jinja / CSS / JS | Screenshot via `run-dev-server` (pas seulement pytest) |
+| Formulaire, route POST, middleware, en-tête HTTP, garde CSRF | Parcours **vrai navigateur** `tests/test_e2e_premiers_clics.py` joué et allongé du clic touché (demande utilisateur 2026-09-08 : « plus de test utilisateur » — 403 CSRF dès les premiers clics avec une suite verte) |
 | `app/services/pptx_export/**` / `pptx_deck.py` | `pptx-verify` (rendu réel — python-pptx est un parseur tolérant). Cardinalité ou libellé rendus VARIABLES → rendre un cas **non par défaut** |
 | `pptx_export/slides_diagnostic.py` (porte `_slide_swot`) | Skill `swot-matrix` chargée AVANT de dessiner (matrice 2×2 réelle, pas quatre cartes) |
 | `pptx_export/slides_trajectoire.py` (porte `_slide_matrice_effort_valeur`) | Skill `priority-matrix` chargée AVANT de dessiner (matrice dessinée, jamais un scatter Excel natif) |
@@ -63,6 +64,7 @@ La cible **export de deck** est `app/services/pptx_export/**` et `pptx_deck.py` 
 | Si le plan touche… | Alors le plan contient… |
 | --- | --- |
 | Fin d'incrément / avant commit | `revue-increment` en étape terminale |
+| **Première écriture sous `app/`** | Le run est journalisé **avant** cette écriture : `py .claude/orchestration/log_run.py '{…, "resultat": "en-cours"}'`, puis `--solde` à la remise. Finding prio 5 du 2026-09-07 (arbitré le 2026-09-09) : deux chantiers `app/` en trois jours sans aucun run, l'un portant un bloquant trouvé trois jours après l'écriture — le gate ne protège que ce que le journal voit, et le rappel de reliquat ne déclenche rien. Un run `en-cours` rend le chantier visible du superviseur dès sa première ligne, pas à son commit. |
 
 **Le piège de parallélisation, ici.** Deux sous-agents ne modifient jamais les mêmes
 fichiers en parallèle — sur ce projet le piège classique est **deux agents sur

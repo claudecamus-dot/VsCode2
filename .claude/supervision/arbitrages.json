@@ -1,454 +1,510 @@
 {
- "_doc": "Décisions humaines qui closent un constat automatique du superviseur (fichier VERSIONNÉ, édité à la main — le scan le lit, ne l'écrit jamais). cible : nom de skill, ou famille:<Nom> pour une famille entière. categories : les catégories de constat que cet arbitrage ferme (ko-repete | inefficacite | agent-mort | interaction | verification-manquante | non-convergence | autre) — un arbitrage de ROUTAGE ne doit pas masquer un constat de VÉRIFICATION sur la même cible ; champ absent = ferme TOUT (rétro-compatible, mais à éviter). Un constat arbitré disparaît des TODO auto mais reste visible dans la section « Arbitrages enregistrés » du tableau de bord, et le nombre de constats ainsi écartés y est affiché. L'usage réel reste mesuré (un arbitrage n'est pas une preuve d'utilité) : le superviseur étage 2 peut re-challenger un arbitrage avec des données nouvelles en posant `re_challenge: true` sur son constat.",
- "arbitrages": [
-  {
-   "cible": "revue-increment",
-   "decision": "Constat superviseur du 2026-07-29 (« Angle mort CI : 6 runs rouges d'affilee pendant que la suite locale etait verte », diagnostic.json) posait une option non tranchee : garde-fou executable (hook post-push) en plus de la regle de checklist deja appliquee le meme jour (revue-increment §2 + memoire feedback-green-local-suite-hides-red-ci). La session du 2026-07-30 a ecrit .claude/hooks/check_ci_after_push.py (fail-open, lit le dernier run GitHub Actions apres un git push via git credential fill + l'API REST, pas de gh sur cette machine) mais s'est arretee avant de le cabler dans settings.json, de le tester ou de journaliser la decision ici — seul le docstring du hook affirmait « arbitree ACCEPTEE ». Repris et cloture le 2026-07-31 sur demande explicite (« reprends les travaux de la session precedente ») : hook cable en PostToolUse (matcher Bash|PowerShell), tests/test_check_ci_after_push.py (26, dont 3 chemins silencieux verifies sans toucher au reseau), entree CLAUDE.md. Le re_challenge reste ouvert si l'alerte s'avere trop bruyante en usage reel (elle est non bloquante, fail-open a chaque etape).",
-   "date": "2026-07-31",
-   "source": "utilisateur",
-   "categories": [
-    "verification-manquante"
-   ]
-  },
-  {
-   "cible": "sync-canon",
-   "decision": "Constat superviseur du 2026-07-29 (prio 4 : 5eb121b, +23 lignes log_run.py sans test, un test-contrat casse decouvert seulement a la revue suivante) applique sur demande (« traite ces 3 sujets ») : gate executable dans warn_verif_before_commit.py — un commit touchant .claude/orchestration/**, .claude/supervision/** ou .claude/hooks/** sans trace des fichiers-contrat cette session (pytest test_agent_orchestration/test_agent_supervision/test_hooks_discipline, ou suite complete) declenche un avertissement non bloquant les nommant ; regle miroir dans revue-increment §2 ; au passage le message app/ citait encore « npm test » (portage VSCode1), corrige en pytest. Les hooks gagnent leurs premiers tests-contrat (tests/test_hooks_discipline.py, 10). RESTE COTE HUB : porter la meme exigence dans la checklist de sync du canon VScode5 (log_run.py/scan_transcripts.py y sont generes). Memoire feedback-sync-canon-commits-need-contract-tests.",
-   "date": "2026-07-29",
-   "source": "utilisateur",
-   "categories": [
-    "verification-manquante"
-   ]
-  },
-  {
-   "cible": "revue-increment",
-   "decision": "Constat superviseur du 2026-07-29 (prio 4, re-challenge : recidive posterieure a l'arbitrage du 2026-07-28 — le garde anti-hallucination du 28, acheve avec ses tests, retrouve non commite ni journalise le 29, aucune ligne runs.jsonl apres 2026-07-28T12:14) applique DANS LE CANON DU HUB, synchronise le jour meme : scan_transcripts.py::arbre_sale() — arbre git sale au demarrage de session → ligne « reliquat de la seance precedente » listant les fichiers (hors churn genere docs/wiki + donnees du scan), a committer ou nommer avant toute nouvelle demande. Une premiere implementation locale dans remind_revue_increment.py, ecrite en parallele de la sync, a ete RETIREE le jour meme pour ne pas dupliquer le canon en divergeant. La regle de cloture (§4) reste inchangee ; le canon la rattrape quand la seance s'est arretee sans cloture. Le reliquat declencheur a ete commite (c461c66) apres verification reelle x2.",
-   "date": "2026-07-29",
-   "source": "utilisateur",
-   "categories": [
-    "ko-repete"
-   ]
-  },
-  {
-   "cible": "agent-orchestrator",
-   "decision": "Constat superviseur du 2026-07-29 (prio 2 : 2 runs en-attente-validation de 1 et 4 jours sans mecanisme de relance ; le lot du 2026-07-23 n'avait ete solde que sur demande explicite de l'utilisateur) applique DANS LE CANON DU HUB, synchronise le jour meme : scan_transcripts.py::runs_a_solder() — chaque demarrage de session liste les runs en-attente-validation de plus de 24 h (seuil RUN_A_SOLDER_H : un run frais attend sa validation dans la conversation en cours) avec la commande log_run --solde prete a copier. Test local ajoute (test_runs_a_solder_signale_les_attentes_de_plus_de_24h). Les 2 runs en attente (repartition Q/R au fil de l'eau du 2026-07-25, bulles matrice du 2026-07-28) restent a trancher par l'utilisateur dans l'app.",
-   "date": "2026-07-29",
-   "source": "utilisateur",
-   "categories": [
-    "interaction"
-   ]
-  },
-  {
-   "cible": "arbitrages.json",
-   "decision": "Constat superviseur du 2026-07-28 (prio 5, un arbitrage rendait sa cible definitivement sourde — 29/29 sans `categories`, 3 constats sur 4 masques le jour meme) applique : les 29 arbitrages portent desormais les categories qu'ils ferment reellement ; `_couvre` traite `[]` comme « ne ferme rien » et ignore un champ mal forme (un `in` sur une chaine matchait par sous-chaine) ; `categories_inconnues` signale une categorie hors vocabulaire, qui rendrait l'arbitrage silencieusement inoperant ; un constat peut porter `re_challenge: true` pour rouvrir l'AFFICHAGE avec des donnees nouvelles — jamais le ROUTAGE (`prudence` reste ce que l'humain a decide), et un arbitrage pris depuis le diagnostic le referme ; les constats ecartes sont affiches (wiki md + HTML, sortie du scan) au lieu de disparaitre. `write_diagnostic` refuse au-dela de 5 constats (le scan tronquait en silence) et type `re_challenge` en booleen. Tests : test_agent_supervision (22).",
-   "date": "2026-07-28",
-   "source": "utilisateur",
-   "categories": [
-    "interaction"
-   ]
-  },
-  {
-   "cible": "export-ppt-verifie",
-   "decision": "Constat superviseur du 2026-07-28 (prio 5, re-challenge : le deck a change de contenu — une slide par axe d'etude — sans aucun rendu depuis le 2026-07-23) applique : le declencheur de rendu devient un SEUIL OBJECTIF SUR LE CHEMIN DU DIFF (`app/services/pptx_export/**`), dans le playbook dev-verifie, la table des verifications obligatoires de l'orchestrateur et revue-increment §2 ; un changement rendant une cardinalite ou un libelle VARIABLES se rend sur un cas NON par defaut. Defaut de fond corrige : `_SYNTHESE_VISUEL` etait indexe par LIBELLE (renommable) au lieu de la `key` (stable), avec un repli constant — un axe renomme perdait son image et deux axes sur mesure recevaient la meme. Verifie au rendu reel sur une mission a 7 axes (2 renommes, 2 ajoutes).",
-   "date": "2026-07-28",
-   "source": "utilisateur",
-   "categories": [
-    "verification-manquante"
-   ]
-  },
-  {
-   "cible": "revue-increment",
-   "decision": "Constats superviseur du 2026-07-28 (prio 4 et 3, re-challenges) appliques. (a) Cloture : `git status --short` doit etre VIDE en fin de run, ou chaque reliquat NOMME a l'utilisateur avec sa raison — generalise la regle du 2026-07-20 (limitee aux docs generees) apres une seance close sur 9 fichiers modifies, dont l'application des arbitrages de la veille et du code produit ; portee aussi par l'etape commit-et-journal du playbook dev-verifie. (b) Un defaut PRODUIT trouve en verification reelle ne se clot pas par un xfail : trace hors-test obligatoire + decision nommee a l'utilisateur, et on cherche la cause avant de le ranger — le gap « synthese amputee » range en xfail le 2026-07-27 etait en fait une valeur JSON de type liste jetee par une garde `str`, trouvee en une sonde.",
-   "date": "2026-07-28",
-   "source": "utilisateur",
-   "categories": [
-    "ko-repete",
-    "verification-manquante"
-   ]
-  },
-  {
-   "cible": "deck-design-library",
-   "decision": "Vaut aussi pour `swot-matrix` et `priority-matrix`. Demande utilisateur du 2026-07-28 (« pour 5 fait en sorte que les skills soient invoques et declenches ») appliquee sur les deux plans. Mecanisme : les conditions AUTO-JUGEES (« SI le SWOT n'est pas au RDV ») deviennent des seuils objectifs sur le chemin du diff — `slides_diagnostic.py` declenche `swot-matrix`, `slides_trajectoire.py` declenche `priority-matrix`, toute slide dessinee ou retouchee declenche `deck-design-library` — dans le playbook export-ppt-verifie et la table des verifications obligatoires de l'orchestrateur ; la forme auto-jugee avait deja ete constatee inoperante le 2026-07-22 (restitution-deck-design, 0 invocation malgre 6 runs deck). Usage reel : les trois skills ont ete invoquees pendant ce run et leurs contrats verifies au rendu — le TODO « skills projet sans usage » est tombe a 0.",
-   "date": "2026-07-28",
-   "source": "utilisateur",
-   "categories": [
-    "agent-mort"
-   ]
-  },
-  {
-   "cible": "synthese_ai.py",
-   "decision": "Revue adversariale du 2026-07-28 (2 chasseurs, 24 findings, sur le code NON commite — gate R3 respecte cette fois) : correctifs retenus au-dela du diagnostic. `_clean_global` aplatit les valeurs non-`str` au lieu de les jeter (cause racine de la rubrique vide, memoire feedback-apply-the-lesson-to-sibling-paths) ; `_global_material_blocks` parcourt les AXES DE LA MISSION au lieu des 5 cles historiques — la matiere d'entretien libre d'un axe sur mesure n'atteignait jamais le prompt, second producteur independant du meme symptome — et n'emet plus de bloc reduit a son en-tete ; `_build_global_prompt` (fonction morte) supprimee ; parite sommaire/slides de synthese retablie quand un axe est supprime ; `cle_libre` ne recycle plus la cle d'un axe supprime qui porte encore du contenu (le test qui portait ce nom ne l'exercait pas).",
-   "date": "2026-07-28",
-   "source": "utilisateur",
-   "categories": [
-    "autre"
-   ]
-  },
-  {
-   "cible": "dev-verifie",
-   "decision": "Constat superviseur du 2026-07-27 (prio 4, gate de revue adversariale sauté — 12 fichiers produit du commit 38a040d poussés PUIS revus) appliqué : le playbook gagne deux étapes. « revue-adversariale » (bmad-code-review, parallèle, fan_out_max 3) s'insère AVANT « revue-increment » avec un checkpoint BLOQUANT — aucun commit de code produit tant que le triage n'est pas clos, et le triage n'est clos qu'après la fin de flux de CHAQUE chasseur. « autorisation-sous-agents » passe en tête : l'accord de lancer des sous-agents se demande une fois pour tout le run, au début — au moment du gate le code est écrit et la question ne se pose plus, c'est là que la revue saute. Invariant de test précisé (test_playbooks_de_dev_se_terminent_par_revue_increment : rien d'autre qu'un commit ne passe après la DoD) + nouveau test_dev_verifie_revoit_avant_de_committer.",
-   "date": "2026-07-27",
-   "source": "utilisateur",
-   "categories": [
-    "verification-manquante"
-   ]
-  },
-  {
-   "cible": "agent-orchestrator",
-   "decision": "Constat superviseur du 2026-07-27 (prio 2, séance de 4 commits et 3 demandes multi-étapes sans aucune ligne de journal — runs.jsonl s'arrêtait au 2026-07-25) appliqué : la section « Journaliser » de la skill accroche log_run.py AU MOMENT DU COMMIT et non « à la fin du run ». Une séance longue enchaîne les demandes et ne se termine presque jamais par une action de clôture ; le commit est un point de passage obligé et daté. Corollaire assumé : plusieurs commits = plusieurs lignes, une par unité livrée plutôt qu'une par conversation. Le playbook dev-verifie porte l'étape « commit-et-journal » correspondante.",
-   "date": "2026-07-27",
-   "source": "utilisateur",
-   "categories": [
-    "autre"
-   ]
-  },
-  {
-   "cible": "agent-orchestrator",
-   "decision": "Constat superviseur du 2026-07-23 (prio 5, « en-attente-validation » jamais utilisé en 47 runs) appliqué, commit e638ccc : le garde-fou est devenu exécutable dans log_run.py — un run « succes » dont la demande/notes portent un livrable utilisateur (deck/slide/écran/export) sans mention « validé par l'utilisateur » imprime un AVERTISSEMENT non bloquant rappelant le statut attendu ; UTF-8 forcé sur stdin/stdout (mojibake cp1252). Test : test_log_run_avertit_succes_sur_livrable_utilisateur_sans_validation.",
-   "date": "2026-07-23",
-   "source": "utilisateur",
-   "categories": [
-    "autre"
-   ]
-  },
-  {
-   "cible": "run-dev-server",
-   "decision": "Constat superviseur du 2026-07-23 (prio 5, fraîcheur python invérifiable — le --reload a re-servi du code périmé le 2026-07-22) appliqué, commit e638ccc : GET /__fraicheur (app/main.py) expose l'empreinte des .py capturée à l'IMPORT ; serveur-dev.ps1 (Test-PythonFrais) la compare à l'empreinte recalculée du disque au lancement ET sous -KeepIfFresh — un serveur au python périmé est purgé et relancé, la fraîcheur python est prouvable comme le statique. Test : test_fraicheur_empreinte_python_servie_et_sensible_au_mtime.",
-   "date": "2026-07-23",
-   "source": "utilisateur",
-   "categories": [
-    "verification-manquante"
-   ]
-  },
-  {
-   "cible": "export-ppt-verifie",
-   "decision": "Constat superviseur du 2026-07-23 (prio 4, 7 runs / 7 « reprises » — la boucle de rendu nominale comptée comme anomalie, stat sans signal) appliqué : le playbook déclare la boucle rendu de contrôle → liste de défauts → correction → re-rendu comme étape NOMINALE, bornée à 2 itérations au-delà du rendu initial puis escalade utilisateur (prose + contrat verification-rendu + regle_reprise) ; le champ reprises du journal ne compte plus que ce qui sort de ce budget ou relève d'un imprévu.",
-   "date": "2026-07-23",
-   "source": "utilisateur",
-   "categories": [
-    "inefficacite"
-   ]
-  },
-  {
-   "cible": "bmad-code-review",
-   "decision": "Constat superviseur du 2026-07-23 (prio 3, 2e vague des chasseurs adversariaux — le triage du 2026-07-22 a failli se clore avant la boucle infinie trouvée en 2e vague) appliqué via le mécanisme bmad-customize : override d'équipe versionné _bmad/custom/bmad-code-review.toml (persistent_facts, append) — attendre la FIN DE FLUX de CHAQUE chasseur avant le triage (step 3), toute 1re notification est provisoire, re-trier à chaque vague si le pipelining a commencé. Fusion vérifiée par resolve_customization.py. Mémoire feedback-adversarial-agents-second-wave-before-triage-close.",
-   "date": "2026-07-23",
-   "source": "utilisateur",
-   "categories": [
-    "interaction"
-   ]
-  },
-  {
-   "cible": "famille:orchestrateur+superviseur",
-   "decision": "Demande utilisateur 2026-07-22 (« c'est toujours KO, ma demande n'est pas traitée — fais évoluer supervisor + orchestrator ») : évolutions APPLIQUÉES après ~15 tours de boucle deck non convergente. Orchestrateur §4 : vérif obligatoire « livrable utilisateur = artefact EXACT de l'app (export réel, pas build maison), rendu ENTIER, validé PAR l'utilisateur » + règle de non-convergence (≥3 rejets → demander le défaut précis, ne pas re-deviner). Orchestrateur §5 : nouvel état de run 'en-attente-validation' (jamais 'succes' auto-décerné sur un livrable utilisateur). Superviseur §3 : catégorie 'non-convergence' (constat critique) + write_diagnostic.py l'accepte. Réflexion : docs/reflexions/evolution-agents-acceptance-utilisateur.md. Mémoires feedback-non-convergence-user-is-oracle + feedback-verify-the-real-app-export-all-slides.",
-   "date": "2026-07-22",
-   "source": "utilisateur",
-   "categories": [
-    "non-convergence"
-   ]
-  },
-  {
-   "cible": "export-ppt-verifie",
-   "decision": "Rétrospective 2026-07-22 (« charte VSCode4 affirmée de mémoire → add-then-revert ») arbitrée : l'étape CADRAGE du playbook exige désormais, quand la demande cite un deck/charte de référence (VSCode3/4, template client), de RENDRE 2-3 slides de la référence (pptx-verify) et d'en extraire les motifs AVANT d'implémenter — interdit d'affirmer une conformité charte de mémoire. Preuve : 816ab02 (ajoute barre d'accent « charte VSCode4 ») → 09c7ba3 (la retire « VSCode4 n'en a pas »), + sommaire/numéro/encarts corrigés seulement après render VSCode4. Mémoire feedback-ground-charte-claims-in-a-render.",
-   "date": "2026-07-22",
-   "source": "utilisateur",
-   "categories": [
-    "verification-manquante"
-   ]
-  },
-  {
-   "cible": "run-dev-server",
-   "decision": "Rétrospective 2026-07-22 arbitrée : run-dev-server/SKILL.md documente le repli quand le screenshot Edge échoue (error 577 malgré les flags, ou hang) — se limiter à la vérif de structure servie (curl) et le DIRE explicitement, ne jamais prétendre avoir vu le rendu. Un échec unique de test réel opt-in (LibreOffice/Ollama) sous charge machine se réexécute isolé avant d'être qualifié régression.",
-   "date": "2026-07-22",
-   "source": "utilisateur",
-   "categories": [
-    "verification-manquante"
-   ]
-  },
-  {
-   "cible": "restitution-deck-design",
-   "decision": "Diagnostic 2026-07-22 (ppt-designer jamais lancé) arbitré : la passe design n'est plus CONDITIONNELLE auto-jugée mais OBLIGATOIRE dès que le diff touche un layout/composant/couleur de slide (seuil objectif, comme pptx-verify) — étape design-review du playbook export-ppt-verifie amendée. Déclencheur : la skill avait 0 invocation malgré 6+ runs deck, d'où un design ad hoc et une qualité insuffisante signalée à répétition. Lancée pour la 1re fois le 2026-07-22 (encarts gris, sommaire teardrop, image propre).",
-   "date": "2026-07-22",
-   "source": "utilisateur",
-   "categories": [
-    "agent-mort"
-   ]
-  },
-  {
-   "cible": "export-ppt-verifie",
-   "decision": "Plan d'amélioration demandé (2026-07-22, « pour que mes demandes soient prises en compte ») appliqué : une exigence utilisateur explicite (surtout visuelle) est PERSISTANTE d'un tour au suivant — checklist des éléments demandés reportée d'itération en itération et vérifiée au rendu (revue-increment §1 + contrat verification-rendu du playbook). Une contrainte de gabarit se résout en dessinant l'élément, jamais en l'omettant. Déclencheur : numéro de chapitre écarté 3 fois puis corrigé (commit 482c301). Mémoire feedback-persistent-user-request-draw-dont-omit.",
-   "date": "2026-07-22",
-   "source": "utilisateur",
-   "categories": [
-    "non-convergence"
-   ]
-  },
-  {
-   "cible": "famille:BMAD",
-   "decision": "Tri exécuté : 7 skills retirés, 39 conservés (routage sur demande explicite via bmad-help) — docs/reflexions/tri-skills-bmad.md, commit f604c39.",
-   "date": "2026-07-18",
-   "source": "utilisateur",
-   "categories": [
-    "agent-mort"
-   ]
-  },
-  {
-   "cible": "pptx-framed-image",
-   "decision": "Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle cadres-photo).",
-   "date": "2026-07-18",
-   "source": "utilisateur",
-   "categories": [
-    "agent-mort"
-   ]
-  },
-  {
-   "cible": "slide-text-polish",
-   "decision": "Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle polish-texte).",
-   "date": "2026-07-18",
-   "source": "utilisateur",
-   "categories": [
-    "agent-mort"
-   ]
-  },
-  {
-   "cible": "restitution-deck-design",
-   "decision": "Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle design-review).",
-   "date": "2026-07-18",
-   "source": "utilisateur",
-   "categories": [
-    "agent-mort"
-   ]
-  },
-  {
-   "cible": "bmad-code-review",
-   "decision": "Proposition retenue telle quelle : seuil explicite ajouté à revue-increment/SKILL.md (>5 fichiers produit ou logique à risque -> bmad-code-review obligatoire, sinon revue inline) — la délégation implicite ne se déclenchait jamais en pratique.",
-   "date": "2026-07-19",
-   "source": "utilisateur",
-   "categories": [
-    "agent-mort",
-    "interaction"
-   ]
-  },
-  {
-   "cible": "ai_common.py",
-   "decision": "Proposition retenue telle quelle : règle explicite ajoutée à revue-increment/SKILL.md §2 (correctif timeout/perf IA -> mesurer à la taille maximale réellement configurée, pas un prompt jouet) — capitalisée en mémoire feedback-ai-timeout-fix-verify-at-configured-scale.",
-   "date": "2026-07-19",
-   "source": "utilisateur",
-   "categories": [
-    "verification-manquante"
-   ]
-  },
-  {
-   "cible": "revue-increment",
-   "decision": "Proposition retenue telle quelle : règle ajoutée à revue-increment/SKILL.md §2 — un correctif appliqué en réponse à une revue externe (bmad-code-review, sous-agent adversarial) doit être relu lui-même avant commit, la revue d'origine n'ayant validé que le code d'avant. Confirmé le jour même : un 4e bug a été trouvé ainsi (Palier 2), non vu par les 2 sous-agents de revue.",
-   "date": "2026-07-20",
-   "source": "utilisateur",
-   "categories": [
-    "verification-manquante"
-   ]
-  },
-  {
-   "cible": "revue-increment",
-   "decision": "Proposition retenue telle quelle : règle ajoutée à revue-increment/SKILL.md §4 — si les docs auto-générées de supervision (agents-supervision.md, wiki.html) apparaissent modifiées en git status en fin de séance, les inclure dans le commit plutôt que les laisser dériver (constaté : 4 commits consécutifs sans les inclure).",
-   "date": "2026-07-20",
-   "source": "utilisateur",
-   "categories": [
-    "autre"
-   ]
-  },
-  {
-   "cible": "bmad-code-review",
-   "decision": "Proposition retenue telle quelle : angle mort de mesure documenté dans catalogue.md — les sous-skills bmad-review-adversarial-general/bmad-review-edge-case-hunter, invoquées par des sous-agents via prompt naturel, n'apparaissent pas dans state.json ; absence de trace n'implique pas absence d'exécution.",
-   "date": "2026-07-20",
-   "source": "utilisateur",
-   "categories": [
-    "autre"
-   ]
-  },
-  {
-   "cible": "revue-design-parallele",
-   "decision": "Proposition ① du diagnostic 2026-07-20 retenue et appliquée : garde déterministe ajoutée au contrat de l'étape consolidation (playbook revue-design-parallele) — quand le fan-out sert à une énumération exhaustive AVANT suppression/renommage, un grep -r final de chaque identifiant retiré est obligatoire et prime sur les rapports des sous-agents (extraits, non exhaustifs). Preuve : réf bmad-spec (bmad-architecture:29) ratée par un fan-out de 3 Explore, rattrapée seulement au grep final avant un git rm (runs 2026-07-18).",
-   "date": "2026-07-20",
-   "source": "utilisateur",
-   "categories": [
-    "interaction"
-   ]
-  },
-  {
-   "cible": "revue-increment",
-   "decision": "Règle définie sur demande (analyse superviseur 2026-07-20, mode d'échec « tests indiqués OK alors qu'ils sont KO ») : revue-increment/SKILL.md §2 + contrat 'tests' du playbook dev-verifie — le verdict pass/fail se lit sur la ligne de synthèse RÉELLE de pytest, jamais sur un résumé filtré du proxy rtk (déjà mal reporté un run, mémoire feedback-rtk-pytest-false-no-tests-collected) ni un [100%] de sortie tronquée ; et une suite verte qui MOCKE l'intégration modifiée (ex. extract_turns_from_text, appels Ollama/Whisper) exige au moins un passage réel de bout en bout avant « livré ».",
-   "date": "2026-07-20",
-   "source": "utilisateur",
-   "categories": [
-    "verification-manquante"
-   ]
-  },
-  {
-   "cible": "revue-increment",
-   "decision": "Règle définie sur demande (analyse superviseur 2026-07-20, mode d'échec « dev avec bug ou ne respectant pas la demande ») : revue-increment/SKILL.md §1 (conformité exigence par exigence — chaque point explicite de la demande coché contre le diff, toute exigence écartée dite dans « Reste ») + §7 (demande référençant un état introuvable -> clarifier avant de coder, run 12) + contrat 'implementation' du playbook dev-verifie. Le volet « bug malgré tests verts » reste couvert par le seuil bmad-code-review (>5 fichiers produit / logique à risque) et la relecture du correctif lui-même (arbitrages 2026-07-19/20).",
-   "date": "2026-07-20",
-   "source": "utilisateur",
-   "categories": [
-    "ko-repete"
-   ]
-  },
-  {
-   "cible": "revue-increment",
-   "decision": "Constat sanity du 2026-07-21 (priorité 3) validé et appliqué : le seuil bmad-code-review de revue-increment/SKILL.md déclenche désormais une revue adversariale pour TOUTE modification du JS de concurrence de record_libre.html / record.html (MediaRecorder, timers de rotation, compteurs pendingX, gardes de ré-entrance/génération), quel que soit le nombre de fichiers — le risque y est par fichier (concurrence), et ce fichier a un historique de 7 bugs data-loss trouvés par revue adversariale (runs 20/22) qu'une modif à 1 fichier (run 23) avait failli contourner en auto-relecture seule.",
-   "date": "2026-07-21",
-   "source": "utilisateur",
-   "categories": [
-    "verification-manquante"
-   ]
-  },
-  {
-   "cible": "pytest",
-   "decision": "Proposition superviseur du 2026-07-21 appliquée : cause racine du crash de teardown pytest Windows neutralisée dans tests/conftest.py (monkeypatch gardé de cleanup_dead_symlinks, rendu non fatal) — une suite complète sort désormais exit 0 avec la ligne « N passed » visible (vérifié : 246 passed, aucun traceback). Remplace la vigilance manuelle documentée dans feedback-pytest-windows-teardown-noise (3 fausses alertes rien qu'au 2026-07-21).",
-   "date": "2026-07-21",
-   "source": "utilisateur",
-   "categories": [
-    "autre"
-   ]
-  },
-  {
-   "cible": "runs.jsonl",
-   "decision": "Proposition superviseur du 2026-07-21 appliquée : critères d'issue de run définis dans agent-orchestrator/SKILL.md §5 (succes = livrable produit + exigences explicites couvertes + vérifications obligatoires faites ; partiel = au moins une exigence non livrée, une vérif sautée, ou une escalade non résolue à la remise ; echec = objectif non atteint / run abandonné). Run à escalade PR non résolue re-étiqueté « partiel » (runs.jsonl : 28 succes / 1 partiel) — le champ toujours-succes ne portait aucun signal.",
-   "date": "2026-07-21",
-   "source": "utilisateur",
-   "categories": [
-    "autre"
-   ]
-  },
-  {
-   "cible": "revue-increment",
-   "decision": "Proposition superviseur du 2026-07-21 appliquée : revue-increment/SKILL.md §2 allégé (règles terses + section « Leçons capitalisées » indexant les [[feedback-*]]) — les war-stories datées vivent dans les mémoires liées, la checklist les référence sans les recopier (net -23 lignes ; sections §1-§7, Phase B, Verdict intactes ; aucune exigence perdue).",
-   "date": "2026-07-21",
-   "source": "utilisateur",
-   "categories": [
-    "inefficacite"
-   ]
-  },
-  {
-   "cible": "revue-increment",
-   "decision": "Constat superviseur du 2026-07-22 (prio 3) appliqué : mémoire feedback-self-review-weak-gate-vs-adversarial-review + règle revue-increment/SKILL.md §2 — au-dessus du seuil bmad-code-review (fidélité frontend, JS de concurrence, >5 fichiers produit), l'auto-relecture n'est PAS le gate ; ne pas présenter « prêt à committer » sur self-review + tests verts, lister les zones à risque pour la revue. Preuve : 2 fois (2026-07-21 exec summary, 2026-07-22 bug répartition) un « rien à corriger » — une fois adossé à un harness Node 6/6 vert + pytest vert — a précédé la découverte par bmad-code-review de défauts réels dont une régression.",
-   "date": "2026-07-22",
-   "source": "utilisateur",
-   "categories": [
-    "verification-manquante"
-   ]
-  },
-  {
-   "cible": "export-ppt-verifie",
-   "decision": "Constat superviseur du 2026-07-22 (prio 1) arbitré : NE PAS rouvrir les arbitrages PPT — la prémisse du playbook (les 3 skills conditionnelles gagnent leur place via export-ppt-verifie) sera exercée lors de la GÉNÉRATION du deck PPT complet à venir, à laquelle ce constat est relié. Une slide isolée ajoutée au générateur existant (ex. Executive Summary, commit 2e43358) se vérifie par pptx-verify seul et ne déclenche pas le playbook, qui vise un livrable = deck de restitution complet.",
-   "date": "2026-07-22",
-   "source": "utilisateur",
-   "categories": [
-    "agent-mort"
-   ]
-  },
-  {
-   "cible": "scan_transcripts.py",
-   "date": "2026-09-03",
-   "decision": "DÉJÀ RÉSOLU (constat diagnostic.json du 2026-09-02T12:12, prio 3 — backlog de triage jamais compté) — RECTIFICATIF : un premier passage (même jour) l'avait déclaré ouvert et signalé au hub VSCode5 par erreur, faute d'avoir cherché ailleurs qu'à l'intérieur de scan_transcripts.py. Le compteur existe en réalité, dans un script SÉPARÉ à dessein : .claude/supervision/compter_triage.py (committé 8a3a430, 2026-09-03T01:21:15+02:00 — donc AVANT le diagnostic *et* avant le signalement erroné), avec son propre docstring expliquant pourquoi il n'est pas dans scan_transcripts.py (bannière GÉNÉRÉ — l'y ajouter localement serait écrasé à la prochaine propagation). Vérifié en l'exécutant : compte réellement les 4 fichiers de .claude/triage/ par statut (53 constats ouverts, plus ancien 3 j), référencé par .claude/skills/revue-increment/SKILL.md et tests/test_agent_supervision.py. Reste HORS tableau de bord (le docstring le dit explicitement : « son intégration au tableau de bord est un chantier du hub ») — c'est la seule part encore ouverte, à qualifier côté canon. Message rectificatif envoyé à la session vscode5-supervision-projets-d9.",
-   "source": "orchestrateur",
-   "categories": [
-    "autre"
-   ]
-  },
-  {
-   "cible": "write_diagnostic.py",
-   "date": "2026-09-03",
-   "decision": "DÉJÀ RÉSOLU (constat diagnostic.json du 2026-09-02T12:12, prio 5) — vérifié dans le code réel, pas supposé : write_diagnostic.py (lignes 184-227) est déjà un registre à état — `_precedent()`/`_ferme()`/`vu_le` reportent les constats non arbitrés au lieu de les écraser, et l'écriture est refusée si findings neufs + reportés dépasse MAX_FINDINGS=5. Le docstring interne date le mécanisme du 2026-09-02, jour même du diagnostic : implémenté et propagé (probablement par sync hub) avant ou en même temps que le constat. Aucune action requise.",
-   "source": "orchestrateur",
-   "categories": [
-    "interaction"
-   ]
-  },
-  {
-   "cible": "log_run.py",
-   "date": "2026-09-03",
-   "decision": "DÉJÀ RÉSOLU (constat diagnostic.json du 2026-09-02T12:12, prio 4) — vérifié en direct : scan_transcripts.py::runs_a_solder() (implémenté le 2026-07-29, cf. arbitrage `agent-orchestrator` de cette date) signale au démarrage de CETTE session même les runs en-attente-validation de plus de 24h avec la commande `log_run.py --solde` prête à copier (4 runs listés : 47h/38h/34h/34h). Le constat décrivait donc un mécanisme déjà en place le jour où il a été écrit ; les runs listés restent à solder par l'utilisateur — c'est un usage en attente, pas un défaut de visibilité du dispositif. Aucune action de développement requise.",
-   "source": "orchestrateur",
-   "categories": [
-    "interaction"
-   ]
-  },
-  {
-   "cible": "dev-verifie",
-   "date": "2026-09-03",
-   "decision": "DÉJÀ RÉSOLU (constat diagnostic.json du 2026-09-02T12:12, prio 4, re_challenge) — vérifié dans le fichier réel : .claude/orchestration/playbooks/dev-verifie.md porte déjà l'étape `premisse` avant `implementation` (ajoutée le 2026-09-02 selon le corps du playbook), avec exactement le contrat proposé — invariant écrit en une phrase, vérifié par une mesure sur le code réel AVANT d'écrire, implémentation stoppée si la mesure l'infirme, prémisse+mesure tracées dans le message de commit. Aucune action requise.",
-   "source": "orchestrateur",
-   "categories": [
-    "verification-manquante"
-   ]
-  },
-  {
-   "cible": "CLAUDE.md",
-   "date": "2026-09-03",
-   "decision": "DÉJÀ RÉSOLU (constat diagnostic.json du 2026-09-02T12:12, prio 3) — vérifié dans le fichier réel : CLAUDE.md du projet porte désormais une section « Règles de travail » complète, R1-R5 (numérotées distinctement de P1-P4 code produit) avec l'énoncé entier de chaque règle — exactement la remédiation (a) proposée par le constat (« restaurer une section R1-R4 avec leur énoncé »). Aucune action requise.",
-   "source": "orchestrateur",
-   "categories": [
-    "interaction"
-   ]
-  },
-  {
-   "cible": "bmad-revue",
-   "date": "2026-09-02",
-   "decision": "ACCEPTÉ + APPLIQUÉ (arbitrage utilisateur du 2026-09-02). Le porteur de revue n'avait pas l'outil `Agent`, donc les couches adversariales de `bmad-code-review` — Blind Hunter, Edge Case Hunter, Acceptance Auditor — s'exécutaient EN SÉQUENCE dans un seul contexte : la troisième lisait ce que la première avait écrit, et le garde-fou anti-complaisance devenait un relecteur unique qui se relit. LA DÉGRADATION NE SE DÉDUISAIT PAS, elle était enregistrée DEUX FOIS dans `runs.jsonl` par les runs eux-mêmes (2026-08-31T22:07 et 2026-09-01T18:32) : le dispositif se plaignait de lui-même dans son propre journal, et personne ne lisait la plainte. Corrigé au hub (`.claude/agents/bmad-revue.md`), republié dans le kit, propagé aux 4 dépôts qui portent ce fichier — vérifié avant écrasement : la seule ligne remplacée est l'ancienne ligne `tools`, aucun travail local perdu. ET L'OUTIL SEUL N'AURAIT RIEN CHANGÉ : le mandat prescrit désormais le GESTE — plusieurs appels `Agent` dans un SEUL message (un par message est une cascade, donc l'inverse du but), briefs autoportants qui ne disent pas aux autres couches ce qu'une couche a trouvé, puis consolidation ; une couche qui n'a pas besoin d'être aveugle s'invoque inline. Donner un outil sans prescrire son usage est exactement le défaut mesuré le même jour sur les 46 skills BMAD. Test au hub, vu ROUGE, nommément sur ce porteur : `bmad-recherche` et `veille-agentic` n'ont aucune couche parallèle à dispatcher, leur donner `Agent` élargirait une surface sans besoin mesuré."
-  },
-  {
-   "cible": "dev-verifie",
-   "date": "2026-09-07",
-   "decision": "DÉJÀ RÉSOLU / re-challenge non fondé (constat diagnostic.json du 2026-09-04T20:37:45, prio 4, re_challenge:true, categorie verification-manquante — « sept tours consécutifs où un correctif introduit un défaut de la classe qu'il corrigeait »). Vérifié dans le code et le journal réels, pas supposé : la PREUVE citée par ce constat (runs.jsonl, 3e/4e itération du 2026-09-01, puis le run du 2026-09-02 « 6 majeurs sur 7 introduits » + le bloquant D2-B2 à prémisse fausse) est EXACTEMENT le run ts=2026-09-02T11:49:07+02:00 (chantier D1) qui a servi de CAS D'ÉCOLE MOTIVANT à l'étape `premisse` déjà ajoutée au playbook dev-verifie ce même jour (.claude/orchestration/playbooks/dev-verifie.md lignes 25-37, qui cite nommément D2-B2). Ce n'est donc pas une preuve que le correctif a échoué APRÈS coup, c'est la preuve qui a produit le correctif — déjà traitée par l'arbitrage DÉJÀ RÉSOLU du 2026-09-03 sur cette même cible. Les 2 runs dev-verifie postérieurs à l'ajout de l'étape (ts=2026-09-02T22:50:03, ts=2026-09-04T20:03:37) ne rapportent PAS de récidive du motif « correctif réintroduit sa propre classe de défaut » — aucune preuve neuve ne soutient le re_challenge. Aucune action de développement requise ; à re-challenger seulement avec une preuve postérieure à l'ajout de l'étape `premisse`.",
-   "source": "orchestrateur",
-   "categories": [
-    "verification-manquante"
-   ]
-  },
-  {
-   "cible": "flotte:23-items-cadres",
-   "date": "2026-09-07",
-   "decision": "ACCEPTÉ + APPLIQUÉ (arbitrage utilisateur du 2026-09-07 : « supprimer le code mort »). Constat : mode démo hors-ligne (~230 lignes inatteignables, SYNTHESE_DEMO sans effet). Vérifié avant suppression : `demo_enabled()` et les 6 fonctions `generate_demo_*` de synthese_ai.py n'avaient AUCUN appelant en dehors de leurs propres tests dédiés (grep sur app/ entier). Supprimés : `demo_enabled()` (ai_common.py), les 6 fonctions demo (synthese_ai.py, import `demo_enabled` retiré), 3 tests dédiés (test_difficultes.py, test_executive_summary.py, test_swot.py), et les 6 mentions doc résiduelles (docs/guide.html — paragraphe + noeud SVG + item de légende + item de liste, docs/product-brief.md, docs/reflexions/restitution-mission.md, docs/wiki/technical/stack.md, docs/wiki.html). Vérifié réel : py_compile + suite complète isolée 763 passed / 0 failed / 25 errors infra connues (aucune régression, delta exact de -3 tests supprimés vs la baseline de l'état des lieux du jour).",
-   "source": "utilisateur",
-   "categories": [
-    "pratique-dev"
-   ]
-  },
-  {
-   "cible": "flotte:23-items-cadres",
-   "date": "2026-09-07",
-   "decision": "PARTIELLEMENT APPLIQUÉ (arbitrage utilisateur du 2026-09-07 : d'abord « câbler les 10 helpers restants », puis « inventer un point d'usage » pour ceux sans besoin fonctionnel). Constat : 254 lignes / 10 helpers de la bibliothèque partagée VSCode4 (commit d9e7196) jamais câblés dans pptx_deck.py. Investigation réelle AVANT d'écrire (R1) : 5 des 10 avaient un vrai doublon de logique à remplacer, pas seulement un compteur à faire bouger — `add_forme` (add_rect en est un cas particulier, refactoré pour déléguer), `definir_geometrie` + `configurer_text_frame` (pptx_export/base.py::_new_slide posait la géométrie/le text_frame du titre à la main), `trouver_cadre_layout` (pptx_export/images.py::_find_teardrop_frame dupliquait la même recherche par prstGeom, en moins sûr — sans le garde-fou largeur_min_in) et `purger_rels_slides_orphelines` (ajouté comme filet anti-corruption en fin de build_presentation, coût nul en pratique). Vérifié réel : suite complète isolée 763 passed/0 failed après chaque étape, ET rendu réel PowerPoint de 27 slides d'un export produit par l'app (cover, tête de chapitre au cadre teardrop, slide de synthèse à carte liserée, fiche recommandation à cartes/badges) — aucune régression visuelle. Les 5 restants (`definir_paragraphes`, `add_text_runs`, `trouver_slide_par_titre`, `supprimer_slide`, `_normaliser`) n'ont trouvé AUCUN point d'usage réel même en cherchant activement (aucun texte multi-runs existant à corriger, aucun besoin de suppression de slide PAR TITRE — `clear_slides` vide déjà tout sans distinction). Décision de l'orchestrateur, à confirmer par l'utilisateur : ne pas leur inventer un appelant artificiel (contredirait CLAUDE.md « pas de fonctionnalité au-delà du besoin » et le principe déjà posé § 2 septies de ne pas faire tourner du code pour faire baisser un compteur) — documentés comme bibliothèque de référence non adoptée plutôt que câblés de force. Aucun commit encore fait (reliquat non commité).",
-   "source": "orchestrateur",
-   "categories": [
-    "pratique-dev"
-   ]
-  },
-  {
-   "cible": "write_diagnostic.py",
-   "date": "2026-09-07",
-   "decision": "REFERME (resynchronisation diagnostic.json avec les decisions existantes) : ce finding etait deja marque DEJA RESOLU par une arbitrage du 2026-09-03, mais le diagnostic.json avait ete reecrit le 2026-09-04 sans que le mecanisme de fermeture ne le voie (vu_le reinitialise a la reecriture). Aucun travail nouveau : simple resynchronisation, hub VScode5."
-  },
-  {
-   "cible": "log_run.py",
-   "date": "2026-09-07",
-   "decision": "REFERME (resynchronisation diagnostic.json) : deja marque DEJA RESOLU par arbitrage du 2026-09-03 (scan_transcripts.py::runs_a_solder implemente), diagnostic.json non resynchronise depuis. Hub VScode5."
-  },
-  {
-   "cible": "scan_transcripts.py",
-   "date": "2026-09-07",
-   "decision": "REFERME (resynchronisation diagnostic.json) : deja marque DEJA RESOLU par arbitrage du 2026-09-03 (backlog de triage compte). Hub VScode5."
-  },
-  {
-   "cible": "CLAUDE.md",
-   "date": "2026-09-07",
-   "decision": "REFERME (resynchronisation diagnostic.json) : deja marque DEJA RESOLU par arbitrage du 2026-09-03 (section R1-R4 restauree). Hub VScode5."
-  },
-  {
-   "cible": "flotte:23-items-cadres",
-   "date": "2026-09-07",
-   "categories": [
-    "autre"
-   ],
-   "decision": "ACCEPTE + APPLIQUE (campagne de nettoyage mecanique du 2026-09-07, mandat utilisateur) : bloc identity recopie 12x dans interviews.py -> helper _build_identity(...) a 9 parametres, les 12 sites le consomment, commit 9ea45c4 (6 fichiers, 548+/119-). Verifie : 435 tests des fichiers impactes rejoues isolement, verts, plus 2 tests unitaires dedies. RESTE OUVERT et non couvert : routers/synthese.py = service deguise, 11 imports de symboles prives hors module (refactor traversant 3 fichiers, risque import circulaire) -- reconduit au diagnostic."
-  }
- ]
+  "_doc": "Décisions humaines qui closent un constat automatique du superviseur (fichier VERSIONNÉ, édité à la main — le scan le lit, ne l'écrit jamais). cible : nom de skill, ou famille:<Nom> pour une famille entière. categories : les catégories de constat que cet arbitrage ferme (ko-repete | inefficacite | agent-mort | interaction | verification-manquante | non-convergence | autre) — un arbitrage de ROUTAGE ne doit pas masquer un constat de VÉRIFICATION sur la même cible ; champ absent = ferme TOUT (rétro-compatible, mais à éviter). Un constat arbitré disparaît des TODO auto mais reste visible dans la section « Arbitrages enregistrés » du tableau de bord, et le nombre de constats ainsi écartés y est affiché. L'usage réel reste mesuré (un arbitrage n'est pas une preuve d'utilité) : le superviseur étage 2 peut re-challenger un arbitrage avec des données nouvelles en posant `re_challenge: true` sur son constat.",
+  "arbitrages": [
+    {
+      "cible": "revue-increment",
+      "decision": "Constat superviseur du 2026-07-29 (« Angle mort CI : 6 runs rouges d'affilee pendant que la suite locale etait verte », diagnostic.json) posait une option non tranchee : garde-fou executable (hook post-push) en plus de la regle de checklist deja appliquee le meme jour (revue-increment §2 + memoire feedback-green-local-suite-hides-red-ci). La session du 2026-07-30 a ecrit .claude/hooks/check_ci_after_push.py (fail-open, lit le dernier run GitHub Actions apres un git push via git credential fill + l'API REST, pas de gh sur cette machine) mais s'est arretee avant de le cabler dans settings.json, de le tester ou de journaliser la decision ici — seul le docstring du hook affirmait « arbitree ACCEPTEE ». Repris et cloture le 2026-07-31 sur demande explicite (« reprends les travaux de la session precedente ») : hook cable en PostToolUse (matcher Bash|PowerShell), tests/test_check_ci_after_push.py (26, dont 3 chemins silencieux verifies sans toucher au reseau), entree CLAUDE.md. Le re_challenge reste ouvert si l'alerte s'avere trop bruyante en usage reel (elle est non bloquante, fail-open a chaque etape).",
+      "date": "2026-07-31",
+      "source": "utilisateur",
+      "categories": [
+        "verification-manquante"
+      ]
+    },
+    {
+      "cible": "sync-canon",
+      "decision": "Constat superviseur du 2026-07-29 (prio 4 : 5eb121b, +23 lignes log_run.py sans test, un test-contrat casse decouvert seulement a la revue suivante) applique sur demande (« traite ces 3 sujets ») : gate executable dans warn_verif_before_commit.py — un commit touchant .claude/orchestration/**, .claude/supervision/** ou .claude/hooks/** sans trace des fichiers-contrat cette session (pytest test_agent_orchestration/test_agent_supervision/test_hooks_discipline, ou suite complete) declenche un avertissement non bloquant les nommant ; regle miroir dans revue-increment §2 ; au passage le message app/ citait encore « npm test » (portage VSCode1), corrige en pytest. Les hooks gagnent leurs premiers tests-contrat (tests/test_hooks_discipline.py, 10). RESTE COTE HUB : porter la meme exigence dans la checklist de sync du canon VScode5 (log_run.py/scan_transcripts.py y sont generes). Memoire feedback-sync-canon-commits-need-contract-tests.",
+      "date": "2026-07-29",
+      "source": "utilisateur",
+      "categories": [
+        "verification-manquante"
+      ]
+    },
+    {
+      "cible": "revue-increment",
+      "decision": "Constat superviseur du 2026-07-29 (prio 4, re-challenge : recidive posterieure a l'arbitrage du 2026-07-28 — le garde anti-hallucination du 28, acheve avec ses tests, retrouve non commite ni journalise le 29, aucune ligne runs.jsonl apres 2026-07-28T12:14) applique DANS LE CANON DU HUB, synchronise le jour meme : scan_transcripts.py::arbre_sale() — arbre git sale au demarrage de session → ligne « reliquat de la seance precedente » listant les fichiers (hors churn genere docs/wiki + donnees du scan), a committer ou nommer avant toute nouvelle demande. Une premiere implementation locale dans remind_revue_increment.py, ecrite en parallele de la sync, a ete RETIREE le jour meme pour ne pas dupliquer le canon en divergeant. La regle de cloture (§4) reste inchangee ; le canon la rattrape quand la seance s'est arretee sans cloture. Le reliquat declencheur a ete commite (c461c66) apres verification reelle x2.",
+      "date": "2026-07-29",
+      "source": "utilisateur",
+      "categories": [
+        "ko-repete"
+      ]
+    },
+    {
+      "cible": "agent-orchestrator",
+      "decision": "Constat superviseur du 2026-07-29 (prio 2 : 2 runs en-attente-validation de 1 et 4 jours sans mecanisme de relance ; le lot du 2026-07-23 n'avait ete solde que sur demande explicite de l'utilisateur) applique DANS LE CANON DU HUB, synchronise le jour meme : scan_transcripts.py::runs_a_solder() — chaque demarrage de session liste les runs en-attente-validation de plus de 24 h (seuil RUN_A_SOLDER_H : un run frais attend sa validation dans la conversation en cours) avec la commande log_run --solde prete a copier. Test local ajoute (test_runs_a_solder_signale_les_attentes_de_plus_de_24h). Les 2 runs en attente (repartition Q/R au fil de l'eau du 2026-07-25, bulles matrice du 2026-07-28) restent a trancher par l'utilisateur dans l'app.",
+      "date": "2026-07-29",
+      "source": "utilisateur",
+      "categories": [
+        "interaction"
+      ]
+    },
+    {
+      "cible": "arbitrages.json",
+      "decision": "Constat superviseur du 2026-07-28 (prio 5, un arbitrage rendait sa cible definitivement sourde — 29/29 sans `categories`, 3 constats sur 4 masques le jour meme) applique : les 29 arbitrages portent desormais les categories qu'ils ferment reellement ; `_couvre` traite `[]` comme « ne ferme rien » et ignore un champ mal forme (un `in` sur une chaine matchait par sous-chaine) ; `categories_inconnues` signale une categorie hors vocabulaire, qui rendrait l'arbitrage silencieusement inoperant ; un constat peut porter `re_challenge: true` pour rouvrir l'AFFICHAGE avec des donnees nouvelles — jamais le ROUTAGE (`prudence` reste ce que l'humain a decide), et un arbitrage pris depuis le diagnostic le referme ; les constats ecartes sont affiches (wiki md + HTML, sortie du scan) au lieu de disparaitre. `write_diagnostic` refuse au-dela de 5 constats (le scan tronquait en silence) et type `re_challenge` en booleen. Tests : test_agent_supervision (22).",
+      "date": "2026-07-28",
+      "source": "utilisateur",
+      "categories": [
+        "interaction"
+      ]
+    },
+    {
+      "cible": "export-ppt-verifie",
+      "decision": "Constat superviseur du 2026-07-28 (prio 5, re-challenge : le deck a change de contenu — une slide par axe d'etude — sans aucun rendu depuis le 2026-07-23) applique : le declencheur de rendu devient un SEUIL OBJECTIF SUR LE CHEMIN DU DIFF (`app/services/pptx_export/**`), dans le playbook dev-verifie, la table des verifications obligatoires de l'orchestrateur et revue-increment §2 ; un changement rendant une cardinalite ou un libelle VARIABLES se rend sur un cas NON par defaut. Defaut de fond corrige : `_SYNTHESE_VISUEL` etait indexe par LIBELLE (renommable) au lieu de la `key` (stable), avec un repli constant — un axe renomme perdait son image et deux axes sur mesure recevaient la meme. Verifie au rendu reel sur une mission a 7 axes (2 renommes, 2 ajoutes).",
+      "date": "2026-07-28",
+      "source": "utilisateur",
+      "categories": [
+        "verification-manquante"
+      ]
+    },
+    {
+      "cible": "revue-increment",
+      "decision": "Constats superviseur du 2026-07-28 (prio 4 et 3, re-challenges) appliques. (a) Cloture : `git status --short` doit etre VIDE en fin de run, ou chaque reliquat NOMME a l'utilisateur avec sa raison — generalise la regle du 2026-07-20 (limitee aux docs generees) apres une seance close sur 9 fichiers modifies, dont l'application des arbitrages de la veille et du code produit ; portee aussi par l'etape commit-et-journal du playbook dev-verifie. (b) Un defaut PRODUIT trouve en verification reelle ne se clot pas par un xfail : trace hors-test obligatoire + decision nommee a l'utilisateur, et on cherche la cause avant de le ranger — le gap « synthese amputee » range en xfail le 2026-07-27 etait en fait une valeur JSON de type liste jetee par une garde `str`, trouvee en une sonde.",
+      "date": "2026-07-28",
+      "source": "utilisateur",
+      "categories": [
+        "ko-repete",
+        "verification-manquante"
+      ]
+    },
+    {
+      "cible": "deck-design-library",
+      "decision": "Vaut aussi pour `swot-matrix` et `priority-matrix`. Demande utilisateur du 2026-07-28 (« pour 5 fait en sorte que les skills soient invoques et declenches ») appliquee sur les deux plans. Mecanisme : les conditions AUTO-JUGEES (« SI le SWOT n'est pas au RDV ») deviennent des seuils objectifs sur le chemin du diff — `slides_diagnostic.py` declenche `swot-matrix`, `slides_trajectoire.py` declenche `priority-matrix`, toute slide dessinee ou retouchee declenche `deck-design-library` — dans le playbook export-ppt-verifie et la table des verifications obligatoires de l'orchestrateur ; la forme auto-jugee avait deja ete constatee inoperante le 2026-07-22 (restitution-deck-design, 0 invocation malgre 6 runs deck). Usage reel : les trois skills ont ete invoquees pendant ce run et leurs contrats verifies au rendu — le TODO « skills projet sans usage » est tombe a 0.",
+      "date": "2026-07-28",
+      "source": "utilisateur",
+      "categories": [
+        "agent-mort"
+      ]
+    },
+    {
+      "cible": "synthese_ai.py",
+      "decision": "Revue adversariale du 2026-07-28 (2 chasseurs, 24 findings, sur le code NON commite — gate R3 respecte cette fois) : correctifs retenus au-dela du diagnostic. `_clean_global` aplatit les valeurs non-`str` au lieu de les jeter (cause racine de la rubrique vide, memoire feedback-apply-the-lesson-to-sibling-paths) ; `_global_material_blocks` parcourt les AXES DE LA MISSION au lieu des 5 cles historiques — la matiere d'entretien libre d'un axe sur mesure n'atteignait jamais le prompt, second producteur independant du meme symptome — et n'emet plus de bloc reduit a son en-tete ; `_build_global_prompt` (fonction morte) supprimee ; parite sommaire/slides de synthese retablie quand un axe est supprime ; `cle_libre` ne recycle plus la cle d'un axe supprime qui porte encore du contenu (le test qui portait ce nom ne l'exercait pas).",
+      "date": "2026-07-28",
+      "source": "utilisateur",
+      "categories": [
+        "autre"
+      ]
+    },
+    {
+      "cible": "dev-verifie",
+      "decision": "Constat superviseur du 2026-07-27 (prio 4, gate de revue adversariale sauté — 12 fichiers produit du commit 38a040d poussés PUIS revus) appliqué : le playbook gagne deux étapes. « revue-adversariale » (bmad-code-review, parallèle, fan_out_max 3) s'insère AVANT « revue-increment » avec un checkpoint BLOQUANT — aucun commit de code produit tant que le triage n'est pas clos, et le triage n'est clos qu'après la fin de flux de CHAQUE chasseur. « autorisation-sous-agents » passe en tête : l'accord de lancer des sous-agents se demande une fois pour tout le run, au début — au moment du gate le code est écrit et la question ne se pose plus, c'est là que la revue saute. Invariant de test précisé (test_playbooks_de_dev_se_terminent_par_revue_increment : rien d'autre qu'un commit ne passe après la DoD) + nouveau test_dev_verifie_revoit_avant_de_committer.",
+      "date": "2026-07-27",
+      "source": "utilisateur",
+      "categories": [
+        "verification-manquante"
+      ]
+    },
+    {
+      "cible": "agent-orchestrator",
+      "decision": "Constat superviseur du 2026-07-27 (prio 2, séance de 4 commits et 3 demandes multi-étapes sans aucune ligne de journal — runs.jsonl s'arrêtait au 2026-07-25) appliqué : la section « Journaliser » de la skill accroche log_run.py AU MOMENT DU COMMIT et non « à la fin du run ». Une séance longue enchaîne les demandes et ne se termine presque jamais par une action de clôture ; le commit est un point de passage obligé et daté. Corollaire assumé : plusieurs commits = plusieurs lignes, une par unité livrée plutôt qu'une par conversation. Le playbook dev-verifie porte l'étape « commit-et-journal » correspondante.",
+      "date": "2026-07-27",
+      "source": "utilisateur",
+      "categories": [
+        "autre"
+      ]
+    },
+    {
+      "cible": "agent-orchestrator",
+      "decision": "Constat superviseur du 2026-07-23 (prio 5, « en-attente-validation » jamais utilisé en 47 runs) appliqué, commit e638ccc : le garde-fou est devenu exécutable dans log_run.py — un run « succes » dont la demande/notes portent un livrable utilisateur (deck/slide/écran/export) sans mention « validé par l'utilisateur » imprime un AVERTISSEMENT non bloquant rappelant le statut attendu ; UTF-8 forcé sur stdin/stdout (mojibake cp1252). Test : test_log_run_avertit_succes_sur_livrable_utilisateur_sans_validation.",
+      "date": "2026-07-23",
+      "source": "utilisateur",
+      "categories": [
+        "autre"
+      ]
+    },
+    {
+      "cible": "run-dev-server",
+      "decision": "Constat superviseur du 2026-07-23 (prio 5, fraîcheur python invérifiable — le --reload a re-servi du code périmé le 2026-07-22) appliqué, commit e638ccc : GET /__fraicheur (app/main.py) expose l'empreinte des .py capturée à l'IMPORT ; serveur-dev.ps1 (Test-PythonFrais) la compare à l'empreinte recalculée du disque au lancement ET sous -KeepIfFresh — un serveur au python périmé est purgé et relancé, la fraîcheur python est prouvable comme le statique. Test : test_fraicheur_empreinte_python_servie_et_sensible_au_mtime.",
+      "date": "2026-07-23",
+      "source": "utilisateur",
+      "categories": [
+        "verification-manquante"
+      ]
+    },
+    {
+      "cible": "export-ppt-verifie",
+      "decision": "Constat superviseur du 2026-07-23 (prio 4, 7 runs / 7 « reprises » — la boucle de rendu nominale comptée comme anomalie, stat sans signal) appliqué : le playbook déclare la boucle rendu de contrôle → liste de défauts → correction → re-rendu comme étape NOMINALE, bornée à 2 itérations au-delà du rendu initial puis escalade utilisateur (prose + contrat verification-rendu + regle_reprise) ; le champ reprises du journal ne compte plus que ce qui sort de ce budget ou relève d'un imprévu.",
+      "date": "2026-07-23",
+      "source": "utilisateur",
+      "categories": [
+        "inefficacite"
+      ]
+    },
+    {
+      "cible": "bmad-code-review",
+      "decision": "Constat superviseur du 2026-07-23 (prio 3, 2e vague des chasseurs adversariaux — le triage du 2026-07-22 a failli se clore avant la boucle infinie trouvée en 2e vague) appliqué via le mécanisme bmad-customize : override d'équipe versionné _bmad/custom/bmad-code-review.toml (persistent_facts, append) — attendre la FIN DE FLUX de CHAQUE chasseur avant le triage (step 3), toute 1re notification est provisoire, re-trier à chaque vague si le pipelining a commencé. Fusion vérifiée par resolve_customization.py. Mémoire feedback-adversarial-agents-second-wave-before-triage-close.",
+      "date": "2026-07-23",
+      "source": "utilisateur",
+      "categories": [
+        "interaction"
+      ]
+    },
+    {
+      "cible": "famille:orchestrateur+superviseur",
+      "decision": "Demande utilisateur 2026-07-22 (« c'est toujours KO, ma demande n'est pas traitée — fais évoluer supervisor + orchestrator ») : évolutions APPLIQUÉES après ~15 tours de boucle deck non convergente. Orchestrateur §4 : vérif obligatoire « livrable utilisateur = artefact EXACT de l'app (export réel, pas build maison), rendu ENTIER, validé PAR l'utilisateur » + règle de non-convergence (≥3 rejets → demander le défaut précis, ne pas re-deviner). Orchestrateur §5 : nouvel état de run 'en-attente-validation' (jamais 'succes' auto-décerné sur un livrable utilisateur). Superviseur §3 : catégorie 'non-convergence' (constat critique) + write_diagnostic.py l'accepte. Réflexion : docs/reflexions/evolution-agents-acceptance-utilisateur.md. Mémoires feedback-non-convergence-user-is-oracle + feedback-verify-the-real-app-export-all-slides.",
+      "date": "2026-07-22",
+      "source": "utilisateur",
+      "categories": [
+        "non-convergence"
+      ]
+    },
+    {
+      "cible": "export-ppt-verifie",
+      "decision": "Rétrospective 2026-07-22 (« charte VSCode4 affirmée de mémoire → add-then-revert ») arbitrée : l'étape CADRAGE du playbook exige désormais, quand la demande cite un deck/charte de référence (VSCode3/4, template client), de RENDRE 2-3 slides de la référence (pptx-verify) et d'en extraire les motifs AVANT d'implémenter — interdit d'affirmer une conformité charte de mémoire. Preuve : 816ab02 (ajoute barre d'accent « charte VSCode4 ») → 09c7ba3 (la retire « VSCode4 n'en a pas »), + sommaire/numéro/encarts corrigés seulement après render VSCode4. Mémoire feedback-ground-charte-claims-in-a-render.",
+      "date": "2026-07-22",
+      "source": "utilisateur",
+      "categories": [
+        "verification-manquante"
+      ]
+    },
+    {
+      "cible": "run-dev-server",
+      "decision": "Rétrospective 2026-07-22 arbitrée : run-dev-server/SKILL.md documente le repli quand le screenshot Edge échoue (error 577 malgré les flags, ou hang) — se limiter à la vérif de structure servie (curl) et le DIRE explicitement, ne jamais prétendre avoir vu le rendu. Un échec unique de test réel opt-in (LibreOffice/Ollama) sous charge machine se réexécute isolé avant d'être qualifié régression.",
+      "date": "2026-07-22",
+      "source": "utilisateur",
+      "categories": [
+        "verification-manquante"
+      ]
+    },
+    {
+      "cible": "restitution-deck-design",
+      "decision": "Diagnostic 2026-07-22 (ppt-designer jamais lancé) arbitré : la passe design n'est plus CONDITIONNELLE auto-jugée mais OBLIGATOIRE dès que le diff touche un layout/composant/couleur de slide (seuil objectif, comme pptx-verify) — étape design-review du playbook export-ppt-verifie amendée. Déclencheur : la skill avait 0 invocation malgré 6+ runs deck, d'où un design ad hoc et une qualité insuffisante signalée à répétition. Lancée pour la 1re fois le 2026-07-22 (encarts gris, sommaire teardrop, image propre).",
+      "date": "2026-07-22",
+      "source": "utilisateur",
+      "categories": [
+        "agent-mort"
+      ]
+    },
+    {
+      "cible": "export-ppt-verifie",
+      "decision": "Plan d'amélioration demandé (2026-07-22, « pour que mes demandes soient prises en compte ») appliqué : une exigence utilisateur explicite (surtout visuelle) est PERSISTANTE d'un tour au suivant — checklist des éléments demandés reportée d'itération en itération et vérifiée au rendu (revue-increment §1 + contrat verification-rendu du playbook). Une contrainte de gabarit se résout en dessinant l'élément, jamais en l'omettant. Déclencheur : numéro de chapitre écarté 3 fois puis corrigé (commit 482c301). Mémoire feedback-persistent-user-request-draw-dont-omit.",
+      "date": "2026-07-22",
+      "source": "utilisateur",
+      "categories": [
+        "non-convergence"
+      ]
+    },
+    {
+      "cible": "famille:BMAD",
+      "decision": "Tri exécuté : 7 skills retirés, 39 conservés (routage sur demande explicite via bmad-help) — docs/reflexions/tri-skills-bmad.md, commit f604c39.",
+      "date": "2026-07-18",
+      "source": "utilisateur",
+      "categories": [
+        "agent-mort"
+      ]
+    },
+    {
+      "cible": "pptx-framed-image",
+      "decision": "Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle cadres-photo).",
+      "date": "2026-07-18",
+      "source": "utilisateur",
+      "categories": [
+        "agent-mort"
+      ]
+    },
+    {
+      "cible": "slide-text-polish",
+      "decision": "Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle polish-texte).",
+      "date": "2026-07-18",
+      "source": "utilisateur",
+      "categories": [
+        "agent-mort"
+      ]
+    },
+    {
+      "cible": "restitution-deck-design",
+      "decision": "Conservée malgré zéro invocation — reliée au playbook export-ppt-verifie (étape conditionnelle design-review).",
+      "date": "2026-07-18",
+      "source": "utilisateur",
+      "categories": [
+        "agent-mort"
+      ]
+    },
+    {
+      "cible": "bmad-code-review",
+      "decision": "Proposition retenue telle quelle : seuil explicite ajouté à revue-increment/SKILL.md (>5 fichiers produit ou logique à risque -> bmad-code-review obligatoire, sinon revue inline) — la délégation implicite ne se déclenchait jamais en pratique.",
+      "date": "2026-07-19",
+      "source": "utilisateur",
+      "categories": [
+        "agent-mort",
+        "interaction"
+      ]
+    },
+    {
+      "cible": "ai_common.py",
+      "decision": "Proposition retenue telle quelle : règle explicite ajoutée à revue-increment/SKILL.md §2 (correctif timeout/perf IA -> mesurer à la taille maximale réellement configurée, pas un prompt jouet) — capitalisée en mémoire feedback-ai-timeout-fix-verify-at-configured-scale.",
+      "date": "2026-07-19",
+      "source": "utilisateur",
+      "categories": [
+        "verification-manquante"
+      ]
+    },
+    {
+      "cible": "revue-increment",
+      "decision": "Proposition retenue telle quelle : règle ajoutée à revue-increment/SKILL.md §2 — un correctif appliqué en réponse à une revue externe (bmad-code-review, sous-agent adversarial) doit être relu lui-même avant commit, la revue d'origine n'ayant validé que le code d'avant. Confirmé le jour même : un 4e bug a été trouvé ainsi (Palier 2), non vu par les 2 sous-agents de revue.",
+      "date": "2026-07-20",
+      "source": "utilisateur",
+      "categories": [
+        "verification-manquante"
+      ]
+    },
+    {
+      "cible": "revue-increment",
+      "decision": "Proposition retenue telle quelle : règle ajoutée à revue-increment/SKILL.md §4 — si les docs auto-générées de supervision (agents-supervision.md, wiki.html) apparaissent modifiées en git status en fin de séance, les inclure dans le commit plutôt que les laisser dériver (constaté : 4 commits consécutifs sans les inclure).",
+      "date": "2026-07-20",
+      "source": "utilisateur",
+      "categories": [
+        "autre"
+      ]
+    },
+    {
+      "cible": "bmad-code-review",
+      "decision": "Proposition retenue telle quelle : angle mort de mesure documenté dans catalogue.md — les sous-skills bmad-review-adversarial-general/bmad-review-edge-case-hunter, invoquées par des sous-agents via prompt naturel, n'apparaissent pas dans state.json ; absence de trace n'implique pas absence d'exécution.",
+      "date": "2026-07-20",
+      "source": "utilisateur",
+      "categories": [
+        "autre"
+      ]
+    },
+    {
+      "cible": "revue-design-parallele",
+      "decision": "Proposition ① du diagnostic 2026-07-20 retenue et appliquée : garde déterministe ajoutée au contrat de l'étape consolidation (playbook revue-design-parallele) — quand le fan-out sert à une énumération exhaustive AVANT suppression/renommage, un grep -r final de chaque identifiant retiré est obligatoire et prime sur les rapports des sous-agents (extraits, non exhaustifs). Preuve : réf bmad-spec (bmad-architecture:29) ratée par un fan-out de 3 Explore, rattrapée seulement au grep final avant un git rm (runs 2026-07-18).",
+      "date": "2026-07-20",
+      "source": "utilisateur",
+      "categories": [
+        "interaction"
+      ]
+    },
+    {
+      "cible": "revue-increment",
+      "decision": "Règle définie sur demande (analyse superviseur 2026-07-20, mode d'échec « tests indiqués OK alors qu'ils sont KO ») : revue-increment/SKILL.md §2 + contrat 'tests' du playbook dev-verifie — le verdict pass/fail se lit sur la ligne de synthèse RÉELLE de pytest, jamais sur un résumé filtré du proxy rtk (déjà mal reporté un run, mémoire feedback-rtk-pytest-false-no-tests-collected) ni un [100%] de sortie tronquée ; et une suite verte qui MOCKE l'intégration modifiée (ex. extract_turns_from_text, appels Ollama/Whisper) exige au moins un passage réel de bout en bout avant « livré ».",
+      "date": "2026-07-20",
+      "source": "utilisateur",
+      "categories": [
+        "verification-manquante"
+      ]
+    },
+    {
+      "cible": "revue-increment",
+      "decision": "Règle définie sur demande (analyse superviseur 2026-07-20, mode d'échec « dev avec bug ou ne respectant pas la demande ») : revue-increment/SKILL.md §1 (conformité exigence par exigence — chaque point explicite de la demande coché contre le diff, toute exigence écartée dite dans « Reste ») + §7 (demande référençant un état introuvable -> clarifier avant de coder, run 12) + contrat 'implementation' du playbook dev-verifie. Le volet « bug malgré tests verts » reste couvert par le seuil bmad-code-review (>5 fichiers produit / logique à risque) et la relecture du correctif lui-même (arbitrages 2026-07-19/20).",
+      "date": "2026-07-20",
+      "source": "utilisateur",
+      "categories": [
+        "ko-repete"
+      ]
+    },
+    {
+      "cible": "revue-increment",
+      "decision": "Constat sanity du 2026-07-21 (priorité 3) validé et appliqué : le seuil bmad-code-review de revue-increment/SKILL.md déclenche désormais une revue adversariale pour TOUTE modification du JS de concurrence de record_libre.html / record.html (MediaRecorder, timers de rotation, compteurs pendingX, gardes de ré-entrance/génération), quel que soit le nombre de fichiers — le risque y est par fichier (concurrence), et ce fichier a un historique de 7 bugs data-loss trouvés par revue adversariale (runs 20/22) qu'une modif à 1 fichier (run 23) avait failli contourner en auto-relecture seule.",
+      "date": "2026-07-21",
+      "source": "utilisateur",
+      "categories": [
+        "verification-manquante"
+      ]
+    },
+    {
+      "cible": "pytest",
+      "decision": "Proposition superviseur du 2026-07-21 appliquée : cause racine du crash de teardown pytest Windows neutralisée dans tests/conftest.py (monkeypatch gardé de cleanup_dead_symlinks, rendu non fatal) — une suite complète sort désormais exit 0 avec la ligne « N passed » visible (vérifié : 246 passed, aucun traceback). Remplace la vigilance manuelle documentée dans feedback-pytest-windows-teardown-noise (3 fausses alertes rien qu'au 2026-07-21).",
+      "date": "2026-07-21",
+      "source": "utilisateur",
+      "categories": [
+        "autre"
+      ]
+    },
+    {
+      "cible": "runs.jsonl",
+      "decision": "Proposition superviseur du 2026-07-21 appliquée : critères d'issue de run définis dans agent-orchestrator/SKILL.md §5 (succes = livrable produit + exigences explicites couvertes + vérifications obligatoires faites ; partiel = au moins une exigence non livrée, une vérif sautée, ou une escalade non résolue à la remise ; echec = objectif non atteint / run abandonné). Run à escalade PR non résolue re-étiqueté « partiel » (runs.jsonl : 28 succes / 1 partiel) — le champ toujours-succes ne portait aucun signal.",
+      "date": "2026-07-21",
+      "source": "utilisateur",
+      "categories": [
+        "autre"
+      ]
+    },
+    {
+      "cible": "revue-increment",
+      "decision": "Proposition superviseur du 2026-07-21 appliquée : revue-increment/SKILL.md §2 allégé (règles terses + section « Leçons capitalisées » indexant les [[feedback-*]]) — les war-stories datées vivent dans les mémoires liées, la checklist les référence sans les recopier (net -23 lignes ; sections §1-§7, Phase B, Verdict intactes ; aucune exigence perdue).",
+      "date": "2026-07-21",
+      "source": "utilisateur",
+      "categories": [
+        "inefficacite"
+      ]
+    },
+    {
+      "cible": "revue-increment",
+      "decision": "Constat superviseur du 2026-07-22 (prio 3) appliqué : mémoire feedback-self-review-weak-gate-vs-adversarial-review + règle revue-increment/SKILL.md §2 — au-dessus du seuil bmad-code-review (fidélité frontend, JS de concurrence, >5 fichiers produit), l'auto-relecture n'est PAS le gate ; ne pas présenter « prêt à committer » sur self-review + tests verts, lister les zones à risque pour la revue. Preuve : 2 fois (2026-07-21 exec summary, 2026-07-22 bug répartition) un « rien à corriger » — une fois adossé à un harness Node 6/6 vert + pytest vert — a précédé la découverte par bmad-code-review de défauts réels dont une régression.",
+      "date": "2026-07-22",
+      "source": "utilisateur",
+      "categories": [
+        "verification-manquante"
+      ]
+    },
+    {
+      "cible": "export-ppt-verifie",
+      "decision": "Constat superviseur du 2026-07-22 (prio 1) arbitré : NE PAS rouvrir les arbitrages PPT — la prémisse du playbook (les 3 skills conditionnelles gagnent leur place via export-ppt-verifie) sera exercée lors de la GÉNÉRATION du deck PPT complet à venir, à laquelle ce constat est relié. Une slide isolée ajoutée au générateur existant (ex. Executive Summary, commit 2e43358) se vérifie par pptx-verify seul et ne déclenche pas le playbook, qui vise un livrable = deck de restitution complet.",
+      "date": "2026-07-22",
+      "source": "utilisateur",
+      "categories": [
+        "agent-mort"
+      ]
+    },
+    {
+      "cible": "scan_transcripts.py",
+      "date": "2026-09-03",
+      "decision": "DÉJÀ RÉSOLU (constat diagnostic.json du 2026-09-02T12:12, prio 3 — backlog de triage jamais compté) — RECTIFICATIF : un premier passage (même jour) l'avait déclaré ouvert et signalé au hub VSCode5 par erreur, faute d'avoir cherché ailleurs qu'à l'intérieur de scan_transcripts.py. Le compteur existe en réalité, dans un script SÉPARÉ à dessein : .claude/supervision/compter_triage.py (committé 8a3a430, 2026-09-03T01:21:15+02:00 — donc AVANT le diagnostic *et* avant le signalement erroné), avec son propre docstring expliquant pourquoi il n'est pas dans scan_transcripts.py (bannière GÉNÉRÉ — l'y ajouter localement serait écrasé à la prochaine propagation). Vérifié en l'exécutant : compte réellement les 4 fichiers de .claude/triage/ par statut (53 constats ouverts, plus ancien 3 j), référencé par .claude/skills/revue-increment/SKILL.md et tests/test_agent_supervision.py. Reste HORS tableau de bord (le docstring le dit explicitement : « son intégration au tableau de bord est un chantier du hub ») — c'est la seule part encore ouverte, à qualifier côté canon. Message rectificatif envoyé à la session vscode5-supervision-projets-d9.",
+      "source": "orchestrateur",
+      "categories": [
+        "autre"
+      ]
+    },
+    {
+      "cible": "write_diagnostic.py",
+      "date": "2026-09-03",
+      "decision": "DÉJÀ RÉSOLU (constat diagnostic.json du 2026-09-02T12:12, prio 5) — vérifié dans le code réel, pas supposé : write_diagnostic.py (lignes 184-227) est déjà un registre à état — `_precedent()`/`_ferme()`/`vu_le` reportent les constats non arbitrés au lieu de les écraser, et l'écriture est refusée si findings neufs + reportés dépasse MAX_FINDINGS=5. Le docstring interne date le mécanisme du 2026-09-02, jour même du diagnostic : implémenté et propagé (probablement par sync hub) avant ou en même temps que le constat. Aucune action requise.",
+      "source": "orchestrateur",
+      "categories": [
+        "interaction"
+      ]
+    },
+    {
+      "cible": "log_run.py",
+      "date": "2026-09-03",
+      "decision": "DÉJÀ RÉSOLU (constat diagnostic.json du 2026-09-02T12:12, prio 4) — vérifié en direct : scan_transcripts.py::runs_a_solder() (implémenté le 2026-07-29, cf. arbitrage `agent-orchestrator` de cette date) signale au démarrage de CETTE session même les runs en-attente-validation de plus de 24h avec la commande `log_run.py --solde` prête à copier (4 runs listés : 47h/38h/34h/34h). Le constat décrivait donc un mécanisme déjà en place le jour où il a été écrit ; les runs listés restent à solder par l'utilisateur — c'est un usage en attente, pas un défaut de visibilité du dispositif. Aucune action de développement requise.",
+      "source": "orchestrateur",
+      "categories": [
+        "interaction"
+      ]
+    },
+    {
+      "cible": "dev-verifie",
+      "date": "2026-09-03",
+      "decision": "DÉJÀ RÉSOLU (constat diagnostic.json du 2026-09-02T12:12, prio 4, re_challenge) — vérifié dans le fichier réel : .claude/orchestration/playbooks/dev-verifie.md porte déjà l'étape `premisse` avant `implementation` (ajoutée le 2026-09-02 selon le corps du playbook), avec exactement le contrat proposé — invariant écrit en une phrase, vérifié par une mesure sur le code réel AVANT d'écrire, implémentation stoppée si la mesure l'infirme, prémisse+mesure tracées dans le message de commit. Aucune action requise.",
+      "source": "orchestrateur",
+      "categories": [
+        "verification-manquante"
+      ]
+    },
+    {
+      "cible": "CLAUDE.md",
+      "date": "2026-09-03",
+      "decision": "DÉJÀ RÉSOLU (constat diagnostic.json du 2026-09-02T12:12, prio 3) — vérifié dans le fichier réel : CLAUDE.md du projet porte désormais une section « Règles de travail » complète, R1-R5 (numérotées distinctement de P1-P4 code produit) avec l'énoncé entier de chaque règle — exactement la remédiation (a) proposée par le constat (« restaurer une section R1-R4 avec leur énoncé »). Aucune action requise.",
+      "source": "orchestrateur",
+      "categories": [
+        "interaction"
+      ]
+    },
+    {
+      "cible": "bmad-revue",
+      "date": "2026-09-02",
+      "decision": "ACCEPTÉ + APPLIQUÉ (arbitrage utilisateur du 2026-09-02). Le porteur de revue n'avait pas l'outil `Agent`, donc les couches adversariales de `bmad-code-review` — Blind Hunter, Edge Case Hunter, Acceptance Auditor — s'exécutaient EN SÉQUENCE dans un seul contexte : la troisième lisait ce que la première avait écrit, et le garde-fou anti-complaisance devenait un relecteur unique qui se relit. LA DÉGRADATION NE SE DÉDUISAIT PAS, elle était enregistrée DEUX FOIS dans `runs.jsonl` par les runs eux-mêmes (2026-08-31T22:07 et 2026-09-01T18:32) : le dispositif se plaignait de lui-même dans son propre journal, et personne ne lisait la plainte. Corrigé au hub (`.claude/agents/bmad-revue.md`), republié dans le kit, propagé aux 4 dépôts qui portent ce fichier — vérifié avant écrasement : la seule ligne remplacée est l'ancienne ligne `tools`, aucun travail local perdu. ET L'OUTIL SEUL N'AURAIT RIEN CHANGÉ : le mandat prescrit désormais le GESTE — plusieurs appels `Agent` dans un SEUL message (un par message est une cascade, donc l'inverse du but), briefs autoportants qui ne disent pas aux autres couches ce qu'une couche a trouvé, puis consolidation ; une couche qui n'a pas besoin d'être aveugle s'invoque inline. Donner un outil sans prescrire son usage est exactement le défaut mesuré le même jour sur les 46 skills BMAD. Test au hub, vu ROUGE, nommément sur ce porteur : `bmad-recherche` et `veille-agentic` n'ont aucune couche parallèle à dispatcher, leur donner `Agent` élargirait une surface sans besoin mesuré. [Complété le 2026-09-09 : categories/source ajoutés — entrée datée après le 2026-07-28 sans catégorie, finding interaction/arbitrages.json (c).]",
+      "categories": [
+        "interaction"
+      ],
+      "source": "VSCode2"
+    },
+    {
+      "cible": "dev-verifie",
+      "date": "2026-09-07",
+      "decision": "DÉJÀ RÉSOLU / re-challenge non fondé (constat diagnostic.json du 2026-09-04T20:37:45, prio 4, re_challenge:true, categorie verification-manquante — « sept tours consécutifs où un correctif introduit un défaut de la classe qu'il corrigeait »). Vérifié dans le code et le journal réels, pas supposé : la PREUVE citée par ce constat (runs.jsonl, 3e/4e itération du 2026-09-01, puis le run du 2026-09-02 « 6 majeurs sur 7 introduits » + le bloquant D2-B2 à prémisse fausse) est EXACTEMENT le run ts=2026-09-02T11:49:07+02:00 (chantier D1) qui a servi de CAS D'ÉCOLE MOTIVANT à l'étape `premisse` déjà ajoutée au playbook dev-verifie ce même jour (.claude/orchestration/playbooks/dev-verifie.md lignes 25-37, qui cite nommément D2-B2). Ce n'est donc pas une preuve que le correctif a échoué APRÈS coup, c'est la preuve qui a produit le correctif — déjà traitée par l'arbitrage DÉJÀ RÉSOLU du 2026-09-03 sur cette même cible. Les 2 runs dev-verifie postérieurs à l'ajout de l'étape (ts=2026-09-02T22:50:03, ts=2026-09-04T20:03:37) ne rapportent PAS de récidive du motif « correctif réintroduit sa propre classe de défaut » — aucune preuve neuve ne soutient le re_challenge. Aucune action de développement requise ; à re-challenger seulement avec une preuve postérieure à l'ajout de l'étape `premisse`.",
+      "source": "orchestrateur",
+      "categories": [
+        "verification-manquante"
+      ]
+    },
+    {
+      "cible": "flotte:23-items-cadres",
+      "date": "2026-09-07",
+      "decision": "ACCEPTÉ + APPLIQUÉ (arbitrage utilisateur du 2026-09-07 : « supprimer le code mort »). Constat : mode démo hors-ligne (~230 lignes inatteignables, SYNTHESE_DEMO sans effet). Vérifié avant suppression : `demo_enabled()` et les 6 fonctions `generate_demo_*` de synthese_ai.py n'avaient AUCUN appelant en dehors de leurs propres tests dédiés (grep sur app/ entier). Supprimés : `demo_enabled()` (ai_common.py), les 6 fonctions demo (synthese_ai.py, import `demo_enabled` retiré), 3 tests dédiés (test_difficultes.py, test_executive_summary.py, test_swot.py), et les 6 mentions doc résiduelles (docs/guide.html — paragraphe + noeud SVG + item de légende + item de liste, docs/product-brief.md, docs/reflexions/restitution-mission.md, docs/wiki/technical/stack.md, docs/wiki.html). Vérifié réel : py_compile + suite complète isolée 763 passed / 0 failed / 25 errors infra connues (aucune régression, delta exact de -3 tests supprimés vs la baseline de l'état des lieux du jour).",
+      "source": "utilisateur",
+      "categories": [
+        "pratique-dev"
+      ]
+    },
+    {
+      "cible": "flotte:23-items-cadres",
+      "date": "2026-09-07",
+      "decision": "PARTIELLEMENT APPLIQUÉ (arbitrage utilisateur du 2026-09-07 : d'abord « câbler les 10 helpers restants », puis « inventer un point d'usage » pour ceux sans besoin fonctionnel). Constat : 254 lignes / 10 helpers de la bibliothèque partagée VSCode4 (commit d9e7196) jamais câblés dans pptx_deck.py. Investigation réelle AVANT d'écrire (R1) : 5 des 10 avaient un vrai doublon de logique à remplacer, pas seulement un compteur à faire bouger — `add_forme` (add_rect en est un cas particulier, refactoré pour déléguer), `definir_geometrie` + `configurer_text_frame` (pptx_export/base.py::_new_slide posait la géométrie/le text_frame du titre à la main), `trouver_cadre_layout` (pptx_export/images.py::_find_teardrop_frame dupliquait la même recherche par prstGeom, en moins sûr — sans le garde-fou largeur_min_in) et `purger_rels_slides_orphelines` (ajouté comme filet anti-corruption en fin de build_presentation, coût nul en pratique). Vérifié réel : suite complète isolée 763 passed/0 failed après chaque étape, ET rendu réel PowerPoint de 27 slides d'un export produit par l'app (cover, tête de chapitre au cadre teardrop, slide de synthèse à carte liserée, fiche recommandation à cartes/badges) — aucune régression visuelle. Les 5 restants (`definir_paragraphes`, `add_text_runs`, `trouver_slide_par_titre`, `supprimer_slide`, `_normaliser`) n'ont trouvé AUCUN point d'usage réel même en cherchant activement (aucun texte multi-runs existant à corriger, aucun besoin de suppression de slide PAR TITRE — `clear_slides` vide déjà tout sans distinction). Décision de l'orchestrateur, à confirmer par l'utilisateur : ne pas leur inventer un appelant artificiel (contredirait CLAUDE.md « pas de fonctionnalité au-delà du besoin » et le principe déjà posé § 2 septies de ne pas faire tourner du code pour faire baisser un compteur) — documentés comme bibliothèque de référence non adoptée plutôt que câblés de force. Aucun commit encore fait (reliquat non commité).",
+      "source": "orchestrateur",
+      "categories": [
+        "pratique-dev"
+      ]
+    },
+    {
+      "cible": "write_diagnostic.py",
+      "date": "2026-09-07",
+      "decision": "REFERME (resynchronisation diagnostic.json avec les decisions existantes) : ce finding etait deja marque DEJA RESOLU par une arbitrage du 2026-09-03, mais le diagnostic.json avait ete reecrit le 2026-09-04 sans que le mecanisme de fermeture ne le voie (vu_le reinitialise a la reecriture). Aucun travail nouveau : simple resynchronisation, hub VScode5. [Complété le 2026-09-09 : categories/source ajoutés — finding interaction/arbitrages.json du 2026-09-07 (d) ; sans eux cette cible restait sourde au mécanisme de fermeture.]",
+      "categories": [
+        "interaction"
+      ],
+      "source": "hub"
+    },
+    {
+      "cible": "log_run.py",
+      "date": "2026-09-07",
+      "decision": "REFERME (resynchronisation diagnostic.json) : deja marque DEJA RESOLU par arbitrage du 2026-09-03 (scan_transcripts.py::runs_a_solder implemente), diagnostic.json non resynchronise depuis. Hub VScode5. [Complété le 2026-09-09 : categories/source ajoutés — finding interaction/arbitrages.json du 2026-09-07 (d) ; sans eux cette cible restait sourde au mécanisme de fermeture.]",
+      "categories": [
+        "interaction"
+      ],
+      "source": "hub"
+    },
+    {
+      "cible": "scan_transcripts.py",
+      "date": "2026-09-07",
+      "decision": "REFERME (resynchronisation diagnostic.json) : deja marque DEJA RESOLU par arbitrage du 2026-09-03 (backlog de triage compte). Hub VScode5. [Complété le 2026-09-09 : categories/source ajoutés — finding interaction/arbitrages.json du 2026-09-07 (d) ; sans eux cette cible restait sourde au mécanisme de fermeture.]",
+      "categories": [
+        "autre"
+      ],
+      "source": "hub"
+    },
+    {
+      "cible": "CLAUDE.md",
+      "date": "2026-09-07",
+      "decision": "REFERME (resynchronisation diagnostic.json) : deja marque DEJA RESOLU par arbitrage du 2026-09-03 (section R1-R4 restauree). Hub VScode5. [Complété le 2026-09-09 : categories/source ajoutés — finding interaction/arbitrages.json du 2026-09-07 (d) ; sans eux cette cible restait sourde au mécanisme de fermeture.]",
+      "categories": [
+        "interaction"
+      ],
+      "source": "hub"
+    },
+    {
+      "cible": "flotte:23-items-cadres",
+      "date": "2026-09-07",
+      "categories": [
+        "autre"
+      ],
+      "decision": "ACCEPTE + APPLIQUE (campagne de nettoyage mecanique du 2026-09-07, mandat utilisateur) : bloc identity recopie 12x dans interviews.py -> helper _build_identity(...) a 9 parametres, les 12 sites le consomment, commit 9ea45c4 (6 fichiers, 548+/119-). Verifie : 435 tests des fichiers impactes rejoues isolement, verts, plus 2 tests unitaires dedies. RESTE OUVERT et non couvert : routers/synthese.py = service deguise, 11 imports de symboles prives hors module (refactor traversant 3 fichiers, risque import circulaire) -- reconduit au diagnostic."
+    },
+    {
+      "cible": "agent-orchestrator",
+      "date": "2026-09-09",
+      "categories": [
+        "verification-manquante"
+      ],
+      "source": "VSCode2",
+      "decision": "ACCEPTÉ + APPLIQUÉ (mandat utilisateur du 2026-09-09 : « assure-toi que tous les findings soient traités »). (a) LOCAL appliqué : règle « première écriture sous app/ → run journalisé en-cours, soldé à la remise » dans .claude/skills/agent-orchestrator/SKILL.md (Portée sur ce projet) et dans le critère de l'étape cadrage de playbooks/dev-verifie.md ; appliquée dès cette séance (runs en-cours puis --solde). (b) scan_transcripts.py « gate d'abord » au-delà de 5 fichiers app/ et (c) log_run.py ignorant le ts fourni : CANON du hub VSCode5, non appliqués ici — à remonter."
+    },
+    {
+      "cible": "arbitrages.json",
+      "date": "2026-09-09",
+      "categories": [
+        "interaction"
+      ],
+      "source": "VSCode2",
+      "decision": "ACCEPTÉ + APPLIQUÉ (mandat utilisateur du 2026-09-09). (d) appliqué : entrées [47]-[50] (write_diagnostic.py, log_run.py, scan_transcripts.py, CLAUDE.md du 2026-09-07) complétées avec categories (interaction/interaction/autre/interaction) et source=hub, plus l'entrée [43] (bmad-revue, 2026-09-02) ; fichier réécrit en indent=2 ; scan_transcripts.categories_inconnues() rend [] et plus aucune entrée sans categories. (a) abandon à la reconduction, (b) exigence categories/source dans les scripts écrivains, (c) signalement des categories absentes : CANON du hub, non appliqués ici — à remonter."
+    },
+    {
+      "cible": ".claude/triage",
+      "date": "2026-09-09",
+      "categories": [
+        "autre"
+      ],
+      "source": "VSCode2",
+      "decision": "ACCEPTÉ + APPLIQUÉ (mandat utilisateur du 2026-09-09). (a) appliqué : les 89 lignes hors gabarit des 4 fichiers de triage normalisées (statuts explicites corrigé/differe/ecarte sur les constats ; les tables de mesures, de répartition et de mutations — qui ne sont pas des constats — converties en listes) : compter_triage.py rend 0 ligne hors vocabulaire, 73 constats ouverts comptés (59 avant, 14 invisibles). Les differe du 2026-09-04 (F6/F7/F9/F15) restent différés à raison (décisions produit ou dépendants d'un arbitrage). (c) appliqué : revue-increment/SKILL.md exige un triage au gabarit avant de clore. (b) ligne « backlog de revue » dans le wiki généré : CANON hub — à remonter."
+    },
+    {
+      "cible": "VSCode2:synthese-service-deguise",
+      "date": "2026-09-09",
+      "categories": [
+        "autre"
+      ],
+      "source": "VSCode2",
+      "decision": "ACCEPTÉ + APPLIQUÉ (mandat utilisateur du 2026-09-09 ; le finding demandait l'arbitrage refactor / dette assumée → refactor). app/services/synthese_ecriture.py créé : les 8 fonctions d'écriture en base (get_or_create_* / apply_*) et les constantes SWOT_FIELDS / EXEC_SUMMARY_FIELDS y vivent en noms publics ; routers/synthese.py et routers/export.py les importent du service ; plus aucun import d'un symbole privé d'un router par un autre (grep). mission_export.py cité par le finding n'existait plus (déjà extrait en synthese_material.py). global_synthesis_job.py garde sa copie locale (commentaire mis à jour, unification différée). Vérifié : 138 tests du périmètre synthèse/export/SWOT verts, suite complète rejouée."
+    }
+  ]
 }

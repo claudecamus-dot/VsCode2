@@ -1,0 +1,40 @@
+{
+  "derniere_veille": "2026-09-08T12:00:00",
+  "entrees": [
+    {
+      "titre": "Ollama structured outputs : passer le schema JSON complet au champ format, pas la chaine litterale 'json'",
+      "url": "https://docs.ollama.com/capabilities/structured-outputs",
+      "type": "pratique",
+      "source_referentiel": "Ollama — docs.ollama.com / Structured outputs (le champ format de /api/chat accepte un JSON Schema complet en contrainte de decodage, pas seulement la chaine 'json')",
+      "projets_concernes": ["VSCode2"],
+      "pertinence": "app/services/ai_common.py::_call_ollama recoit deja un parametre schema: dict (signature ligne 455) mais n'envoie que \"format\": \"json\" a Ollama (ligne 462) — la contrainte de FORME du JSON n'est jamais appliquee cote modele, seule la validite JSON generique l'est. synthese_ai.py (commentaires lignes 254 et 537) et interview_libre_extract_ai.py (ligne 79) documentent explicitement cette limite (\"Ollama garantit du JSON valide, pas la forme du schema\") et compensent par de la coercion applicative post-hoc — exactement le bug deja rencontre et corrige une fois (memoire : 'Ollama JSON type coercion: flatten don't drop').",
+      "regle_proposee": "Un appel local Ollama qui dispose d'un schema JSON structure doit le transmettre via le champ 'format' (JSON Schema), pas seulement la chaine litterale 'json' — mesurable a froid par grep de '\"format\": \"json\"' dans les fichiers appelant /api/chat d'Ollama avec un parametre schema non vide disponible dans la meme fonction.",
+      "action_corrective": "app/services/ai_common.py::_call_ollama (lignes 455-469) : remplacer \"format\": \"json\" par \"format\": schema quand schema est fourni et non vide (fallback sur \"json\" sinon). Garder la coercion applicative existante en filet plutot que la retirer — la doc Ollama elle-meme previent que la contrainte de forme ne garantit pas le CONTENU (chaines vides, valeurs hallucinees), seulement la structure.",
+      "date": "2026-09-08",
+      "statut": "nouveau"
+    },
+    {
+      "titre": "Discipline de gestion de contexte/tokens (/clear, /compact, statusline) absente du CLAUDE.md de VSCode2",
+      "url": "https://code.claude.com/docs/en/costs",
+      "type": "pratique",
+      "source_referentiel": "Anthropic — Claude Code docs / Manage costs effectively (gestion du contexte, /clear entre taches sans lien, /compact aux points de rupture naturels, statusline de suivi cout)",
+      "projets_concernes": ["VSCode2"],
+      "pertinence": "grep sur CLAUDE.md de VSCode2 pour 'token'/'/clear'/'/compact'/'cache' ne remonte aucune ligne, et .claude/settings.json + settings.local.json n'ont pas de statusLine configuree. La skill veille-agentic elle-meme signale que cette discipline est deja ecrite dans les CLAUDE.md de VSCode1 et VSCode3 (et un playbook OCTO) — VSCode2 est en ecart de coherence flotte sur ce point precis, alors que le projet delegue deja l'exploration a des sous-agents (bmad-recherche, veille-agentic) ce qui va dans le meme sens sans etre documente comme regle.",
+      "regle_proposee": "CLAUDE.md documente une discipline minimale de gestion de contexte (quand faire /clear entre deux taches sans lien logique, /compact aux points de rupture) et/ou une statusLine de suivi tokens/cout est configuree dans .claude/settings.json — mesurable a froid par le scan : presence d'une section idoine dans CLAUDE.md et/ou cle statusLine dans settings.json.",
+      "action_corrective": "Ajouter a CLAUDE.md de VSCode2 une note courte (3-5 lignes, pour rester sous la limite de 150 lignes deja fixee) sur le meme modele que VSCode1/VSCode3 : quand faire /clear (nouvelle tache sans lien avec la precedente) vs poursuivre la session, et evaluer une statusLine de suivi cout dans .claude/settings.json.",
+      "date": "2026-09-08",
+      "statut": "nouveau"
+    },
+    {
+      "titre": "claude-code-hooks-multi-agent-observability (disler) — dashboard temps reel des hooks et du cycle de vie des sous-agents",
+      "url": "https://github.com/disler/claude-code-hooks-multi-agent-observability",
+      "type": "outil",
+      "projets_concernes": ["VSCode2"],
+      "pertinence": "Meme finalite que le dispositif maison (.claude/supervision/scan_transcripts.py, log_usage.py, diagnostic.json, routing-hints.json) : tracer l'usage des agents/sous-agents et les evenements de hooks. Le dispositif local le fait en scan incremental sur fichiers JSON, 0 token, sans infra dediee. Cet outil public (verifie vivant : 1.5k stars, 385 forks, PRs/issues actifs) offre un temps reel via une infra dediee — serveur Bun (port 4000) + SQLite + client Vue (port 5173) — plus lourd que le choix deliberement fait par la flotte (rtk, outil de meme famille philosophique 'proxy/infra externe', a ete essaye puis retire le 2026-07-29). Signale pour comparaison si un besoin d'observabilite temps reel (vs scan par session) apparait un jour ; ne remplace rien aujourd'hui.",
+      "regle_proposee": "aucune",
+      "action_corrective": "aucune",
+      "date": "2026-09-08",
+      "statut": "nouveau"
+    }
+  ]
+}

@@ -64,12 +64,10 @@ est verte (620) — elle ne couvre aucun des constats ci-dessous.
 
 ## Synthèse
 
-| Sévérité | Backend | Frontend | Total |
-| --- | --- | --- | --- |
-| BLOQUANT | 2 | 3 | **5** |
-| MAJEUR | 8 | 8 | **16** |
-| MINEUR | 7 | 6 | **13** |
-| | | | **34** |
+- Sévérité : BLOQUANT · Backend : 2 · Frontend : 3 · Total : **5**
+- Sévérité : MAJEUR · Backend : 8 · Frontend : 8 · Total : **16**
+- Sévérité : MINEUR · Backend : 7 · Frontend : 6 · Total : **13**
+- Total : **34**
 
 Répartition après arbitrage de consolidation (B7 dégradé de MAJEUR à MINEUR, cf. plus bas).
 
@@ -117,11 +115,9 @@ Test : `tests/test_interview_libre.py:417` ne teste le *reduce* qu'avec `axes=No
 `recover_stalled_or_failed_jobs` a trois appelants ; seul le chemin libre direct n'a
 **aucun** des deux garde-fous :
 
-| appelant | borne de récupération | détection de perte partielle |
-| --- | --- | --- |
-| `interviews.py:420` (mode paramétré) | absente | **oui** — `still_ko` bloque avec un message actionnable (l.424) |
-| `interviews.py:674` (**mode libre direct, nominal**) | **absente** | **aucune** |
-| `interviews.py:2280` (retranscription) | **oui** — `[:RECUP_TRANCHES_MAX]` = 3 | **oui** — `attendues > abouties` (l.2287) |
+- appelant : `interviews.py:420` (mode paramétré) · borne de récupération : absente · détection de perte partielle : **oui** — `still_ko` bloque avec un message actionnable (l.424)
+- appelant : `interviews.py:674` (**mode libre direct, nominal**) · borne de récupération : **absente** · détection de perte partielle : **aucune**
+- appelant : `interviews.py:2280` (retranscription) · borne de récupération : **oui** — `[:RECUP_TRANCHES_MAX]` = 3 · détection de perte partielle : **oui** — `attendues > abouties` (l.2287)
 
 Le plafond et l'avertissement ont été posés le 2026-07-31 (commit `d36aef6`), sur la
 retranscription seule. Le commentaire de la ligne 2275 décrit le risque encore vivant en
@@ -287,7 +283,7 @@ lecture seule, aucun pytest (suite 630 verte jouée par la session appelante).
 | R3-m3 | MINEUR | 3ᵉ valeur de `SEGMENT_RETRY_DELAYS_MS` morte (`attempt + 1 < length` = 3 tentatives, indice 2 jamais lu) — recopiée dans les deux `uploadBackup` neufs | `record_libre.html:1017`, `record.html:1044` | VERIFIE-AGENT | **corrige** |
 | R3-m4 | MINEUR | `beforeunload` ne couvre ni `pendingBackups` ni `backupPerdus` — fermer l'onglet pendant les ~30 min de reprise de sauvegarde ne demande rien | `record_libre.html:977-982` | VERIFIE-AGENT | **corrige** |
 | R3-m5 | MINEUR | `markLostSegmentAbandoned` sort en silence si marqueur introuvable alors que le segment est déjà retiré du bandeau — la perte redevient silencieuse | `record_libre.html:875`, `record.html:811` | VERIFIE-AGENT (atteignabilité SUPPOSE) | **corrige** |
-| R3-m6 | MINEUR | Le marqueur `⚠ [segment N abandonné…]` part dans `segment_tail` donc dans le prompt d'extraction — restituable comme tour de parole, non testé | `record_libre.html:873`, `record.html:809` | SUPPOSE | **sans objet** — déjà couvert, test ajouté |
+| R3-m6 | MINEUR | Le marqueur `⚠ [segment N abandonné…]` part dans `segment_tail` donc dans le prompt d'extraction — restituable comme tour de parole, non testé | `record_libre.html:873`, `record.html:809` | SUPPOSE | ecarte — **sans objet** — déjà couvert, test ajouté |
 
 ### Ce qui a été fait pour chacun
 

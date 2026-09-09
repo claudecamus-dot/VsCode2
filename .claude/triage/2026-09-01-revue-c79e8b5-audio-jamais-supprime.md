@@ -29,12 +29,10 @@ et à un champ unique sans reprendre les gardes existantes.
 
 ## Répartition
 
-| Sévérité | Nombre |
-| --- | --- |
-| BLOQUANT | **1** |
-| MAJEUR | **7** |
-| MINEUR | **13** |
-| | **21** |
+- Sévérité : BLOQUANT · Nombre : **1**
+- Sévérité : MAJEUR · Nombre : **7**
+- Sévérité : MINEUR · Nombre : **13**
+- Nombre : **21**
 
 (29 constats bruts rendus par les deux relecteurs → 21 après dédoublonnage de 4 paires et
 requalification de 4 sévérités.)
@@ -50,11 +48,9 @@ requalification de 4 sévérités.)
 **Ce que j'ai mesuré moi-même**, en lecture seule sur `data/recordings` (29 fichiers,
 318,8 Mo) croisé avec `SELECT id FROM missions` en `mode=ro` :
 
-| catégorie | fichiers | taille |
-| --- | --- | --- |
-| Préfixe d'une mission supprimée (8, 10, 11) | 7 | 57,4 Mo |
-| Sans préfixe (`import_1785351999_f938b8c0.webm`, 29/07) | 1 | 18,4 Mo |
-| **Inatteignables par l'onglet Backup** | **8** | **75,8 Mo = 24 % du répertoire** |
+- catégorie : Préfixe d'une mission supprimée (8, 10, 11) · fichiers : 7 · taille : 57,4 Mo
+- catégorie : Sans préfixe (`import_1785351999_f938b8c0.webm`, 29/07) · fichiers : 1 · taille : 18,4 Mo
+- catégorie : **Inatteignables par l'onglet Backup** · fichiers : **8** · taille : **75,8 Mo = 24 % du répertoire**
 
 `lister_backups` exige un objet `Mission` et globbe `{mission.id}_*` : dès que la mission
 est supprimée, plus aucun écran ne liste ses fichiers. Le commentaire posé par le commit
@@ -117,7 +113,7 @@ appliquée au chemin frère qu'ajoute ce commit.
 | C12 | `updateSubmitState` depuis une génération périmée écrase le message d'état — ce que le commentaire du correctif nie explicitement | `record.html:897`, `record_libre.html:968` | VERIFIE-AGENT | differe |
 | C13 | Le répertoire nettoyé par les tests, `%TEMP%\recordings`, n'est pas nommé pour ce projet : efface le contenu tiers et celui d'une seconde copie de travail | `tests/conftest.py:44` | VERIFIE-AGENT (marqueurs déposés/relevés) | differe |
 | C14 | `db.commit()` sans modification dans la branche 409 : le commit en a retiré les deux seules écritures | `app/routers/interviews.py:1691` | VERIFIE-AGENT | differe |
-| C15 | Bruit de fichiers générés dans un commit de code : `docs/wiki.html` et `agents-supervision.md` n'y apportent qu'un horodatage de scan | commit `c79e8b5` | VERIFIE-CONSO (diff relu) | **constat sur MA façon de faire** |
+| C15 | Bruit de fichiers générés dans un commit de code : `docs/wiki.html` et `agents-supervision.md` n'y apportent qu'un horodatage de scan | commit `c79e8b5` | VERIFIE-CONSO (diff relu) | differe — **constat sur MA façon de faire** |
 | IMPORT-2 | Ré-importer une tranche perdue lui donne une position déjà prise, et le bandeau « NON TRANSMISE » ne s'éteint jamais | `record_libre.html:1543-1545`, `:1308-1325` | VERIFIE-AGENT | differe |
 | EC3-3 | `recuperables` compare des LONGUEURS : une seule tranche non gardée en local fait annoncer « PERDUES » pour toutes, lien de téléchargement affiché juste en dessous | `record_libre.html:1315` | VERIFIE-AGENT | differe |
 | EC3-4 | `offrirBackupEnLocal` révoque AVANT d'affecter : si `createObjectURL` jette, le lecteur et le lien pointent sur une URL morte | `record.html:1106-1107` | VERIFIE-AGENT (déclencheur SUPPOSE) | differe |
@@ -186,15 +182,15 @@ Les 13 MINEUR restent `differe` : ils n'ont pas été arbitrés, donc rien n'y a
 
 | Constat | Correctif | Où |
 | --- | --- | --- |
-| C1 | Écran « audio sans mission » (`/missions/audio-orphelin`) : liste, écoute, raison de l'orphelinat, suppression. Seul point d'entrée : un bouton sur la liste des missions, visible uniquement s'il y a des orphelins | `mission_backups.lister_orphelins_globaux`, `missions.py`, `templates/missions/audio_orphelin.html` |
-| C2 | Le même écran couvre les imports d'avant le commit : un fichier SANS préfixe de mission y apparaît avec la raison « nom sans préfixe (import d'avant le 2026-09-01) » | `lister_orphelins_globaux` |
-| C3 | `appartient_a_mission` refuse un fichier antérieur à la création de la mission — une mission qui hérite d'un id SQLite recyclé n'adopte plus l'audio de la précédente. L'ordre des tests compte : la référence explicite l'emporte AVANT la garde de chronologie | `mission_backups.py` |
-| C4 | Le mode libre refuse « Transcrire ce fichier » dès qu'une tranche existe, et propose « Rattacher sans transcrire » | `record_libre.html` |
-| C8 | Détecteur AST verbe-orienté avec liste d'exceptions nommées (fonction + raison), remplaçant la fenêtre de 12 lignes autour de `RECORDINGS_DIR`. Couvre `shutil.move`, `os.replace`, `Path.rename`, la troncature et l'ouverture en écriture ; discrimine `str.replace`/`datetime.replace` par la forme de l'appel. Un test dédié prouve que le détecteur voit ces verbes ET ne crie pas sur les homonymes | `tests/test_audio_jamais_supprime.py` |
-| IMPORT-1 | Le mode guidé refuse l'import transcrivant quand un backup est déjà rattaché, et offre le même « Rattacher sans transcrire » | `record.html` |
-| EC3-1 | Le message d'EC-3 envoie désormais vers « Rattacher sans transcrire » et dit explicitement de ne PAS passer par « Transcrire ce fichier ». Le commentaire du code portait la même erreur : corrigé aussi | les deux écrans |
-| EC3-2 | Une copie locale non acquittée gèle « Enregistrer l'entretien » et arme `beforeunload`. Sortie explicite par un bouton d'acquittement — sans lui le verrou serait une impasse. L'acquittement se réarme sur une tranche neuve et se remet à zéro sur « Recommencer » | les deux écrans |
-| C6 (MINEUR, effet de bord) | Le point de remise à zéro partagé (`oublierBackupLocal`) révoque le blob sur « Recommencer » et sur un nouveau démarrage | `record.html` |
+| C1 | Écran « audio sans mission » (`/missions/audio-orphelin`) : liste, écoute, raison de l'orphelinat, suppression. Seul point d'entrée : un bouton sur la liste des missions, visible uniquement s'il y a des orphelins | corrigé — `mission_backups.lister_orphelins_globaux`, `missions.py`, `templates/missions/audio_orphelin.html` |
+| C2 | Le même écran couvre les imports d'avant le commit : un fichier SANS préfixe de mission y apparaît avec la raison « nom sans préfixe (import d'avant le 2026-09-01) » | corrigé — `lister_orphelins_globaux` |
+| C3 | `appartient_a_mission` refuse un fichier antérieur à la création de la mission — une mission qui hérite d'un id SQLite recyclé n'adopte plus l'audio de la précédente. L'ordre des tests compte : la référence explicite l'emporte AVANT la garde de chronologie | corrigé — `mission_backups.py` |
+| C4 | Le mode libre refuse « Transcrire ce fichier » dès qu'une tranche existe, et propose « Rattacher sans transcrire » | corrigé — `record_libre.html` |
+| C8 | Détecteur AST verbe-orienté avec liste d'exceptions nommées (fonction + raison), remplaçant la fenêtre de 12 lignes autour de `RECORDINGS_DIR`. Couvre `shutil.move`, `os.replace`, `Path.rename`, la troncature et l'ouverture en écriture ; discrimine `str.replace`/`datetime.replace` par la forme de l'appel. Un test dédié prouve que le détecteur voit ces verbes ET ne crie pas sur les homonymes | corrigé — `tests/test_audio_jamais_supprime.py` |
+| IMPORT-1 | Le mode guidé refuse l'import transcrivant quand un backup est déjà rattaché, et offre le même « Rattacher sans transcrire » | corrigé — `record.html` |
+| EC3-1 | Le message d'EC-3 envoie désormais vers « Rattacher sans transcrire » et dit explicitement de ne PAS passer par « Transcrire ce fichier ». Le commentaire du code portait la même erreur : corrigé aussi | corrigé — les deux écrans |
+| EC3-2 | Une copie locale non acquittée gèle « Enregistrer l'entretien » et arme `beforeunload`. Sortie explicite par un bouton d'acquittement — sans lui le verrou serait une impasse. L'acquittement se réarme sur une tranche neuve et se remet à zéro sur « Recommencer » | corrigé — les deux écrans |
+| C6 (MINEUR, effet de bord) | Le point de remise à zéro partagé (`oublierBackupLocal`) révoque le blob sur « Recommencer » et sur un nouveau démarrage | corrigé — `record.html` |
 
 ### Ce que ces correctifs ont eux-mêmes introduit, et qui a été rattrapé
 
@@ -230,16 +226,16 @@ portaient tous sur les correctifs de la journée. Tous sont traités.
 
 | id | Ce que la revue a trouvé | Traitement |
 | --- | --- | --- |
-| A1 | **EC3-1 n'était pas corrigé sur `record.html`** : j'avais réécrit le commentaire (L1132) et laissé la chaîne que l'utilisateur lit (L1242), qui disait toujours « ré-importe-le avec Importer un fichier audio ». Le constat était déclaré « corrigé — les deux écrans » | Chaîne réécrite : elle envoie vers « Rattacher sans transcrire » et dit explicitement de ne PAS transcrire |
-| A2 | **IMPORT-1 rouvert par le bouton qui le corrige** : « Rattacher » n'avait pas la garde `fileImportDone`. Rattacher pendant un import donnait rattachement de A puis écrasement par B à la fin de l'import | Garde ajoutée, alignée sur celle du mode libre qui l'avait déjà |
-| A3 | **Le détecteur C8 était aveugle aux alias d'import** : `from os import remove`, `import shutil as sh`, `open(chemin, mode)` avec mode calculé, `shutil.copyfile`. Un arbre jetable portant 6 suppressions rendait `{}` | Résolution des imports (`_alias_des_imports`) ; mode d'ouverture indécidable traité comme destructeur ; `copyfile`/`copy2`/`copy` ajoutés |
-| A4 | **Le bypass que C8 nommait mot pour mot n'était pas fermé** : un helper qui reçoit son chemin en argument, dans un fichier au nom neutre, restait invisible. Le filtre était passé de « 12 lignes » à « corps de la fonction » — plus large, même mode d'échec | Les verbes jamais anodins (`unlink`, `rmtree`, `shutil.move`…) ne passent plus par l'heuristique du tout : ils se justifient un par un dans `_EXCEPTIONS`. Ils sont 6 dans tout `app/`, l'exigence ne coûte rien |
-| A5 | **Un fichier en cours de transcription était proposable à la suppression** : le jeu de références ignorait `AudioFileJob` | Les jobs non terminés retiennent leur fichier — **bornés par `is_audio_file_job_stale`** : sans cette borne, un import de juillet resté à `running` retenait 18,4 Mo pour toujours, c'est-à-dire C1 refabriqué par son propre remède (mesuré sur l'installation réelle) |
-| A6 | `delete_mission` effaçait l'audio **avant** `db.commit()` : un commit en échec (« database is locked », réaliste ici) détruisait l'audio en laissant la mission | Ordre inversé. Il ne peut plus rater que dans le sens réparable — un unlink en échec laisse un orphelin, que le nouvel écran rattrape |
-| A7 | Le rattachement réussi recopiait la révocation en ligne au lieu d'appeler `oublierBackupLocal()` : le bouton d'acquittement restait affiché après « ✓ fichier rattaché », et le cliquer conduisait l'utilisateur à **supprimer le backup qu'on venait de ranger** | Passage par le point unique. C'est le « point unique » que ce même diff introduisait, et que cette branche contournait |
-| B1 | Mode libre : le geste CORRECT (rattacher) ne levait pas le gel d'EC3-2 — seule issue, acquitter, donc affirmer un fait déjà accompli | `noterRattachementLocal()`. Il ne révoque **jamais un blob au jugé** : une seule copie en attente se lève sans ambiguïté, plusieurs restent affichées. Sur-avertir ne coûte rien, sous-avertir détruit de l'audio |
-| B2 | `int(prefixe)` après `prefixe.isdigit()` : `« ² ».isdigit()` est vrai, `int(« ² »)` lève — 500 sur la liste des missions | Garde `isascii()` |
-| B3 | `glob("*")` sans filtre : un `.gitkeep` était listé comme audio supprimable | Filtre sur `_MEDIA_AUDIO` |
+| A1 | **EC3-1 n'était pas corrigé sur `record.html`** : j'avais réécrit le commentaire (L1132) et laissé la chaîne que l'utilisateur lit (L1242), qui disait toujours « ré-importe-le avec Importer un fichier audio ». Le constat était déclaré « corrigé — les deux écrans » | corrigé — Chaîne réécrite : elle envoie vers « Rattacher sans transcrire » et dit explicitement de ne PAS transcrire |
+| A2 | **IMPORT-1 rouvert par le bouton qui le corrige** : « Rattacher » n'avait pas la garde `fileImportDone`. Rattacher pendant un import donnait rattachement de A puis écrasement par B à la fin de l'import | corrigé — Garde ajoutée, alignée sur celle du mode libre qui l'avait déjà |
+| A3 | **Le détecteur C8 était aveugle aux alias d'import** : `from os import remove`, `import shutil as sh`, `open(chemin, mode)` avec mode calculé, `shutil.copyfile`. Un arbre jetable portant 6 suppressions rendait `{}` | corrigé — Résolution des imports (`_alias_des_imports`) ; mode d'ouverture indécidable traité comme destructeur ; `copyfile`/`copy2`/`copy` ajoutés |
+| A4 | **Le bypass que C8 nommait mot pour mot n'était pas fermé** : un helper qui reçoit son chemin en argument, dans un fichier au nom neutre, restait invisible. Le filtre était passé de « 12 lignes » à « corps de la fonction » — plus large, même mode d'échec | corrigé — Les verbes jamais anodins (`unlink`, `rmtree`, `shutil.move`…) ne passent plus par l'heuristique du tout : ils se justifient un par un dans `_EXCEPTIONS`. Ils sont 6 dans tout `app/`, l'exigence ne coûte rien |
+| A5 | **Un fichier en cours de transcription était proposable à la suppression** : le jeu de références ignorait `AudioFileJob` | corrigé — Les jobs non terminés retiennent leur fichier — **bornés par `is_audio_file_job_stale`** : sans cette borne, un import de juillet resté à `running` retenait 18,4 Mo pour toujours, c'est-à-dire C1 refabriqué par son propre remède (mesuré sur l'installation réelle) |
+| A6 | `delete_mission` effaçait l'audio **avant** `db.commit()` : un commit en échec (« database is locked », réaliste ici) détruisait l'audio en laissant la mission | corrigé — Ordre inversé. Il ne peut plus rater que dans le sens réparable — un unlink en échec laisse un orphelin, que le nouvel écran rattrape |
+| A7 | Le rattachement réussi recopiait la révocation en ligne au lieu d'appeler `oublierBackupLocal()` : le bouton d'acquittement restait affiché après « ✓ fichier rattaché », et le cliquer conduisait l'utilisateur à **supprimer le backup qu'on venait de ranger** | corrigé — Passage par le point unique. C'est le « point unique » que ce même diff introduisait, et que cette branche contournait |
+| B1 | Mode libre : le geste CORRECT (rattacher) ne levait pas le gel d'EC3-2 — seule issue, acquitter, donc affirmer un fait déjà accompli | corrigé — `noterRattachementLocal()`. Il ne révoque **jamais un blob au jugé** : une seule copie en attente se lève sans ambiguïté, plusieurs restent affichées. Sur-avertir ne coûte rien, sous-avertir détruit de l'audio |
+| B2 | `int(prefixe)` après `prefixe.isdigit()` : `« ² ».isdigit()` est vrai, `int(« ² »)` lève — 500 sur la liste des missions | corrigé — Garde `isascii()` |
+| B3 | `glob("*")` sans filtre : un `.gitkeep` était listé comme audio supprimable | corrigé — Filtre sur `_MEDIA_AUDIO` |
 
 Restent **non traités et assumés** : B4 (suffixe déduit réductible à `.`), B5
 (`appartient_a_mission(mission=None)` désarme la garde — aucun appelant actuel), B6
@@ -294,13 +290,13 @@ importe un fichier qu'il a toujours sur son disque, donc refuser ne détruit rie
 
 | id | Constat | Traitement |
 | --- | --- | --- |
-| **D1-B1** (BLOQUANT) | Mon propre filtre B3 était une **liste blanche de 8 extensions**, alors que l'application accepte `audio/*,video/*,.weba`. Un `.mkv`, `.mov`, `.opus`, `.aac` ou `.weba` rattaché à une mission supprimée était écrit sur disque, **absent de l'inventaire ET refusé par sa route de lecture** — pendant que le bandeau affirmait qu'il était « en sécurité ». C1 refabriqué, en pire : silencieux et démenti par l'écran | Filtre **inversé** en liste d'exclusion (`est_media`). Le doute profite au fichier : une exclusion à tort rend de l'audio définitivement inatteignable, une inclusion à tort montre un parasite sur un écran d'administration. `_MEDIA_AUDIO` élargi aussi, pour que le type servi soit juste. Test paramétré sur les 7 formes mesurées |
-| **D1-M1** | Le bouton « Enregistrer l'entretien » restait armé une fois le drapeau levé. Régression de **suppression** introduite par le correctif D1 : avant lui, le 404 faisait échouer la sauvegarde et armait le gate `backupLocalEnAttente` ; depuis qu'elle réussit, `oublierBackupLocal()` désarme ce gate. Le clic remplaçait la page par un 404 et **détruisait la transcription** | `missionAbsente` entre dans `submitBtn.disabled` sur les deux écrans. Pas une impasse : l'export PDF reste ouvert (sa route ne dépend d'aucune mission) |
-| **D1-M2** | Le lien du bandeau — le **seul geste qu'il proposait** — quittait la page dans le même onglet, sans confirmation (les 5 prédicats de `beforeunload` sont faux dans cet état), donc détruisait le texte qu'il demandait de sauver | `target="_blank" rel="noopener"` |
-| **D1-M3** | Le drapeau était **collant et global**. SQLite réattribuant l'identifiant d'une mission supprimée, la mission peut « revenir » : les tranches suivantes recevaient quand même l'URL orphelin — lecteur muet, téléchargement en 404 | État retenu **fichier par fichier** (`fichiersOrphelins`), et `missionAbsente` relu à chaque réponse pour que le verrou du bouton se ré-arme si la mission redevient joignable |
-| **D1-m1** | Mon test de template passait au vert sur **4 mutations qui cassaient tout** : il cherchait la présence de chaînes, pas le câblage | Réécrit pour tester les **sites d'appel** et compter les URL construites en dur. Vérifié : il échoue désormais sur les 5 mutations, sur les deux écrans |
-| **D1-m2** | Le bandeau conseillait « Télécharger la transcription (PDF) », bouton **désactivé pendant l'enregistrement** — or sur l'écran libre le bandeau s'affiche à la rotation | Le libellé dit d'arrêter l'enregistrement d'abord |
-| **D1-m4** | `corps["path"]` lu hors du `try` : un 500 levait `KeyError` avant le `finally`, laissant fichier et ligne de mission derrière lui | Déplacé dans le `try` |
+| **D1-B1** (BLOQUANT) | Mon propre filtre B3 était une **liste blanche de 8 extensions**, alors que l'application accepte `audio/*,video/*,.weba`. Un `.mkv`, `.mov`, `.opus`, `.aac` ou `.weba` rattaché à une mission supprimée était écrit sur disque, **absent de l'inventaire ET refusé par sa route de lecture** — pendant que le bandeau affirmait qu'il était « en sécurité ». C1 refabriqué, en pire : silencieux et démenti par l'écran | corrigé — Filtre **inversé** en liste d'exclusion (`est_media`). Le doute profite au fichier : une exclusion à tort rend de l'audio définitivement inatteignable, une inclusion à tort montre un parasite sur un écran d'administration. `_MEDIA_AUDIO` élargi aussi, pour que le type servi soit juste. Test paramétré sur les 7 formes mesurées |
+| **D1-M1** | Le bouton « Enregistrer l'entretien » restait armé une fois le drapeau levé. Régression de **suppression** introduite par le correctif D1 : avant lui, le 404 faisait échouer la sauvegarde et armait le gate `backupLocalEnAttente` ; depuis qu'elle réussit, `oublierBackupLocal()` désarme ce gate. Le clic remplaçait la page par un 404 et **détruisait la transcription** | corrigé — `missionAbsente` entre dans `submitBtn.disabled` sur les deux écrans. Pas une impasse : l'export PDF reste ouvert (sa route ne dépend d'aucune mission) |
+| **D1-M2** | Le lien du bandeau — le **seul geste qu'il proposait** — quittait la page dans le même onglet, sans confirmation (les 5 prédicats de `beforeunload` sont faux dans cet état), donc détruisait le texte qu'il demandait de sauver | corrigé — `target="_blank" rel="noopener"` |
+| **D1-M3** | Le drapeau était **collant et global**. SQLite réattribuant l'identifiant d'une mission supprimée, la mission peut « revenir » : les tranches suivantes recevaient quand même l'URL orphelin — lecteur muet, téléchargement en 404 | corrigé — État retenu **fichier par fichier** (`fichiersOrphelins`), et `missionAbsente` relu à chaque réponse pour que le verrou du bouton se ré-arme si la mission redevient joignable |
+| **D1-m1** | Mon test de template passait au vert sur **4 mutations qui cassaient tout** : il cherchait la présence de chaînes, pas le câblage | corrigé — Réécrit pour tester les **sites d'appel** et compter les URL construites en dur. Vérifié : il échoue désormais sur les 5 mutations, sur les deux écrans |
+| **D1-m2** | Le bandeau conseillait « Télécharger la transcription (PDF) », bouton **désactivé pendant l'enregistrement** — or sur l'écran libre le bandeau s'affiche à la rotation | corrigé — Le libellé dit d'arrêter l'enregistrement d'abord |
+| **D1-m4** | `corps["path"]` lu hors du `try` : un 500 levait `KeyError` avant le `finally`, laissant fichier et ligne de mission derrière lui | corrigé — Déplacé dans le `try` |
 
 Restent **assumés** : D1-m3 (course lecture-avant-écriture entre `db.get` et l'écriture,
 fenêtre étroite, non provoquée) et D1-m5 (le réordonnancement d'imports produit par
