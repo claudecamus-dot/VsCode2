@@ -11,9 +11,11 @@ Trois gardes distinctes, parce que les dégâts sont distincts :
    sans argument matérialise tout le corps de la requête d'un coup ; un envoi
    de plusieurs Go suffit à faire tomber le processus. On lit par morceaux et
    on s'arrête net au dépassement, sans jamais avoir alloué plus que le
-   plafond. (Les chemins AUDIO ne passent pas ici : ils streament déjà vers le
-   disque par `shutil.copyfileobj`, cf. `interviews.py` — un entretien de 3 h
-   est légitimement volumineux et ne doit pas être plafonné à la même aune.)
+   plafond. (Les chemins audio qui STREAMENT vers le disque par
+   `shutil.copyfileobj` — import de fichier, sauvegarde d'enregistrement — ne
+   passent pas ici : un entretien de 3 h est légitimement volumineux et ne
+   doit pas être plafonné à la même aune. Les deux qui matérialisent en RAM,
+   eux, y passent : cf. `lire_upload_audio_borne` et son plafond dédié.)
 
 2. `verifier_zip_borne` — plafonne ce qui sortirait du DÉPAQUETAGE. `.docx` et
    `.pptx` sont des archives ZIP : quelques centaines de Ko compressés peuvent
@@ -84,6 +86,25 @@ RATIO_MAX = 120
 # un facteur 10 au cas légitime.
 MAX_ZIP_ENTREES = 4000
 
+# Audio matérialisé en RAM (finding audit-technique securite du 2026-09-09 :
+# `/audio/transcribe-segment` et `/interviews/{id}/notes/transcribe` faisaient
+# `await file.read()` nu). Plafond DISTINCT de MAX_UPLOAD_BYTES : un document
+# bureautique de 40 Mo est déjà énorme, une minute de parole ne pèse rien, mais
+# une dictée de notes libres n'a aucune rotation qui la borne côté navigateur.
+#
+# Calibré sur le réel plutôt que deviné (mesuré le 2026-09-09 sur les
+# enregistrements du poste, `av.open` + `os.path.getsize`) : les sauvegardes
+# produites par MediaRecorder pèsent 15,7 Ko/s (18,43 Mo pour 1200,0 s,
+# 27,64 Mo pour 1799,9 s — deux fichiers, même débit). Donc :
+#   - segment de rotation (`SEGMENT_MS = 60000` dans record.html) : ~0,92 Mo ;
+#   - plus gros audio du poste (tranche de sauvegarde de 20 min) : 18,43 Mo ;
+#   - 100 Mo ≈ 1 h 48 min de parole d'un seul tenant.
+# Soit un facteur ~100 sur le cas nominal et ~5 sur le plus gros artefact réel,
+# tout en fermant l'envoi de plusieurs Go qui fait tomber le processus. À
+# retenir si le chiffre est retouché : le décodage alloue ENSUITE le PCM
+# 16 kHz mono (~2 fois la taille du webm), le plafond n'est donc pas le pic.
+MAX_AUDIO_UPLOAD_BYTES = _mo_env("MAX_AUDIO_UPLOAD_MB", 100)
+
 
 _TAILLE_MORCEAU = 1024 * 1024
 
@@ -125,6 +146,19 @@ async def lire_upload_borne(
             )
         morceaux.append(morceau)
     return b"".join(morceaux)
+
+
+async def lire_upload_audio_borne(file: UploadFile) -> bytes:
+    """Même garde que `lire_upload_borne`, au plafond AUDIO.
+
+    Fonction dédiée plutôt qu'un `lire_upload_borne(file, MAX_AUDIO_UPLOAD_BYTES)`
+    écrit dans le routeur : le plafond doit être lu À L'APPEL et DEPUIS CE
+    MODULE (même raison que la sentinelle `None` ci-dessus). Un
+    `from ..uploads import MAX_AUDIO_UPLOAD_BYTES` côté routeur figerait la
+    valeur à l'import et rendrait le réglage — et les tests qui l'abaissent —
+    inopérants.
+    """
+    return await lire_upload_borne(file, MAX_AUDIO_UPLOAD_BYTES)
 
 
 # Signatures de fin d'archive (« end of central directory »). Les lire nous-mêmes

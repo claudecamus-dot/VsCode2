@@ -81,7 +81,12 @@ from ..services.interview_segment_jobs import (
 )
 from ..services.mission_axes import axes_of
 from ..templating import templates
-from ..uploads import UploadTropVolumineux, lire_upload_borne, verifier_zip_borne
+from ..uploads import (
+    UploadTropVolumineux,
+    lire_upload_audio_borne,
+    lire_upload_borne,
+    verifier_zip_borne,
+)
 
 
 def _parse_repartition(repartition_json: str, valeurs_nommees: tuple) -> dict:
@@ -1554,11 +1559,22 @@ async def transcribe_segment(file: UploadFile = File(...)):
     mission/entretien. Même contrat d'erreur `{"error": ...}` que
     `transcribe_notes` : jamais de `{"detail": ...}` ni de 500 brute."""
     try:
+        # Borne mémoire AVANT tout décodage (finding audit-technique securite
+        # du 2026-09-09) : `await file.read()` nu matérialisait tout le corps de
+        # la requête d'un coup sur une route non authentifiée — un envoi de
+        # plusieurs Go faisait tomber le processus. Plafond AUDIO, pas celui des
+        # documents (cf. `uploads.MAX_AUDIO_UPLOAD_BYTES`).
+        contenu = await lire_upload_audio_borne(file)
         # Whisper est CPU-bound : hors de la boucle d'événements (finding perf audit
         # 2026-07-24 — un endpoint async qui transcrit en direct bloquait TOUTES les
         # autres requêtes pendant plusieurs minutes).
-        contenu = await file.read()
         text = await asyncio.to_thread(audio_transcribe.transcribe_audio, contenu)
+    except UploadTropVolumineux as exc:
+        # 413, pas 5xx : le JS de record.html relance automatiquement les seuls
+        # `status >= 500`. Un refus de taille est définitif pour ces octets —
+        # les rejouer trois fois ne ferait que renvoyer le même volume. Le blob
+        # part dans le bandeau « segments perdus » avec ce message.
+        return JSONResponse({"error": str(exc)}, status_code=413)
     except audio_transcribe.NoSpeechError as exc:
         # `code` structuré : l'écran d'enregistrement compte les segments
         # consécutifs sans parole pour alerter sur la source audio (entretien
@@ -3030,7 +3046,12 @@ async def transcribe_notes(
     # un message générique qui masque la vraie cause.
     try:
         interview = _get_interview(db, interview_id)
-        contenu = await file.read()
+        # Borne mémoire AVANT tout décodage, même finding securite du
+        # 2026-09-09 et même plafond audio que `transcribe_segment` : cette
+        # dictée-ci n'a AUCUNE rotation côté navigateur (capture.html
+        # enregistre d'un seul tenant), c'est donc le chemin le plus exposé
+        # des deux.
+        contenu = await lire_upload_audio_borne(file)
         # CPU-bound hors de la boucle d'événements (même finding perf que
         # transcribe_segment) ; l'accès db reste dans le thread de la requête.
         transcript = await asyncio.to_thread(audio_transcribe.transcribe_audio, contenu)
@@ -3040,6 +3061,9 @@ async def transcribe_notes(
             else transcript
         )
         db.commit()
+    except UploadTropVolumineux as exc:
+        # 413 et `{"error": ...}` : capture.html n'affiche que ce champ.
+        return JSONResponse({"error": str(exc)}, status_code=413)
     except audio_transcribe.TranscriptionError as exc:
         return JSONResponse({"error": str(exc)}, status_code=422)
     except Exception:

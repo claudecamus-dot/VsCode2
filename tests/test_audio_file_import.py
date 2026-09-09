@@ -22,6 +22,7 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
+from sqlalchemy.orm import object_session
 
 from app.db import DB_PATH, RECORDINGS_DIR, SessionLocal, engine, init_db
 from app.main import app
@@ -950,3 +951,56 @@ def test_le_statut_d_import_dit_que_la_mission_a_disparu(
         with SessionLocal() as db:
             db.query(Mission).filter(Mission.id == jetable).delete()
             db.commit()
+
+
+def test_un_commit_rate_ne_laisse_pas_l_import_bloque_en_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Garde-fou du garde-fou (audit-technique robustesse du 2026-09-09), et
+    plus critique ici que pour les tranches d'entretien : `audio_file_jobs` n'a
+    AUCUNE réconciliation au démarrage, donc un `running` figé n'est pas non
+    plus libéré par un redémarrage — il ne se corrige que si quelqu'un revient
+    sur l'écran qui interroge `is_audio_file_job_stale`.
+
+    Quand l'exception vient d'un commit raté (verrou SQLite en production), la
+    session est en PendingRollback : sans `db.rollback()`, le `db.get()` de
+    secours lève à son tour et se fait avaler par le `except` englobant, qui
+    laisse le statut bloqué à `running` par un 2e chemin. Correctif porté à
+    l'identique depuis `global_synthesis_job`, seul des trois à l'avoir reçu
+    (revue du 2026-09-07).
+
+    Le commit raté est reproduit par une violation de clé primaire — même état
+    de session qu'un verrou, sans dépendre d'une course."""
+
+    def _casse_la_session(job):
+        # Appelé DANS le try de la tâche de fond : la session du job est celle
+        # que le `except` englobant devra réutiliser pour son `db.get()`.
+        db = object_session(job)
+        db.add(AudioFileJob(id=job.id, session_token="doublon", filename="x.webm"))
+        try:
+            db.commit()
+        except Exception:
+            pass  # l'avalement qui se produit en vrai sur un commit raté
+        # Ni TranscriptionError ni OSError : traitée par le `except Exception`
+        # final, celui qui promet qu'un job planté ne reste pas "running".
+        raise RuntimeError("échec survenu après un commit raté")
+
+    monkeypatch.setattr(audio_file_jobs, "_fichiers_a_traiter", _casse_la_session)
+    db = SessionLocal()
+    job = AudioFileJob(session_token="tok-rollback", filename="absent.webm",
+                       status="pending")
+    db.add(job)
+    db.commit()
+    job_id = job.id
+    db.close()
+
+    audio_file_jobs.run_audio_file_job(job_id)  # contrat : ne lève jamais
+
+    db = SessionLocal()
+    refreshed = db.get(AudioFileJob, job_id)
+    assert refreshed.status == "failed", (
+        "import bloque en 'running' a vie : aucune reconciliation au demarrage "
+        "ne le liberera, l'ecran polle un job qui ne changera plus d'etat"
+    )
+    assert "RuntimeError" in (refreshed.error or "")
+    db.close()

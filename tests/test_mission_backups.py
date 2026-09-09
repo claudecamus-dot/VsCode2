@@ -24,6 +24,7 @@ from pathlib import Path
 import pytest
 from conftest import vider_recordings_de_test
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 
 from app.db import DB_PATH, RECORDINGS_DIR, SessionLocal, engine, init_db
 from app.main import app
@@ -621,6 +622,19 @@ def test_une_mission_qui_reutilise_un_id_n_herite_pas_de_l_audio_precedent():
         db.add(ancienne)
         db.commit()
         ancien_id = ancienne.id
+        # Invariant du scénario, FORCÉ ici au lieu d'être espéré plus bas.
+        # `missions` n'a pas d'AUTOINCREMENT : SQLite attribue `max(rowid)+1`,
+        # donc l'id d'une mission supprimée n'est réattribué QUE si c'était le
+        # plus grand de la table. `ancienne` vient d'être insérée, elle porte
+        # donc ce maximum — on le vérifie, plutôt que de découvrir après coup
+        # que la condition n'est pas tenue. Avant (audit-technique robustesse
+        # du 2026-09-09), un `pytest.skip` conditionnel plus bas rendait ce
+        # test VERT sans exécuter aucune de ses trois assertions dès que
+        # l'ordre de collecte changeait.
+        assert ancien_id == db.scalar(select(func.max(Mission.id))), (
+            "l'id de la mission supprimee doit etre le plus grand de la table, "
+            "sinon SQLite ne le reattribue pas et le scenario n'est pas atteint"
+        )
     herite = _vieillir(_ecrire(f"{ancien_id}_9999_audio_du_client_precedent.webm"), 86400)
 
     with SessionLocal() as db:
@@ -629,9 +643,13 @@ def test_une_mission_qui_reutilise_un_id_n_herite_pas_de_l_audio_precedent():
         nouvelle = Mission(name="Nouvelle")
         db.add(nouvelle)
         db.commit()
-        # L'id doit effectivement être réutilisé, sinon le test ne prouve rien.
-        if nouvelle.id != ancien_id:
-            pytest.skip("SQLite n'a pas reutilise l'id : le scenario vise n'est pas atteint")
+        # Conséquence de l'invariant forcé ci-dessus : elle DOIT tenir. Une
+        # assertion, jamais un skip — un skip ici emporterait silencieusement
+        # les trois assertions de fin de test.
+        assert nouvelle.id == ancien_id, (
+            "SQLite n'a pas reattribue l'id libere : le scenario vise "
+            "(mission qui herite du prefixe de la precedente) n'est pas exerce"
+        )
         orphelins = [e["filename"] for e in mission_backups.lister_backups(nouvelle, RECORDINGS_DIR)["orphelins"]]
         globaux = [e["filename"] for e in _globaux(db)]
         autorise = mission_backups.appartient_a_mission(

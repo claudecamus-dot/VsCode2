@@ -13,6 +13,7 @@ from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from ..db import get_session
@@ -209,7 +210,7 @@ def generate_global(
         db.commit()
 
     if global_synthesis.generation_status == "running":
-        pass  # défense en profondeur : le bouton est désactivé pendant l'exécution.
+        pass  # confort d'affichage : rien à relancer, le panneau montre l'état.
     elif not is_configured():
         error = (
             "Service IA indisponible — utilisez l'export pour lancer une "
@@ -218,10 +219,44 @@ def generate_global(
     elif _total_answer_count(material_by_theme) == 0 and not material_libre:
         error = "Aucune réponse saisie sur la mission — rien à synthétiser."
     else:
-        global_synthesis.generation_status = "running"
-        global_synthesis.generation_error = None
+        # Prise de jeton ATOMIQUE, en base (audit-technique robustesse du
+        # 2026-09-09) : le lire-puis-écrire Python d'avant était un TOCTOU —
+        # deux requêtes quasi simultanées lisaient toutes deux un statut
+        # `!= "running"` avant qu'aucune n'ait commité, et lançaient DEUX
+        # map-reduce (plusieurs dizaines de minutes d'IA payées deux fois,
+        # écriture concurrente du même GlobalSynthesis). Le seul rempart était
+        # le bouton désactivé côté JS, contourné par un double-clic, un second
+        # onglet ou un appel direct de la route.
+        #
+        # L'UPDATE conditionnel tranche côté SQLite : le second exécutant
+        # attend le verrou d'écriture du premier, relit alors `running` et
+        # repart avec `rowcount == 0`. Pas de verrou applicatif en mémoire :
+        # il ne survivrait pas à un second processus, et le dépôt n'en a
+        # aucun de ce genre (seul `audio_transcribe._MODEL_LOCK` existe, et il
+        # protège un modèle en RAM, pas un état persistant).
+        # Flush AVANT de composer le WHERE : sur une mission qui n'a pas encore
+        # de ligne, `get_or_create_global_synthesis` se contente d'un `db.add()`
+        # et l'id vaut encore None — la clause serait construite en `id IS NULL`,
+        # ne matcherait rien, et PLUS AUCUNE première génération ne démarrerait
+        # (attrapé par `test_mission_trame_flow.py::test_global_synthesis_
+        # generate_and_autosave` avant commit).
+        db.flush()
+        pris = db.execute(
+            update(GlobalSynthesis)
+            .where(
+                GlobalSynthesis.id == global_synthesis.id,
+                GlobalSynthesis.generation_status != "running",
+            )
+            .values(generation_status="running", generation_error=None)
+        ).rowcount
         db.commit()
-        background_tasks.add_task(run_global_synthesis_job, mission.id)
+        # `expire_on_commit=False` (cf. `db.SessionLocal`) : l'UPDATE Core ne
+        # rafraîchit pas forcément l'objet déjà chargé, et c'est LUI que le
+        # gabarit rend. Sans ce refresh, le panneau du perdant afficherait
+        # encore « idle » alors qu'une génération tourne.
+        db.refresh(global_synthesis)
+        if pris:
+            background_tasks.add_task(run_global_synthesis_job, mission.id)
 
     return templates.TemplateResponse(
         request,

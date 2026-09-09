@@ -21,11 +21,14 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.db import DB_PATH, SessionLocal, engine, init_db
 from app.main import app
 from app.models import Interview
+from app.services import audio_transcribe
 from app.uploads import (
+    MAX_AUDIO_UPLOAD_BYTES,
     MAX_UPLOAD_BYTES,
     MAX_ZIP_ENTREES,
     UploadTropVolumineux,
@@ -281,3 +284,87 @@ def test_le_plafond_par_defaut_reste_realiste() -> None:
     d'un vrai template PowerPoint casserait le produit sans que rien ne le
     dise."""
     assert MAX_UPLOAD_BYTES >= 20 * 1024 * 1024
+
+
+# --------------------------------------------------------------------------- #
+# Garde 1 bis — les deux points d'entrée AUDIO qui matérialisent en RAM
+# (finding audit-technique securite du 2026-09-09 : « deux routes audio non
+# authentifiées font `await file.read()` sans plafond »). Ils ne passent PAS
+# par le plafond des documents : un plafond dédié, `MAX_AUDIO_UPLOAD_BYTES`.
+#
+# Échec sur le code d'avant : les deux routes faisaient `await file.read()`
+# nu, donc tout le corps était alloué puis remis à Whisper — jamais de 413.
+# --------------------------------------------------------------------------- #
+def _interdire_la_transcription(monkeypatch: pytest.MonkeyPatch) -> None:
+    """La borne doit répondre AVANT tout décodage : si Whisper est atteint,
+    c'est que les octets ont déjà été matérialisés puis passés au décodeur —
+    exactement le défaut à fermer. Même façon de faire que
+    `test_le_nombre_d_entrees_est_lu_sans_indexer_l_archive`."""
+
+    def _interdit(*args, **kwargs):
+        raise AssertionError(
+            "la transcription a été atteinte : la borne mémoire n'a pas coupé avant"
+        )
+
+    monkeypatch.setattr(audio_transcribe, "transcribe_audio", _interdit)
+
+
+def test_segment_audio_trop_gros_refuse_avant_de_tout_charger_en_ram(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`/audio/transcribe-segment` : route sans état et non authentifiée, la
+    plus exposée des deux. Plafond abaissé à 4 Ko le temps du test (même
+    procédé que pour les documents) — faire transiter 100 Mo dans la suite
+    coûterait sans rien prouver de plus."""
+    monkeypatch.setattr("app.uploads.MAX_AUDIO_UPLOAD_BYTES", 4096)
+    _interdire_la_transcription(monkeypatch)
+
+    response = client.post(
+        "/audio/transcribe-segment",
+        files={"file": ("segment.webm", b"\0" * 20000, "audio/webm")},
+    )
+
+    assert response.status_code == 413
+    # 413 et pas 5xx : le JS de record.html ne relance automatiquement que les
+    # `status >= 500`. Un refus de taille est définitif pour ces octets.
+    assert "trop volumineux" in response.json()["error"].lower()
+    # Contrat d'erreur de la route : `{"error": ...}`, jamais `{"detail": ...}`.
+    assert "detail" not in response.json()
+
+
+def test_notes_audio_trop_grosses_refusees_avant_de_tout_charger_en_ram(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`/interviews/{id}/notes/transcribe` : la dictée de notes libres n'a
+    AUCUNE rotation côté navigateur (capture.html enregistre d'un seul tenant),
+    c'est donc le chemin où la durée — donc la taille — n'est bornée par
+    rien."""
+    monkeypatch.setattr("app.uploads.MAX_AUDIO_UPLOAD_BYTES", 4096)
+    _interdire_la_transcription(monkeypatch)
+    _creer_mission_avec_entretien(client, "Mission notes audio")
+    session = SessionLocal()
+    try:
+        interview_id = session.scalars(
+            select(Interview).order_by(Interview.id.desc())
+        ).first().id
+    finally:
+        session.close()
+
+    response = client.post(
+        f"/interviews/{interview_id}/notes/transcribe",
+        files={"file": ("note.webm", b"\0" * 20000, "audio/webm")},
+    )
+
+    assert response.status_code == 413
+    assert "trop volumineux" in response.json()["error"].lower()
+
+
+def test_le_plafond_audio_par_defaut_laisse_passer_un_enregistrement_reel() -> None:
+    """Garde-fou sur la garde. Mesuré le 2026-09-09 sur les enregistrements du
+    poste : MediaRecorder produit 15,7 Ko/s (18,43 Mo pour 1200,0 s). Le
+    plafond doit donc rester très au-dessus de la plus grosse tranche de
+    sauvegarde réelle (20 min = 18,43 Mo), sans quoi une dictée un peu longue
+    serait refusée — et il doit rester distinct de celui des documents, qui
+    n'a aucune raison de bouger avec l'audio."""
+    assert MAX_AUDIO_UPLOAD_BYTES >= 50 * 1024 * 1024
+    assert MAX_AUDIO_UPLOAD_BYTES > MAX_UPLOAD_BYTES

@@ -216,6 +216,16 @@ def run_segment_job(job_id: int) -> None:
         db.commit()
     except Exception as exc:  # garde-fou : un job planté ne doit pas rester "running"
         try:
+            # Si l'exception vient d'un commit() raté (ex. verrou SQLite), la
+            # session reste en transaction cassée (PendingRollback) : le
+            # db.get() de secours ci-dessous lèverait à son tour et serait
+            # avalé par le except englobant, laissant le statut bloqué à
+            # "running" par un 2e chemin. Correctif porté à l'identique depuis
+            # `global_synthesis_job.run_global_synthesis_job` (revue
+            # adversariale 2026-09-07), qui l'avait reçu seul des trois tâches
+            # de fond au contrat « ne lève jamais » (audit-technique
+            # robustesse du 2026-09-09).
+            db.rollback()
             job = db.get(InterviewSegmentJob, job_id)
             if job is not None:
                 job.status = "failed"

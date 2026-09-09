@@ -963,3 +963,52 @@ def test_le_demarrage_de_l_application_declenche_la_reconciliation(monkeypatch) 
         assert db.get(InterviewSegmentJob, id_running).status == "failed"
     finally:
         db.close()
+
+
+def test_un_commit_rate_ne_laisse_pas_la_tranche_bloquee_en_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Garde-fou du garde-fou (audit-technique robustesse du 2026-09-09).
+
+    Le `except Exception` de `run_segment_job` promet qu'un job planté ne reste
+    jamais `running`. Il ne tient cette promesse que si la session est
+    UTILISABLE au moment du `db.get()` de secours : quand l'exception vient
+    d'un commit raté (verrou SQLite en production), la session est en
+    PendingRollback et ce `db.get()` lève à son tour — avalé par le `except`
+    englobant, il laisse le statut bloqué à `running` par un 2e chemin. Seul
+    `global_synthesis_job` avait reçu le `db.rollback()` correspondant (revue
+    du 2026-09-07) ; il est ici porté à l'identique.
+
+    Le commit raté est reproduit par une violation de clé primaire — même état
+    de session qu'un verrou, sans dépendre d'une course."""
+
+    def _casse_la_session(db, job):
+        # Commit qui échoue : la session reste en transaction cassée. Le
+        # `except`/`pass` reproduit l'avalement qui se produit en vrai (le
+        # commit raté est à l'intérieur du try de la tâche de fond).
+        db.add(InterviewSegmentJob(id=job.id, session_token="doublon", position=0))
+        try:
+            db.commit()
+        except Exception:
+            pass
+        raise RuntimeError("échec survenu après un commit raté")
+
+    monkeypatch.setattr(interview_segment_jobs, "_extract_for_job", _casse_la_session)
+    db = SessionLocal()
+    job = InterviewSegmentJob(session_token="tok-rollback", position=0,
+                              status="pending", text="texte")
+    db.add(job)
+    db.commit()
+    job_id = job.id
+    db.close()
+
+    interview_segment_jobs.run_segment_job(job_id)  # contrat : ne lève jamais
+
+    db = SessionLocal()
+    refreshed = db.get(InterviewSegmentJob, job_id)
+    assert refreshed.status == "failed", (
+        "tranche bloquee en 'running' a vie : l'ecran polle un job qui ne "
+        "changera plus jamais d'etat"
+    )
+    assert "RuntimeError" in (refreshed.error or "")
+    db.close()
