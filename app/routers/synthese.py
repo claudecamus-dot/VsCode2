@@ -9,7 +9,7 @@ d'incr.9, elle plantait de toute façon sur une mission sans trame.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
@@ -20,8 +20,6 @@ from ..models import (
     GlobalSynthesis,
     Mission,
     MissionDifficulty,
-    MissionExecutiveSummary,
-    MissionSwot,
     MissionSynthesisAxis,
     Recommendation,
     RecommendationAxis,
@@ -30,6 +28,18 @@ from ..services.ai_common import api_key_env_name
 from ..services.global_synthesis_job import run_global_synthesis_job
 from ..services.pptx_export import field_fit_hint
 from ..services.mission_axes import axes_of, creer_axe, supprimer_axe
+from ..services.synthese_ecriture import (
+    EXEC_SUMMARY_FIELDS,
+    SWOT_FIELDS,
+    apply_difficulties_result,
+    apply_executive_summary_result,
+    apply_global_synthesis_result,
+    apply_recommendations_result,
+    apply_swot_result,
+    get_or_create_executive_summary,
+    get_or_create_global_synthesis,
+    get_or_create_swot,
+)
 from ..services.synthese_ai import (
     SynthesisAIError,
     ai_precondition_error,
@@ -51,8 +61,6 @@ router = APIRouter(tags=["synthese"])
 # 2026-07-27 : ce sont les AXES de la mission (`mission_axes`), configurables.
 # La constante historique ne sert plus qu'a decrire les 5 defauts, via le
 # service — toute lecture passe par `axes_of(db, mission)`.
-SWOT_FIELDS = ("forces", "faiblesses", "opportunites", "menaces")
-EXEC_SUMMARY_FIELDS = ("headline", "points", "key_message")
 RECO_TEXT_FIELDS = (
     "title", "objectif", "acteurs", "proposition_valeur", "plan_actions", "resultats_attendus",
 )
@@ -69,65 +77,11 @@ def _get_mission(db: Session, mission_id: int) -> Mission:
     return mission
 
 
-def _get_or_create_global_synthesis(db: Session, mission: Mission) -> GlobalSynthesis:
-    if mission.global_synthesis is None:
-        mission.global_synthesis = GlobalSynthesis(mission_id=mission.id)
-        db.add(mission.global_synthesis)
-    return mission.global_synthesis
-
-
-def _get_or_create_swot(db: Session, mission: Mission) -> MissionSwot:
-    if mission.swot is None:
-        mission.swot = MissionSwot(mission_id=mission.id)
-        db.add(mission.swot)
-    return mission.swot
-
-
-def _apply_swot_result(swot: MissionSwot, result: dict) -> None:
-    for field in SWOT_FIELDS:
-        setattr(swot, field, result[field])
-    swot.status = "generated"
-    swot.generated_at = datetime.now(timezone.utc)
-
-
-def _get_or_create_executive_summary(
-    db: Session, mission: Mission
-) -> MissionExecutiveSummary:
-    if mission.executive_summary is None:
-        mission.executive_summary = MissionExecutiveSummary(mission_id=mission.id)
-        db.add(mission.executive_summary)
-    return mission.executive_summary
-
-
-def _apply_executive_summary_result(
-    es: MissionExecutiveSummary, result: dict
-) -> None:
-    for field in EXEC_SUMMARY_FIELDS:
-        setattr(es, field, result[field])
-    es.status = "generated"
-    es.generated_at = datetime.now(timezone.utc)
-
-
 def _get_difficulty(db: Session, difficulty_id: int) -> MissionDifficulty:
     d = db.get(MissionDifficulty, difficulty_id)
     if d is None:
         raise HTTPException(status_code=404, detail="Difficulté introuvable.")
     return d
-
-
-def _apply_difficulties_result(db: Session, mission: Mission, labels: list) -> None:
-    """Remplace les difficultés de la mission par la liste ordonnée fournie
-    (position = rang). AFFECTER la collection (plutôt qu'ajouter des lignes via
-    mission_id) déclenche le delete-orphan sur les anciennes ET met à jour la
-    relation EN SESSION — le ré-affichage voit la nouvelle liste sans dépendre
-    d'un refresh post-commit. Les liens verbatim d'une génération précédente
-    repartent à zéro : c'est une nouvelle liste de constats."""
-    items = []
-    for label in labels:
-        text = (label or "").strip()
-        if text:
-            items.append(MissionDifficulty(position=len(items), label=text))
-    mission.difficulties = items
 
 
 def _get_recommendation(db: Session, recommendation_id: int) -> Recommendation:
@@ -160,36 +114,6 @@ _RECO_FIT_KEY = {"title": "reco_title"}
 
 
 # --------------------------------------------------------------------------- #
-# Application en base d'un résultat de synthèse globale / recommandations —
-# partagée entre la génération IA et l'import d'une analyse externe (évol),
-# qui produisent toutes deux exactement la même forme de résultat.
-# --------------------------------------------------------------------------- #
-def _apply_global_synthesis_result(global_synthesis: GlobalSynthesis, result: dict) -> None:
-    # `result` est deja borne aux cles d'axes par `_clean_global` ; on ecrit ce
-    # qu'il porte, sans presumer des 5 rubriques historiques.
-    for key, value in result.items():
-        global_synthesis.set_contenu(key, value)
-    global_synthesis.status = "generated"
-    global_synthesis.generated_at = datetime.now(timezone.utc)
-
-
-def _apply_recommendations_result(db: Session, mission: Mission, axes_data: list[dict]) -> None:
-    # Remplace le jeu d'axes/recommandations précédent — même contrat que
-    # "Régénérer" sur la synthèse par thème (un nouveau brouillon complet).
-    for axis in list(mission.recommendation_axes):
-        db.delete(axis)
-    db.flush()
-    for pos, axis_data in enumerate(axes_data):
-        axis = RecommendationAxis(
-            mission_id=mission.id, title=axis_data["title"], position=pos
-        )
-        db.add(axis)
-        db.flush()
-        for rpos, reco in enumerate(axis_data["recommendations"]):
-            db.add(Recommendation(axis_id=axis.id, position=rpos, **reco))
-
-
-# --------------------------------------------------------------------------- #
 # Synthèse globale (évol) : mêmes entretiens, mais transverse à tous les
 # thèmes de la trame — regroupés en 5 catégories fixes (contexte, culture,
 # forces, points d'amélioration, aspirations).
@@ -203,7 +127,7 @@ def global_synthese_view(
     mission = _get_mission(db, mission_id)
     material_by_theme = _all_theme_material(mission)
     material_libre = _libre_material(mission)
-    global_synthesis = _get_or_create_global_synthesis(db, mission)
+    global_synthesis = get_or_create_global_synthesis(db, mission)
     db.commit()
 
     return templates.TemplateResponse(
@@ -269,7 +193,7 @@ def generate_global(
     mission = _get_mission(db, mission_id)
     material_by_theme = _all_theme_material(mission)
     material_libre = _libre_material(mission)
-    global_synthesis = _get_or_create_global_synthesis(db, mission)
+    global_synthesis = get_or_create_global_synthesis(db, mission)
 
     error = None
     if global_synthesis.generation_status == "error":
@@ -316,7 +240,7 @@ def global_synthesis_status(
     avec une demande de nouvelle génération. Cible du `hx-trigger="load
     delay:2s"` du panneau tant que `generation_status == "running"`."""
     mission = _get_mission(db, mission_id)
-    global_synthesis = _get_or_create_global_synthesis(db, mission)
+    global_synthesis = get_or_create_global_synthesis(db, mission)
     error = (
         global_synthesis.generation_error
         if global_synthesis.generation_status == "error"
@@ -400,7 +324,7 @@ def save_global_field(
         # Axe supprime entre l'affichage de l'ecran et la frappe : refuser
         # plutot que d'ecrire une cle qui ne sera plus jamais lue.
         raise HTTPException(status_code=400, detail="Champ inconnu.")
-    global_synthesis = _get_or_create_global_synthesis(db, mission)
+    global_synthesis = get_or_create_global_synthesis(db, mission)
     global_synthesis.set_contenu(field, value)
     if global_synthesis.has_content:
         global_synthesis.status = "edited"
@@ -454,7 +378,7 @@ def generate_recommendations_view(
     if error is None:
         try:
             axes_data = generate_recommendations(global_synthesis, axes_of(db, mission))
-            _apply_recommendations_result(db, mission, axes_data)
+            apply_recommendations_result(db, mission, axes_data)
             db.commit()
             db.refresh(mission)
         except SynthesisAIError as exc:
@@ -533,7 +457,7 @@ def save_swot_field(
     if field not in SWOT_FIELDS:
         raise HTTPException(status_code=400, detail="Champ inconnu.")
     mission = _get_mission(db, mission_id)
-    swot = _get_or_create_swot(db, mission)
+    swot = get_or_create_swot(db, mission)
     setattr(swot, field, value)
     if swot.has_content:
         swot.status = "edited"
@@ -593,7 +517,7 @@ def save_executive_summary_field(
     if field not in EXEC_SUMMARY_FIELDS:
         raise HTTPException(status_code=400, detail="Champ inconnu.")
     mission = _get_mission(db, mission_id)
-    es = _get_or_create_executive_summary(db, mission)
+    es = get_or_create_executive_summary(db, mission)
     setattr(es, field, value)
     if es.has_content:
         es.status = "edited"

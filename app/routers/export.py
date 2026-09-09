@@ -19,18 +19,18 @@ from sqlalchemy.orm import Session
 
 from ..db import PPTX_TEMPLATES_DIR, get_session
 from ..models import Mission
-from ..routers.synthese import (
-    _apply_difficulties_result,
-    _apply_executive_summary_result,
-    _apply_global_synthesis_result,
-    _apply_recommendations_result,
-    _apply_swot_result,
-    _get_or_create_executive_summary,
-    _get_or_create_global_synthesis,
-    _get_or_create_swot,
-)
 from ..services.ai_common import api_key_env_name, is_configured
 from ..services.mission_axes import axes_of
+from ..services.synthese_ecriture import (
+    apply_difficulties_result,
+    apply_executive_summary_result,
+    apply_global_synthesis_result,
+    apply_recommendations_result,
+    apply_swot_result,
+    get_or_create_executive_summary,
+    get_or_create_global_synthesis,
+    get_or_create_swot,
+)
 from ..services.synthese_ai import (
     SynthesisAIError,
     ai_precondition_error,
@@ -99,7 +99,7 @@ def export_import_view(mission_id: int, request: Request, db: Session = Depends(
     # get_or_create (pas juste lecture) : le sous-onglet IA intégrée inclut
     # _global_panel.html, qui suppose toujours un GlobalSynthesis existant
     # (comme son autre appelant, synthese.global_synthese_view).
-    _get_or_create_global_synthesis(db, mission)
+    get_or_create_global_synthesis(db, mission)
     db.commit()
     return templates.TemplateResponse(request, "synthese/export_import.html", _synthese_context(db, mission))
 
@@ -131,7 +131,7 @@ async def import_analyse(
     # plus bas (le sous-onglet IA intégrée y suppose un GlobalSynthesis non
     # nul) — fait avant le parsing, qui peut échouer avant d'atteindre le
     # get_or_create plus bas dans le flux nominal.
-    global_synthesis = _get_or_create_global_synthesis(db, mission)
+    global_synthesis = get_or_create_global_synthesis(db, mission)
     db.commit()
     try:
         raw = await lire_upload_borne(file)
@@ -139,9 +139,9 @@ async def import_analyse(
         parsed = parse_analysis_markdown(text, axes_of(db, mission))
 
         if any((v or "").strip() for v in parsed["global_synthesis"].values()):
-            _apply_global_synthesis_result(global_synthesis, parsed["global_synthesis"])
+            apply_global_synthesis_result(global_synthesis, parsed["global_synthesis"])
         if parsed["axes"]:
-            _apply_recommendations_result(db, mission, parsed["axes"])
+            apply_recommendations_result(db, mission, parsed["axes"])
         db.commit()
     except (AnalysisParseError, UploadTropVolumineux) as exc:
         # Deux exceptions PORTEUSES d'un message écrit pour l'utilisateur (le
@@ -190,7 +190,7 @@ def generate_swot_view(mission_id: int, request: Request, db: Session = Depends(
     globale doit exister (la SWOT en découle)."""
     mission = _get_mission(db, mission_id)
     global_synthesis = mission.global_synthesis
-    swot = _get_or_create_swot(db, mission)
+    swot = get_or_create_swot(db, mission)
 
     error = ai_precondition_error(
         global_synthesis, "Générez d'abord la synthèse globale — la SWOT en découle."
@@ -198,7 +198,7 @@ def generate_swot_view(mission_id: int, request: Request, db: Session = Depends(
     if error is None:
         try:
             result = generate_swot(global_synthesis, axes_of(db, mission))
-            _apply_swot_result(swot, result)
+            apply_swot_result(swot, result)
             db.commit()
         except SynthesisAIError as exc:
             error = str(exc)
@@ -217,7 +217,7 @@ def generate_executive_summary_view(
     le résultat, éditable. Pré-condition : la synthèse globale doit exister."""
     mission = _get_mission(db, mission_id)
     global_synthesis = mission.global_synthesis
-    es = _get_or_create_executive_summary(db, mission)
+    es = get_or_create_executive_summary(db, mission)
 
     error = ai_precondition_error(
         global_synthesis,
@@ -226,7 +226,7 @@ def generate_executive_summary_view(
     if error is None:
         try:
             result = generate_executive_summary(global_synthesis, axes_of(db, mission))
-            _apply_executive_summary_result(es, result)
+            apply_executive_summary_result(es, result)
             db.commit()
         except SynthesisAIError as exc:
             error = str(exc)
@@ -262,7 +262,7 @@ def generate_difficulties_view(
                     "Réessayez, ou vérifiez la synthèse globale."
                 )
             else:
-                _apply_difficulties_result(db, mission, labels)
+                apply_difficulties_result(db, mission, labels)
                 db.commit()
         except SynthesisAIError as exc:
             error = str(exc)

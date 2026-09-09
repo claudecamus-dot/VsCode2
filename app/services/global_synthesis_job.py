@@ -67,10 +67,10 @@ def run_global_synthesis_job(mission_id: int) -> None:
             global_synthesis.generation_error = str(exc)
             db.commit()
             return
-        # Même application qu'`_apply_global_synthesis_result` (routers/synthese.py) :
-        # dupliquée plutôt qu'importée depuis le router, pour ne pas réintroduire
-        # ici le couplage inversé service→router que `synthese_material.py`
-        # vient de corriger.
+        # Même application qu'`apply_global_synthesis_result`
+        # (services/synthese_ecriture.py, extrait du router le 2026-09-09) :
+        # copie locale conservée pour ne pas changer une tâche de fond dans un
+        # déplacement de code — à unifier lors d'un prochain passage sur ce job.
         for key, value in result.items():
             global_synthesis.set_contenu(key, value)
         global_synthesis.status = "generated"

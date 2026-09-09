@@ -2,8 +2,8 @@
 `mission_export.py`. Reconstruit exactement la même forme de résultat que
 `generate_global_synthesis()` (dict à 5 clés) et `generate_recommendations()`
 (liste d'axes), pour que l'application en base
-(`_apply_global_synthesis_result`/`_apply_recommendations_result` dans
-`app.routers.synthese`) soit partagée entre génération IA et import de
+(`apply_global_synthesis_result`/`apply_recommendations_result` dans
+`app.services.synthese_ecriture`) soit partagée entre génération IA et import de
 fichier.
 
 Contrat de format : les titres Markdown exacts produits par
