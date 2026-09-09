@@ -33,5 +33,19 @@ jobs:
 
       # Tests = le gate. Couverture affichée (pytest-cov), sans seuil imposé —
       # même politique que VSCode1 (on mesure d'abord, gate éventuel plus tard).
+      # Le parcours « premiers clics » (tests/test_e2e_premiers_clics.py) joue un
+      # vrai Chrome contre un vrai uvicorn. Sans E2E_OBLIGATOIRE il se SAUTE
+      # quand aucun Chromium n'est trouvé — sur cette image le navigateur est
+      # présent, et une suite verte qui n'a pas joué le parcours est
+      # exactement le trou que ce test existe pour fermer (2026-09-08).
+      # Le navigateur est présent sur l'image ubuntu-latest — affirmé ici par
+      # une commande qui échoue avec sa raison si l'image change, plutôt que
+      # par une erreur de collecte qui rougirait toute la suite (revue du
+      # 2026-09-09, A16).
+      - name: Navigateur pour le parcours utilisateur
+        run: google-chrome --version
+
       - name: Tests (pytest + couverture)
+        env:
+          E2E_OBLIGATOIRE: "1"
         run: python -m pytest --cov=app --cov-report=term-missing -q

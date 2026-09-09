@@ -41,6 +41,13 @@ def _context(result: subprocess.CompletedProcess) -> str:
     return data.get("hookSpecificOutput", {}).get("additionalContext", "")
 
 
+@pytest.fixture
+def tmp_path(tmp_path_git):
+    """`git init` dans le `tmp_path` de pytest échoue quand la suite tourne
+    élevée (ACL restrictive de `mode=0o700` sous Python 3.13+) — cf. conftest."""
+    return tmp_path_git
+
+
 def _git(args, cwd) -> None:
     subprocess.run(
         ["git", "-c", "user.email=t@test", "-c", "user.name=t"] + args,

@@ -54,9 +54,21 @@ ENTETES = {
     "Content-Security-Policy": CSP,
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
-    # no-referrer : les URL portent des identifiants de mission et
-    # d'entretien ; rien ne justifie de les faire suivre à un tiers.
-    "Referrer-Policy": "no-referrer",
+    # same-origin, PAS no-referrer (signalement utilisateur 2026-09-08 : 403
+    # « Origine non autorisée » sur Supprimer, Démarrer, changement de mode —
+    # tout ce qui est un FORMULAIRE). Sous `no-referrer`, la spec Fetch met
+    # l'en-tête Origin à `null` sur les requêtes non-CORS (une soumission de
+    # formulaire est une navigation), et retire le Referer : la garde CSRF
+    # (`csrf.meme_origine`) ne voit alors plus aucune origine et refuse — alors
+    # que les `fetch` (transcription, tranches) gardent leur Origin, d'où un
+    # enregistrement qui marche et des boutons qui échouent. Reproduit en Edge
+    # headless via CDP : `origin: null | referer: None -> 403`. `same-origin`
+    # garde l'intention (les URL portent des identifiants de mission et
+    # d'entretien : jamais de Referer vers un tiers) et laisse partir Origin et
+    # Referer entre pages de l'app. Accepter `null` côté CSRF aurait ouvert
+    # exactement ce que la garde ferme (formulaire cross-site depuis une origine
+    # opaque). Test : tests/test_csrf.py.
+    "Referrer-Policy": "same-origin",
 }
 
 

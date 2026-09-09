@@ -146,7 +146,15 @@ def _get_model():
 
 def warm_up() -> None:
     """Charge le modèle en mémoire dès le démarrage du serveur, pour que le
-    premier enregistrement réel de l'utilisateur n'en paie pas le coût."""
+    premier enregistrement réel de l'utilisateur n'en paie pas le coût.
+
+    `WHISPER_WARM_UP=0` le désactive : le serveur des tests navigateur
+    (`tests/test_e2e_premiers_clics.py`) n'enregistre rien, et charger
+    `medium` (≈1,5 Go, téléchargé s'il manque) à chaque démarrage de test
+    aurait coûté le parcours en CI — le modèle se chargera au premier besoin
+    réel, comme avant l'existence du warm-up."""
+    if os.environ.get("WHISPER_WARM_UP", "1") == "0":
+        return
     if is_available():
         _get_model()
 

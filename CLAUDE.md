@@ -73,5 +73,11 @@ changement sous `app/`, pas seulement en fin d'incrément :
 - **P4 — Tout défaut visuel du deck corrigé devient un invariant testé**
   (`tests/test_deck_qualite.py`), en plus du rendu réel `pptx-verify`.
 
+- **P5 — Tout clic que l'utilisateur fait est rejoué dans un vrai navigateur.**
+  `tests/test_e2e_premiers_clics.py` (Edge/Chrome headless, vrai uvicorn) : un correctif
+  sur un formulaire, une route POST, un middleware ou un en-tête HTTP y ajoute son clic.
+  Le 2026-09-08 le site a été livré avec un 403 CSRF sur Supprimer et Démarrer, suite
+  verte — `TestClient` prouve la route, pas le navigateur.
+
 Et une règle de preuve, transverse : **tout chiffre écrit s'appuie sur la commande qui l'a
 produit — sinon marqué non mesuré.**

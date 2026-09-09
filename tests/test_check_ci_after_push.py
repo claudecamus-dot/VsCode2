@@ -31,6 +31,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[1]
 HOOK = REPO / ".claude" / "hooks" / "check_ci_after_push.py"
 
@@ -46,6 +48,13 @@ def _load_module():
 
 
 CI = _load_module()
+
+
+@pytest.fixture
+def tmp_path(tmp_path_git):
+    """`git init` dans le `tmp_path` de pytest échoue quand la suite tourne
+    élevée (ACL restrictive de `mode=0o700` sous Python 3.13+) — cf. conftest."""
+    return tmp_path_git
 
 
 def _git(args, cwd) -> None:

@@ -272,6 +272,13 @@ def test_generateur_bmad_resout_le_dag(tmp_path):
 INVENTORY = ROOT / ".claude" / "orchestration" / "git_agents_inventory.py"
 
 
+@pytest.fixture
+def tmp_path(tmp_path_git):
+    """`git init` dans le `tmp_path` de pytest échoue quand la suite tourne
+    élevée (ACL restrictive de `mode=0o700` sous Python 3.13+) — cf. conftest."""
+    return tmp_path_git
+
+
 def _git(repo, *args):
     subprocess.run(
         ["git", "-C", str(repo), *args], check=True, capture_output=True, timeout=30

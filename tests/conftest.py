@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import os
 import tempfile
+from pathlib import Path
+
+import pytest
 
 # Base SQLite dédiée aux tests, dans le répertoire temporaire du système.
 _TEST_DB = os.path.join(tempfile.gettempdir(), "interview_to_deck_test.db")
@@ -59,6 +62,40 @@ def vider_recordings_de_test() -> None:
 def pytest_sessionstart(session):  # noqa: ARG001
     """Nettoyage au démarrage de la session."""
     vider_recordings_de_test()
+
+
+@pytest.fixture
+def tmp_path_git(monkeypatch: pytest.MonkeyPatch):
+    """Un dossier temporaire où `git` FONCTIONNE même quand la suite tourne
+    ÉLEVÉE (VS Code lancé en administrateur, donc Claude Code, donc pytest) —
+    mesuré le 2026-09-09 : 12 tests rouges (hooks, check_ci, inventaire git) sans
+    aucune régression, pour deux raisons distinctes.
+
+    1. Le `tmp_path` de pytest — et `tempfile.mkdtemp` — sont créés avec
+       `mode=0o700`, que Python 3.13+ honore sur Windows par une ACL restrictive
+       (Système, Administrateurs, « droits du propriétaire », sans entrée pour
+       l'utilisateur) : `git init` y meurt sur « unable to get current working
+       directory » (ou « .git: Permission denied »). D'où `mkdir()` sans mode :
+       ACL héritée du parent.
+    2. Un dossier créé par un processus élevé appartient à BUILTIN\\Administrators,
+       pas à l'utilisateur : `git commit` refuse (« detected dubious ownership »).
+       D'où `safe.directory=*`, passé par l'environnement (`GIT_CONFIG_*`, git ≥
+       2.36) pour que les `git` en sous-processus l'héritent sans toucher à la
+       config du poste.
+
+    Les tests concernés redéfinissent `tmp_path` sur cette fixture."""
+    import shutil
+    import uuid
+
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "safe.directory")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "*")
+    dossier = Path(tempfile.gettempdir()) / f"i2d-git-{uuid.uuid4().hex[:12]}"
+    dossier.mkdir()  # mode par défaut : ACL héritée du parent, git y lit son cwd
+    try:
+        yield dossier
+    finally:
+        shutil.rmtree(dossier, ignore_errors=True)  # verrous Windows : au pire il reste
 
 
 # --------------------------------------------------------------------------- #

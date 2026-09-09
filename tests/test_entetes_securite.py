@@ -40,7 +40,10 @@ def test_les_entetes_sont_poses_sur_une_page(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.headers["X-Content-Type-Options"] == "nosniff"
     assert response.headers["X-Frame-Options"] == "DENY"
-    assert response.headers["Referrer-Policy"] == "no-referrer"
+    # same-origin et non no-referrer : sous no-referrer un navigateur envoie
+    # `Origin: null` sur les POST de formulaire, que la garde CSRF refuse
+    # (403 sur Supprimer / Demarrer, signalement du 2026-09-08 — tests/test_csrf.py).
+    assert response.headers["Referrer-Policy"] == "same-origin"
     assert "Content-Security-Policy" in response.headers
 
 

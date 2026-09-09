@@ -563,7 +563,15 @@ def warm_up_ollama() -> None:
     répond immédiatement, sans générer de texte (documenté par Ollama comme
     façon de précharger un modèle). Silencieuse en cas d'échec (Ollama pas
     encore démarré, serveur injoignable) — le premier appel réel retentera
-    et remontera l'erreur normale (`_call_ollama`) le cas échéant."""
+    et remontera l'erreur normale (`_call_ollama`) le cas échéant.
+
+    `OLLAMA_WARM_UP=0` le désactive — miroir de `WHISPER_WARM_UP` : le serveur
+    des tests navigateur (`tests/test_e2e_*.py`) ne doit pas attendre jusqu'à
+    `OLLAMA_TIMEOUT` (300 s) qu'un Ollama absent ou muet réponde AVANT
+    d'accepter sa première requête (revue adversariale du 2026-09-09, A2 :
+    mesuré, `GET /missions` jamais servi en 46 s avec une socket muette)."""
+    if os.environ.get("OLLAMA_WARM_UP", "1") == "0":
+        return
     if active_provider() != "ollama":
         return
     payload = json.dumps({
