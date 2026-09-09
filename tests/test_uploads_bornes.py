@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import io
 import zipfile
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -26,6 +27,7 @@ from app.main import app
 from app.models import Interview
 from app.uploads import (
     MAX_UPLOAD_BYTES,
+    MAX_ZIP_ENTREES,
     UploadTropVolumineux,
     verifier_zip_borne,
 )
@@ -118,6 +120,72 @@ def test_ratio_anormal_refuse_meme_sous_le_plafond_absolu() -> None:
         verifier_zip_borne(_zip_bomb(taille_declaree=30 * 1024 * 1024))
 
 
+def _zip_innombrable(entrees: int = 20_000) -> bytes:
+    """Archive de quelques Mo qui ne déclare AUCUN octet décompressé mais des
+    dizaines de milliers d'entrées vides : elle passe les trois plafonds
+    existants (taille brute, total décompressé, ratio) puisqu'ils raisonnent
+    tous sur des octets. Le coût est ailleurs — dans le nombre d'objets que la
+    lecture du répertoire central fabrique."""
+    tampon = io.BytesIO()
+    with zipfile.ZipFile(tampon, "w", zipfile.ZIP_STORED) as archive:
+        for i in range(entrees):
+            archive.writestr(str(i), b"")
+    return tampon.getvalue()
+
+
+def test_archive_a_entrees_innombrables_refusee() -> None:
+    """Troisième forme de zip-bomb, celle que les plafonds en octets ne voient
+    pas : l'amplification porte sur le NOMBRE d'entrées, pas sur leur taille.
+
+    Mesuré le 2026-09-09 sur le venv du projet, avant ce plafond : 200 000
+    entrées vides tiennent dans 16,6 Mo envoyés (sous les 40 Mo), déclarent 0
+    octet décompressé (sous les 300 Mo, ratio 0) — donc ACCEPTÉES par les trois
+    gardes en octets — et coûtent 6,94 s de CPU et 111 Mo de pic mémoire dans
+    le thread de la requête, sur une route non authentifiée."""
+    with pytest.raises(UploadTropVolumineux):
+        verifier_zip_borne(_zip_innombrable())
+
+
+def test_le_nombre_d_entrees_est_lu_sans_indexer_l_archive(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """La borne ne vaut que si elle tombe AVANT la construction de l'index :
+    c'est cette construction qui coûte les 6,94 s mesurées. Un refus qui
+    appellerait `infolist()` pour compter aurait déjà payé la facture qu'il
+    prétend éviter — on vérifie donc que `zipfile.ZipFile` n'est jamais
+    instancié sur ce contenu."""
+    contenu = _zip_innombrable()
+
+    class _ZipFileInterdit:
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            raise AssertionError(
+                "l'archive a été indexée avant d'être refusée sur son nombre d'entrées"
+            )
+
+    monkeypatch.setattr(zipfile, "ZipFile", _ZipFileInterdit)
+    with pytest.raises(UploadTropVolumineux):
+        verifier_zip_borne(contenu)
+
+
+def test_le_plafond_d_entrees_laisse_passer_les_vrais_documents() -> None:
+    """Garde-fou sur la garde, exercé sur du RÉEL et non sur la seule
+    constante : les deux .pptx versionnés du dépôt passent la garde. Comptes
+    mesurés le 2026-09-09 — `app/assets/template-octo.pptx` 149 entrées,
+    `docs/exemples/deck-restitution-exemple.pptx` 169 ; le plus gros document
+    vu sur le poste, un template client sous `data/pptx_templates/` (non
+    versionné), en compte 416. Un plafond descendu à cet ordre de grandeur
+    refuserait un fichier parfaitement légitime."""
+    racine = Path(__file__).resolve().parents[1]
+    reels = [
+        racine / "app" / "assets" / "template-octo.pptx",
+        racine / "docs" / "exemples" / "deck-restitution-exemple.pptx",
+    ]
+    for chemin in reels:
+        assert chemin.exists(), f"document de référence absent : {chemin}"
+        verifier_zip_borne(chemin.read_bytes())  # ne lève pas
+    assert MAX_ZIP_ENTREES >= 4000
+
+
 def test_archive_corrompue_n_est_pas_un_probleme_de_taille() -> None:
     """Distinction que les routes rendent par deux messages différents : un
     fichier corrompu lève `BadZipFile`, jamais `UploadTropVolumineux` — sinon
@@ -165,6 +233,22 @@ def test_upload_template_pptx_refuse_le_zip_bomb(client: TestClient) -> None:
     )
     assert response.status_code == 200
     assert "compression anormal" in response.text or "décompressé dépasse" in response.text
+
+
+def test_import_trame_refuse_l_archive_a_entrees_innombrables(
+    client: TestClient,
+) -> None:
+    """Même route, troisième forme de bombe : l'utilisateur doit voir le même
+    écran d'import avec un message, pas un 500 ni une requête qui s'éternise.
+    C'est ce que ne prouve pas un test au niveau du helper seul."""
+    mission_id = _creer_mission(client, "Mission bombe entrees")
+    response = client.post(
+        f"/missions/{mission_id}/trame/import",
+        files={"file": ("piege.docx", _zip_innombrable(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+        data={"ai_mode": "false"},
+    )
+    assert response.status_code == 200
+    assert "entrées" in response.text
 
 
 def test_upload_trop_gros_refuse_avant_de_tout_charger_en_ram(

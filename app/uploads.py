@@ -5,7 +5,7 @@ côté hub) : « Uploads sans plafond de taille et décompression zip non borné
 RAM par `await file.read()` puis dépaqueté par python-docx et python-pptx AVANT
 toute validation de taille ».
 
-Deux gardes distinctes, parce que les deux dégâts sont distincts :
+Trois gardes distinctes, parce que les dégâts sont distincts :
 
 1. `lire_upload_borne` — plafonne ce qui entre en MÉMOIRE. `await file.read()`
    sans argument matérialise tout le corps de la requête d'un coup ; un envoi
@@ -27,11 +27,19 @@ Deux gardes distinctes, parce que les deux dégâts sont distincts :
    elle arrête le zip-bomb par amplification, pas une archive forgée pour
    mentir. Le plafond de l'étape 1 borne alors le mensonge à ce qui a pu
    physiquement entrer.
+
+3. `_entrees_declarees` — plafonne le NOMBRE d'entrées. Une archive peut
+   n'afficher aucun ratio suspect, ne déclarer aucun octet décompressé, et
+   coûter quand même : 200 000 entrées vides passaient les deux gardes
+   ci-dessus (mesuré le 2026-09-09). Le compte se lit dans la fin
+   d'archive, avant que `zipfile.ZipFile` ne construise son index — sinon
+   la garde paie ce qu'elle évite.
 """
 from __future__ import annotations
 
 import io
 import os
+import struct
 import zipfile
 
 from fastapi import UploadFile
@@ -65,6 +73,17 @@ MAX_ZIP_DECOMPRESSE_BYTES = _mo_env("MAX_ZIP_DECOMPRESSE_MB", 300)
 # mais une amplification. Un .docx purement textuel monte vers 15-20 ; un
 # zip-bomb dépasse 1000. 120 laisse une marge large au cas légitime.
 RATIO_MAX = 120
+
+# Nombre d'entrées de l'archive. Troisième forme de zip-bomb, invisible pour
+# les deux plafonds ci-dessus parce qu'elle n'amène aucun octet à décompresser :
+# 200 000 entrées VIDES tiennent dans 16,6 Mo envoyés et déclarent 0 octet
+# décompressé (donc ratio 0), mais coûtent 6,94 s de CPU et 111 Mo de pic
+# mémoire à la seule lecture du répertoire central (mesuré le 2026-09-09 sur le
+# venv du projet). Calibré sur le réel : le plus gros document du dépôt,
+# `data/pptx_templates/1.pptx` (template client), en compte 416 — 4000 laisse
+# un facteur 10 au cas légitime.
+MAX_ZIP_ENTREES = 4000
+
 
 _TAILLE_MORCEAU = 1024 * 1024
 
@@ -108,10 +127,48 @@ async def lire_upload_borne(
     return b"".join(morceaux)
 
 
+# Signatures de fin d'archive (« end of central directory »). Les lire nous-mêmes
+# est le seul moyen de connaître le nombre d'entrées SANS le payer :
+# `zipfile.ZipFile(...)` construit tout l'index dans son constructeur, donc un
+# refus prononcé après lui aurait déjà brûlé le CPU et la mémoire qu'il
+# prétend épargner.
+_SIG_FIN = b"PK\x05\x06"
+_SIG_FIN64 = b"PK\x06\x06"
+# 22 octets d'enregistrement + le commentaire d'archive, borné à 65 535 par le
+# format : au-delà, la fin d'archive n'est pas là.
+_ZONE_FIN = 22 + 65535
+
+
+def _entrees_declarees(content: bytes) -> int | None:
+    """Nombre d'entrées annoncé par la fin d'archive, ou `None` si elle est
+    introuvable (fichier corrompu — laissé à `zipfile`, qui lèvera son
+    `BadZipFile` habituel, cas déjà traité par les routes).
+
+    Déclaratif comme le reste du répertoire central, même limite assumée que
+    ci-dessus : une archive peut mentir. Elle ne peut en revanche pas mentir
+    à la BAISSE sans se rendre illisible, et c'est le sens du contrôle.
+    """
+    queue = content[-_ZONE_FIN:] if len(content) > _ZONE_FIN else content
+    position = queue.rfind(_SIG_FIN)
+    if position < 0 or position + 12 > len(queue):
+        return None
+    (entrees,) = struct.unpack_from("<H", queue, position + 10)
+    if entrees != 0xFFFF:
+        return entrees
+    # Sentinelle zip64 : le vrai compte est dans l'enregistrement étendu qui
+    # précède. Absent ou tronqué, on garde 0xFFFF — c'est un plancher (au moins
+    # 65 535 entrées), donc déjà au-dessus du plafond : pas d'échappatoire.
+    position64 = queue.rfind(_SIG_FIN64, 0, position)
+    if position64 >= 0 and position64 + 40 <= len(queue):
+        (entrees,) = struct.unpack_from("<Q", queue, position64 + 32)
+    return entrees
+
+
 def verifier_zip_borne(
     content: bytes,
     max_decompresse: int | None = None,
     ratio_max: int | None = None,
+    max_entrees: int | None = None,
 ) -> None:
     """Refuse une archive (.docx/.pptx) dont le dépaquetage exploserait.
 
@@ -125,6 +182,14 @@ def verifier_zip_borne(
         max_decompresse = MAX_ZIP_DECOMPRESSE_BYTES
     if ratio_max is None:
         ratio_max = RATIO_MAX
+    if max_entrees is None:
+        max_entrees = MAX_ZIP_ENTREES
+    entrees = _entrees_declarees(content)
+    if entrees is not None and entrees > max_entrees:
+        raise UploadTropVolumineux(
+            f"Fichier refusé : l'archive déclare {entrees} entrées "
+            f"({max_entrees} au maximum)."
+        )
     with zipfile.ZipFile(io.BytesIO(content)) as archive:
         total = sum(info.file_size for info in archive.infolist())
     if total > max_decompresse:
