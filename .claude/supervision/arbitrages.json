@@ -551,6 +551,24 @@
       ],
       "source": "hub",
       "decision": "DIFFERE, explicitement et sans l'appliquer. Ce finding demande de porter la garde atomique sur _get_or_create_answer, sur la table la plus ecrite du produit (autosave 2 onglets). Le meme motif vient d'etre pose sur InterviewSegmentJob (7355e29) et a demande QUATRE rondes de revue adversariale, qui y ont trouve 3 bloquants et 13 majeurs -- dont deux qui auraient perdu de la parole d'entretien. Le porter sur le chemin d'autosave dans le meme lot, sans son propre cycle de revue et sans parcours navigateur dedie, serait le genre d'extension de perimetre que ces revues ont precisement sanctionne. A traiter comme un chantier a part entiere, avec son test de course deterministe et son clic rejoue en navigateur reel (P5)."
+    },
+    {
+      "cible": "VSCode2:audit-performance-niveau-moyen",
+      "date": "2026-09-10",
+      "categories": [
+        "pratique-dev"
+      ],
+      "source": "hub",
+      "decision": "ACCEPTE + APPLIQUE (mandat utilisateur du 2026-09-10 : « traite les 4 constats restants »). Commit 897e44c. (1) Bloc IA surdimensionne : redecoupe sur frontieres de lignes, chaque fragment reprenant l'en-tete de son bloc -- une premiere version deleguait a chunk_text_by_paragraph et detruisait l'attribution des propos (en-tete dans 1 fragment sur 5). (2) N+1 de la page d'accueil : comptage par EXISTS correles, mesure 15 requetes/36,2 ms -> 2/4,6 ms, resultat identique au predicat Python. Un selectinload d'abord pose (6 req/9,7 ms) a ete ECARTE : il materialisait tours et reponses de tout le corpus pour produire un entier -- requetes constantes mais memoire proportionnelle a la base. (3) Fetch photo en serie : coupe-circuit sur les echecs RESEAU uniquement, 40 -> 8 tentatives pour 10 scenes ; ce n'est pas la parallelisation suggeree et c'est assume (borner supprime la proportionnalite la ou paralleliser la divise). (4) all_theme_material : MESURE puis NON optimise -- les 6 sites d'appel vivent dans des routes distinctes, une requete HTTP en declenche 1 a 2, jamais 8 ; 26 requetes/8 ms sont negligeables devant l'appel IA. PAGINATION de list_missions : arbitree par l'utilisateur « toutes les missions, c'est voulu » -- les EXISTS rendent le cout constant, le constat se ferme sans pagination. Une revue adversariale a trouve 10 findings dans ces 4 correctifs avant commit, dont le prix cache du selectinload et trois defauts du coupe-circuit."
+    },
+    {
+      "cible": "VSCode2:audio-streaming-disque-sans-plafond",
+      "date": "2026-09-10",
+      "categories": [
+        "pratique-dev"
+      ],
+      "source": "hub",
+      "decision": "ACCEPTE + APPLIQUE (arbitrage utilisateur explicite du 2026-09-10, apres que je l'aie classe a tort hors perimetre). Commit aee74f1 : `uploads.ecrire_audio_borne` compte les octets ecrits, s'arrete au plafond audio, rend un 413, et supprime le fichier PARTIEL -- y compris sur interruption de flux. Les deux routes non authentifiees (transcribe_file, save_record_backup) y deleguent ; plus aucun `shutil.copyfileobj` non borne dans app/routers/interviews.py. Le plafond est lu a l'appel depuis le module, meme contrat que lire_upload_audio_borne. Note de methode : j'avais reecrit ce fichier le matin meme sans fermer ces jambes-la -- c'est la revue de supervision qui l'a releve, et c'est le motif « appliquer la lecon aux chemins freres » deja en memoire."
     }
   ]
 }
