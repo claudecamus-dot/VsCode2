@@ -3,12 +3,16 @@ dépendance à python-pptx/DB/HTTP, utilisé par la pagination auto de
 l'export PPT (voir pptx_export.py).
 
 Complété (arbitrage 2026-09-03) par les tests des « helpers durcis deck
-binaire » remontés depuis VSCode4 (clear_slides, supprimer_slide,
-purger_rels_slides_orphelines, trouver_slide_par_titre, sans_puce) et des
-formes/texte « riches » (add_forme, definir_geometrie, configurer_text_frame,
-definir_paragraphes, add_text_runs, trouver_cadre_layout) — même esprit que le
-reste du fichier : aucune dépendance au domaine métier/DB de ce projet, la
-bibliothèque doit rester réutilisable telle quelle par la flotte."""
+binaire » remontés depuis VSCode4 (clear_slides, purger_rels_slides_orphelines,
+sans_puce) et des formes (add_forme, definir_geometrie, configurer_text_frame,
+trouver_cadre_layout) — même esprit que le reste du fichier : aucune dépendance
+au domaine métier/DB de ce projet, la bibliothèque doit rester réutilisable
+telle quelle par la flotte.
+
+Les tests de trouver_slide_par_titre, supprimer_slide, _normaliser,
+definir_paragraphes et add_text_runs sont partis avec leurs fonctions le
+2026-09-10 (arbitrage utilisateur) : cinq helpers que ce dépôt n'a jamais
+appelés. Ils restent dans l'historique git et chez VSCode4."""
 from __future__ import annotations
 
 import pytest
@@ -17,20 +21,15 @@ from pptx.oxml.ns import qn
 from pptx.util import Emu, Inches
 
 from app.services.pptx_deck import (
-    _normaliser,
     add_forme,
     add_rect,
-    add_text_runs,
     clear_slides,
     configurer_text_frame,
     definir_geometrie,
-    definir_paragraphes,
     paginer_items,
     purger_rels_slides_orphelines,
     sans_puce,
-    supprimer_slide,
     trouver_cadre_layout,
-    trouver_slide_par_titre,
 )
 
 
@@ -58,9 +57,9 @@ def test_paginer_items_preserves_order_and_drops_nothing() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Helpers durcis deck binaire (clear_slides, supprimer_slide,
-# purger_rels_slides_orphelines, trouver_slide_par_titre) — priorité de test
-# demandée : ce sont les 4 qui manipulent des relations OOXML/slides.
+# Helpers durcis deck binaire (clear_slides, purger_rels_slides_orphelines) —
+# priorité de test demandée : ce sont ceux qui manipulent des relations
+# OOXML/slides, et une relation non lâchée rend le .pptx inouvrable.
 # --------------------------------------------------------------------------- #
 
 
@@ -103,36 +102,11 @@ def test_clear_slides_retire_toutes_les_slides_et_lache_les_rels() -> None:
     assert _slide_reltypes(prs) == []
 
 
-def test_supprimer_slide_ne_retire_que_la_slide_ciblee_et_lache_son_rel() -> None:
-    prs, (s0, s1) = _new_prs_with_slides(2, ["Garder", "Retirer"])
-    rid_retire = _slide_rid(prs, s1)
-    supprimer_slide(prs, s1)
-    assert len(prs.slides) == 1
-    assert list(prs.slides)[0] is s0
-    assert rid_retire not in prs.part.rels, "relation de la slide supprimée non lâchée (drop_rel)"
-    # La slide restante garde sa propre relation intacte.
-    assert _slide_rid(prs, s0) in prs.part.rels
-
-
-def test_supprimer_slide_leve_value_error_si_slide_deja_absente() -> None:
-    """Un 2e appel sur la même slide échoue — mais le message vient de
-    python-pptx, pas de notre garde explicite : `slide.slide_id` (1re ligne de
-    supprimer_slide) recherche la part dans sldIdLst par identité et lève déjà
-    ValueError une fois la relation lâchée par le 1er appel ; la garde
-    `"slide id=... absente de sldIdLst"` de supprimer_slide n'est donc jamais
-    atteinte par cette voie (elle documente une invariant "ne devrait jamais
-    arriver" plutôt qu'un cas réellement accessible via l'API publique)."""
-    prs, (s0,) = _new_prs_with_slides(1)
-    supprimer_slide(prs, s0)
-    with pytest.raises(ValueError):
-        supprimer_slide(prs, s0)
-
-
 def test_purger_rels_slides_orphelines_nettoie_sans_toucher_les_relations_actives() -> None:
     prs, (s0, s1) = _new_prs_with_slides(2)
     rid_orphelin = _slide_rid(prs, s1)
     # Reproduit la corruption historique : retirer l'entrée sldIdLst SANS
-    # lâcher la relation (l'erreur que supprimer_slide/clear_slides évitent).
+    # lâcher la relation (l'erreur que clear_slides évite).
     for sld_id in list(prs.slides._sldIdLst):
         if sld_id.get(qn("r:id")) == rid_orphelin:
             prs.slides._sldIdLst.remove(sld_id)
@@ -143,26 +117,6 @@ def test_purger_rels_slides_orphelines_nettoie_sans_toucher_les_relations_active
     # La relation de la slide restante (toujours référencée) n'est pas touchée.
     assert _slide_rid(prs, s0) in prs.part.rels
     assert purger_rels_slides_orphelines(prs) == 0, "un deck sain ne doit plus rien purger"
-
-
-def test_trouver_slide_par_titre_trouve_par_egalite_normalisee() -> None:
-    prs, (s0, s1) = _new_prs_with_slides(2, ["  Slide   Alpha ", "Slide Beta"])
-    idx, slide = trouver_slide_par_titre(prs, "slide alpha")  # casse + espaces différents
-    assert idx == 0
-    assert slide is s0
-
-
-def test_trouver_slide_par_titre_leve_si_aucun_ou_plusieurs_matches() -> None:
-    prs, _ = _new_prs_with_slides(2, ["Un titre", "Un autre titre"])
-    with pytest.raises(ValueError, match="0 slide"):
-        trouver_slide_par_titre(prs, "Titre absent")
-    prs2, _ = _new_prs_with_slides(2, ["Titre dupliqué", "Titre dupliqué"])
-    with pytest.raises(ValueError, match="2 slide"):
-        trouver_slide_par_titre(prs2, "Titre dupliqué")
-
-
-def test_normaliser_replie_espaces_et_ignore_la_casse() -> None:
-    assert _normaliser("  Un   Titre \n de Slide ") == _normaliser("un titre de slide")
 
 
 # --------------------------------------------------------------------------- #
@@ -192,8 +146,8 @@ def test_sans_puce_retire_indentation_et_force_buNone() -> None:
 
 
 # --------------------------------------------------------------------------- #
-# Formes/texte « riches » : add_forme, definir_geometrie, configurer_text_frame,
-# definir_paragraphes, add_text_runs, trouver_cadre_layout.
+# Formes : add_forme, definir_geometrie, configurer_text_frame,
+# trouver_cadre_layout.
 # --------------------------------------------------------------------------- #
 
 
@@ -247,36 +201,6 @@ def test_configurer_text_frame_ne_touche_que_les_champs_fournis() -> None:
     assert tf.word_wrap is True, "word_wrap non fourni : ne doit pas être écrasé"
     assert tf.auto_size == MSO_AUTO_SIZE.NONE
     assert tf.margin_left == Inches(0.3), "marge non fournie : ne doit pas être écrasée"
-
-
-def test_definir_paragraphes_pose_puce_reelle_avec_retrait_suspendu() -> None:
-    prs = Presentation()
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(3), Inches(1))
-    definir_paragraphes(box.text_frame, [
-        ([("Un point important", {"size": 12, "bold": True})],
-         {"bullet": {"char": "•", "color": "#2c5cc5"}}),
-    ])
-    p = box.text_frame.paragraphs[0]
-    assert p.runs[0].text == "Un point important"
-    assert p.runs[0].font.bold is True
-    pPr = p._p.get_or_add_pPr()
-    assert pPr.get("marL") == str(int(Inches(0.1875)))
-    assert pPr.get("indent") == str(int(Inches(-0.1875)))
-    buChar = pPr.find(qn("a:buChar"))
-    assert buChar is not None and buChar.get("char") == "•"
-
-
-def test_add_text_runs_melange_plusieurs_styles_dans_un_paragraphe() -> None:
-    prs = Presentation()
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    box = add_text_runs(slide, 1, 1, 3, 1, [
-        ([("Normal ", {}), ("gras", {"bold": True, "size": 14})], {}),
-    ])
-    p = box.text_frame.paragraphs[0]
-    assert [r.text for r in p.runs] == ["Normal ", "gras"]
-    assert p.runs[0].font.bold is not True
-    assert p.runs[1].font.bold is True
 
 
 def test_trouver_cadre_layout_desambigue_par_largeur_minimale() -> None:

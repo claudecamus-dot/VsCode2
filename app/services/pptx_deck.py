@@ -8,21 +8,27 @@ Section « helpers durcis deck binaire » (remontee depuis VSCode4, arbitrage
 utilisateur 2026-09-03 — VSCode4 les avait durcis seul sur le deck OHC, runs du
 2026-07-21, sans jamais les remonter vers cette reference) : fige en code des
 lecons payees sur de vrais bugs de manipulation de fichiers .pptx binaires —
- - recherche de slide par TITRE avec assertion d'unicite (`trouver_slide_par_titre`)
-   — les matchers approximatifs (position, title_of, corps de texte) ont tous
-   ete pieges ;
- - suppression de slide avec drop_rel (`supprimer_slide`, `clear_slides`) : sans
-   lui, la part de slide devient orpheline — invisible pour python-pptx (parseur
-   tolerant), mais PowerPoint refuse ensuite d'ouvrir le fichier (HRESULT
-   0x80CB4404) ; `purger_rels_slides_orphelines` est le filet anti-corruption a
-   appeler avant save() sur un deck retravaille ;
- - regle AJOUTER-AVANT-SUPPRIMER quand on remplace une slide : creer la nouvelle
-   AVANT de supprimer l'ancienne, jamais l'inverse dans le meme cycle — un
-   delete puis add reutilise un nom de part (slideN.xml) et produit une
-   corruption « Duplicate part name » que python-pptx ne voit pas.
-Complete aussi les formes/texte « riches » (add_forme, add_text_runs,
-definir_geometrie, configurer_text_frame, definir_paragraphes) et un
-localisateur de cadre-image generique par preset OOXML (trouver_cadre_layout).
+ - suppression de slides avec drop_rel (`clear_slides`) : sans lui, la part de
+   slide devient orpheline — invisible pour python-pptx (parseur tolerant),
+   mais PowerPoint refuse ensuite d'ouvrir le fichier (HRESULT 0x80CB4404) ;
+   `purger_rels_slides_orphelines` est le filet anti-corruption a appeler avant
+   save() sur un deck retravaille.
+Complete aussi les formes (add_forme, definir_geometrie, configurer_text_frame)
+et un localisateur de cadre-image generique par preset OOXML
+(trouver_cadre_layout).
+
+RETIRE le 2026-09-10 (arbitrage utilisateur, sur constat d'audit risque
+technique « bibliotheque a moitie non adoptee ») : trouver_slide_par_titre,
+supprimer_slide, _normaliser, definir_paragraphes et add_text_runs. Ils n'ont
+jamais eu d'appelant applicatif ici, ni direct ni transitif — ce depot
+reconstruit toujours le deck a plat (`clear_slides` puis reecriture), il ne fait
+aucun remplacement CIBLE par titre, et son generateur n'a aucun texte multi-runs
+par paragraphe. Ils restent dans l'historique git et chez VSCode4, d'ou ils
+venaient ; le jour ou un chantier d'edition partielle en aura besoin, il les
+reprendra la-bas plutot que de porter 130 lignes non exercees en attendant.
+La regle AJOUTER-AVANT-SUPPRIMER qui les accompagnait est conservee plus bas :
+elle vaut pour toute manipulation de deck binaire, pas seulement pour ces
+helpers.
 
 Reutilisable hors de ce projet : aucune dependance au domaine metier ici.
 Les coordonnees des helpers sont exprimees en POUCES (float) pour la lisibilite.
@@ -338,90 +344,6 @@ def configurer_text_frame(tf, anchor=None, wrap=None, autosize=None,
         tf.margin_top = Inches(mt)
         tf.margin_right = Inches(mr)
         tf.margin_bottom = Inches(mb)
-
-
-def definir_paragraphes(tf, paras, police_defaut=None):
-    """Écrit des paragraphes « riches » (plusieurs runs stylés PAR paragraphe,
-    ex. un mot en gras au milieu d'une phrase) en ne posant que les propriétés
-    fournies — contrairement à add_text qui force taille et couleur sur chaque
-    run, ce qui casserait l'héritage de charte du texte de placeholder.
-    `paras` = liste de (runs, opts_para) ; `runs` = liste de (texte, opts_run).
-    opts_run : size (pt), bold, italic, color (hexa), font ; opts_para :
-    align (PP_ALIGN), space_before/space_after (pt), line_spacing (multiple),
-    bullet (dict char/size/font/color — puce réelle buChar avec retrait
-    suspendu marL/indent en pouces, defaut 0.1875), marL/indent (pouces).
-    Le contenu existant du text frame est remplacé.
-
-    `police_defaut` (None par defaut) : police posee sur les runs qui n'en
-    demandent PAS une. Volontairement non branchee sur POLICE ici — cette
-    fonction ecrit aussi dans des PLACEHOLDERS, ou l'heritage du layout porte
-    des poids nommes (« Outfit SemiBold »…) qu'un defaut global aplatirait.
-    Seul add_text_runs, qui cree toujours une zone DESSINEE neuve, le passe
-    (cf. son docstring)."""
-    tf.clear()
-    for i, (runs, opts) in enumerate(paras):
-        p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-        if "align" in opts:
-            p.alignment = opts["align"]
-        if "space_before" in opts:
-            p.space_before = Pt(opts["space_before"])
-        if "space_after" in opts:
-            p.space_after = Pt(opts["space_after"])
-        if "line_spacing" in opts:
-            p.line_spacing = opts["line_spacing"]
-        if opts.get("bullet") or "marL" in opts or "indent" in opts:
-            bu = opts.get("bullet") or {}
-            marL = opts.get("marL", 0.1875 if bu else 0.0)
-            indent = opts.get("indent", -marL if bu else 0.0)
-            pPr = p._p.get_or_add_pPr()
-            pPr.set("marL", str(int(Inches(marL))))
-            pPr.set("indent", str(int(Inches(indent))))
-            if bu:
-                for tag, attrs in (
-                        ("a:buClr", None),
-                        ("a:buSzPts", {"val": str(int(bu.get("size", 10) * 100))}),
-                        ("a:buFont", {"typeface": bu.get("font", "Arial")}),
-                        ("a:buChar", {"char": bu.get("char", "•")})):
-                    el = pPr.makeelement(qn(tag), attrs or {})
-                    if tag == "a:buClr":
-                        clr = pPr.makeelement(qn("a:srgbClr"), {
-                            "val": bu.get("color", INK).lstrip("#").upper()})
-                        el.append(clr)
-                    pPr.append(el)
-        for texte, ro in runs:
-            r = p.add_run()
-            r.text = texte
-            f = r.font
-            if ro.get("size") is not None:
-                f.size = Pt(ro["size"])
-            if ro.get("bold") is not None:
-                f.bold = ro["bold"]
-            if ro.get("italic") is not None:
-                f.italic = ro["italic"]
-            if ro.get("color"):
-                f.color.rgb = rgb(ro["color"])
-            nom = ro.get("font") or police_defaut
-            if nom:
-                f.name = nom
-
-
-def add_text_runs(slide, l, t, w, h, paras, anchor=None, wrap=True,
-                  autosize=None, margins=(0, 0, 0, 0)):
-    """Zone de texte « riche » : la version multi-runs d'add_text (un
-    paragraphe peut mélanger des runs de styles différents), configurée via
-    configurer_text_frame + definir_paragraphes. Mêmes conventions d'unités
-    (pouces / pt).
-
-    Comme add_text, applique POLICE (la police de marque posee par
-    set_police) aux runs qui n'en demandent pas explicitement. C'est une zone
-    DESSINEE neuve : elle n'herite d'aucun layout, donc un run sans police
-    retombe sur le fontScheme du theme — Arial sur les gabarits OCTO, soit
-    deux polices dans la meme carte. Le defaut ferme ce trou a la source."""
-    box = slide.shapes.add_textbox(Inches(l), Inches(t), Inches(w), Inches(h))
-    configurer_text_frame(box.text_frame, anchor=anchor, wrap=wrap,
-                          autosize=autosize, margins=margins)
-    definir_paragraphes(box.text_frame, paras, police_defaut=POLICE)
-    return box
 
 
 def add_hbar(slide, l, t, w, h, frac, fill, track=TRACK):
@@ -891,15 +813,12 @@ def sans_puce(paragraph):
 # Helpers durcis deck binaire (remontes depuis VSCode4, arbitrage 2026-09-03 —
 # lecons payees la-bas sur le deck OHC, runs du 2026-07-21)
 #
-# STATUT (finding flotte:23-items-cadres, arbitrage 2026-09-07) : trouver_slide_par_titre/
-# supprimer_slide/_normaliser n'ont aucun appelant dans ce projet -- ce depot
-# reconstruit toujours le deck a plat (build_presentation vide TOUTES les slides
-# via clear_slides avant de reecrire), jamais une suppression/remplacement CIBLE
-# par titre. Bibliotheque de reference flotte non encore adoptee ICI, pas du code
-# mort accidentel : conservee pour le jour ou un chantier (edition partielle d'un
-# deck existant, template client a slides mixtes) en aura reellement besoin.
-# Meme statut pour definir_paragraphes/add_text_runs plus haut (aucun texte
-# multi-runs par paragraphe n'existe aujourd'hui dans le generateur).
+# STATUT : l'arbitrage du 2026-09-07 avait CONSERVE cinq helpers sans appelant
+# (trouver_slide_par_titre, supprimer_slide, _normaliser, definir_paragraphes,
+# add_text_runs) « pour le jour ou un chantier en aura besoin ». Ce jour n'est
+# pas venu, et l'audit du 2026-09-09 les a recomptes non adoptes : l'arbitrage
+# du 2026-09-10 les RETIRE (cf. docstring du module pour le raisonnement et le
+# chemin de retour). Ce qui reste ici est exerce par le generateur.
 # ---------------------------------------------------------------------------
 # Regle AJOUTER-AVANT-SUPPRIMER : quand on remplace une slide d'un deck binaire,
 # creer la nouvelle slide AVANT de supprimer l'ancienne — un delete puis add
@@ -908,61 +827,11 @@ def sans_puce(paragraph):
 # le fichier inouvrable dans PowerPoint (HRESULT 0x80CB4404).
 
 
-def _normaliser(texte):
-    return " ".join(str(texte).split()).casefold()
-
-
-def trouver_slide_par_titre(prs, titre):
-    """Retrouve LA slide dont une shape porte exactement `titre` (comparaison
-    normalisee : espaces repliees, casse ignoree) et renvoie (index_0base, slide).
-
-    Pourquoi si strict : les matchers approximatifs ont tous ete pieges sur le
-    deck OHC — proximite de position (a repeint la forme voisine), title_of
-    (a remonte le kicker au-dessus du titre), recherche dans le corps de texte
-    (a matche une slide qui CITAIT le titre cherche). L'egalite stricte sur le
-    texte complet d'une shape + l'assertion d'unicite rendent l'erreur bruyante
-    au lieu de silencieuse.
-
-    Leve ValueError si zero ou plusieurs slides matchent (dans ce cas, resoudre
-    l'ambiguite cote appelant — jamais « prendre la premiere »)."""
-    cible = _normaliser(titre)
-    matches = []
-    for idx, slide in enumerate(prs.slides):
-        for sh in slide.shapes:
-            if not getattr(sh, "has_text_frame", False):
-                continue
-            if _normaliser(sh.text_frame.text) == cible:
-                matches.append((idx, slide))
-                break
-    if len(matches) != 1:
-        detail = ", ".join(f"slide {i + 1}" for i, _ in matches) or "aucune"
-        raise ValueError(
-            f"titre {titre!r} : {len(matches)} slide(s) trouvee(s) ({detail}) — "
-            "1 exigee (assertion d'unicite)")
-    return matches[0]
-
-
-def supprimer_slide(prs, slide):
-    """Suppression SURE d'une slide : retire l'entree de sldIdLst ET lache la
-    relation associee (drop_rel). Sans le drop_rel, la part de slide devient
-    orpheline : python-pptx (parseur tolerant) ne voit rien, mais PowerPoint
-    refuse d'ouvrir le fichier au save suivant (0x80CB4404) — lecon payee 2 fois
-    sur le deck OHC. Le slide_id est capture AVANT de toucher la liste (il se
-    resout via sldIdLst : le lire apres l'avoir videe leve ValueError)."""
-    sid = slide.slide_id
-    sld_id_lst = prs.slides._sldIdLst
-    for sld_id in list(sld_id_lst):
-        if int(sld_id.get("id")) == sid:
-            prs.part.drop_rel(sld_id.get(qn("r:id")))
-            sld_id_lst.remove(sld_id)
-            return
-    raise ValueError(f"slide id={sid} absente de sldIdLst")
-
 
 def clear_slides(prs):
     """Retire TOUTES les slides d'une presentation chargee depuis un template
-    (on ne veut heriter que masters/layouts/theme). Meme exigence de drop_rel
-    que supprimer_slide : vider sldIdLst sans lacher les relations laisse des
+    (on ne veut heriter que masters/layouts/theme). Vider sldIdLst sans lacher
+    les relations laisse des
     parts orphelines que PowerPoint refuse ensuite d'ouvrir (constate via
     l'automation COM alors que les tests croyaient le fichier valide).
     `pptx_export.base._clear_slides` delegue desormais ici (arbitrage
