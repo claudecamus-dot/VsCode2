@@ -185,3 +185,81 @@ def test_un_clic_sur_une_synthese_deja_en_cours_ne_relance_rien(
     assert premier.status_code == 200
     assert second.status_code == 200
     assert lancements == [mission_id]
+
+
+# --------------------------------------------------------------------------- #
+# Course sur l'ACQUITTEMENT d'une erreur — trouvée par la revue adversariale
+# du 2026-09-09 sur le correctif ci-dessus (F2), DANS le correctif lui-même.
+#
+# Avant F2, un clic sur une synthèse en statut `error` commençait par un
+# acquittement INCONDITIONNEL — écriture ORM de `idle`, puis `db.commit()` —
+# AVANT l'UPDATE conditionnel qui prend le jeton. Un tel `commit()` réécrit
+# EN AVEUGLE les colonnes chargées par leur valeur PYTHON locale (aucune
+# clause WHERE, aucun verrou optimiste). Sur un objet chargé par la session B
+# AVANT que la session A n'ait pris le jeton, l'acquittement de B — qui
+# s'exécute APRÈS — écrase le `running` que A vient de poser, avec la valeur
+# périmée `idle`/`error` que B avait en mémoire. Le `WHERE generation_status
+# != "running"` de B, exécuté juste après, relit alors ce `idle` qu'il vient
+# lui-même de poser et prend AUSSI le jeton : deux jobs lancés sur la même
+# mission, chacun croyant être seul.
+#
+# Même technique d'entrelacement déterministe que la course de lancement
+# ci-dessus, avec un point de suspension différent : la requête 1 est
+# suspendue APRÈS avoir chargé `global_synthesis` en statut `error` (donc
+# avant tout acquittement), le temps qu'une requête 2 complète parte,
+# acquitte, prenne le jeton et committe ; la requête 1 reprend alors sur son
+# objet PÉRIMÉ et tente son propre acquittement.
+#
+# Échec sur le code d'avant F2 : deux `background_tasks.add_task(
+# run_global_synthesis_job, ...)`.
+# --------------------------------------------------------------------------- #
+def test_l_acquittement_d_une_erreur_n_ecrase_pas_un_lancement_concurrent(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `_creer_mission` (ci-dessus dans ce fichier) crée DÉJÀ la ligne
+    # `GlobalSynthesis` — sa propre docstring l'explique : c'est pour mettre
+    # la course de CRÉATION hors du chemin et isoler celle de
+    # `generation_status`. On la met donc à jour, on n'en insère pas une
+    # seconde (heurterait `uq_global_synthesis_mission`).
+    mission_id = _creer_mission("Mission acquittement concurrent")
+    with SessionLocal() as db:
+        mission = db.get(Mission, mission_id)
+        mission.global_synthesis.generation_status = "error"
+        mission.global_synthesis.generation_error = "échec précédent"
+        db.commit()
+
+    lancements: list[int] = []
+    monkeypatch.setattr(synthese_router, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        synthese_router, "run_global_synthesis_job", lambda mid: lancements.append(mid)
+    )
+
+    concurrent_lance = [False]
+
+    def _avec_concurrent(material_by_theme):
+        # Appelé APRÈS le chargement de `global_synthesis` (statut `error`
+        # encore en mémoire côté requête 1), AVANT tout acquittement — c'est
+        # le point d'entrelacement.
+        if not concurrent_lance[0]:
+            concurrent_lance[0] = True
+            concurrent = TestClient(app)
+            reponse = concurrent.post(f"/missions/{mission_id}/synthese/globale/generate")
+            assert reponse.status_code == 200, reponse.text
+        return 1
+
+    monkeypatch.setattr(synthese_router, "_total_answer_count", _avec_concurrent)
+
+    reponse = client.post(f"/missions/{mission_id}/synthese/globale/generate")
+
+    assert reponse.status_code == 200, reponse.text
+    assert concurrent_lance[0], "le concurrent n'a jamais été déclenché"
+    assert lancements == [mission_id], (
+        "double lancement : l'acquittement de la perdante a écrasé le "
+        "'running' de la gagnante avec sa propre valeur périmée"
+    )
+
+    with SessionLocal() as db:
+        mission = db.get(Mission, mission_id)
+        assert mission.global_synthesis.generation_status == "running", (
+            "le perdant de la course doit rendre l'etat reel, pas 'idle'/'error'"
+        )

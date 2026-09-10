@@ -1380,3 +1380,56 @@ def test_la_sauvegarde_refuse_un_identifiant_de_mission_impossible() -> None:
             f"mission_id={mission_id} : un fichier a été écrit malgré le refus "
             f"({apres - avant})"
         )
+
+
+# --------------------------------------------------------------------------- #
+# Deux horloges, pas une (2026-09-09) : `created_at` vient de l'horloge système
+# à la microseconde, `st_mtime` du système de fichiers, dont la granularité est
+# bien plus grossière. Mesuré sur ce poste, 200 itérations « créer la mission
+# puis écrire son fichier » : 24 fois sur 200 le fichier paraît ANTÉRIEUR à la
+# mission qu'il vient de suivre (jusqu'à 8 ms). Sans marge, ces 12 % font
+# disparaître un audio fraîchement enregistré de l'onglet Backup de sa propre
+# mission — et l'affichent dans les orphelins globaux, où l'écran invite à le
+# supprimer.
+#
+# Le cas est forcé ici de façon DÉTERMINISTE (`os.utime` recule le fichier de
+# quelques millisecondes), là où la vraie occurrence est probabiliste : un test
+# qui se contenterait d'écrire puis de mesurer serait vert 88 fois sur 100.
+# --------------------------------------------------------------------------- #
+def _reculer_de(nom: str, secondes: float) -> str:
+    chemin = RECORDINGS_DIR / nom
+    st = chemin.stat()
+    os.utime(chemin, (st.st_atime, st.st_mtime - secondes))
+    return nom
+
+
+def test_un_fichier_de_quelques_ms_avant_sa_mission_lui_appartient_quand_meme():
+    """La jitter entre les deux horloges ne doit pas coûter la propriété du
+    fichier. Échec sur le code d'avant : comparaison `mtime < creation` nue,
+    donc fichier déclaré étranger à sa propre mission."""
+    mid, _ = _mission_avec_entretien("Mission jitter", [_ecrire("_c1_jitter.webm")])
+    fichier = _reculer_de(_ecrire(f"{mid}_9999_jitter.webm"), 0.05)
+
+    with SessionLocal() as db:
+        mission = db.get(Mission, mid)
+        assert mission_backups.appartient_a_mission(
+            fichier, mid, mission, RECORDINGS_DIR
+        ), "50 ms d'écart d'horloge ont suffi à dépouiller la mission de son audio"
+        noms = [e["filename"] for e in _globaux(db)]
+    assert fichier not in noms, (
+        "le fichier est aussi devenu un orphelin global : l'écran invite à "
+        "supprimer un audio qui appartient à une mission vivante"
+    )
+
+
+def test_un_fichier_nettement_anterieur_reste_etranger_a_la_mission():
+    """Contre-épreuve : la marge ne doit pas désarmer la garde anti-réutilisation
+    d'id, qui protège un scénario à l'échelle de la minute ou de l'heure."""
+    mid, _ = _mission_avec_entretien("Mission garde intacte", [_ecrire("_c1_garde.webm")])
+    ancien = _vieillir(_ecrire(f"{mid}_9999_ancien.webm"), 86400)
+
+    with SessionLocal() as db:
+        mission = db.get(Mission, mid)
+        assert not mission_backups.appartient_a_mission(
+            ancien, mid, mission, RECORDINGS_DIR
+        ), "un fichier d'un jour plus vieux que la mission n'est pas à elle"

@@ -16,6 +16,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -32,18 +34,79 @@ SWOT_FIELDS = ("forces", "faiblesses", "opportunites", "menaces")
 EXEC_SUMMARY_FIELDS = ("headline", "points", "key_message")
 
 
+def _get_or_create_1_1[T](db: Session, mission: Mission, attr: str, modele: type[T]) -> T:
+    """« Get or create » pour une relation 1-1 (`mission_id` UNIQUE, même forme
+    sur les trois modèles de synthèse) — factorisé, les trois partageaient le
+    même défaut.
+
+    Course trouvée hors périmètre par l'audit-technique robustesse du
+    2026-09-09 : deux requêtes concurrentes sur une mission SANS ligne
+    lisaient toutes deux `getattr(mission, attr) is None`, créaient chacune la
+    leur, et la seconde à committer heurtait la contrainte d'unicité en 500
+    brut plutôt qu'en dégradation propre.
+
+    INSERT ... ON CONFLICT DO NOTHING (upsert natif SQLite), PAS un
+    `db.add()` + `IntegrityError` sous SAVEPOINT — première forme essayée
+    (2026-09-09), écartée par la MÊME revue qui a trouvé la course (F3) :
+    `Session.begin_nested()` n'isole un INSERT que si une transaction
+    pysqlite est DÉJÀ ouverte ; sur la toute première écriture d'une session,
+    il committait directement (mesuré). Le rendre sûr en toute circonstance
+    aurait exigé de désactiver la gestion de transaction implicite de
+    pysqlite (`isolation_level=None` + `BEGIN` explicite sur CHAQUE session
+    de l'app, cf. `app/db.py`) — changement mesuré comme DANGEREUX : sous ce
+    réglage, une session qui ne fait QUE LIRE garde une transaction ouverte
+    jusqu'à son `commit()` explicite (l'app en a beaucoup, aucune ne commite
+    ses lectures), ce qui a fait échouer par `database is locked` un test de
+    course PRÉEXISTANT et sans rapport (`test_synthese_globale_concurrence.py`)
+    — un effet de bord app-entière pour corriger un seul helper.
+
+    L'upsert, lui, ne touche à rien d'autre : SQLite résout le conflit
+    lui-même, en une seule instruction, sans jamais lever d'exception pour le
+    cas courant (`ON CONFLICT DO NOTHING` = 0 ligne affectée, pas d'erreur) —
+    et donc rien à catch, rien qui suppose que l'`IntegrityError` était
+    forcément la course d'unicité (l'écueil que la même revue, F4, avait
+    trouvé dans la version SAVEPOINT). Une vraie violation d'intégrité
+    ailleurs (FK sur une mission supprimée entre-temps) continue de lever
+    normalement, à l'INSERT lui-même — comportement inchangé par rapport à
+    l'ancien `db.add()` nu.
+
+    **Cette fonction COMMITE** (contrat changé le 2026-09-09, dit ici parce
+    qu'il ne se devine pas) : l'INSERT doit être visible des autres sessions
+    pour que la course se résolve, et le verrou d'écriture SQLite doit être
+    relâché tout de suite plutôt que tenu jusqu'à la fin du handler appelant.
+    Conséquences à connaître avant d'ajouter un appelant : un `db.rollback()`
+    postérieur ne défait plus la création de la ligne, et trois routes GET
+    écrivent donc durablement (dont le poll `…/synthese/globale/status`, dont
+    la docstring dit « jamais de mutation ici » — elle parlait du statut de
+    génération, pas de la ligne elle-même). Les 10 sites d'appel actuels
+    appellent tous ce helper juste après `_get_mission`, sans écriture en
+    attente : aucun ne voit donc un travail incomplet committé à sa place
+    (vérifié un par un, revue du 2026-09-09).
+    """
+    existant = getattr(mission, attr)
+    if existant is not None:
+        return existant
+    table = sa_inspect(modele).local_table
+    db.execute(
+        sqlite_insert(table)
+        .values(mission_id=mission.id)
+        .on_conflict_do_nothing(index_elements=["mission_id"])
+    )
+    db.commit()
+    # Que ce soit NOTRE insertion ou celle d'un concurrent qui a gagné la
+    # course, la ligne existe désormais en base — `expire` force la relecture
+    # (l'identity map la fait remonter sans requête si un autre objet de
+    # cette identité y est déjà chargé, sinon un SELECT la ramène).
+    db.expire(mission, [attr])
+    return getattr(mission, attr)
+
+
 def get_or_create_global_synthesis(db: Session, mission: Mission) -> GlobalSynthesis:
-    if mission.global_synthesis is None:
-        mission.global_synthesis = GlobalSynthesis(mission_id=mission.id)
-        db.add(mission.global_synthesis)
-    return mission.global_synthesis
+    return _get_or_create_1_1(db, mission, "global_synthesis", GlobalSynthesis)
 
 
 def get_or_create_swot(db: Session, mission: Mission) -> MissionSwot:
-    if mission.swot is None:
-        mission.swot = MissionSwot(mission_id=mission.id)
-        db.add(mission.swot)
-    return mission.swot
+    return _get_or_create_1_1(db, mission, "swot", MissionSwot)
 
 
 def apply_swot_result(swot: MissionSwot, result: dict) -> None:
@@ -56,10 +119,7 @@ def apply_swot_result(swot: MissionSwot, result: dict) -> None:
 def get_or_create_executive_summary(
     db: Session, mission: Mission
 ) -> MissionExecutiveSummary:
-    if mission.executive_summary is None:
-        mission.executive_summary = MissionExecutiveSummary(mission_id=mission.id)
-        db.add(mission.executive_summary)
-    return mission.executive_summary
+    return _get_or_create_1_1(db, mission, "executive_summary", MissionExecutiveSummary)
 
 
 def apply_executive_summary_result(

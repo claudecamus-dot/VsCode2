@@ -174,6 +174,31 @@ def _global_panel_context(
     }
 
 
+def _acquitter_erreur(db: Session, global_synthesis: GlobalSynthesis) -> None:
+    """Efface un statut `error` affiché en le ramenant à `idle` — SEULEMENT
+    dans les branches de `generate_global` qui ne relancent PAS de génération
+    (l'UPDATE de lancement, lui, accepte déjà `error` comme état de départ et
+    n'a pas besoin de cet acquittement).
+
+    UPDATE conditionnel (`WHERE … generation_status == "error"`), jamais une
+    écriture ORM inconditionnelle : c'est cette dernière qui, avant le
+    2026-09-09, écrasait en aveugle un `running` posé entre-temps par une
+    autre requête (revue adversariale F2 — deux sessions parties d'`error`
+    relançaient chacune un map-reduce). `db.refresh` après coup, que la ligne
+    ait matché ou non : le panneau de CETTE réponse doit montrer l'état
+    RÉEL — le sien s'il a gagné, celui d'un concurrent sinon."""
+    db.execute(
+        update(GlobalSynthesis)
+        .where(
+            GlobalSynthesis.id == global_synthesis.id,
+            GlobalSynthesis.generation_status == "error",
+        )
+        .values(generation_status="idle", generation_error=None)
+    )
+    db.commit()
+    db.refresh(global_synthesis)
+
+
 @router.post("/missions/{mission_id}/synthese/globale/generate")
 def generate_global(
     mission_id: int,
@@ -197,18 +222,6 @@ def generate_global(
     global_synthesis = get_or_create_global_synthesis(db, mission)
 
     error = None
-    if global_synthesis.generation_status == "error":
-        # L'erreur reste collée à l'écran (visible au chargement passif de la
-        # page, cf. global_synthese_view) tant qu'aucun clic ne la consomme —
-        # elle n'a donc plus besoin d'être réaffichée ICI : un clic sur ce
-        # bouton VAUT acquittement, il efface le statut d'erreur ET enchaîne
-        # sur la décision de lancement ci-dessous (revue adversariale
-        # 2026-09-07 : avant ce correctif, un premier clic après échec ne
-        # faisait qu'effacer l'erreur SANS relancer, obligeant un second clic).
-        global_synthesis.generation_status = "idle"
-        global_synthesis.generation_error = None
-        db.commit()
-
     if global_synthesis.generation_status == "running":
         pass  # confort d'affichage : rien à relancer, le panneau montre l'état.
     elif not is_configured():
@@ -216,8 +229,12 @@ def generate_global(
             "Service IA indisponible — utilisez l'export pour lancer une "
             "analyse externe, puis importez le résultat."
         )
+        if global_synthesis.generation_status == "error":
+            _acquitter_erreur(db, global_synthesis)
     elif _total_answer_count(material_by_theme) == 0 and not material_libre:
         error = "Aucune réponse saisie sur la mission — rien à synthétiser."
+        if global_synthesis.generation_status == "error":
+            _acquitter_erreur(db, global_synthesis)
     else:
         # Prise de jeton ATOMIQUE, en base (audit-technique robustesse du
         # 2026-09-09) : le lire-puis-écrire Python d'avant était un TOCTOU —
@@ -234,13 +251,28 @@ def generate_global(
         # il ne survivrait pas à un second processus, et le dépôt n'en a
         # aucun de ce genre (seul `audio_transcribe._MODEL_LOCK` existe, et il
         # protège un modèle en RAM, pas un état persistant).
-        # Flush AVANT de composer le WHERE : sur une mission qui n'a pas encore
-        # de ligne, `get_or_create_global_synthesis` se contente d'un `db.add()`
-        # et l'id vaut encore None — la clause serait construite en `id IS NULL`,
-        # ne matcherait rien, et PLUS AUCUNE première génération ne démarrerait
-        # (attrapé par `test_mission_trame_flow.py::test_global_synthesis_
-        # generate_and_autosave` avant commit).
-        db.flush()
+        #
+        # PAS d'acquittement séparé ici (retiré le 2026-09-09, revue
+        # adversariale F2) : l'UPDATE ci-dessous accepte déjà `error` comme
+        # état de départ (`!= "running"`) et pose `generation_error=None` dans
+        # le même geste atomique. L'ancien acquittement — écriture ORM
+        # INCONDITIONNELLE de `idle` puis `commit()`, AVANT cet UPDATE —
+        # défaisait la garde qu'il précédait : sur un objet chargé avant le
+        # commit d'un concurrent, ce `commit()` réécrit EN AVEUGLE les deux
+        # colonnes par leur valeur PYTHON locale (aucune clause WHERE, aucun
+        # verrou optimiste), écrasant un `running` déjà posé par l'autre
+        # requête — qui relisait alors `idle` et relançait à son tour un
+        # second map-reduce. Reproduit le 2026-09-09 : deux sessions parties
+        # de `error`, `rowcount == 1` des DEUX côtés.
+        #
+        # `global_synthesis.id` est déjà garanti non-`None` ici : sur la toute
+        # première ligne d'une mission, `get_or_create_global_synthesis`
+        # flushe lui-même son propre INSERT (dans un SAVEPOINT, cf.
+        # `synthese_ecriture._get_or_create_1_1`) avant de rendre l'objet —
+        # un `db.flush()` supplémentaire n'aurait donc plus rien à faire ici
+        # (retiré le 2026-09-09 ; il défendait avant ce refactor contre un
+        # `id IS NULL` qui ne matchait rien et empêchait toute première
+        # génération de démarrer, cf. historique de ce fichier).
         pris = db.execute(
             update(GlobalSynthesis)
             .where(
@@ -251,9 +283,11 @@ def generate_global(
         ).rowcount
         db.commit()
         # `expire_on_commit=False` (cf. `db.SessionLocal`) : l'UPDATE Core ne
-        # rafraîchit pas forcément l'objet déjà chargé, et c'est LUI que le
-        # gabarit rend. Sans ce refresh, le panneau du perdant afficherait
-        # encore « idle » alors qu'une génération tourne.
+        # rafraîchit pas l'objet déjà chargé, et c'est LUI que le gabarit
+        # rend. Sans ce refresh, le panneau du perdant afficherait encore
+        # `idle`/`error` alors qu'une génération tourne — c'est aussi ce qui
+        # rend visible, pour la requête perdante, un `running` posé entre-
+        # temps par la gagnante (pas seulement le sien).
         db.refresh(global_synthesis)
         if pris:
             background_tasks.add_task(run_global_synthesis_job, mission.id)

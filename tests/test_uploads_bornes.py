@@ -16,6 +16,7 @@ donc 200 et dépaquetage, jamais de refus.
 from __future__ import annotations
 
 import io
+import struct
 import zipfile
 from pathlib import Path
 
@@ -23,6 +24,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from app import uploads
 from app.db import DB_PATH, SessionLocal, engine, init_db
 from app.main import app
 from app.models import Interview
@@ -30,7 +32,6 @@ from app.services import audio_transcribe
 from app.uploads import (
     MAX_AUDIO_UPLOAD_BYTES,
     MAX_UPLOAD_BYTES,
-    MAX_ZIP_ENTREES,
     UploadTropVolumineux,
     verifier_zip_borne,
 )
@@ -186,7 +187,6 @@ def test_le_plafond_d_entrees_laisse_passer_les_vrais_documents() -> None:
     for chemin in reels:
         assert chemin.exists(), f"document de référence absent : {chemin}"
         verifier_zip_borne(chemin.read_bytes())  # ne lève pas
-    assert MAX_ZIP_ENTREES >= 4000
 
 
 def test_archive_corrompue_n_est_pas_un_probleme_de_taille() -> None:
@@ -361,10 +361,129 @@ def test_notes_audio_trop_grosses_refusees_avant_de_tout_charger_en_ram(
 
 def test_le_plafond_audio_par_defaut_laisse_passer_un_enregistrement_reel() -> None:
     """Garde-fou sur la garde. Mesuré le 2026-09-09 sur les enregistrements du
-    poste : MediaRecorder produit 15,7 Ko/s (18,43 Mo pour 1200,0 s). Le
-    plafond doit donc rester très au-dessus de la plus grosse tranche de
-    sauvegarde réelle (20 min = 18,43 Mo), sans quoi une dictée un peu longue
-    serait refusée — et il doit rester distinct de celui des documents, qui
-    n'a aucune raison de bouger avec l'audio."""
-    assert MAX_AUDIO_UPLOAD_BYTES >= 50 * 1024 * 1024
-    assert MAX_AUDIO_UPLOAD_BYTES > MAX_UPLOAD_BYTES
+    poste : MediaRecorder produit 15,72 Ko/s (18,43 Mio pour 1200,0 s,
+    27,64 Mio pour 1799,9 s — deux fichiers, même débit, reconfirmé par une
+    revue indépendante). Le plafond doit donc rester très au-dessus de la
+    plus grosse tranche de sauvegarde réelle mesurée (20 min ≈ 18,43 Mio),
+    sans quoi une dictée un peu longue serait refusée.
+
+    Contre l'artefact mesuré, pas contre `MAX_UPLOAD_BYTES` (revue
+    adversariale du 2026-09-09, F10) : les deux plafonds viennent chacun
+    de l'environnement, monter `MAX_UPLOAD_MB` — geste opérationnel que le
+    module invite lui-même à faire — rougirait ce test sans rien changer à
+    la validité du plafond audio."""
+    plus_gros_artefact_mesure = 27.64 * 1024 * 1024  # 1799,9 s d'enregistrement
+    assert MAX_AUDIO_UPLOAD_BYTES >= plus_gros_artefact_mesure * 3
+
+
+def test_les_deux_plafonds_par_defaut_restent_distincts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """L'invariant que le module énonce — l'audio est plafonné PLUS HAUT que
+    les documents — porté sur les DÉFAUTS et non sur les valeurs courantes
+    (second passage de revue, m9) : l'assertion d'origine
+    (`MAX_AUDIO_UPLOAD_BYTES > MAX_UPLOAD_BYTES`) couplait deux réglages
+    indépendants, celle-ci ne couple rien mais garde l'inversion sous
+    surveillance."""
+    monkeypatch.delenv("MAX_UPLOAD_MB", raising=False)
+    monkeypatch.delenv("MAX_AUDIO_UPLOAD_MB", raising=False)
+    assert uploads._mo_env("MAX_AUDIO_UPLOAD_MB", 100) > uploads._mo_env("MAX_UPLOAD_MB", 40)
+
+
+# --------------------------------------------------------------------------- #
+# Le compte d'entrées ne protège que s'il ne peut pas MENTIR — les deux formes
+# de mensonge trouvées par les revues adversariales du 2026-09-09.
+# --------------------------------------------------------------------------- #
+def _mentir_sur_le_compte(archive: bytes, compte: int = 1) -> bytes:
+    """Falsifie le seul compte déclaré de la fin d'archive 32 bits, en
+    laissant `size_cd` intact — l'archive reste parfaitement lisible."""
+    data = bytearray(archive)
+    position = data.rfind(b"PK\x05\x06")
+    struct.pack_into("<H", data, position + 10, compte)
+    return bytes(data)
+
+
+def _fantome_zip64(archive: bytes) -> bytes:
+    """Archive à fin d'archive DOUBLE : un locator + enregistrement zip64
+    VALIDES portant les vraies (grosses) valeurs, suivis d'une fin d'archive
+    32 bits qui MENT sans afficher de sentinelle. `zipfile._EndRecData64` suit
+    le locator dès qu'il est présent — sans regarder les sentinelles — donc
+    `zipfile` lit le vrai répertoire central pendant qu'une garde naïve, elle,
+    ne lirait que le mensonge 32 bits."""
+    position = archive.rfind(b"PK\x05\x06")
+    taille_cd, offset_cd, compte = struct.unpack_from("<IIH", archive, position + 12)
+    prefixe = archive[:position]
+    eocd64 = struct.pack(
+        "<4sQ2H2L4Q", b"PK\x06\x06", 44, 45, 45, 0, 0, compte, compte, taille_cd, offset_cd,
+    )
+    locator = struct.pack("<4sLQL", b"PK\x06\x07", 0, len(prefixe), 1)
+    eocd32_menteur = struct.pack("<4s4H2LH", b"PK\x05\x06", 0, 0, 1, 1, 46, offset_cd, 0)
+    return prefixe + eocd64 + locator + eocd32_menteur
+
+
+def test_le_compte_declare_falsifie_ne_fait_pas_passer_l_archive() -> None:
+    """Première forme (revue du 2026-09-09, F1) : 4 octets réécrits dans la
+    fin d'archive font passer 20 000 entrées pour 1. `size_cd` reste intact —
+    c'est LUI que `zipfile._RealGetContents` consomme, et c'est donc lui que
+    la garde doit lire.
+
+    Échec sur le code d'avant : refus prononcé sur le seul compte déclaré,
+    donc archive ACCEPTÉE puis indexée en entier (mesuré : 0,78 s)."""
+    menteuse = _mentir_sur_le_compte(_zip_innombrable())
+    # L'archive falsifiée reste lisible : c'est ce qui rend l'attaque utile.
+    with zipfile.ZipFile(io.BytesIO(menteuse)) as archive:
+        assert len(archive.infolist()) == 20_000
+    with pytest.raises(UploadTropVolumineux):
+        verifier_zip_borne(menteuse)
+
+
+def test_le_fantome_zip64_ne_fait_pas_passer_l_archive() -> None:
+    """Seconde forme (second passage de revue, B4) : la garde ne consultait le
+    zip64 que sur SENTINELLE (`0xFFFF`), alors que `zipfile` le suit dès qu'un
+    locator valide précède la fin d'archive. Une archive portant un vrai zip64
+    + une fin 32 bits menteuse SANS sentinelle rouvrait donc entièrement le
+    contournement que la garde venait de fermer.
+
+    Échec sur le code d'avant ce correctif : `_bornes_repertoire_central`
+    rendait `(1, 46)` sur cette archive, donc ACCEPTÉE, pendant que `zipfile`
+    y indexait 20 000 entrées."""
+    fantome = _fantome_zip64(_zip_innombrable())
+    with zipfile.ZipFile(io.BytesIO(fantome)) as archive:
+        assert len(archive.infolist()) == 20_000, "la forgerie doit rester lisible"
+    with pytest.raises(UploadTropVolumineux):
+        verifier_zip_borne(fantome)
+
+
+def test_une_vraie_archive_zip64_est_bornee_comme_les_autres() -> None:
+    """Contre-épreuve sur du zip64 LÉGITIME (au-delà des 65 535 entrées que
+    le format 32 bits peut compter) : la garde doit le borner par le même
+    plafond, sans dépendre d'une falsification."""
+    tampon = io.BytesIO()
+    with zipfile.ZipFile(tampon, "w", zipfile.ZIP_STORED, allowZip64=True) as archive:
+        for i in range(70_000):
+            archive.writestr(str(i), b"")
+    with pytest.raises(UploadTropVolumineux):
+        verifier_zip_borne(tampon.getvalue())
+
+
+# --------------------------------------------------------------------------- #
+# Surcharge d'environnement du plafond d'entrées (F9) — jamais exercée jusqu'ici
+# (second passage de revue, m10) : remplacer le corps de `_entier_env` par
+# `return defaut` ne rougissait rien.
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    ("valeur", "attendu"),
+    [("1200", 1200), ("pas-un-entier", 4000), ("0", 4000), ("-5", 4000), (None, 4000)],
+    ids=["valeur-valide", "illisible", "zero", "negatif", "absente"],
+)
+def test_le_plafond_d_entrees_se_surcharge_sans_pouvoir_etre_desactive(
+    monkeypatch: pytest.MonkeyPatch, valeur: str | None, attendu: int,
+) -> None:
+    """Une valeur illisible ou absurde ne doit pas DÉSACTIVER la garde : elle
+    retombe sur le défaut, jamais sur 0 (qui refuserait tout) ni sur
+    « pas de plafond »."""
+    if valeur is None:
+        monkeypatch.delenv("MAX_ZIP_ENTREES", raising=False)
+    else:
+        monkeypatch.setenv("MAX_ZIP_ENTREES", valeur)
+    assert uploads._entier_env("MAX_ZIP_ENTREES", 4000) == attendu

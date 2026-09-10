@@ -248,6 +248,14 @@ def _epoch_creation(mission) -> float:
         return 0.0
 
 
+# Écart toléré entre l'horodatage d'une mission (horloge système, µs) et le
+# `mtime` de ses fichiers (système de fichiers, granularité ~15 ms sur NTFS) —
+# cf. `_anterieur_a_la_mission`. 2 s : trois ordres de grandeur au-dessus de la
+# jitter mesurée (8 ms), trois ordres de grandeur en dessous du scénario que la
+# garde protège (une mission supprimée puis une autre créée).
+_MARGE_HORLOGE_S = 2.0
+
+
 def _anterieur_a_la_mission(chemin: Path, mission) -> bool:
     """Le fichier existait AVANT la mission — il ne peut donc pas être à elle.
 
@@ -263,12 +271,27 @@ def _anterieur_a_la_mission(chemin: Path, mission) -> bool:
     forcément avant. Une horloge système reculée entre les deux fausserait la
     comparaison ; le fichier est alors traité comme étranger, donc invisible et
     non supprimable depuis cette mission — on préfère ne pas montrer un fichier
-    à sa mission que montrer celui d'une autre."""
+    à sa mission que montrer celui d'une autre.
+
+    `_MARGE_HORLOGE_S` : les deux dates ne viennent PAS de la même horloge.
+    `created_at` est un `datetime.now(UTC)` à la microseconde, `st_mtime` vient
+    du système de fichiers, dont la granularité est bien plus grossière
+    (~15 ms sur NTFS avec la résolution de minuterie Windows par défaut).
+    Mesuré le 2026-09-09 sur ce poste, 200 itérations « créer la mission puis
+    écrire son fichier » : **24 fois sur 200 le fichier paraît ANTÉRIEUR à la
+    mission qu'il vient de suivre**, jusqu'à 8 ms d'écart négatif. Sans marge,
+    ces 12 % font disparaître un audio fraîchement enregistré de l'onglet
+    Backup de sa propre mission — et le font apparaître dans les orphelins
+    globaux, où l'utilisateur est invité à le supprimer. La marge ne coûte
+    rien à la garde : le scénario qu'elle protège (un id rendu par SQLite puis
+    réattribué) suppose une mission supprimée puis une autre créée, soit des
+    secondes au minimum et des heures en pratique — jamais quelques
+    millisecondes."""
     creation = _epoch_creation(mission)
     if not creation:
         return False
     _, mtime = _stat(chemin)
-    return bool(mtime) and mtime < creation
+    return bool(mtime) and mtime < creation - _MARGE_HORLOGE_S
 
 
 def appartient_a_mission(

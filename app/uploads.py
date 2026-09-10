@@ -30,12 +30,25 @@ Trois gardes distinctes, parce que les dégâts sont distincts :
    mentir. Le plafond de l'étape 1 borne alors le mensonge à ce qui a pu
    physiquement entrer.
 
-3. `_entrees_declarees` — plafonne le NOMBRE d'entrées. Une archive peut
-   n'afficher aucun ratio suspect, ne déclarer aucun octet décompressé, et
-   coûter quand même : 200 000 entrées vides passaient les deux gardes
+3. `_bornes_repertoire_central` — plafonne le NOMBRE d'entrées. Une archive
+   peut n'afficher aucun ratio suspect, ne déclarer aucun octet décompressé,
+   et coûter quand même : 200 000 entrées vides passaient les deux gardes
    ci-dessus (mesuré le 2026-09-09). Le compte se lit dans la fin
    d'archive, avant que `zipfile.ZipFile` ne construise son index — sinon
    la garde paie ce qu'elle évite.
+
+   Contournement trouvé et fermé le 2026-09-09 (revue adversariale, F1) : le
+   champ « nombre d'entrées » de la fin d'archive est déclaratif — CPython
+   `zipfile._RealGetContents` ne le lit JAMAIS pour borner sa boucle, il lit
+   les enregistrements du répertoire central un par un jusqu'à avoir
+   consommé `size_cd` (la TAILLE du répertoire central, un champ voisin,
+   4 octets). Falsifier les 4 octets du compte déclaré (sans toucher
+   `size_cd`) faisait donc passer une archive à 20 000 entrées réelles pour
+   une archive « à 1 entrée » — acceptée en 0,78 s, puis indexée en entier
+   quand même. La borne porte donc sur `size_cd // 46` (un enregistrement de
+   répertoire central fait au moins 46 octets), qui ne peut pas mentir à la
+   baisse sans rendre l'archive illisible — le compte déclaré reste vérifié
+   en plus, pour un message d'erreur plus clair sur une archive honnête.
 """
 from __future__ import annotations
 
@@ -58,6 +71,16 @@ def _mo_env(nom: str, defaut: int) -> int:
     if valeur <= 0:
         return defaut * 1024 * 1024
     return valeur * 1024 * 1024
+
+
+def _entier_env(nom: str, defaut: int) -> int:
+    """Même contrat que `_mo_env`, pour un plafond qui n'est pas une taille en
+    octets (un compte d'entrées) — pas de facteur Mo."""
+    try:
+        valeur = int(os.environ.get(nom, ""))
+    except ValueError:
+        return defaut
+    return valeur if valeur > 0 else defaut
 
 
 # Document bureautique importé (.docx d'entretien ou de trame, .pptx de
@@ -83,8 +106,11 @@ RATIO_MAX = 120
 # mémoire à la seule lecture du répertoire central (mesuré le 2026-09-09 sur le
 # venv du projet). Calibré sur le réel : le plus gros document du dépôt,
 # `data/pptx_templates/1.pptx` (template client), en compte 416 — 4000 laisse
-# un facteur 10 au cas légitime.
-MAX_ZIP_ENTREES = 4000
+# un facteur 10 au cas légitime. Surchargeable par l'environnement (comme les
+# plafonds en octets ci-dessus) depuis le 2026-09-09 : un poste qui rencontre
+# légitimement plus de 416 entrées n'avait sinon aucune issue sans modifier le
+# code (revue adversariale, F9).
+MAX_ZIP_ENTREES = _entier_env("MAX_ZIP_ENTREES", 4000)
 
 # Audio matérialisé en RAM (finding audit-technique securite du 2026-09-09 :
 # `/audio/transcribe-segment` et `/interviews/{id}/notes/transcribe` faisaient
@@ -161,41 +187,89 @@ async def lire_upload_audio_borne(file: UploadFile) -> bytes:
     return await lire_upload_borne(file, MAX_AUDIO_UPLOAD_BYTES)
 
 
-# Signatures de fin d'archive (« end of central directory »). Les lire nous-mêmes
-# est le seul moyen de connaître le nombre d'entrées SANS le payer :
-# `zipfile.ZipFile(...)` construit tout l'index dans son constructeur, donc un
-# refus prononcé après lui aurait déjà brûlé le CPU et la mémoire qu'il
-# prétend épargner.
+# Signature de fin d'archive 32 bits (« end of central directory »). La lire
+# nous-mêmes est le seul moyen de connaître le nombre d'entrées SANS le
+# payer : `zipfile.ZipFile(...)` construit tout l'index dans son
+# constructeur, donc un refus prononcé après lui aurait déjà brûlé le CPU et
+# la mémoire qu'il prétend épargner. Les constantes zip64
+# (`zipfile.stringEndArchive64*`, `zipfile.structEndArchive64*`) sont prises
+# directement au module `zipfile` plutôt que redéfinies ici : si CPython
+# change un jour ce format, cette garde suit sans qu'on ait à y repenser.
 _SIG_FIN = b"PK\x05\x06"
-_SIG_FIN64 = b"PK\x06\x06"
 # 22 octets d'enregistrement + le commentaire d'archive, borné à 65 535 par le
-# format : au-delà, la fin d'archive n'est pas là.
+# format : au-delà, la fin d'archive n'est pas là. Fenêtre de RECHERCHE
+# seulement (une optimisation pour éviter un `rfind` sur tout le fichier) —
+# une fois la position trouvée, tout le reste travaille en offsets ABSOLUS
+# dans `content`, y compris pour remonter à un enregistrement zip64 qui peut
+# se trouver bien plus loin en arrière dans un gros fichier.
 _ZONE_FIN = 22 + 65535
+# Taille minimale d'un enregistrement de répertoire central (partie fixe,
+# 46 octets — nom/extra/commentaire peuvent être vides) : c'est ce plancher,
+# pas le compte déclaré, qui borne le nombre d'entrées que `zipfile` peut
+# RÉELLEMENT indexer pour une taille de répertoire central donnée.
+_TAILLE_MIN_ENREGISTREMENT_CD = 46
 
 
-def _entrees_declarees(content: bytes) -> int | None:
-    """Nombre d'entrées annoncé par la fin d'archive, ou `None` si elle est
-    introuvable (fichier corrompu — laissé à `zipfile`, qui lèvera son
-    `BadZipFile` habituel, cas déjà traité par les routes).
+def _bornes_repertoire_central(content: bytes) -> tuple[int | None, int | None]:
+    """`(entrees_declarees, taille_repertoire_central)` — le PLUS GRAND des
+    deux jeux de valeurs que l'archive porte (fin d'archive 32 bits et,
+    quand présente, fin d'archive zip64), ou `(None, None)` si la fin
+    d'archive 32 bits est introuvable (fichier corrompu — laissé à
+    `zipfile`, qui lèvera son `BadZipFile` habituel, cas déjà traité par les
+    routes).
 
-    Déclaratif comme le reste du répertoire central, même limite assumée que
-    ci-dessus : une archive peut mentir. Elle ne peut en revanche pas mentir
-    à la BAISSE sans se rendre illisible, et c'est le sens du contrôle.
+    Les champs sont déclaratifs — une archive peut mentir. Mais PAS de la
+    même façon : `entrees_declarees` (le compte) n'est JAMAIS lu par
+    `zipfile._RealGetContents`, qui boucle uniquement sur
+    `taille_repertoire_central` (« tant que je n'ai pas consommé size_cd
+    octets ») — le compte peut donc mentir à la baisse sans que l'archive
+    devienne illisible (trouvé le 2026-09-09 : 4 octets falsifiés, une
+    archive à 20 000 entrées réelles se présentant comme n'en ayant qu'une,
+    indexée quand même). `taille_repertoire_central`, elle, ne peut PAS
+    mentir à la baisse sans rendre l'archive illisible — c'est elle qui borne
+    le coût réel.
+
+    Le zip64 est consulté INCONDITIONNELLEMENT dès qu'un locator valide
+    précède la fin d'archive 32 bits — PAS seulement sur sentinelle
+    (`0xFFFF`/`0xFFFFFFFF`) dans les champs 32 bits. Une première version de
+    cette garde ne le faisait que sur sentinelle et rouvrait entièrement le
+    contournement qu'elle existe pour fermer (revue adversariale du
+    2026-09-09, second passage) : `zipfile._EndRecData64` — la fonction que
+    `ZipFile()` appelle réellement — suit le locator dès qu'il est présent,
+    sans regarder si l'enregistrement 32 bits affiche des sentinelles ; une
+    archive peut donc porter un locator+enregistrement zip64 VALIDES pointant
+    vers le vrai (gros) répertoire central, tout en gardant un enregistrement
+    32 bits qui ment SANS sentinelle (compte=1, taille=46) — reproduit :
+    `zipfile` lit alors 20 000 entrées réelles, cette garde n'en voyait qu'1
+    si elle ne regardait que les champs 32 bits. Le plus grand des deux jeux
+    de valeurs ferme les deux formes de mensonge à la fois.
     """
-    queue = content[-_ZONE_FIN:] if len(content) > _ZONE_FIN else content
-    position = queue.rfind(_SIG_FIN)
-    if position < 0 or position + 12 > len(queue):
-        return None
-    (entrees,) = struct.unpack_from("<H", queue, position + 10)
-    if entrees != 0xFFFF:
-        return entrees
-    # Sentinelle zip64 : le vrai compte est dans l'enregistrement étendu qui
-    # précède. Absent ou tronqué, on garde 0xFFFF — c'est un plancher (au moins
-    # 65 535 entrées), donc déjà au-dessus du plafond : pas d'échappatoire.
-    position64 = queue.rfind(_SIG_FIN64, 0, position)
-    if position64 >= 0 and position64 + 40 <= len(queue):
-        (entrees,) = struct.unpack_from("<Q", queue, position64 + 32)
-    return entrees
+    position_abs = content.rfind(_SIG_FIN, max(0, len(content) - _ZONE_FIN))
+    if position_abs < 0 or position_abs + 16 > len(content):
+        return None, None
+    (entrees,) = struct.unpack_from("<H", content, position_abs + 10)
+    (taille_cd,) = struct.unpack_from("<I", content, position_abs + 12)
+
+    pos_locator = position_abs - zipfile.sizeEndCentDir64Locator
+    if 0 <= pos_locator and pos_locator + zipfile.sizeEndCentDir64Locator <= len(content):
+        sig_loc, diskno, reloff, disks = struct.unpack_from(
+            zipfile.structEndArchive64Locator, content, pos_locator
+        )
+        if (
+            sig_loc == zipfile.stringEndArchive64Locator
+            and diskno == 0 and disks <= 1
+            and 0 <= reloff <= pos_locator - zipfile.sizeEndCentDir64
+        ):
+            (sig64,) = struct.unpack_from("<4s", content, reloff)
+            if sig64 == zipfile.stringEndArchive64:
+                rec = struct.unpack_from(zipfile.structEndArchive64, content, reloff)
+                # structEndArchive64 = '<4sQ2H2L4Q' : sig, sz, create_version,
+                # read_version, disk_num, disk_dir, dircount, dircount2
+                # (total, tous disques), dirsize, diroffset.
+                _, _, _, _, _, _, _dircount, dircount2, dirsize, _diroffset = rec
+                entrees = max(entrees, dircount2)
+                taille_cd = max(taille_cd, dirsize)
+    return entrees, taille_cd
 
 
 def verifier_zip_borne(
@@ -218,8 +292,25 @@ def verifier_zip_borne(
         ratio_max = RATIO_MAX
     if max_entrees is None:
         max_entrees = MAX_ZIP_ENTREES
-    entrees = _entrees_declarees(content)
+    entrees, taille_cd = _bornes_repertoire_central(content)
+    if taille_cd is not None:
+        # Le plafond qui protège réellement : un MAJORANT de ce que `zipfile`
+        # pourrait indexer, dérivé de la taille du répertoire central — pas
+        # le compte déclaré, qui peut mentir à la baisse (cf. docstring de
+        # `_bornes_repertoire_central`, F1 de la revue du 2026-09-09). C'est
+        # un plafond, pas un plancher : `size_cd // 46` majore le nombre
+        # d'entrées possibles (chaque enregistrement fait AU MOINS 46 octets),
+        # il ne garantit pas qu'il y en ait exactement autant.
+        entrees_indexables = taille_cd // _TAILLE_MIN_ENREGISTREMENT_CD
+        if entrees_indexables > max_entrees:
+            raise UploadTropVolumineux(
+                f"Fichier refusé : l'archive peut indexer jusqu'à "
+                f"{entrees_indexables} entrées ({max_entrees} au maximum)."
+            )
     if entrees is not None and entrees > max_entrees:
+        # Message plus précis sur une archive HONNÊTE (compte déclaré fiable
+        # et supérieur au plafond) — le contrôle qui protège reste celui
+        # ci-dessus, appliqué en premier.
         raise UploadTropVolumineux(
             f"Fichier refusé : l'archive déclare {entrees} entrées "
             f"({max_entrees} au maximum)."
