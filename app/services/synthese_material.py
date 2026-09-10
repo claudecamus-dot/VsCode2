@@ -49,7 +49,36 @@ def all_theme_material(mission: Mission) -> list[tuple[Theme, dict, list]]:
     """Matière (réponses + verbatims) de tous les thèmes de la trame — pour
     la synthèse globale, qui recoupe l'ensemble de la mission plutôt qu'un
     seul thème. Une mission brouillon née d'un entretien libre (incr.9) n'a
-    pas de trame du tout."""
+    pas de trame du tout.
+
+    MESURÉ le 2026-09-10, et volontairement NON optimisé. Le constat d'audit
+    performance du 2026-09-09 relève « 8 sites d'appel dans export.py, sans
+    aucun cache applicatif ».
+
+    Ce qui a été mesuré, sur une COPIE de l'installation réelle, plus grosse
+    mission (10 entretiens), session neuve : UN appel coûte 26 requêtes et 8 ms.
+    Commande : copier `data/app.db`, poser `APP_DB_PATH` dessus, écouter
+    `before_cursor_execute` sur l'engine et chronométrer `all_theme_material`.
+
+    Ce qui NE justifie PAS la décision, et qui a d'abord été écrit ici : « huit
+    appels d'affilée coûtent 25 requêtes au total ». Huit appels ne peuvent pas
+    coûter moins qu'un seul — les deux chiffres venaient de deux états de
+    session différents et ne se comparaient pas (revue adversariale du
+    2026-09-10, F8).
+
+    La vraie raison de ne pas optimiser est plus simple : les 6 sites d'appel
+    réels (`export.py`, `synthese.py` x3, `mission_export.py`,
+    `global_synthesis_job.py`) vivent dans des routes DISTINCTES. Une requête
+    HTTP en déclenche un, parfois deux — jamais huit. Il n'y a donc quasiment
+    pas de répétition à absorber, et 26 requêtes / 8 ms par requête HTTP sont
+    négligeables devant l'appel IA qui suit.
+
+    Ce que la mesure ne voit PAS, et qu'il faut savoir avant de la rouvrir : le
+    travail réellement répété est côté Python — `theme_material` reconstruit
+    son index `{question_id: answer}` pour chaque couple thème x entretien. Un
+    comptage de requêtes est aveugle à ce coût-là. Si cette fonction redevient
+    un sujet, c'est par là qu'il faudra la mesurer.
+    """
     if mission.trame is None:
         return []
     return [

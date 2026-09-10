@@ -4,13 +4,34 @@ round2DiagRect des images de contenu). Extrait de pptx_export.py (découpage
 du gros module, finding audit 2026-07-24) — code déplacé tel quel."""
 from __future__ import annotations
 
+import logging
 import os
+import time
 from pathlib import Path
 
 from pptx.oxml.ns import qn
 from pptx.util import Emu, Inches
 
 from .. import pptx_deck as D
+
+logger = logging.getLogger(__name__)
+
+
+def _entier_env(nom: str, defaut: int) -> int:
+    """Entier positif lu dans l'environnement, sinon le défaut.
+
+    Jumeau de `app.uploads._entier_env`, volontairement NON importé de là :
+    `uploads` dépend de FastAPI, et la couche d'export de deck doit rester
+    utilisable sans framework web (c'est ce qui permet de la rejouer hors
+    serveur pour vérifier un rendu). Huit lignes recopiées valent mieux qu'un
+    couplage à sens unique — mais si un troisième site apparaît, la fonction
+    aura gagné le droit à un module neutre.
+    """
+    try:
+        valeur = int(os.environ.get(nom, ""))
+    except ValueError:
+        return defaut
+    return valeur if valeur > 0 else defaut
 
 # --- Cadres photo (têtes de chapitre, P3) : skill pptx-framed-image (greffé,
 # présent dans .claude/skills/). Import gardé — si le skill/Pillow manque, les
@@ -64,6 +85,93 @@ def _find_teardrop_frame(shapes):
 # vraie photo, exactement comme avant.
 _ECHECS_FETCH: set[tuple[str, str]] = set()
 
+# COUPE-CIRCUIT (2026-09-10, constat d'audit performance « fetch strictement en
+# série dans une route synchrone »).
+#
+# Le cache négatif ci-dessus borne la RÉPÉTITION d'une même requête, pas le coût
+# total : un export pose des zones de scènes DIFFÉRENTES, donc des requêtes
+# différentes, et chacune repaie jusqu'à 2 variantes x 2 tentatives x 35 s =
+# 140 s. Avec 4 scènes, Openverse injoignable coûtait de l'ordre de 9 minutes
+# dans le thread de la requête HTTP — pour des photos DÉCORATIVES qui ont un
+# repli procédural immédiat.
+#
+# Au-delà de `_SEUIL_COUPURE` requêtes consécutivement en échec, on arrête d'
+# essayer pendant `_DUREE_COUPURE_S`. Le pire cas ne dépend alors plus du nombre
+# de scènes. Le compteur est remis à zéro par le PREMIER succès : une panne
+# passagère ne condamne pas les photos de l'export suivant.
+#
+# Ce n'est PAS la parallélisation que l'audit suggérait : paralléliser diviserait
+# la latence, borner supprime le pire cas. Sur un service décoratif au repli
+# gratuit, la borne est le meilleur achat — et elle ne touche pas au thread de
+# la requête, là où une exécution concurrente aurait demandé à changer la
+# signature de la route d'export.
+_SEUIL_COUPURE = _entier_env("PPTX_PHOTO_SEUIL_COUPURE", 2)
+_DUREE_COUPURE_S = _entier_env("PPTX_PHOTO_DUREE_COUPURE_S", 600)
+_echecs_consecutifs = 0
+_coupure_jusqu_a = 0.0
+
+
+def _circuit_ouvert() -> bool:
+    """Vrai tant qu'on a renoncé à joindre la banque d'images.
+
+    À l'EXPIRATION de la fenêtre, le compteur est remis à zéro. Sans cela il
+    restait ≥ `_SEUIL_COUPURE` pour la vie du processus, et le tout premier
+    échec suivant rouvrait immédiatement une fenêtre pleine : le seuil
+    documenté « 2 » devenait 1 à vie. Concrètement, un hoquet de 30 s le matin
+    condamnait les photos de la journée (revue adversariale du 2026-09-10, F3).
+    """
+    global _echecs_consecutifs, _coupure_jusqu_a
+    if _coupure_jusqu_a and time.monotonic() >= _coupure_jusqu_a:
+        _echecs_consecutifs = 0
+        _coupure_jusqu_a = 0.0
+    return time.monotonic() < _coupure_jusqu_a
+
+
+def _noter_echec_fetch() -> None:
+    """À n'appeler que sur un échec de TRANSPORT — voir `_est_panne_reseau`."""
+    global _echecs_consecutifs, _coupure_jusqu_a
+    _echecs_consecutifs += 1
+    if _echecs_consecutifs >= _SEUIL_COUPURE:
+        _coupure_jusqu_a = time.monotonic() + _DUREE_COUPURE_S
+        logger.info(
+            "Banque d'images injoignable (%d requêtes en échec réseau) : fetch "
+            "photo suspendu %d s, repli procédural",
+            _echecs_consecutifs, _DUREE_COUPURE_S,
+        )
+
+
+def _est_panne_reseau(exc: BaseException) -> bool:
+    """Distingue « la banque ne répond pas » de « cette requête n'a rien donné ».
+
+    `stock_images.search_photo` lève un `RuntimeError` quand une requête n'a
+    AUCUN résultat CC0 : réseau parfaitement sain, réponse rapide, zéro
+    pénalité de latence. Le compter comme une panne ouvrait 600 s de coupure
+    pour tout le processus après deux requêtes malchanceuses — supprimant un
+    coût qui n'avait jamais été payé, et privant l'export de ses photos sans
+    raison (revue du 2026-09-10, F2).
+
+    Le cache négatif `_ECHECS_FETCH` est fait pour ce cas-là et le couvre déjà :
+    la requête sans résultat n'est pas rejouée. Seul le TRANSPORT alimente le
+    coupe-circuit, parce que lui seul coûte les 35 s de délai qu'on cherche à
+    borner.
+    """
+    return isinstance(exc, OSError | TimeoutError)
+
+
+def _noter_succes_fetch() -> None:
+    """Un succès remet le compteur à zéro — une panne passagère ne doit pas
+    condamner les photos des exports suivants.
+
+    À noter, parce que ce n'est pas ce qu'on imagine : circuit OUVERT, aucun
+    appel réseau n'a lieu, donc cette fonction n'est PAS atteinte. La seule
+    sortie d'une coupure est l'expiration du minuteur (`_circuit_ouvert`), qui
+    remet aussi le compteur. Celle-ci sert au cas courant — circuit fermé,
+    échecs isolés qu'un succès efface avant qu'ils n'atteignent le seuil.
+    """
+    global _echecs_consecutifs, _coupure_jusqu_a
+    _echecs_consecutifs = 0
+    _coupure_jusqu_a = 0.0
+
 
 def _cle_cache_aspect(aspect: float) -> str:
     """Composante « forme » de la clé de cache image, ARRONDIE.
@@ -103,6 +211,7 @@ def _resoudre_image_cachee(base: str, scene: str, seed: int, aspect: float,
     if not no_fetch:
         if photo.exists():
             return photo
+
         # Échelle de retry (constat 2026-07-22, slides 7/10 restées procédurales) :
         # les échecs Openverse sont INTERMITTENTS (SSL sporadique) → 2 tentatives ;
         # et une requête précise peut n'avoir AUCUN résultat CC0 pour cet aspect →
@@ -113,19 +222,38 @@ def _resoudre_image_cachee(base: str, scene: str, seed: int, aspect: float,
         if simple != requete:
             variantes.append(simple)
         for req in variantes:
+            if _circuit_ouvert():
+                # Coupe-circuit ouvert : on ne touche plus au réseau du tout,
+                # repli procédural immédiat. Testé dans
+                # `tests/test_pptx_photo_coupe_circuit.py` — une première
+                # version posait un drapeau `no_fetch` À L'INTÉRIEUR de ce même
+                # bloc, ce qui ne sautait rien : le test a mesuré 40 tentatives
+                # là où il en attendait au plus 8.
+                break
             if (req, ar) in _ECHECS_FETCH:
                 continue  # déjà 2 tentatives infructueuses dans ce processus
+            panne_reseau = False
             for _tentative in range(2):
                 try:
                     brut = _IMG_CACHE / f"_brut_{scene}_{seed}.jpg"
                     _stock_images.fetch_to(str(brut), req, seed=seed, aspect_ratio=ar)
                     _cover_crop_to_aspect(str(brut), str(photo), aspect)
+                    _noter_succes_fetch()
                     return photo
-                except Exception:
-                    continue  # réseau/API KO : tentative/variante suivante
-            # Les 2 tentatives ont échoué : on ne les rejoue plus pour les
-            # autres zones de cet export.
+                except Exception as exc:
+                    # On RETIENT la nature de l'échec : seul le transport
+                    # alimente le coupe-circuit. Une requête sans résultat CC0
+                    # (RuntimeError de `search_photo`) est une réponse rapide
+                    # d'un service en pleine forme — la compter comme une panne
+                    # priverait l'export de photos sans qu'aucun délai n'ait
+                    # été payé (revue du 2026-09-10, F2).
+                    panne_reseau = panne_reseau or _est_panne_reseau(exc)
+                    continue  # tentative / variante suivante
+            # Les 2 tentatives ont échoué : on ne rejoue plus CETTE requête pour
+            # les autres zones de cet export.
             _ECHECS_FETCH.add((req, ar))
+            if panne_reseau:
+                _noter_echec_fetch()
         # tout a échoué : repli procédural ci-dessous, slot photo intact
     if not proc.exists():
         _nature_images.generate_to(str(proc), scene, px_w, px_h, seed=seed)

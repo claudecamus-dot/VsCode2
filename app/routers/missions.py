@@ -6,11 +6,11 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
-from sqlalchemy import select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.orm import Session
 
 from ..db import RECORDINGS_DIR, get_session
-from ..models import Interview, Mission, Trame
+from ..models import Answer, Interview, InterviewTurn, Mission, Theme, Trame
 from ..services import mission_backups
 from ..services.mode import est_mode_demo
 from ..templating import templates
@@ -54,6 +54,69 @@ def _draft_vide(mission: Mission) -> bool:
     )
 
 
+def _compter_brouillons_vides(db: Session, demo: bool) -> int:
+    """Le compteur de brouillons vides, EN SQL — même définition que
+    `_draft_vide`, mais sans charger une seule collection.
+
+    Ce compteur coûtait une requête par mission affichée (constat d'audit
+    performance du 2026-09-09 : « zéro selectinload dans tout app/ »). Mesuré le
+    2026-09-10 sur une copie de l'installation réelle, `list_missions` complet :
+    15 missions -> 15 requêtes SQL / 36,2 ms.
+
+    Un `selectinload` d'abord posé ramenait ce compte à 6 / 9,7 ms — mais une
+    revue adversariale a montré le prix caché : il MATÉRIALISAIT les tours et
+    les réponses de tout le corpus du mode courant, colonnes `Text` comprises,
+    pour produire un entier que le gabarit n'affiche même pas en détail. Le
+    nombre de requêtes devenait constant, le volume transféré devenait
+    proportionnel à la base — le remède pire que le mal sur une installation
+    mûre (revue du 2026-09-10, finding F5).
+
+    Des `EXISTS` corrélés rendent le coût constant EN REQUÊTES ET EN MÉMOIRE :
+    rien ne remonte en Python que le compte lui-même. C'est aussi ce qui rend la
+    pagination inutile ici — arbitrage utilisateur du 2026-09-10 : « toutes les
+    missions, c'est voulu ».
+    """
+    # Un entretien NON vide, au sens de `_interview_vide` : des tours en mode
+    # libre, des réponses sinon.
+    entretien_non_vide = (
+        select(Interview.id)
+        .where(
+            Interview.mission_id == Mission.id,
+            or_(
+                and_(
+                    Interview.mode == "libre",
+                    select(InterviewTurn.id)
+                    .where(InterviewTurn.interview_id == Interview.id)
+                    .exists(),
+                ),
+                and_(
+                    Interview.mode != "libre",
+                    select(Answer.id)
+                    .where(Answer.interview_id == Interview.id)
+                    .exists(),
+                ),
+            ),
+        )
+        .exists()
+    )
+    trame_remplie = (
+        select(Theme.id)
+        .join(Trame, Theme.trame_id == Trame.id)
+        .where(Trame.mission_id == Mission.id)
+        .exists()
+    )
+    return db.scalar(
+        select(func.count())
+        .select_from(Mission)
+        .where(
+            Mission.is_draft.is_(True),
+            Mission.is_demo.is_(demo),
+            ~entretien_non_vide,
+            ~trame_remplie,
+        )
+    ) or 0
+
+
 @router.get("")
 def list_missions(request: Request, db: Session = Depends(get_session)):
     # Filtré par le mode courant (P5a-1) : démo et réel ne se mélangent jamais
@@ -76,7 +139,7 @@ def list_missions(request: Request, db: Session = Depends(get_session)):
         "missions/list.html",
         {
             "missions": missions,
-            "nb_brouillons_vides": sum(1 for m in missions if _draft_vide(m)),
+            "nb_brouillons_vides": _compter_brouillons_vides(db, est_mode_demo(request)),
             "nb_audio_orphelin": len(orphelins_globaux["orphelins"]),
             "mo_audio_orphelin": round(orphelins_globaux["taille_totale"] / 1048576, 1),
         },
@@ -103,6 +166,14 @@ def nettoyer_brouillons(request: Request, db: Session = Depends(get_session)):
     que personne n'ait décidé à la place de l'utilisateur. La cascade reste
     réservée à `delete_mission`, geste explicite sur UNE mission qu'il a sous
     les yeux."""
+    # Ce chemin garde le prédicat PYTHON `_draft_vide`, là où l'affichage passe
+    # par `_compter_brouillons_vides` en SQL — et c'est délibéré : il lui faut
+    # les objets pour les supprimer, et la cascade rechargera ces collections de
+    # toute façon. Le N+1 y est donc réel mais sans enjeu, sur un geste rare et
+    # explicite (revue du 2026-09-10, F9). `_draft_vide` reste la DÉFINITION de
+    # référence des deux côtés ; un test vérifie que le compte SQL ne diverge
+    # pas d'elle — sinon l'écran annoncerait un nombre que ce bouton ne
+    # supprimerait pas.
     q = select(Mission).where(
         Mission.is_draft.is_(True), Mission.is_demo.is_(est_mode_demo(request))
     )

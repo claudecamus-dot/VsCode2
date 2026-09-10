@@ -10,7 +10,13 @@ un message lisible.
 """
 from __future__ import annotations
 
-from .ai_common import AIError, call_ai_json, is_configured, ollama_chunk_max_words
+from .ai_common import (
+    AIError,
+    call_ai_json,
+    chunk_text_by_paragraph,
+    is_configured,
+    ollama_chunk_max_words,
+)
 
 MAX_TOKENS = 2000
 
@@ -228,14 +234,78 @@ def _global_material_blocks(material_by_theme, material_libre=None, axes=None) -
 
 
 def _chunk_blocks(blocks: list[str], max_words: int) -> list[list[str]]:
-    """Groupe les blocs (thème/entretien) en tronçons d'environ `max_words`
-    mots sans jamais couper un bloc — même budget que le map-reduce de
-    l'extraction libre (`OLLAMA_CHUNK_MAX_WORDS`). Un bloc seul plus long que
-    le budget forme son propre tronçon."""
+    """Groupe les blocs (thème/entretien) en tronçons d'AU PLUS `max_words`
+    mots — même budget que le map-reduce de l'extraction libre
+    (`OLLAMA_CHUNK_MAX_WORDS`).
+
+    Un bloc qui TIENT dans le budget n'est jamais coupé : c'est la propriété
+    d'origine, et elle compte (un thème coupé en deux se synthétise mal).
+
+    Un bloc plus long que le budget, lui, est REDÉCOUPÉ (2026-09-10, constat
+    d'audit performance). La version précédente le laissait former son propre
+    tronçon — son docstring l'assumait — et un bloc de thème agrégeant tous les
+    entretiens partait donc tel quel vers Ollama, où il pouvait dépasser
+    `ollama_timeout()`. Le passage en tâche de fond a supprimé le blocage du
+    navigateur, pas la perte : `partials` est une liste locale, l'exception la
+    jette, et la relance repart de zéro sur tous les tronçons déjà réussis.
+
+    Le redécoupage se fait sur les frontières de LIGNES, et chaque fragment
+    reprend l'en-tête du bloc (sa première ligne : « === THÈME : … === » ou
+    « === ENTRETIEN LIBRE : … === »).
+
+    Une première version déléguait à `chunk_text_by_paragraph`. C'était un
+    mauvais choix ici, mesuré par une revue adversariale (2026-09-10, F1) : ces
+    blocs joignent leurs lignes par un simple `
+`, donc cette fonction n'y voit
+    QU'UN paragraphe et retombe sur un découpage par MOTS — les sauts de ligne
+    devenaient des espaces, les fragments coupaient au milieu d'une phrase, et
+    l'en-tête ne survivait que dans le premier sur cinq. Le reduce fusionnait
+    ensuite ces morceaux anonymes comme s'ils étaient des synthèses de thème.
+    Un découpage qui respecte le budget mais détruit l'attribution des propos
+    n'achète rien : c'est la fidélité aux propos qui fait la valeur de la
+    synthèse.
+    """
+    bornes: list[str] = []
+    for block in blocks:
+        if len(block.split()) <= max_words:
+            bornes.append(block)
+            continue
+        lignes = block.split("\n")
+        if len(lignes) == 1:
+            # Bloc d'UNE seule ligne, plus long que le budget : il n'a pas de
+            # corps à répartir, donc rien à découper sur des frontières de
+            # lignes. Sans ce cas, la boucle ci-dessous ne produisait AUCUN
+            # fragment et le bloc disparaissait purement et simplement — perte
+            # silencieuse de matière d'entretien, trouvée par le test de
+            # non-régression avant tout commit.
+            bornes.extend(chunk_text_by_paragraph(block, max_words))
+            continue
+        entete = lignes[0]
+        cout_entete = len(entete.split())
+        courant: list[str] = []
+        mots = 0
+        for ligne in lignes[1:]:
+            n = len(ligne.split())
+            if courant and cout_entete + mots + n > max_words:
+                bornes.append("\n".join([entete, *courant]))
+                courant, mots = [], 0
+            courant.append(ligne)
+            mots += n
+        if courant:
+            bornes.append("\n".join([entete, *courant]))
+        # Filet : une LIGNE seule plus longue que le budget (une réponse fleuve,
+        # un verbatim très long) ne peut pas être bornée par un découpage sur
+        # des frontières de lignes. Elle passe alors par le découpage par mots,
+        # qui porte la garantie. Rare — mais c'est exactement le cas que la
+        # version d'origine laissait filer vers Ollama.
+        for trop_long in [b for b in bornes if len(b.split()) > max_words]:
+            bornes.remove(trop_long)
+            bornes.extend(chunk_text_by_paragraph(trop_long, max_words))
+
     chunks: list[list[str]] = []
     current: list[str] = []
     current_words = 0
-    for block in blocks:
+    for block in bornes:
         words = len(block.split())
         if current and current_words + words > max_words:
             chunks.append(current)

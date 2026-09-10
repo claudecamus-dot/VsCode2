@@ -57,15 +57,23 @@ def _capture_calls(monkeypatch, result=None):
     return calls
 
 
-def test_chunk_blocks_ne_coupe_jamais_un_bloc():
+def test_chunk_blocks_ne_coupe_jamais_un_bloc_QUI_TIENT():
+    """Un bloc qui tient dans le budget n'est jamais coupé — un thème découpé
+    en deux se synthétise mal, et c'est la propriété d'origine de cette
+    fonction.
+
+    Le second cas de ce test exigeait auparavant qu'un bloc PLUS LONG que le
+    budget forme lui aussi son propre tronçon, « jamais coupé ». C'était le
+    défaut, pas l'invariant : un bloc de thème agrégeant tous les entretiens
+    partait alors tel quel vers Ollama et pouvait dépasser `ollama_timeout()`,
+    brûlant le job entier (constat d'audit performance du 2026-09-09). Depuis
+    le 2026-09-10 il est redécoupé — voir `test_synthese_ai_blocs_bornes.py`."""
     blocks = ["a " * 10, "b " * 10, "c " * 10]
     chunks = synthese_ai._chunk_blocks([b.strip() for b in blocks], max_words=25)
     assert chunks == [
         [blocks[0].strip(), blocks[1].strip()],
         [blocks[2].strip()],
     ]
-    # Un bloc seul plus long que le budget forme son propre tronçon (jamais coupé).
-    assert synthese_ai._chunk_blocks(["x " * 50], max_words=10) == [["x " * 50]]
     assert synthese_ai._chunk_blocks([], max_words=10) == [[]]
 
 
@@ -81,8 +89,15 @@ def test_global_synthesis_mission_courte_un_seul_appel(monkeypatch: pytest.Monke
 
 def test_global_synthesis_mission_longue_map_puis_reduce(monkeypatch: pytest.MonkeyPatch):
     calls = _capture_calls(monkeypatch)
-    # Budget minuscule : chaque thème (~10 mots) devient son propre tronçon.
-    monkeypatch.setattr(synthese_ai, "ollama_chunk_max_words", lambda: 8)
+    # Budget serré mais TENABLE : les blocs de `_material(3)` font 19 mots
+    # chacun (mesuré), donc 20 laisse chaque thème former son propre tronçon
+    # tandis que deux thèmes ensemble (38) dépasseraient.
+    # Il valait 8 avant le 2026-09-10, c'est-à-dire MOINS qu'un bloc : le test
+    # reposait alors sur l'ancien « un bloc trop long forme son propre tronçon »,
+    # devenu le défaut que l'audit performance a relevé (le bloc partait tel quel
+    # vers Ollama). Le budget est relevé pour que ce test continue de prouver ce
+    # qu'il annonce — 3 map + 1 reduce — sans dépendre d'un comportement supprimé.
+    monkeypatch.setattr(synthese_ai, "ollama_chunk_max_words", lambda: 20)
     result = synthese_ai.generate_global_synthesis(_mission(), _material(3))
     assert len(calls) == 4  # 3 map + 1 reduce
     for i, call in enumerate(calls[:3], start=1):
