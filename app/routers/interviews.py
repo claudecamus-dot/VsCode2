@@ -9,7 +9,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import shutil
 import time
 import uuid
 from datetime import UTC, date, datetime
@@ -85,6 +84,7 @@ from ..services.mission_axes import axes_of
 from ..templating import templates
 from ..uploads import (
     UploadTropVolumineux,
+    ecrire_audio_borne,
     lire_upload_audio_borne,
     lire_upload_borne,
     verifier_zip_borne,
@@ -1818,11 +1818,14 @@ async def transcribe_file(
         # enregistrement.
         filename = f"{mission_id}_import_{int(time.time())}_{uuid.uuid4().hex[:8]}{suffix}"
         # Streaming par blocs vers le disque (même raison que save_record_backup) :
-        # un entretien de 1h30-3h ne doit pas passer entièrement en RAM.
-        def _ecrire():
-            with open(RECORDINGS_DIR / filename, "wb") as out:
-                shutil.copyfileobj(file.file, out, length=1024 * 1024)
-        await asyncio.to_thread(_ecrire)
+        # un entretien de 1h30-3h ne doit pas passer entièrement en RAM. BORNÉ
+        # depuis le 2026-09-10 : cette route n'est pas authentifiée, et sans
+        # plafond un envoi de plusieurs Go remplissait le disque — dernière
+        # jambe du constat sécurité, les chemins en MÉMOIRE étant bornés depuis
+        # la veille.
+        await asyncio.to_thread(
+            ecrire_audio_borne, file.file, RECORDINGS_DIR / filename
+        )
     except Exception:
         # Même règle qu'au-dessus : l'écriture disque échoue avec un message
         # qui contient RECORDINGS_DIR en absolu.
@@ -2109,11 +2112,12 @@ async def save_record_backup(
         # enregistrement complet de 1h30-3h passait entièrement en RAM via
         # file.read(). copyfileobj lit/écrit en chunks ; dans un thread pour ne
         # pas bloquer la boucle sur l'I/O disque.
-        def _ecrire() -> int:
-            with open(RECORDINGS_DIR / filename, "wb") as out:
-                shutil.copyfileobj(file.file, out, length=1024 * 1024)
-                return out.tell()
-        octets = await asyncio.to_thread(_ecrire)
+        # BORNÉ depuis le 2026-09-10 (même constat que `transcribe_file`) : le
+        # fichier partiel est supprimé au dépassement, donc un envoi hors norme
+        # ne laisse rien derrière lui.
+        octets = await asyncio.to_thread(
+            ecrire_audio_borne, file.file, RECORDINGS_DIR / filename
+        )
         # Trace POSITIVE dans le journal serveur (incident du 2026-09-08 : zéro
         # tranche audio sur 2h d'entretien, et rien pour dire si le client n'a
         # jamais envoyé ou si le serveur n'a jamais écrit — seule l'exception

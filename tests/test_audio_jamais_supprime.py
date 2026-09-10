@@ -248,13 +248,26 @@ _EXCEPTIONS = {
         "écran « audio sans mission » : la seule façon d'atteindre un fichier "
         "dont la mission a déjà disparu"
     ),
-    ("app/routers/interviews.py", "save_record_backup._ecrire"): (
-        "CRÉATION, pas écrasement : le nom porte un horodatage ET un uuid "
-        "(`{mission}_{ts}_{uuid8}.webm`), il ne peut pas viser un fichier "
-        "existant"
-    ),
-    ("app/routers/interviews.py", "transcribe_file._ecrire"): (
-        "CRÉATION sous un nom unique lui aussi (`{mission}_import_{ts}_{uuid}`)"
+    # `save_record_backup._ecrire` et `transcribe_file._ecrire` ont été retirés
+    # le 2026-09-10 : les deux routes délèguent désormais à `ecrire_audio_borne`
+    # ci-dessous, qui porte le plafond disque. Leurs entrées sont parties avec
+    # eux — ce test refuse une exception qui ne couvre plus aucun appel réel,
+    # et il a raison : une liste blanche qui pourrit finit par couvrir un
+    # chemin à venir que personne n'a arbitré.
+    ("app/uploads.py", "ecrire_audio_borne"): (
+        "CRÉATION bornée, et la suppression ne porte QUE sur le fichier que "
+        "cette fonction vient elle-même d'ouvrir, dans l'écriture qui échoue — "
+        "jamais sur un enregistrement existant. Ce qui est effacé n'a jamais "
+        "été l'audio d'un entretien : c'est le fragment tronqué d'un envoi "
+        "REFUSÉ (dépassement du plafond) ou INTERROMPU (flux coupé). Le "
+        "laisser serait un défaut à lui seul — il occuperait le disque que la "
+        "borne protège, et `lister_orphelins_globaux` le proposerait à la "
+        "suppression comme un enregistrement légitime. Les deux appelants "
+        "(`transcribe_file`, `save_record_backup`) passent un nom porteur d'un "
+        "horodatage ET d'un uuid : la cible ne peut pas être un fichier "
+        "préexistant. Constat sécurité du 2026-09-04, dernière jambe, arbitrée "
+        "« traiter » le 2026-09-10 ; comportement tenu par "
+        "`tests/test_uploads_ecriture_disque_bornee.py`"
     ),
 }
 

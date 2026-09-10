@@ -326,3 +326,55 @@ def verifier_zip_borne(
         raise UploadTropVolumineux(
             "Fichier refusé : taux de compression anormal (archive suspecte)."
         )
+
+
+class EcritureAudioTropVolumineuse(UploadTropVolumineux):
+    """Le flux audio a dépassé le plafond PENDANT l'écriture disque."""
+
+
+def ecrire_audio_borne(fichier, destination, taille_bloc: int = 1024 * 1024) -> int:
+    """Copie `fichier` vers `destination` en s'arrêtant AU PLAFOND audio, et
+    rend le nombre d'octets écrits.
+
+    Troisième et dernière jambe du constat sécurité du 2026-09-04. Les deux
+    routes qui écrivent l'audio en streaming sur DISQUE
+    (`transcribe_file` et `save_record_backup`) n'avaient aucun plafond, alors
+    que les chemins qui lisent en MÉMOIRE en ont un depuis le 2026-09-09 : un
+    envoi de plusieurs Go y remplissait le disque. Ces deux routes ne sont pas
+    authentifiées — l'atténuation tient au binding 127.0.0.1 et à la garde
+    CSRF, pas à une borne (constat d'audit `audio-streaming-disque-sans-plafond`,
+    arbitré « traiter » le 2026-09-10).
+
+    Le fichier PARTIEL est supprimé au dépassement : le laisser serait un défaut
+    à lui seul — il occuperait le disque qu'on protège, et
+    `lister_orphelins_globaux` le proposerait à la suppression comme s'il
+    s'agissait d'un enregistrement légitime.
+
+    Le plafond est lu À L'APPEL et DEPUIS CE MODULE, même raison que
+    `lire_upload_audio_borne` : l'importer côté routeur figerait la valeur et
+    rendrait les tests qui l'abaissent inopérants.
+    """
+    ecrits = 0
+    plafond = MAX_AUDIO_UPLOAD_BYTES
+    try:
+        with open(destination, "wb") as sortie:
+            while True:
+                bloc = fichier.read(taille_bloc)
+                if not bloc:
+                    break
+                ecrits += len(bloc)
+                if ecrits > plafond:
+                    raise EcritureAudioTropVolumineuse(
+                        f"Fichier audio trop volumineux (plafond "
+                        f"{plafond // (1024 * 1024)} Mo)."
+                    )
+                sortie.write(bloc)
+    except BaseException:
+        # Y COMPRIS sur une interruption : un fichier partiel ne doit jamais
+        # survivre à l'écriture qui l'a abandonné.
+        try:
+            os.unlink(destination)
+        except OSError:
+            pass
+        raise
+    return ecrits

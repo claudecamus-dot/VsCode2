@@ -76,8 +76,15 @@ def test_sauvegarde_audio_de_secours_ne_publie_pas_le_chemin(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`POST /interviews/record-backup` — l'écriture disque est justement le
-    site où l'OSError porte un chemin absolu."""
-    monkeypatch.setattr(routeur_interviews.shutil, "copyfileobj", _oserror)
+    site où l'OSError porte un chemin absolu.
+
+    Le point d'injection a changé le 2026-09-10 : la route n'appelle plus
+    `shutil.copyfileobj` en direct mais `uploads.ecrire_audio_borne`, qui porte
+    le plafond disque. On monkeypatche donc la fonction telle que le ROUTEUR la
+    voit (elle y est importée par nom, donc liée dans son espace de noms) —
+    patcher `app.uploads.ecrire_audio_borne` laisserait la route appeler
+    l'originale et le test passerait sans jamais atteindre le bloc en cause."""
+    monkeypatch.setattr(routeur_interviews, "ecrire_audio_borne", _oserror)
 
     response = client.post(
         "/missions/1/interviews/record/backup",
