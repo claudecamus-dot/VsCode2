@@ -8,13 +8,15 @@ Extrait de `routers/synthese.py` le 2026-09-09 (finding superviseur
 `export.py` importait huit symboles PRIVÉS d'un autre router — un service
 déguisé, impossible à réutiliser sans charger le router et ses dépendances de
 templates. Le contrat des fonctions est inchangé ; seul le module et le
-préfixe `_` ont bougé. `global_synthesis_job.py` garde sa copie locale de
-l'application de synthèse globale (même effet), pour ne pas changer une tâche
-de fond dans un déplacement de code.
+préfixe `_` ont bougé. `global_synthesis_job.py` appelait d'abord une COPIE locale de l'application
+de synthèse globale, conservée pour ne pas changer une tâche de fond dans un
+déplacement de code ; elle a été supprimée le 2026-09-10 au profit d'un appel
+à `apply_global_synthesis_result` — une règle écrite à deux endroits est
+exactement ce que cette extraction devait faire disparaître.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -113,7 +115,7 @@ def apply_swot_result(swot: MissionSwot, result: dict) -> None:
     for field in SWOT_FIELDS:
         setattr(swot, field, result[field])
     swot.status = "generated"
-    swot.generated_at = datetime.now(timezone.utc)
+    swot.generated_at = datetime.now(UTC)
 
 
 def get_or_create_executive_summary(
@@ -128,7 +130,7 @@ def apply_executive_summary_result(
     for field in EXEC_SUMMARY_FIELDS:
         setattr(es, field, result[field])
     es.status = "generated"
-    es.generated_at = datetime.now(timezone.utc)
+    es.generated_at = datetime.now(UTC)
 
 def apply_difficulties_result(db: Session, mission: Mission, labels: list) -> None:
     """Remplace les difficultés de la mission par la liste ordonnée fournie
@@ -155,7 +157,7 @@ def apply_global_synthesis_result(global_synthesis: GlobalSynthesis, result: dic
     for key, value in result.items():
         global_synthesis.set_contenu(key, value)
     global_synthesis.status = "generated"
-    global_synthesis.generated_at = datetime.now(timezone.utc)
+    global_synthesis.generated_at = datetime.now(UTC)
 
 
 def apply_recommendations_result(db: Session, mission: Mission, axes_data: list[dict]) -> None:

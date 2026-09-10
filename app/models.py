@@ -7,15 +7,15 @@ pour les accueillir sans refonte.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     Date,
     DateTime,
     ForeignKey,
     Integer,
-    JSON,
     String,
     Text,
     UniqueConstraint,
@@ -49,7 +49,7 @@ ANSWER_STATUS_LABELS = {
 
 
 def _utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 class Base(DeclarativeBase):
@@ -87,54 +87,54 @@ class Mission(Base):
     # Une mission possède au plus une trame (1:1). Absente pour une mission
     # brouillon née d'un entretien libre (incr.9, `is_draft`) tant qu'aucune
     # trame ne lui a été rattachée.
-    trame: Mapped["Trame | None"] = relationship(
+    trame: Mapped[Trame | None] = relationship(
         back_populates="mission",
         cascade="all, delete-orphan",
         uselist=False,
     )
-    interviews: Mapped[list["Interview"]] = relationship(
+    interviews: Mapped[list[Interview]] = relationship(
         back_populates="mission",
         cascade="all, delete-orphan",
         order_by="Interview.created_at",
     )
-    agent_results: Mapped[list["AgentResult"]] = relationship(
+    agent_results: Mapped[list[AgentResult]] = relationship(
         back_populates="mission",
         cascade="all, delete-orphan",
         order_by="AgentResult.created_at.desc()",
     )
-    global_synthesis: Mapped["GlobalSynthesis | None"] = relationship(
+    global_synthesis: Mapped[GlobalSynthesis | None] = relationship(
         back_populates="mission",
         cascade="all, delete-orphan",
         uselist=False,
     )
-    swot: Mapped["MissionSwot | None"] = relationship(
+    swot: Mapped[MissionSwot | None] = relationship(
         back_populates="mission",
         cascade="all, delete-orphan",
         uselist=False,
     )
-    executive_summary: Mapped["MissionExecutiveSummary | None"] = relationship(
+    executive_summary: Mapped[MissionExecutiveSummary | None] = relationship(
         back_populates="mission",
         cascade="all, delete-orphan",
         uselist=False,
     )
-    recommendation_axes: Mapped[list["RecommendationAxis"]] = relationship(
+    recommendation_axes: Mapped[list[RecommendationAxis]] = relationship(
         back_populates="mission",
         cascade="all, delete-orphan",
         order_by="RecommendationAxis.position",
     )
-    difficulties: Mapped[list["MissionDifficulty"]] = relationship(
+    difficulties: Mapped[list[MissionDifficulty]] = relationship(
         back_populates="mission",
         cascade="all, delete-orphan",
         order_by="MissionDifficulty.position",
     )
-    synthesis_axes: Mapped[list["MissionSynthesisAxis"]] = relationship(
+    synthesis_axes: Mapped[list[MissionSynthesisAxis]] = relationship(
         back_populates="mission",
         cascade="all, delete-orphan",
         order_by="MissionSynthesisAxis.position",
     )
 
     @property
-    def all_verbatims(self) -> list["Verbatim"]:
+    def all_verbatims(self) -> list[Verbatim]:
         """Tous les verbatims de la mission (tous entretiens confondus) — la
         source de sélection de la planche « Paroles d'acteurs » (Palier 2). Les
         entretiens libres n'ont pas de `Verbatim` (ils ont des `InterviewTurn`),
@@ -142,7 +142,7 @@ class Mission(Base):
         return [v for iv in self.interviews for v in iv.verbatims]
 
     @property
-    def selected_verbatims(self) -> list["Verbatim"]:
+    def selected_verbatims(self) -> list[Verbatim]:
         """Les verbatims retenus pour la restitution, dans l'ordre de sélection
         (`restitution_verbatim_ids`), en ignorant les ids périmés (verbatim
         supprimé depuis) — jamais de KeyError sur un id obsolète."""
@@ -162,8 +162,8 @@ class Trame(Base):
     # tête de chaque entretien (évol).
     intro_text: Mapped[str | None] = mapped_column(Text, default=None)
 
-    mission: Mapped["Mission"] = relationship(back_populates="trame")
-    themes: Mapped[list["Theme"]] = relationship(
+    mission: Mapped[Mission] = relationship(back_populates="trame")
+    themes: Mapped[list[Theme]] = relationship(
         back_populates="trame",
         cascade="all, delete-orphan",
         order_by="Theme.position",
@@ -180,13 +180,13 @@ class Theme(Base):
     title: Mapped[str] = mapped_column(String(300))
     position: Mapped[int] = mapped_column(Integer, default=0)
 
-    trame: Mapped["Trame"] = relationship(back_populates="themes")
-    questions: Mapped[list["Question"]] = relationship(
+    trame: Mapped[Trame] = relationship(back_populates="themes")
+    questions: Mapped[list[Question]] = relationship(
         back_populates="theme",
         cascade="all, delete-orphan",
         order_by="Question.position",
     )
-    synthesis: Mapped["Synthesis | None"] = relationship(
+    synthesis: Mapped[Synthesis | None] = relationship(
         back_populates="theme",
         cascade="all, delete-orphan",
         uselist=False,
@@ -210,7 +210,7 @@ class Question(Base):
     config: Mapped[dict] = mapped_column(JSON, default=dict)
     position: Mapped[int] = mapped_column(Integer, default=0)
 
-    theme: Mapped["Theme"] = relationship(back_populates="questions")
+    theme: Mapped[Theme] = relationship(back_populates="questions")
 
     @property
     def type_label(self) -> str:
@@ -272,17 +272,17 @@ class Interview(Base):
     tranches_manquantes: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
-    mission: Mapped["Mission"] = relationship(back_populates="interviews")
-    answers: Mapped[list["Answer"]] = relationship(
+    mission: Mapped[Mission] = relationship(back_populates="interviews")
+    answers: Mapped[list[Answer]] = relationship(
         back_populates="interview",
         cascade="all, delete-orphan",
     )
-    verbatims: Mapped[list["Verbatim"]] = relationship(
+    verbatims: Mapped[list[Verbatim]] = relationship(
         back_populates="interview",
         cascade="all, delete-orphan",
         order_by="Verbatim.created_at",
     )
-    turns: Mapped[list["InterviewTurn"]] = relationship(
+    turns: Mapped[list[InterviewTurn]] = relationship(
         back_populates="interview",
         cascade="all, delete-orphan",
         order_by="InterviewTurn.position",
@@ -313,7 +313,7 @@ class InterviewTurn(Base):
     # dénormalisée sur chaque tour.
     section_title: Mapped[str | None] = mapped_column(String(300), default=None)
 
-    interview: Mapped["Interview"] = relationship(back_populates="turns")
+    interview: Mapped[Interview] = relationship(back_populates="turns")
 
 
 class Answer(Base):
@@ -337,8 +337,8 @@ class Answer(Base):
         DateTime, default=_utcnow, onupdate=_utcnow
     )
 
-    interview: Mapped["Interview"] = relationship(back_populates="answers")
-    question: Mapped["Question"] = relationship()
+    interview: Mapped[Interview] = relationship(back_populates="answers")
+    question: Mapped[Question] = relationship()
 
     @property
     def status_label(self) -> str:
@@ -364,8 +364,8 @@ class Verbatim(Base):
     quote: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
-    interview: Mapped["Interview"] = relationship(back_populates="verbatims")
-    question: Mapped["Question"] = relationship()
+    interview: Mapped[Interview] = relationship(back_populates="verbatims")
+    question: Mapped[Question] = relationship()
 
 
 # Statut d'une synthèse de thème (incrément 3).
@@ -404,7 +404,7 @@ class Synthesis(Base):
         DateTime, default=_utcnow, onupdate=_utcnow
     )
 
-    theme: Mapped["Theme"] = relationship(back_populates="synthesis")
+    theme: Mapped[Theme] = relationship(back_populates="synthesis")
 
     @property
     def has_content(self) -> bool:
@@ -460,7 +460,7 @@ class GlobalSynthesis(Base):
         DateTime, default=_utcnow, onupdate=_utcnow
     )
 
-    mission: Mapped["Mission"] = relationship(back_populates="global_synthesis")
+    mission: Mapped[Mission] = relationship(back_populates="global_synthesis")
 
     # Clés des 5 colonnes historiques, tenues en miroir de `valeurs`.
     LEGACY_KEYS = (
@@ -537,7 +537,7 @@ class MissionSynthesisAxis(Base):
     hint: Mapped[str] = mapped_column(Text, default="")
     position: Mapped[int] = mapped_column(Integer, default=0)
 
-    mission: Mapped["Mission"] = relationship(back_populates="synthesis_axes")
+    mission: Mapped[Mission] = relationship(back_populates="synthesis_axes")
 
 
 class MissionSwot(Base):
@@ -571,7 +571,7 @@ class MissionSwot(Base):
         DateTime, default=_utcnow, onupdate=_utcnow
     )
 
-    mission: Mapped["Mission"] = relationship(back_populates="swot")
+    mission: Mapped[Mission] = relationship(back_populates="swot")
 
     @property
     def has_content(self) -> bool:
@@ -617,7 +617,7 @@ class MissionExecutiveSummary(Base):
         DateTime, default=_utcnow, onupdate=_utcnow
     )
 
-    mission: Mapped["Mission"] = relationship(back_populates="executive_summary")
+    mission: Mapped[Mission] = relationship(back_populates="executive_summary")
 
     @property
     def has_content(self) -> bool:
@@ -656,8 +656,8 @@ class MissionDifficulty(Base):
         ForeignKey("verbatims.id", ondelete="SET NULL"), default=None
     )
 
-    mission: Mapped["Mission"] = relationship(back_populates="difficulties")
-    verbatim: Mapped["Verbatim | None"] = relationship()
+    mission: Mapped[Mission] = relationship(back_populates="difficulties")
+    verbatim: Mapped[Verbatim | None] = relationship()
 
 
 class RecommendationAxis(Base):
@@ -677,8 +677,8 @@ class RecommendationAxis(Base):
     title: Mapped[str] = mapped_column(String(300))
     position: Mapped[int] = mapped_column(Integer, default=0)
 
-    mission: Mapped["Mission"] = relationship(back_populates="recommendation_axes")
-    recommendations: Mapped[list["Recommendation"]] = relationship(
+    mission: Mapped[Mission] = relationship(back_populates="recommendation_axes")
+    recommendations: Mapped[list[Recommendation]] = relationship(
         back_populates="axis",
         cascade="all, delete-orphan",
         order_by="Recommendation.position",
@@ -707,7 +707,7 @@ class Recommendation(Base):
     resultats_attendus: Mapped[str] = mapped_column(Text, default="")
     position: Mapped[int] = mapped_column(Integer, default=0)
 
-    axis: Mapped["RecommendationAxis"] = relationship(back_populates="recommendations")
+    axis: Mapped[RecommendationAxis] = relationship(back_populates="recommendations")
 
     @property
     def status_label(self) -> str:
@@ -729,7 +729,7 @@ class AgentResult(Base):
     output: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
-    mission: Mapped["Mission"] = relationship(back_populates="agent_results")
+    mission: Mapped[Mission] = relationship(back_populates="agent_results")
 
 
 # Statuts d'un job de traitement de tranche (Palier 2, segmentation en tranches).
@@ -763,6 +763,39 @@ class InterviewSegmentJob(Base):
     """
 
     __tablename__ = "interview_segment_jobs"
+    # Une tranche est identifiée par sa session, son rang et sa nature : deux
+    # lignes pour le même triplet sont un DOUBLON, jamais deux tranches
+    # (constat d'audit robustesse du 2026-09-09). `merge_segment_turns`
+    # concatène les jobs triés par position sans dédoublonner : un second job
+    # à la même position sort ses tours de parole EN DOUBLE dans la
+    # transcription finale.
+    #
+    # CE QUE CETTE CONTRAINTE COUVRE, exactement — la première rédaction disait
+    # « la relance après échec de la rotation JS », et c'était FAUX (revue
+    # adversariale du 2026-09-10, finding 3) : `record_libre.html` mine sa
+    # position AVANT l'envoi (`var pos = segmentJobPosition++`), délibérément,
+    # et la relance repasse par toute la fonction — elle soumet donc P+1, pas
+    # P. Les vecteurs réels d'un même triplet sont (1) une restauration de
+    # brouillon, qui remet `segmentJobPosition` à une valeur déjà utilisée, et
+    # (2) un rejeu de la requête HTTP hors du JS (proxy, navigateur). Le
+    # doublon INTER-POSITIONS que produit la relance JS est un autre problème,
+    # que cette contrainte ne voit pas — et qui n'est traité NULLE PART
+    # aujourd'hui : `merge_segment_turns` concatène les jobs triés par position
+    # sans dédoublonner. Dit ici parce qu'une première rédaction affirmait
+    # qu'il « se traitait à la fusion », fausse réassurance relevée le
+    # 2026-09-10 (2e passe, N12). `kind` fait partie de la clé parce qu'une même
+    # session peut porter les deux natures (`libre_turns` et `answers`) sur les
+    # mêmes rangs — les exclure l'une l'autre serait une régression.
+    #
+    # La contrainte ne vaut que pour les bases NEUVES (`create_all`) ; les
+    # bases existantes reçoivent l'index équivalent par `_add_missing_indexes`
+    # dans `db.py`, le mécanisme de migration de ce projet ne sachant
+    # qu'ajouter des colonnes.
+    __table_args__ = (
+        UniqueConstraint(
+            "session_token", "position", "kind", name="uq_segment_job_tranche"
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     session_token: Mapped[str] = mapped_column(String(64), index=True)

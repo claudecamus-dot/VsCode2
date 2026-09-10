@@ -217,8 +217,26 @@ def test_le_brouillon_est_sauve_partout_ou_le_texte_change() -> None:
     html = RECORD_LIBRE.read_text(encoding="utf-8")
     append = re.search(r"function appendTranscript\(text\) \{(.*?)\n  \}", html, re.S)
     assert append and "persistDraft();" in append.group(1)
-    remplace = re.search(r"function replaceLostMarker\(id, text\) \{(.*?)var delta", html, re.S)
-    assert remplace and "persistDraft();" in remplace.group(1)
+    # `replaceLostMarker` : présence ET POSITION. L'assertion d'origine cherchait
+    # `persistDraft()` AVANT `var delta` — c'est-à-dire avant `coveredLen += delta`
+    # et avant le `segmentJobPosition++` de `postRecoveredJob`. Elle épinglait donc
+    # le défaut au lieu de l'invariant : le brouillon était sauvé avec une position
+    # DÉJÀ consommée par le fragment récupéré, et la rotation suivante, restaurée
+    # sur cette position, écrasait ce fragment de parole rescapée (revue
+    # adversariale du 2026-09-10, 3e passe, M2). Une vérification de simple
+    # présence est aveugle à l'ordre : c'est l'ordre qu'on exige ici.
+    remplace = re.search(r"function replaceLostMarker\(id, text\) \{(.*?)\n  \}", html, re.S)
+    assert remplace, "fonction replaceLostMarker introuvable"
+    corps = remplace.group(1)
+    assert "persistDraft();" in corps
+    assert corps.index("persistDraft();") > corps.index("coveredLen += delta"), (
+        "persistDraft() est appele AVANT que coveredLen bouge : le brouillon "
+        "garde un curseur perime, et la reprise ecrase le fragment recupere"
+    )
+    assert corps.index("persistDraft();") > corps.index("postRecoveredJob(text)"), (
+        "persistDraft() est appele avant postRecoveredJob, qui incremente "
+        "segmentJobPosition sans le persister lui-meme"
+    )
     bloc_fichier = html.index("// Même recalage que `replaceLostMarker` — sans lui")
     assert "persistDraft();" in html[bloc_fichier:bloc_fichier + 400]
     succes_job = html[html.index("recuperesEnAttente.forEach(postRecoveredJob);"):]

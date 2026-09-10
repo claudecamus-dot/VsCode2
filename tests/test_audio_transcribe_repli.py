@@ -105,8 +105,23 @@ def test_erreur_non_liee_au_pool_reste_une_erreur_fonctionnelle(blocs_factices, 
 
     monkeypatch.setattr(audio_transcribe, "_drain_parallel", _drain)
 
-    with pytest.raises(audio_transcribe.TranscriptionError, match="flux corrompu"):
+    with pytest.raises(audio_transcribe.TranscriptionError) as capture:
         list(audio_transcribe.iter_transcribe_blocks(b"audio"))
+
+    # L'identification passe par la CHAÎNE d'exception, pas par le texte rendu.
+    # Ce test cherchait « flux corrompu » dans le message : il exigeait donc que
+    # le texte de l'exception système soit recopié dans celui qui part au
+    # client — exactement le défaut relevé par l'audit sécurité du 2026-09-09,
+    # les routes de transcription faisant `{"error": str(exc)}`. Le message est
+    # désormais fixe ; ce qui est vérifié ici est inchangé sur le fond — le
+    # repli n'a pas AVALÉ l'erreur, il l'a remontée — et mieux vérifié : `from
+    # exc` garde la cause exacte, là où une correspondance de texte se serait
+    # contentée de n'importe quel message la contenant.
+    assert isinstance(capture.value.__cause__, ValueError)
+    assert str(capture.value.__cause__) == "flux corrompu"
+    assert "flux corrompu" not in str(capture.value), (
+        "le texte de l'exception systeme repart vers le client"
+    )
 
 
 def test_paliers_workers_degrade_puis_sequentiel():

@@ -1018,7 +1018,17 @@
     transcriptEl.value = transcriptSoFar;
     transcriptEl.scrollTop = transcriptEl.scrollHeight;
     transcriptHidden.value = transcriptSoFar;
-    persistDraft();
+    // `persistDraft()` était ICI — donc AVANT `coveredLen += delta` et avant
+    // le `segmentJobPosition++` de `postRecoveredJob`. Le brouillon gardait
+    // donc une position DÉJÀ consommée par le fragment récupéré : après une
+    // fermeture d'onglet dans les 5 min qui suivent, la restauration la
+    // remettait, et la rotation suivante postait sa tranche de 5 minutes à
+    // cette même position — plus longue, donc prise pour la vérité par la
+    // route, qui ÉCRASAIT le fragment. Or ce fragment est de la parole
+    // rescapée d'un segment perdu. Avant ce lot le serveur en faisait un
+    // doublon (récupérable) ; la garde d'unicité en faisait un écrasement.
+    // Déplacé APRÈS les mutations (revue adversariale du 2026-09-10, 3e
+    // passe, M2). Voir la fin de cette fonction.
     var delta = text.length - marker.length;
     // Les deux tests se font AVANT toute mutation : `coveredLen` bouge juste
     // en dessous, et un delta négatif le ferait repasser sous `pos`.
@@ -1044,6 +1054,11 @@
       // pas trancher maintenant : on met en attente.
       recuperesEnAttente.push(text);
     }
+    // APRÈS toutes les mutations de `coveredLen`, `flightSliceEnd` et
+    // `segmentJobPosition` (celui-ci incrémenté dans `postRecoveredJob`, qui
+    // ne persiste rien lui-même) : le brouillon restauré doit décrire l'état
+    // réel, pas celui d'avant la récupération.
+    persistDraft();
     refreshSegmentTail();
   }
 

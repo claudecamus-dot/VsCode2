@@ -66,6 +66,12 @@ from .ai_common import AIError
 
 logger = logging.getLogger(__name__)
 
+# Message rendu au CLIENT quand la transcription échoue. Constante parce qu'il
+# part depuis 4 endroits et qu'il doit rester identique : c'est un texte
+# d'interface, pas un diagnostic. Le diagnostic, lui, est journalisé à chacun
+# de ces 4 endroits.
+ECHEC_TRANSCRIPTION = "Échec de la transcription de l'audio."
+
 MODEL_SIZE = os.environ.get("WHISPER_MODEL", "medium")
 BEAM_SIZE = int(os.environ.get("WHISPER_BEAM_SIZE", "2"))
 
@@ -419,7 +425,31 @@ def iter_transcribe_blocks(
     except TranscriptionError:
         raise          # message déjà explicite (vidéo sans piste audio) — ne pas le noyer
     except Exception as exc:
-        raise TranscriptionError(f"Fichier audio illisible : {exc}") from exc
+        # Message FIXE, jamais `str(exc)` : cette TranscriptionError est rendue
+        # telle quelle au client par les routes de transcription
+        # (`interviews.py`, `{"error": str(exc)}`), et le texte d'une exception
+        # `av`/`faster-whisper` peut porter des chemins du poste. Le détail
+        # reste au journal serveur, où il sert au diagnostic sans être publié
+        # (finding audit-technique securite du 2026-09-09). L'audit décrivait
+        # ce module comme le « dernier résidu » du constat « message
+        # d'exception brut » : c'était inexact, et une revue adversariale l'a
+        # mesuré le 2026-09-10 — trois sites frères écrivaient encore
+        # `str(exc)` dans un champ rendu au navigateur (`audio_file_jobs`,
+        # `interview_segment_jobs`, `global_synthesis_job`). Leurs garde-fous
+        # `except Exception` sont fermés dans le même lot que celui-ci.
+        #
+        # CE QUI RESTE OUVERT, dit ici pour ne pas répéter l'erreur de
+        # l'audit — ne pas déclarer un chantier clos plus large qu'il ne l'est :
+        # les `str(exc)` sur les erreurs MÉTIER (`_EXTRACT_ERRORS`,
+        # `SynthesisAIError`, `TranscriptionError`) portent des messages écrits
+        # par nous, sauf via `ai_common` — dont la branche par défaut
+        # (`_friendly`) et `AIError(f"Erreur Ollama : {data['error']}")`
+        # interpolent le texte du moteur, qui peut citer un chemin de modèle.
+        # Et `openhub_agents` interpole le chemin d'`opencode` dans deux
+        # retours persistés en `AgentResult.output`. Ces deux chaînes sont hors
+        # du périmètre de l'audit du 2026-09-09 : non traitées, pas closes.
+        logger.exception("Décodage audio impossible")
+        raise TranscriptionError("Fichier audio illisible.") from exc
     if pcm.size == 0:
         raise NoSpeechError("Aucune parole détectée dans l'enregistrement.")
 
@@ -437,7 +467,8 @@ def iter_transcribe_blocks(
         try:
             yield 0, 1, _transcribe_pcm_sequential(blocks[0])
         except Exception as exc:
-            raise TranscriptionError(f"Échec de la transcription : {exc}") from exc
+            logger.exception("Échec de la transcription d'un bloc audio")
+            raise TranscriptionError(ECHEC_TRANSCRIPTION) from exc
         return
 
     index = start_index
@@ -461,14 +492,16 @@ def iter_transcribe_blocks(
         except TranscriptionError:
             raise
         except Exception as exc:  # garde-fou : ne jamais propager une 500 brute
-            raise TranscriptionError(f"Échec de la transcription : {exc}") from exc
+            logger.exception("Échec de la transcription d'un bloc audio")
+            raise TranscriptionError(ECHEC_TRANSCRIPTION) from exc
 
     # Repli séquentiel : aucun tour si un palier parallèle est allé au bout.
     while index < total:
         try:
             text = _transcribe_pcm_sequential(blocks[index])
         except Exception as exc:
-            raise TranscriptionError(f"Échec de la transcription : {exc}") from exc
+            logger.exception("Échec de la transcription d'un bloc audio")
+            raise TranscriptionError(ECHEC_TRANSCRIPTION) from exc
         yield index, total, text
         index += 1
 
@@ -512,7 +545,8 @@ def transcribe_audio(content: bytes) -> str:
     except TranscriptionError:
         raise
     except Exception as exc:  # garde-fou : ne jamais propager une 500 brute
-        raise TranscriptionError(f"Échec de la transcription : {exc}") from exc
+        logger.exception("Échec de la transcription d'un bloc audio")
+        raise TranscriptionError(ECHEC_TRANSCRIPTION) from exc
 
     if not text:
         raise NoSpeechError("Aucune parole détectée dans l'enregistrement.")

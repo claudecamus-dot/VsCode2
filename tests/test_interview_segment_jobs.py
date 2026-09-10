@@ -140,9 +140,9 @@ def test_run_segment_job_failure_records_error(monkeypatch: pytest.MonkeyPatch) 
 # Service — fusion + statut
 # --------------------------------------------------------------------------- #
 def test_merge_segment_turns_orders_by_position_and_appends_tail() -> None:
-    j0 = InterviewSegmentJob(session_token="t", position=0,
+    j0 = InterviewSegmentJob(session_token="t-merge-ordre", position=0,
                              turns_result=_turns_payload("Alice", "Q0"))
-    j1 = InterviewSegmentJob(session_token="t", position=1,
+    j1 = InterviewSegmentJob(session_token="t-merge-ordre", position=1,
                              turns_result=_turns_payload("Bob", "Q1"))
     tail = _turns_payload("Carol", "Qtail")
     # Volontairement dans le désordre pour vérifier le tri par position.
@@ -154,7 +154,7 @@ def test_merge_segment_turns_orders_by_position_and_appends_tail() -> None:
 
 
 def test_merge_segment_turns_without_tail() -> None:
-    j0 = InterviewSegmentJob(session_token="t", position=0,
+    j0 = InterviewSegmentJob(session_token="t-merge-sans-queue", position=0,
                              turns_result=_turns_payload("Alice", "Q0"))
     merged = interview_segment_jobs.merge_segment_turns([j0], None)
     assert [t["question"] for t in merged["turns"]] == ["Q0"]
@@ -258,7 +258,7 @@ def test_recover_recovers_failed_job_from_its_own_persisted_text(
 
     monkeypatch.setattr(interview_segment_jobs, "extract_turns_from_text", _extract)
     db = SessionLocal()
-    job = InterviewSegmentJob(session_token="t", position=0, status="failed",
+    job = InterviewSegmentJob(session_token="t-recover-failed", position=0, status="failed",
                               text="texte de la tranche seule", error="ancien timeout")
     db.add(job)
     db.commit()
@@ -279,7 +279,7 @@ def test_recover_recovers_stale_job(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda text: _turns_payload("Bob", "Depuis job périmé"),
     )
     db = SessionLocal()
-    job = InterviewSegmentJob(session_token="t", position=0, status="running",
+    job = InterviewSegmentJob(session_token="t-recover-stale", position=0, status="running",
                               text="texte", created_at=_stale_created_at())
     db.add(job)
     db.commit()
@@ -308,7 +308,7 @@ def test_recover_also_recovers_fresh_running_job_when_called(
         lambda text: _turns_payload("Zoé", "Récupérée bien que fraîche"),
     )
     db = SessionLocal()
-    job = InterviewSegmentJob(session_token="t", position=0, status="running", text="texte")
+    job = InterviewSegmentJob(session_token="t-recover-fresh", position=0, status="running", text="texte")
     db.add(job)
     db.commit()
 
@@ -327,7 +327,7 @@ def test_recover_second_failure_keeps_job_failed_with_new_error(
 
     monkeypatch.setattr(interview_segment_jobs, "extract_turns_from_text", _boom)
     db = SessionLocal()
-    job = InterviewSegmentJob(session_token="t", position=0, status="failed",
+    job = InterviewSegmentJob(session_token="t-recover-2e-echec", position=0, status="failed",
                               text="texte", error="premier échec")
     db.add(job)
     db.commit()
@@ -347,7 +347,7 @@ def test_recover_job_without_text_stays_failed_without_calling_ai(
 
     monkeypatch.setattr(interview_segment_jobs, "extract_turns_from_text", _extract)
     db = SessionLocal()
-    job = InterviewSegmentJob(session_token="t", position=0, status="failed", text="")
+    job = InterviewSegmentJob(session_token="t-recover-sans-texte", position=0, status="failed", text="")
     db.add(job)
     db.commit()
 

@@ -14,13 +14,16 @@ renvoyée), ne lève jamais — tout échec est consigné sur
 le resurface, plutôt qu'un job qui reste indéfiniment "running"."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+import logging
 
 from ..db import SessionLocal
 from ..models import GlobalSynthesis, Mission
 from .mission_axes import axes_of
 from .synthese_ai import SynthesisAIError, generate_global_synthesis
+from .synthese_ecriture import apply_global_synthesis_result
 from .synthese_material import all_theme_material, libre_material
+
+logger = logging.getLogger(__name__)
 
 
 def reconcile_running_on_startup() -> int:
@@ -67,14 +70,16 @@ def run_global_synthesis_job(mission_id: int) -> None:
             global_synthesis.generation_error = str(exc)
             db.commit()
             return
-        # Même application qu'`apply_global_synthesis_result`
-        # (services/synthese_ecriture.py, extrait du router le 2026-09-09) :
-        # copie locale conservée pour ne pas changer une tâche de fond dans un
-        # déplacement de code — à unifier lors d'un prochain passage sur ce job.
-        for key, value in result.items():
-            global_synthesis.set_contenu(key, value)
-        global_synthesis.status = "generated"
-        global_synthesis.generated_at = datetime.now(timezone.utc)
+        # Une SEULE écriture de la règle d'application (unification du
+        # 2026-09-10, constat d'audit risque technique). La copie locale posée
+        # lors de l'extraction du service — « à unifier lors d'un prochain
+        # passage » — est ce que l'extraction devait justement supprimer : deux
+        # endroits où corriger la même règle, dont un qu'on oublie.
+        apply_global_synthesis_result(global_synthesis, result)
+        # Ces deux-là restent ICI : ils appartiennent au cycle de vie du JOB
+        # (le suivi d'avancement interrogé par l'écran), pas à l'application
+        # d'un résultat de synthèse — le chemin synchrone du router n'a pas de
+        # statut de génération à remettre au repos.
         global_synthesis.generation_status = "idle"
         global_synthesis.generation_error = None
         db.commit()
@@ -89,7 +94,15 @@ def run_global_synthesis_job(mission_id: int) -> None:
             mission = db.get(Mission, mission_id)
             if mission is not None and mission.global_synthesis is not None:
                 mission.global_synthesis.generation_status = "error"
-                mission.global_synthesis.generation_error = f"{type(exc).__name__}: {exc}"
+                # Le TYPE seul, jamais le texte : `generation_error` est rendu
+                # au navigateur (`routers/synthese.py`) et `str(exc)` porte
+                # volontiers un chemin du poste. Détail complet au journal.
+                logger.exception(
+                    "Échec inattendu de la synthèse globale (mission %s)", mission_id
+                )
+                mission.global_synthesis.generation_error = (
+                    f"Échec inattendu ({type(exc).__name__})."
+                )
                 db.commit()
         except Exception:
             pass

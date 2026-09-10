@@ -29,9 +29,9 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..db import SessionLocal
@@ -118,7 +118,7 @@ def _is_stale(job: InterviewSegmentJob, now: datetime) -> bool:
         return False
     created = job.created_at
     if created.tzinfo is not None:
-        created = created.astimezone(timezone.utc).replace(tzinfo=None)
+        created = created.astimezone(UTC).replace(tzinfo=None)
     return (now - created) > timedelta(seconds=segment_job_stale_after_s())
 
 
@@ -184,6 +184,43 @@ def reconcile_running_on_startup() -> int:
         db.close()
 
 
+def _ecrire_si_texte_inchange(db, job_id: int, texte_attendu, valeurs: dict) -> bool:
+    """Écrit `valeurs` sur la tranche `job_id` SEULEMENT si son texte est
+    encore celui sur lequel on a travaillé. Rend True si l'écriture a eu lieu.
+
+    UPDATE conditionnel et non lire-puis-écrire : la route de soumission peut
+    remplacer le texte à tout instant pendant qu'une extraction tourne (le
+    client repose la même position avec une version plus longue). Un résultat
+    — ou un échec — calculé sur un texte périmé ne doit jamais atterrir sur la
+    version courante : il mentirait sur ce qui a réellement été extrait.
+
+    `texte_attendu is None` = on n'a pas encore lu de texte (échec très
+    précoce) : l'écriture est alors inconditionnelle."""
+    if texte_attendu is None:
+        db.execute(
+            update(InterviewSegmentJob)
+            .where(InterviewSegmentJob.id == job_id)
+            .values(**valeurs)
+        )
+        db.commit()
+        return True
+    touchees = db.execute(
+        update(InterviewSegmentJob)
+        .where(
+            InterviewSegmentJob.id == job_id,
+            InterviewSegmentJob.text == texte_attendu,
+        )
+        .values(**valeurs)
+    ).rowcount
+    db.commit()
+    if not touchees:
+        logger.info(
+            "Écriture ignorée sur la tranche %s : son texte a été remplacé "
+            "pendant l'extraction", job_id,
+        )
+    return bool(touchees)
+
+
 def run_segment_job(job_id: int) -> None:
     """Tâche de fond : extrait les tours d'UNE tranche de texte (lue depuis la
     colonne `text`, persistée à la création du job — jamais seulement portée
@@ -191,29 +228,54 @@ def run_segment_job(job_id: int) -> None:
     et écrit le résultat sur le job. Ouvre sa PROPRE session (la session de la
     requête est fermée dès la réponse renvoyée). Ne lève jamais — tout échec
     est consigné en `status="failed"` pour que la finalisation puisse relancer
-    l'extraction sur cette seule tranche (`recover_stalled_or_failed_jobs`)."""
+    l'extraction sur cette seule tranche (`recover_stalled_or_failed_jobs`).
+
+    UNE EXCEPTION à ce "tout échec" depuis le 2026-09-10 : si le texte de la
+    tranche a été REMPLACÉ pendant l'extraction (le client repose la même
+    position avec une version plus longue), ni le résultat ni l'échec ne sont
+    écrits — ils décrivent un texte qui n'est plus celui de la ligne. La ligne
+    reste alors telle que la route l'a laissée, et c'est la tâche que la route
+    a programmée qui l'aboutira ; `_is_stale` reste le filet de dernier
+    recours. Voir `_ecrire_si_texte_inchange`."""
     db = SessionLocal()
+    texte_extrait = None
     try:
         job = db.get(InterviewSegmentJob, job_id)
         if job is None:
             return
         job.status = "running"
         db.commit()
+        # Le texte SUR LEQUEL on extrait, capturé avant l'appel IA : la route
+        # de soumission peut le remplacer pendant qu'on travaille (le client
+        # repose la même position avec une version plus longue, après une
+        # restauration de brouillon). Sans cette capture, on écrirait un
+        # résultat extrait d'un texte périmé par-dessus la version complétée,
+        # et le surplus de parole ne serait jamais extrait — invisible, la
+        # ligne passant `done` (revue adversariale du 2026-09-10, 2e passe, N3).
+        texte_extrait = job.text
         try:
             result = _extract_for_job(db, job)
         except _EXTRACT_ERRORS as exc:
-            job.status = "failed"
-            job.error = str(exc)
-            db.commit()
+            # Échec, mais SOUS LA MÊME CONDITION que le succès : si le texte a
+            # changé pendant l'extraction, cet échec ne concerne plus la ligne.
+            # Sans cette condition, une tâche lente qui échoue écrase le `done`
+            # d'une tâche plus récente qui, elle, a abouti — la ligne finit
+            # `failed` EN PORTANT un résultat valide, `any_failed` fait sortir
+            # l'écran en erreur, et la finalisation repaie une extraction
+            # complète (revue du 2026-09-10, 3e passe, M1).
+            _ecrire_si_texte_inchange(
+                db, job_id, texte_extrait,
+                {"status": "failed", "error": str(exc)},
+            )
             return
-        job.turns_result = result
-        job.status = "done"
-        # Comme `recover_stalled_or_failed_jobs` : un `done` ne porte jamais
-        # une erreur périmée (revue du 2026-09-08, F5 — un motif posé par la
-        # réconciliation restait collé à une tranche qui aboutissait ensuite,
-        # et l'écran l'affichait comme LA cause).
-        job.error = None
-        db.commit()
+        # Écriture CONDITIONNELLE et atomique, jamais un lire-puis-écrire : le
+        # résultat n'est posé que si le texte extrait est toujours celui de la
+        # ligne. `error=None` comme `recover_stalled_or_failed_jobs` — un
+        # `done` ne porte jamais une erreur périmée (revue du 2026-09-08, F5).
+        _ecrire_si_texte_inchange(
+            db, job_id, texte_extrait,
+            {"turns_result": result, "status": "done", "error": None},
+        )
     except Exception as exc:  # garde-fou : un job planté ne doit pas rester "running"
         try:
             # Si l'exception vient d'un commit() raté (ex. verrou SQLite), la
@@ -226,11 +288,21 @@ def run_segment_job(job_id: int) -> None:
             # de fond au contrat « ne lève jamais » (audit-technique
             # robustesse du 2026-09-09).
             db.rollback()
-            job = db.get(InterviewSegmentJob, job_id)
-            if job is not None:
-                job.status = "failed"
-                job.error = f"{type(exc).__name__}: {exc}"
-                db.commit()
+            # Le TYPE seul, jamais le texte : ce champ est rendu au navigateur
+            # (`interviews.py`, `detail` de la finalisation) et `str(exc)` d'une
+            # exception quelconque porte volontiers un chemin du poste. Détail
+            # complet au journal. Conditionnel comme les deux autres écritures
+            # (3e passe, M1) : `texte_extrait` vaut None si l'exception est
+            # survenue avant sa capture, auquel cas on écrit inconditionnellement
+            # — la ligne n'a alors jamais été extraite.
+            logger.exception("Échec inattendu de la tranche %s", job_id)
+            _ecrire_si_texte_inchange(
+                db, job_id, texte_extrait,
+                {
+                    "status": "failed",
+                    "error": f"Échec inattendu ({type(exc).__name__}).",
+                },
+            )
         except Exception:
             pass
     finally:
@@ -250,7 +322,7 @@ def segment_jobs_status(db: Session, session_token: str) -> dict:
             .order_by(InterviewSegmentJob.position)
         )
     )
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     total = len(jobs)
     done = sum(1 for j in jobs if j.status == "done")
     failed = sum(1 for j in jobs if j.status == "failed")
@@ -313,7 +385,10 @@ def recover_stalled_or_failed_jobs(db: Session, jobs: list[InterviewSegmentJob])
             # (signalée à l'écran), jamais faire tomber la page.
             logger.exception("Échec inattendu de la récupération d'une tranche")
             job.status = "failed"
-            job.error = f"{type(exc).__name__}: {exc}"
+            # Le TYPE seul, jamais le texte : ce champ remonte au navigateur
+            # via le `detail` de la finalisation. Détail complet au journal
+            # juste au-dessus (revue du 2026-09-10, 2e passe, N6).
+            job.error = f"Échec inattendu ({type(exc).__name__})."
         db.commit()
 
 
@@ -390,7 +465,7 @@ def purge_stale_segment_jobs(db: Session, max_age_days: int = 7) -> None:
     machine, ils ne doivent pas s'entasser en base pour toujours. Appelé à
     chaque création de job (auto-entretien, pas de tâche planifiée) ; 7 jours
     laissent large pour reprendre une session après erreur."""
-    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(
         days=max_age_days
     )
     for job in db.scalars(

@@ -25,11 +25,22 @@ except ModuleNotFoundError:
     pass
 
 from .csrf import verifier_origine  # noqa: E402
-from .entetes_securite import entetes_securite  # noqa: E402
 from .db import init_db  # noqa: E402
-from .routers import agents, entretiens, export, interviews, missions, synthese, trames  # noqa: E402
+from .entetes_securite import entetes_securite  # noqa: E402
+from .routers import (  # noqa: E402
+    agents,
+    entretiens,
+    export,
+    interviews,
+    missions,
+    synthese,
+    trames,
+)
 from .services import audio_transcribe  # noqa: E402
 from .services.ai_common import warm_up_ollama  # noqa: E402
+from .services.audio_file_jobs import (  # noqa: E402
+    reconcile_running_on_startup as reconcile_audio_file_jobs_on_startup,
+)
 from .services.global_synthesis_job import reconcile_running_on_startup  # noqa: E402
 from .services.interview_segment_jobs import (  # noqa: E402
     reconcile_running_on_startup as reconcile_segment_jobs_on_startup,
@@ -59,7 +70,17 @@ EMPREINTE_AU_CHARGEMENT = empreinte_code()
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     init_db()
-    reconcile_running_on_startup()
+    # Les trois réconciliations journalisent leur compte : sans cela, une
+    # séance qui libère des travaux figés ne laisse aucune trace de ce qu'elle
+    # a touché. Asymétrie relevée le 2026-09-10 : celle-ci jetait sa valeur de
+    # retour, seule celle des tranches la journalisait, et la troisième
+    # (imports audio) est créée par le même lot.
+    synthese_liberees = reconcile_running_on_startup()
+    if synthese_liberees:
+        logging.getLogger(__name__).info(
+            "%d synthèse(s) globale(s) interrompue(s) par un redémarrage, "
+            "repassée(s) en erreur relançable", synthese_liberees,
+        )
     # Même filet pour les tranches d'entretien : sans lui, une tranche tuée par
     # un redémarrage restait « running » à vie (incident du 2026-09-08, 3
     # tranches figées 5h30 sur un entretien réel de 2h).
@@ -68,6 +89,17 @@ async def lifespan(_app: FastAPI):
         logging.getLogger(__name__).info(
             "%d tranche(s) d'entretien interrompue(s) par un redémarrage, "
             "repassée(s) en échec rejouable", liberees,
+        )
+    # Et le troisième, qui manquait : les imports/retranscriptions audio. Sans
+    # lui, un job tué par un redémarrage n'était corrigé que RÉACTIVEMENT
+    # (`is_audio_file_job_stale`, 3 h), donc seulement si quelqu'un revenait sur
+    # l'écran qui l'interroge — constat d'audit risque technique du 2026-09-09,
+    # qui nommait l'asymétrie : deux réconciliations sur trois.
+    audios_liberes = reconcile_audio_file_jobs_on_startup()
+    if audios_liberes:
+        logging.getLogger(__name__).info(
+            "%d transcription(s) de fichier audio interrompue(s) par un "
+            "redémarrage, repassée(s) en échec rejouable", audios_liberes,
         )
     try:
         audio_transcribe.warm_up()

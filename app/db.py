@@ -1,15 +1,17 @@
 """Couche d'accès SQLite : engine, session, initialisation du schéma."""
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Iterator
 from pathlib import Path
 
 from sqlalchemy import create_engine, event
-from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from .models import Base
+
+logger = logging.getLogger(__name__)
 
 # Chemin de la base, surchargeable via APP_DB_PATH (utilisé par les tests pour
 # pointer vers une base jetable et ne jamais toucher la base de dev/prod).
@@ -117,9 +119,117 @@ def _add_missing_columns() -> None:
                     )
 
 
+# (nom, table, colonnes de la clé, ORDER BY qui désigne le survivant).
+# L'ordre est celui d'un `ORDER BY … LIMIT 1` : la PREMIÈRE ligne du groupe est
+# gardée, les autres sont supprimées.
+_INDEX_UNIQUES = [
+    # (2026-09-09, audit robustesse) Deux jobs au même (session_token,
+    # position, kind) sortent leurs tours de parole en double à la fusion.
+    # Survivant : celui qui a un résultat (`turns_result IS NULL` trie les
+    # aboutis en premier), à défaut le plus ancien — jeter un job abouti
+    # ferait repayer un appel IA de plusieurs minutes.
+    (
+        "uq_segment_job_tranche",
+        "interview_segment_jobs",
+        ("session_token", "position", "kind"),
+        "(turns_result IS NULL), rowid",
+    ),
+]
+
+
+def _add_missing_indexes() -> None:
+    """Pose les contraintes d'unicité que `create_all` n'applique qu'aux bases
+    NEUVES, sur les bases déjà créées.
+
+    `_add_missing_columns` ne sait qu'ajouter des colonnes : une contrainte
+    ajoutée après coup au modèle n'atteint jamais une base existante, et
+    l'invariant ne tiendrait que sur les postes installés après le correctif —
+    c'est-à-dire nulle part où les données ont de la valeur.
+
+    Chaque entrée est dédoublonnée AVANT la création de l'index, sinon celle-ci
+    échoue sur toute base qui porte déjà le défaut que l'index vient interdire
+    (et `init_db` étant appelé au démarrage, l'application ne démarrerait plus).
+    Le doublon conservé est celui qui porte un résultat, à défaut le plus ancien
+    (`rowid` minimal — pas `id`, pour rester indépendant du nom de la clé
+    primaire) : jeter un job abouti ferait repayer un appel IA de plusieurs
+    minutes, et perdre le seul exemplaire du texte de la tranche.
+    """
+    with engine.begin() as conn:
+        _poser_index_uniques(conn, _INDEX_UNIQUES)
+
+
+def _index_unique_existe(conn, table: str, colonnes: tuple[str, ...]) -> bool:
+    """Vrai si une contrainte d'unicité porte DÉJÀ exactement ces colonnes.
+
+    Cherchée par ses COLONNES et non par son nom : sur une base neuve, la
+    contrainte vient de `__table_args__` et `create_all` l'écrit en ligne dans
+    le CREATE TABLE — SQLite l'indexe alors sous un nom automatique
+    (`sqlite_autoindex_…`). Une détection par nom ne la verrait pas et
+    poserait un SECOND index redondant sur toute installation neuve.
+    """
+    for row in conn.exec_driver_sql(f"PRAGMA index_list({table})"):
+        nom_index, unique, partiel = row[1], row[2], row[4]
+        if not unique or partiel:
+            # Un index unique PARTIEL (`… WHERE <condition>`) ne contraint que
+            # les lignes qui satisfont sa condition : le prendre pour
+            # l'invariant ferait SAUTER la pose du vrai index, en silence, et
+            # les doublons rentreraient sans erreur. Reproduit en sqlite3
+            # isolé par la revue adversariale du 2026-09-10 (finding 8) —
+            # latent ici (aucun index partiel sur cette table) mais
+            # `_INDEX_UNIQUES` est un mécanisme destiné à grandir.
+            continue
+        portees = tuple(
+            info[2]
+            for info in conn.exec_driver_sql(f"PRAGMA index_info('{nom_index}')")
+        )
+        if set(portees) == set(colonnes) and len(portees) == len(colonnes):
+            return True
+    return False
+
+
+def _poser_index_uniques(conn, index_uniques) -> None:
+    """Le corps de `_add_missing_indexes`, sur une connexion donnée — pour que
+    les tests puissent l'exercer sur une base à l'ANCIEN schéma (sans la
+    contrainte), qu'aucun `create_all` ne sait plus produire."""
+    for nom, table, colonnes, ordre in index_uniques:
+        if not _index_unique_existe(conn, table, colonnes):
+            cles = ", ".join(colonnes)
+            # `ROW_NUMBER() OVER (PARTITION BY …)` numérote chaque ligne dans
+            # son groupe de doublons ; on garde la n°1 et on supprime le reste.
+            # Le partitionnement traite deux NULL comme égaux — c'est ce qu'on
+            # veut ici (`kind` a un défaut, mais une base ancienne peut porter
+            # des NULL), là où un `=` en sous-requête ne les apparierait jamais.
+            # `rowid` plutôt que `id` : indépendant du nom de la clé primaire,
+            # dont `id` est un alias sur ces tables.
+            supprimees = conn.exec_driver_sql(
+                f"DELETE FROM {table} WHERE rowid IN ("
+                f" SELECT rowid FROM ("
+                f"  SELECT rowid, ROW_NUMBER() OVER ("
+                f"   PARTITION BY {cles} ORDER BY {ordre}"
+                f"  ) AS rang FROM {table}"
+                f" ) WHERE rang > 1"
+                f")"
+            ).rowcount
+            if supprimees:
+                # Ce DELETE est la SEULE opération destructive du démarrage, et
+                # elle porte sur des données d'entretien. Les trois
+                # réconciliations du `lifespan` journalisent leur compte alors
+                # qu'elles se contentent de ré-étiqueter : celle-ci le doit
+                # d'autant plus. Sans cette ligne, si le dédoublonnage mange
+                # une tranche réelle, rien ne le dit (revue du 2026-09-10, n°7).
+                logger.warning(
+                    "%d doublon(s) supprimé(s) dans %s à la pose de l'index "
+                    "unique %s (clé : %s)", supprimees, table, nom, cles,
+                )
+            conn.exec_driver_sql(
+                f"CREATE UNIQUE INDEX IF NOT EXISTS {nom} ON {table} ({cles})"
+            )
+
+
 def init_db() -> None:
     Base.metadata.create_all(engine)
     _add_missing_columns()
+    _add_missing_indexes()
 
 
 def get_session() -> Iterator[Session]:

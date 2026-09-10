@@ -26,7 +26,9 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse, Response
-from sqlalchemy import select
+from sqlalchemy import inspect as sa_inspect
+from sqlalchemy import select, update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
 from ..db import RECORDINGS_DIR, get_session
@@ -109,7 +111,15 @@ def _parse_repartition(repartition_json: str, valeurs_nommees: tuple) -> dict:
                 }
         except (ValueError, TypeError):
             pass
-    return {key: value.strip() for key, value in zip(REPARTITION_KEYS, valeurs_nommees)}
+    # `strict=False` ASSUMÉ, pas oublié : ce repli existe pour qu'un formulaire
+    # ouvert dans un vieil onglet, ou un appelant à l'ancien format, ne fasse
+    # PAS échouer l'enregistrement d'un entretien pour ce champ annexe (cf.
+    # docstring). Y lever sur un uplet plus court casserait précisément ce que
+    # le repli protège. Les 3 appelants passent aujourd'hui les 5 valeurs.
+    return {
+        key: value.strip()
+        for key, value in zip(REPARTITION_KEYS, valeurs_nommees, strict=False)
+    }
 
 
 REPARTITION_KEYS = (
@@ -797,14 +807,23 @@ def _extraire_tours_libre(db, transcript, session_token, segment_tail):
         # consomme plus un créneau à chaque envoi), et les tranches jamais
         # tentées passent avant les échecs déjà constatés (plus de préfixe
         # fixe qui affamait les tranches 4..N).
+        # `j.status == "done"` et NON `bool(j.turns_result)` — alignement sur le
+        # mode paramétré (plus haut), qui l'a toujours fait. L'équivalence
+        # « porte un résultat » = « a abouti sur son texte COURANT » était vraie
+        # jusqu'au 2026-09-10 ; elle ne l'est plus depuis qu'une tranche
+        # re-soumise avec un texte plus long conserve son ancien résultat en
+        # attendant la ré-extraction (correctif M3, pour ne pas jeter un appel
+        # IA déjà payé si la ré-extraction échoue). Sur `turns_result`, une
+        # telle tranche était prise pour aboutie : ni relancée, ni comptée
+        # manquante — le deck partait avec la tranche TRONQUÉE et sans un mot à
+        # l'utilisateur (revue adversariale du 2026-09-10, 4e passe, P1).
         tentees = _fenetre_recuperation(
-            status["jobs"], lambda j: bool(j.turns_result)
+            status["jobs"], lambda j: j.status == "done"
         )
         recover_stalled_or_failed_jobs(db, tentees)
-        # `not j.turns_result` : exactement ce que `merge_segment_turns` ignorera.
         # `j.text.strip()` : une tranche sans matière n'est pas une perte (parité
         # avec le mode paramétré, plus haut).
-        still_ko = [j for j in status["jobs"] if not j.turns_result and j.text.strip()]
+        still_ko = [j for j in status["jobs"] if j.status != "done" and j.text.strip()]
         manquantes = len(still_ko)
         try:
             tail_result = None
@@ -928,6 +947,18 @@ def record_libre(
     )
 
 
+def _tranche_existante(db: Session, jeton: str, position: int, kind: str):
+    """La tranche déjà enregistrée pour ce triplet, ou None. Le triplet est la
+    clé d'unicité posée en base (`uq_segment_job_tranche`)."""
+    return db.scalar(
+        select(InterviewSegmentJob).where(
+            InterviewSegmentJob.session_token == jeton,
+            InterviewSegmentJob.position == position,
+            InterviewSegmentJob.kind == kind,
+        )
+    )
+
+
 @router.post("/interviews/segment-jobs")
 def create_segment_job(
     background_tasks: BackgroundTasks,
@@ -963,16 +994,138 @@ def create_segment_job(
     # Auto-entretien : les jobs d'une session jamais finalisée (Recommencer,
     # wizard abandonné) portent du contenu d'entretien — balayés passé 7 jours.
     purge_stale_segment_jobs(db)
-    job = InterviewSegmentJob(
-        session_token=session_token[:64], position=position, status="pending",
-        text=text, kind=kind, mission_id=mission_id or None,
-    )
-    db.add(job)
-    db.commit()
-    db.refresh(job)
-    background_tasks.add_task(run_segment_job, job.id)
+    jeton = session_token[:64]
+    # Une tranche est identifiée par (session_token, position, kind) et la base
+    # le garantit depuis ce lot (2026-09-10 ; le 2026-09-09 est la date du
+    # CONSTAT d'audit, pas celle de la garantie). Cette route doit donc être IDEMPOTENTE,
+    # et le devenir sans jamais perdre de texte : elle est appelée en
+    # fire-and-forget par la rotation JS. Un 500 y est coûteux : la tranche
+    # n'est pas enregistrée, et l'écran affiche un échec de transmission. (Le
+    # texte lui-même n'est pas perdu pour autant — `record_libre.html` le garde
+    # dans son reliquat `segment_tail` tant que la réponse n'est pas OK ; une
+    # première rédaction disait « 5 minutes perdues », c'était surévalué,
+    # relevé le 2026-09-10, 2e passe, N13.)
+    #
+    # Les vecteurs qui produisent réellement deux POST au même triplet : une
+    # restauration de brouillon (le client remet `segmentJobPosition` à une
+    # valeur déjà utilisée) et un rejeu HTTP hors du JS (proxy, navigateur).
+    # PAS la relance après échec de la rotation : elle mine P+1, sa position
+    # étant incrémentée avant l'envoi (vérifié dans `record_libre.html`, revue
+    # du 2026-09-10).
+    existant = _tranche_existante(db, jeton, position, kind)
+    if existant is None:
+        # `INSERT … ON CONFLICT DO NOTHING`, pas un SELECT-puis-INSERT : deux
+        # POST concurrents (le proxy qui réémet, la relance utilisateur)
+        # passent TOUS DEUX le SELECT ci-dessus, et le perdant lèverait
+        # `IntegrityError` contre la contrainte fraîchement posée — donc un 500
+        # et la perte de sa tranche, là où le code d'avant la contrainte
+        # produisait un doublon, lui, récupérable. Le remède est celui que ce
+        # dépôt applique déjà au même constat (`synthese_ecriture._get_or_create_1_1`,
+        # 2026-09-09) : SQLite résout le conflit lui-même, sans exception.
+        # Trouvé par la revue adversariale du 2026-09-10, finding bloquant n°2.
+        table = sa_inspect(InterviewSegmentJob).local_table
+        insere = db.execute(
+            sqlite_insert(table)
+            .values(
+                session_token=jeton, position=position, kind=kind,
+                status="pending", text=text, mission_id=mission_id or None,
+            )
+            .on_conflict_do_nothing(
+                index_elements=["session_token", "position", "kind"]
+            )
+        )
+        db.commit()
+        nous_avons_cree = insere.rowcount == 1
+        existant = _tranche_existante(db, jeton, position, kind)
+        if existant is None:  # pragma: no cover - ni notre INSERT ni celui du concurrent
+            raise HTTPException(status_code=500, detail="Tranche non enregistrée.")
+        if nous_avons_cree:
+            background_tasks.add_task(run_segment_job, existant.id)
+        # Sinon le concurrent a gagné : c'est LUI qui a programmé la tâche.
+        # En programmer une seconde ferait tourner deux extractions sur la même
+        # ligne (double appel IA, écriture concurrente de `turns_result`).
+        return JSONResponse(
+            {"job_id": existant.id, "position": position, "status": existant.status}
+        )
+
+    # LA RÈGLE, pour une tranche déjà enregistrée : si le client en renvoie une
+    # version PLUS LONGUE, c'est elle la vérité et on ré-extrait. Sinon, seule
+    # une ligne en ÉCHEC bouge (elle est relancée sur son texte) ; `pending`,
+    # `running` et `done` ne sont pas touchés. Les six chemins de la première version
+    # fabriquaient un défaut à chaque revue — dont un 409 « soumettez le
+    # complément à la suivante » que le client ne sait pas lire : il relançait
+    # sur la position SUIVANTE avec le préfixe compris, et `merge_segment_turns`
+    # concatène sans dédoublonner, donc les mêmes tours sortaient deux fois
+    # (revue adversariale du 2026-09-10, 2e passe, finding bloquant N1).
+    #
+    # Ré-extraire REMPLACE `turns_result` à cette position : ce n'est jamais un
+    # doublon, contrairement à une soumission à une position neuve. Le coût est
+    # un appel IA repayé sur une tranche — infiniment moins cher que de la
+    # parole d'entretien perdue.
+    ancien = existant.text or ""
+    if len(text) > len(ancien):
+        existant.text = text
+        # `mission_id` suit le texte : la requête vient d'être validée avec lui
+        # (trame présente pour kind="answers"), et le laisser périmé ferait
+        # ré-extraire sur l'ancienne trame (2e passe, N16).
+        existant.mission_id = mission_id or None
+        # `turns_result` N'EST PAS effacé ici : si la ré-extraction échoue (IA
+        # indisponible — la panne la plus banale de ce projet), l'effacer aurait
+        # jeté un résultat valide et déjà payé, et `merge_segment_turns`, qui
+        # filtre sur `turns_result`, aurait fait DISPARAÎTRE la tranche de la
+        # transcription fusionnée. Il est remplacé par `run_segment_job` au
+        # moment où le nouveau résultat existe, jamais avant (revue du
+        # 2026-09-10, 3e passe, M3).
+        existant.status = "pending"
+        existant.error = None
+        # `created_at` remis à neuf : sinon `_is_stale` re-compte
+        # immédiatement comme périmée une tranche qu'on vient de relancer, et
+        # l'écran d'attente sort en erreur (2e passe, N14).
+        existant.created_at = datetime.now(UTC).replace(tzinfo=None)
+        db.commit()
+        # Programmation INCONDITIONNELLE, et c'est délibéré. La version
+        # conditionnelle (`if ancien_statut != "pending"`) laissait une fenêtre
+        # d'ordre milliseconde où PERSONNE ne possédait plus la ligne : si une
+        # tâche basculait la ligne en `running` entre le SELECT et ce commit,
+        # `ancien_statut` valait encore `pending`, rien n'était programmé, et
+        # cette tâche jetait ensuite son résultat (à raison, le texte ayant
+        # changé) — la ligne restait `running` 45 min avant que `_is_stale` ne
+        # la libère, écran d'attente tournant à vide. Le doublon d'extraction
+        # que la condition évitait est INOFFENSIF depuis que
+        # `_ecrire_si_texte_inchange` filtre les écritures périmées : au pire un
+        # appel IA payé deux fois sur le même texte, ce qui coûte moins qu'une
+        # attente de 45 minutes (revue du 2026-09-10, 4e passe, P2).
+        background_tasks.add_task(run_segment_job, existant.id)
+        return JSONResponse(
+            {"job_id": existant.id, "position": position, "status": "pending"}
+        )
+    if existant.status == "failed":
+        # Rejeu d'une tranche en échec, sur le texte déjà persisté. UPDATE
+        # CONDITIONNEL et non lire-puis-écrire : deux rejeux concurrents
+        # liraient tous deux `failed` et programmeraient tous deux la tâche —
+        # la double extraction que l'INSERT voisin prend soin d'éviter (2e
+        # passe, N4). Seul celui qui a effectivement changé la ligne programme.
+        pris = db.execute(
+            update(InterviewSegmentJob)
+            .where(
+                InterviewSegmentJob.id == existant.id,
+                InterviewSegmentJob.status == "failed",
+            )
+            .values(
+                status="pending", error=None,
+                created_at=datetime.now(UTC).replace(tzinfo=None),
+            )
+        ).rowcount
+        db.commit()
+        if pris == 1:
+            background_tasks.add_task(run_segment_job, existant.id)
+        return JSONResponse(
+            {"job_id": existant.id, "position": position, "status": "pending"}
+        )
+    # `pending`, `running` ou `done` sans texte neuf : rien à faire. On rend
+    # l'état RÉEL de la ligne, jamais un statut de complaisance.
     return JSONResponse(
-        {"job_id": job.id, "position": position, "status": "pending"}
+        {"job_id": existant.id, "position": position, "status": existant.status}
     )
 
 

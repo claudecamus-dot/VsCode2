@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -83,7 +83,7 @@ def _battement(db, job: AudioFileJob) -> None:
     relance qui doublonne la tâche de fond en cours (revue adversariale
     2026-07-30). L'extraction IA en a autant besoin que la transcription : elle
     peut représenter la MAJEURE partie du temps total (~5 min par tranche)."""
-    job.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    job.created_at = datetime.now(UTC).replace(tzinfo=None)
     db.commit()
 
 
@@ -183,7 +183,7 @@ def run_audio_file_job(job_id: int) -> None:
                 try:
                     content = (RECORDINGS_DIR / fichier).read_bytes()
                     depart = len(job.blocks or []) - (job.blocks_before_file or 0)
-                    for index, total, text in audio_transcribe.iter_transcribe_blocks(
+                    for _index, total, text in audio_transcribe.iter_transcribe_blocks(
                         content, job.block_seconds, start_index=max(0, depart)
                     ):
                         # Réassignation (pas .append) : SQLAlchemy ne détecte pas
@@ -195,9 +195,21 @@ def run_audio_file_job(job_id: int) -> None:
                         # déclare « ne répond plus » alors qu'il progresse, et
                         # la relance proposée par l'écran doublonne la tâche de
                         # fond en cours (deux sessions écrivant `job.blocks`).
-                        job.created_at = datetime.now(timezone.utc).replace(tzinfo=None)
+                        job.created_at = datetime.now(UTC).replace(tzinfo=None)
                         db.commit()
-                except (audio_transcribe.TranscriptionError, OSError) as exc:
+                except audio_transcribe.NoSpeechError as exc:
+                    if not job.filenames:
+                        raise
+                    # Son texte est écrit PAR NOUS (« Aucune parole détectée… »),
+                    # sans chemin ni détail système : le garder est sûr, et il
+                    # dit à l'utilisateur la vérité — sa tranche est muette, pas
+                    # corrompue. L'aplatir en « illisible » l'enverrait chercher
+                    # un défaut de fichier inexistant, sur un cas réel connu de
+                    # ce projet (import Meet sans piste de parole). Revue
+                    # adversariale du 2026-09-10, 2e passe, N5.
+                    logger.info("Tranche %s sans parole détectée", rang)
+                    incidents.append(f"tranche {rang} ignorée ({exc})")
+                except (audio_transcribe.TranscriptionError, OSError):
                     if not job.filenames:
                         # Import d'un fichier UNIQUE : l'abandon du job est le
                         # comportement voulu — c'est lui qui porte la reprise au
@@ -211,7 +223,13 @@ def run_audio_file_job(job_id: int) -> None:
                     # relance rejouait la même tranche fautive, sans aucune issue
                     # dans l'UI. On l'ignore, on le consigne, et on continue —
                     # perdre 30 min d'un entretien vaut mieux que le perdre entier.
-                    incidents.append(f"tranche {rang} ignorée ({exc})")
+                    # Message FIXE : `incidents` finit dans `job.error`, que
+                    # le poll rend VERBATIM au navigateur (`interviews.py`,
+                    # champ `error`). Un OSError Windows y porterait le chemin
+                    # absolu du dossier d'enregistrements — la charge utile même
+                    # que `tests/test_pas_de_fuite_de_chemin.py` interdit.
+                    logger.exception("Tranche %s ignorée (audio illisible)", rang)
+                    incidents.append(f"tranche {rang} ignorée (illisible)")
                 if job.filenames:
                     # Tranche terminée (ou ignorée) : la suivante repart de son
                     # bloc 0, et une reprise après échec ne la re-décodera pas.
@@ -223,9 +241,12 @@ def run_audio_file_job(job_id: int) -> None:
             job.error = str(exc)
             db.commit()
             return
-        except OSError as exc:
+        except OSError:
             job.status = "failed"
-            job.error = f"Fichier introuvable ou illisible : {exc}"
+            # Message FIXE, jamais `str(exc)` : un OSError porte le chemin
+            # absolu. Détail au journal serveur (même règle que ci-dessus).
+            logger.exception("Fichier audio introuvable ou illisible (job %s)", job_id)
+            job.error = "Fichier audio introuvable ou illisible."
             db.commit()
             return
         if not any((b or "").strip() for b in (job.blocks or [])):
@@ -267,14 +288,18 @@ def run_audio_file_job(job_id: int) -> None:
             # `global_synthesis_job.run_global_synthesis_job` (revue
             # adversariale 2026-09-07), qui l'avait reçu seul des trois tâches
             # de fond au contrat « ne lève jamais » (audit-technique
-            # robustesse du 2026-09-09). D'autant plus nécessaire ici : ce job
-            # n'a AUCUNE réconciliation au démarrage, un `running` figé ne se
-            # libère donc pas au redémarrage suivant.
+            # robustesse du 2026-09-09). Ce filet couvre l'échec DANS le
+            # processus ; `reconcile_running_on_startup` (ajouté le 2026-09-10,
+            # même lot) couvre le processus qui n'existe plus.
             db.rollback()
             job = db.get(AudioFileJob, job_id)
             if job is not None:
                 job.status = "failed"
-                job.error = f"{type(exc).__name__}: {exc}"
+                # Le TYPE seul, jamais le texte : `str(exc)` d'une exception
+                # quelconque porte volontiers un chemin du poste, et ce champ
+                # est rendu au navigateur. Le détail complet est au journal.
+                logger.exception("Échec inattendu de la transcription (job %s)", job_id)
+                job.error = f"Échec inattendu ({type(exc).__name__})."
                 db.commit()
         except Exception:
             pass
@@ -290,6 +315,54 @@ def run_audio_file_job(job_id: int) -> None:
         # comme un « filet de sécurité en cas de souci de
         # transcription/extraction ») : l'import était le chemin frère privé du
         # même filet.
+        db.close()
+
+
+def reconcile_running_on_startup() -> int:
+    """Repasse à `failed` tout import audio resté `pending`/`running` d'une
+    séance précédente, et rend leur nombre.
+
+    Troisième et dernier volet du même filet : `global_synthesis_job` l'a reçu
+    le 2026-09-07, `interview_segment_jobs` le 2026-09-08 après un incident
+    mesuré (3 tranches figées 5h30 sur un entretien réel de 2h), et celui-ci
+    manquait — constat d'audit risque technique du 2026-09-09, qui relevait
+    l'asymétrie : `main.py` appelait deux réconciliations sur trois.
+
+    Sans lui, un import audio interrompu par un redémarrage ne se corrige que
+    RÉACTIVEMENT, via `is_audio_file_job_stale`, c'est-à-dire seulement si
+    quelqu'un revient sur l'écran qui l'interroge — et pas avant 3 h
+    (`audio_file_job_stale_after_s`). Un utilisateur qui ferme l'onglet et
+    revient le lendemain trouve un job éternellement « en cours ».
+
+    Ce que ce filet ne fait PAS, et c'est délibéré : il ne touche ni aux blocs
+    déjà transcrits (`blocks`), ni à `files_done`/`blocks_before_file`. Une
+    transcription d'entretien coûte des dizaines de minutes ; tout ce qui a été
+    persisté avant la coupure reste acquis et la reprise repart de là. Seul le
+    STATUT change, pour que l'écran cesse d'attendre un processus mort.
+
+    Même limite assumée que ses deux sœurs : aucune notion de propriétaire, un
+    second serveur démarré sur la même base passerait en `failed` les imports
+    vivants du premier. Le modèle de déploiement est un serveur par base.
+    """
+    db = SessionLocal()
+    try:
+        bloques = list(
+            db.scalars(
+                select(AudioFileJob).where(
+                    AudioFileJob.status.in_(("pending", "running"))
+                )
+            )
+        )
+        for job in bloques:
+            job.status = "failed"
+            job.error = (
+                "Transcription interrompue par un redémarrage du serveur — les "
+                "blocs déjà transcrits sont conservés, la reprise repart de là."
+            )
+        if bloques:
+            db.commit()
+        return len(bloques)
+    finally:
         db.close()
 
 
@@ -316,8 +389,8 @@ def is_audio_file_job_stale(job: AudioFileJob) -> bool:
         return False
     created = job.created_at
     if created.tzinfo is not None:
-        created = created.astimezone(timezone.utc).replace(tzinfo=None)
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+        created = created.astimezone(UTC).replace(tzinfo=None)
+    now = datetime.now(UTC).replace(tzinfo=None)
     return (now - created) > timedelta(seconds=audio_file_job_stale_after_s())
 
 
@@ -327,7 +400,7 @@ def purge_stale_audio_file_jobs(db: Session, max_age_days: int = 7) -> None:
     fichier peut être resté sur disque si le job n'a jamais abouti. Appelé à
     chaque import — auto-entretien, pas de tâche planifiée, comme
     `purge_stale_segment_jobs`."""
-    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(
+    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(
         days=max_age_days
     )
     # Liste matérialisée : `delete_segment_jobs` commite, et commiter pendant
