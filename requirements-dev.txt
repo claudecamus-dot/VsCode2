@@ -15,3 +15,12 @@ httpx2==2.5.0
 # Extraction de texte depuis les PDF générés (test_interview_pdf_export.py)
 # pour vérifier le contenu réel rendu, pas seulement l'absence d'exception.
 pymupdf==1.28.0
+
+# Linter — ÉPINGLÉ ici depuis le 2026-09-10 : l'étape CI l'invoquait sans
+# jamais l'installer. Invisible tant que la commande était `ruff check . ||
+# true`, dont le `|| true` avalait aussi le « No module named ruff » : le lint
+# « informatif » n'a donc probablement RIEN mesuré en CI depuis son
+# introduction le 2026-07-23, et les chiffres de dérive connus (74 points dans
+# app/) sont des mesures locales. Le gate posé le 2026-09-10 aurait rougi dès
+# le premier push — trouvé par la revue adversariale du jour, finding n°1.
+ruff==0.16.0

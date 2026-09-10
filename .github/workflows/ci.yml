@@ -24,11 +24,34 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
-      # Lint NON bloquant : ruff a été introduit le 2026-07-23 comme baseline
-      # (F/I/UP/B, B008 ignoré — idiome FastAPI) SANS corriger les ~100 points
-      # existants (« mesure d'abord, pas de gate » ; un --fix aveugle avait cassé
-      # un ré-export). On mesure la dérive sans faire échouer la CoI dessus.
-      - name: Lint (ruff, informatif)
+      # Lint BLOQUANT depuis le 2026-09-10 (arbitrage utilisateur, sur constat
+      # d'audit risque technique : « le lint mesure la dérive mais ne la retient
+      # pas » — 74 points dans app/, dont les 11 imports morts signalés à chaque
+      # exécution sans que rien ne les arrête).
+      #
+      # La politique « mesure d'abord, pas de gate » datait du 2026-07-23 et
+      # n'avait jamais été revisitée : elle supposait une dette à résorber. Elle
+      # l'est — `ruff check app/` rend 0 point. Un gate posé sur zéro ne coûte
+      # rien à qui écrit du code propre, et arrête la dérive au lieu de la
+      # compter. La prudence de l'époque (« un --fix aveugle avait cassé un
+      # ré-export ») a été honorée : les 11 F401 ont été vérifiés un par un
+      # avant correction, aucun n'était un ré-export ni cité dans un `__all__`.
+      #
+      # Les 6 points que `--fix` refuse de traiter seul (zip strict, variables
+      # de boucle, chaînage d'exception) ont été tranchés à la main, chacun avec
+      # sa raison écrite à côté — dont un `strict=False` ASSUMÉ, sur un repli
+      # que la docstring interdit de faire échouer.
+      # Le gate porte sur `app/` — le CODE PRODUIT, et le périmètre exact du
+      # constat. Il y rend 0 point. Le reste du dépôt (tests/, outillage) en
+      # comptait encore 114 le 2026-09-10 (mesuré : `ruff check .` rend 114,
+      # `ruff check app/` en rend 0) : les y inclure aujourd'hui rougirait
+      # la CI sans qu'aucun défaut applicatif ne soit en cause, et un gate qu'on
+      # doit désactiver pour livrer ne gate rien. Ils restent mesurés par
+      # l'étape informative ci-dessous, à résorber avant d'élargir le gate.
+      - name: Lint (ruff, gate sur le code produit)
+        run: python -m ruff check app/
+
+      - name: Lint (ruff, reste du dépôt — informatif)
         run: python -m ruff check . || true
 
       # Tests = le gate. Couverture affichée (pytest-cov), sans seuil imposé —
