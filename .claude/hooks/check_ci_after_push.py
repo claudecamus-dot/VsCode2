@@ -18,12 +18,22 @@ Conception (mêmes principes que `warn_verif_before_commit.py`, sibling) :
   `additionalContext` (visible modèle), SANS `permissionDecision`. On pousse
   JUSTEMENT pour déclencher la CI — bloquer serait absurde. On avertit / on
   informe, on ne bloque pas.
-- **Fail-open partout** : pas de remote GitHub, pas de token (`git credential
-  fill` muet), réseau coupé, API en erreur, dépôt indéterminable → on rend la
-  main SANS rien émettre. Un garde-fou qui ajoute de la friction à chaque push
-  serait débranché la semaine suivante.
-- **Sans `gh`** (absent de cette machine) : token via `git credential fill`,
-  puis l'API REST `actions/runs`. Le token N'EST JAMAIS imprimé ni journalisé.
+- **Fail-open sur les pannes PASSAGÈRES** : remote non-GitHub, réseau coupé,
+  API en erreur, dépôt indéterminable → on rend la main sans rien émettre. Un
+  garde-fou qui ajoute de la friction à chaque push serait débranché la semaine
+  suivante.
+- **MAIS plus de silence sur l'absence de jeton** (correctif du 2026-09-10).
+  Mesuré ce jour-là : le remote de ce dépôt est en SSH et le dépôt est privé —
+  il n'existe donc AUCUN identifiant HTTPS, `git credential fill` ne peut rien
+  rendre, et ce hook ne s'était jamais exprimé depuis son installation. Se
+  taire là-dessus laissait croire que la CI était surveillée alors que
+  personne ne la regardait : c'est l'angle mort même qu'il devait fermer, et
+  c'est ainsi que le lint a pu ne rien mesurer depuis le 2026-07-23 (`ruff`
+  n'était installé dans aucun requirements, et `|| true` avalait le « No
+  module named ruff »). Le hook le DIT désormais, au plus une fois par 24 h.
+- **Sans `gh`** (absent de cette machine) : jeton depuis `GH_TOKEN` /
+  `GITHUB_TOKEN`, à défaut `git credential fill` (sans invite possible), puis
+  l'API REST `actions/runs`. Le jeton N'EST JAMAIS imprimé ni journalisé.
 - **Cheap sur le cas courant** : l'écrasante majorité des commandes shell ne sont
   pas des push — détection par le tokenizer éprouvé de `guard_destructive_git.py`
   (heredocs, segments quote-safe) puis retour immédiat.
@@ -41,7 +51,10 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
+import time
 import urllib.request
+from pathlib import Path
 
 try:  # réutilise le tokenizer éprouvé du guard voisin ; sinon, dégrade en silence
     from guard_destructive_git import _strip_heredocs, _segments
@@ -52,9 +65,12 @@ except Exception:  # pragma: no cover - fail-open
 _GIT_OPTS_WITH_VALUE = ("-C", "-c", "--git-dir", "--work-tree", "--namespace")
 # Conclusions GitHub Actions qui valent alerte rouge (un run terminé mais non vert).
 _RED = ("failure", "cancelled", "timed_out", "startup_failure", "action_required")
+# Commande de re-vérification proposée dans le message. Passe par GH_TOKEN :
+# sur ce dépôt (remote SSH, dépôt privé) `git credential fill` ne rend rien, et
+# proposer une commande qui ne peut pas aboutir est pire que ne rien proposer.
 _RECHECK = (
-    "printf 'protocol=https\\nhost=github.com\\n\\n' | git credential fill | "
-    "py .claude/hooks/check_ci_after_push.py  # (ou relancer un push)"
+    "GH_TOKEN=<jeton portée repo> py .claude/hooks/check_ci_after_push.py  "
+    "# (ou relancer un push)"
 )
 
 
@@ -129,12 +145,32 @@ def _owner_repo(remote_url):
 
 
 def _github_token(cwd):
-    """Token via `git credential fill` (jamais imprimé). None si indisponible."""
+    """Token GitHub (jamais imprimé). None si indisponible.
+
+    D'ABORD l'environnement (`GH_TOKEN`, `GITHUB_TOKEN`) : c'est le seul chemin
+    NON INTERACTIF, et sur ce dépôt c'est le seul qui puisse aboutir. Mesuré le
+    2026-09-10 : le remote est en SSH (`git@github.com:…`), il n'existe donc
+    AUCUN identifiant HTTPS en cache, et le dépôt est privé — l'API répond 404
+    sans jeton. `git credential fill` part alors en demander un au Credential
+    Manager, c'est-à-dire à personne dans un hook, et expire au bout de 8 s.
+
+    Conséquence pendant des mois : ce garde-fou ne s'est JAMAIS exprimé. C'est
+    ainsi que le lint CI a pu ne rien mesurer depuis le 2026-07-23 sans que
+    quiconque le voie — `ruff` n'était installé dans aucun requirements, et le
+    `|| true` de l'étape avalait aussi le « No module named ruff ».
+    """
+    for nom in ("GH_TOKEN", "GITHUB_TOKEN"):
+        depuis_env = os.environ.get(nom)
+        if depuis_env and depuis_env.strip():
+            return depuis_env.strip()
     try:
         r = subprocess.run(
             ["git", "credential", "fill"],
             input="protocol=https\nhost=github.com\n\n",
             cwd=cwd or None, capture_output=True, text=True, timeout=8,
+            # Aucune invite, jamais : dans un hook elle n'a personne en face et
+            # ne fait que retarder de 8 s un échec certain.
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0", "GCM_INTERACTIVE": "never"},
         )
     except Exception:
         return None
@@ -144,6 +180,27 @@ def _github_token(cwd):
         if line.startswith("password="):
             return line[len("password="):].strip() or None
     return None
+
+
+# Une seule alerte « pas de jeton » par 24 h, tracée hors du dépôt — rien à
+# committer, rien à ajouter au .gitignore.
+_MARQUEUR_AVIS = Path(tempfile.gettempdir()) / "vscode2_ci_sans_jeton.txt"
+
+
+def _doit_signaler_absence_de_jeton() -> bool:
+    """Vrai au plus une fois par tranche de 24 h.
+
+    Fail-OUVERT délibérément : si le marqueur est illisible, on préfère le dire
+    une fois de trop que pas du tout — c'est le silence qui a coûté cher, pas
+    le bruit."""
+    try:
+        if _MARQUEUR_AVIS.exists():
+            if time.time() - _MARQUEUR_AVIS.stat().st_mtime < 24 * 3600:
+                return False
+        _MARQUEUR_AVIS.write_text(str(time.time()), encoding="utf-8")
+    except Exception:
+        return True
+    return True
 
 
 def _latest_runs(owner, repo, branch, token, limit=5):
@@ -256,7 +313,32 @@ def main() -> None:
 
     token = _github_token(cwd)
     if not token:
-        return  # pas d'identifiant utilisable — fail-open
+        # PLUS de silence total (correctif du 2026-09-10). Le fail-open reste la
+        # bonne réponse à une panne PASSAGÈRE, mais pas à une impossibilité
+        # STRUCTURELLE : ici aucun jeton n'existe et aucun n'apparaîtra tout
+        # seul. Se taire revient alors à laisser croire que la CI est
+        # surveillée alors que personne ne la regarde — exactement l'angle mort
+        # que ce hook a été écrit pour fermer. On le dit, au plus une fois par
+        # jour, pour ne pas devenir la friction qu'on débranche la semaine
+        # suivante.
+        if _doit_signaler_absence_de_jeton():
+            avis = (
+                f"CI non vérifiée après le push ({owner}/{repo}, branche {branch}) : "
+                "aucun jeton GitHub disponible. Le remote est en SSH et le dépôt "
+                "est privé, donc `git credential fill` ne peut rien rendre. Pour "
+                "activer ce contrôle, poser GH_TOKEN (portée `repo`) dans "
+                "l'environnement. Sans lui ce garde-fou reste muet — et c'est ce "
+                "silence qui a laissé passer 6 CI rouges en 2026-07, puis un lint "
+                "qui ne mesurait rien depuis le 2026-07-23."
+            )
+            print(json.dumps({
+                "systemMessage": avis,
+                "hookSpecificOutput": {
+                    "hookEventName": "PostToolUse",
+                    "additionalContext": avis,
+                },
+            }))
+        return
 
     pushed_sha = _run_git(["rev-parse", "HEAD"], cwd) or ""
     runs = _latest_runs(owner, repo, branch, token)

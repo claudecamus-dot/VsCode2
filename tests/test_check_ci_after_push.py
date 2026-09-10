@@ -225,14 +225,81 @@ def test_main_emet_une_alerte_rouge_sur_le_commit_pousse(tmp_path, monkeypatch, 
     assert out["hookSpecificOutput"]["additionalContext"] == out["systemMessage"]
 
 
-def test_main_silencieux_sans_token(tmp_path, monkeypatch, capsys):
+def test_main_signale_l_absence_de_jeton_puis_se_tait(tmp_path, monkeypatch, capsys):
+    """Sans jeton, le hook DIT qu'il ne peut pas lire la CI — une fois par 24 h.
+
+    Ce test encodait l'inverse jusqu'au 2026-09-10 (« silencieux sans token ») :
+    c'était le contrat d'origine, et il s'est retourné contre son propre but.
+    Mesuré ce jour-là sur ce dépôt : remote SSH + dépôt privé = aucun
+    identifiant HTTPS ne peut exister, donc `git credential fill` ne rend
+    jamais rien et le hook ne s'était JAMAIS exprimé depuis son installation.
+    Le silence, prévu pour une panne passagère, couvrait en fait une
+    impossibilité permanente — et c'est ainsi que le lint CI a pu ne rien
+    mesurer pendant sept semaines sans que personne le voie.
+
+    Les DEUX moitiés comptent : on le dit (sinon l'angle mort revient), et on
+    ne le répète pas (sinon c'est la friction qu'on débranche)."""
     _git(["init", "-q"], tmp_path)
     _git(["remote", "add", "origin", "https://github.com/acme/demo.git"], tmp_path)
     monkeypatch.setattr(CI, "_github_token", lambda cwd: None)
+    # Marqueur isolé : sinon un run précédent (ou une vraie séance sur ce poste)
+    # aurait déjà consommé la fenêtre de 24 h et le test passerait à tort.
+    monkeypatch.setattr(CI, "_MARQUEUR_AVIS", tmp_path / "marqueur.txt")
     payload = {"tool_input": {"command": "git push"}, "cwd": str(tmp_path)}
+
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
     CI.main()
-    assert capsys.readouterr().out == ""
+    premier = capsys.readouterr().out
+    assert premier, "le hook se tait alors qu'il ne peut PAS lire la CI"
+    charge = json.loads(premier)
+    assert "GH_TOKEN" in charge["systemMessage"], "le message ne dit pas quoi faire"
+    assert charge["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
+
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    CI.main()
+    assert capsys.readouterr().out == "", (
+        "le hook repete l'avis au push suivant : c'est la friction qui le fera "
+        "debrancher"
+    )
+
+
+def test_le_jeton_vient_d_abord_de_l_environnement(tmp_path, monkeypatch):
+    """`GH_TOKEN` / `GITHUB_TOKEN` sont le seul chemin NON INTERACTIF, donc le
+    seul qui puisse aboutir dans un hook. Ils doivent être consultés AVANT
+    `git credential fill`, qui part sinon interroger un Credential Manager
+    qui n'a personne en face."""
+    _git(["init", "-q"], tmp_path)
+    appels = []
+    monkeypatch.setattr(
+        CI.subprocess, "run",
+        lambda *a, **k: appels.append(a) or pytest.fail("credential fill appele"),
+    )
+    monkeypatch.setenv("GH_TOKEN", "  jeton-de-test  ")
+    assert CI._github_token(str(tmp_path)) == "jeton-de-test", "espaces non retires"
+    assert appels == []
+
+    monkeypatch.delenv("GH_TOKEN")
+    monkeypatch.setenv("GITHUB_TOKEN", "second-nom")
+    assert CI._github_token(str(tmp_path)) == "second-nom"
+
+    # Une variable VIDE ne compte pas : elle doit laisser sa chance au repli,
+    # pas court-circuiter la recherche avec une chaîne blanche.
+    monkeypatch.setenv("GITHUB_TOKEN", "   ")
+    replis = []
+
+    class _Resultat:
+        returncode = 1
+        stdout = ""
+
+    monkeypatch.setattr(
+        CI.subprocess, "run", lambda *a, **k: replis.append(k) or _Resultat()
+    )
+    assert CI._github_token(str(tmp_path)) is None
+    assert len(replis) == 1, "une variable vide a court-circuite le repli"
+    # Et le repli n'ouvre JAMAIS d'invite : dans un hook, personne n'y répond.
+    env = replis[0]["env"]
+    assert env["GIT_TERMINAL_PROMPT"] == "0"
+    assert env["GCM_INTERACTIVE"] == "never"
 
 
 # --------------------------------------------------------------------------- #
