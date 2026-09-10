@@ -273,7 +273,10 @@ def _slide_swot(prs: Presentation, swot) -> None:
         cy = area_t + ri * (row_h + gap) + row_h / 2
         _label_axe_vertical(slide, MARGIN + gutter / 2, cy, min(row_h, 1.3), gutter, lbl)
 
-    for (key, label, color), (col, row) in zip(_SWOT_QUADRANTS, cells):
+    # `strict=True` : les deux suites sont de taille fixe (4 quadrants SWOT, 4
+    # cellules de la matrice 2x2). Un décalage serait un défaut de code, et il
+    # dessinerait une matrice amputée en silence — mieux vaut qu'il lève.
+    for (key, label, color), (col, row) in zip(_SWOT_QUADRANTS, cells, strict=True):
         cl = area_l + col * (col_w + gap)
         ct = area_t + row * (row_h + gap)
         # Cellule teintée + liseré coloré (style de carte du deck). Le fond rempli

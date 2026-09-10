@@ -12,7 +12,7 @@ automatique du résultat rempli en dehors de la plateforme.
 from __future__ import annotations
 
 import unicodedata
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ..models import Mission
 from .synthese_material import all_theme_material as _all_theme_material
@@ -73,7 +73,7 @@ def build_export_markdown(mission: Mission, axes=None) -> str:
         axes = _axes_par_defaut()
 
     material_by_theme = _all_theme_material(mission)
-    now = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
+    now = datetime.now(UTC).strftime("%d/%m/%Y %H:%M UTC")
 
     lines: list[str] = [
         f"# Export d'entretiens — {mission.name}",

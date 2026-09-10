@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from ..db import get_session
 from ..models import Mission
 from ..services.openhub_agents import (
     create_agent_result,
-    get_agent,
     invoke_agent,
     invoke_skill,
     list_available_agents,

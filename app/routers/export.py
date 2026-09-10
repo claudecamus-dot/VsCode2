@@ -20,7 +20,21 @@ from sqlalchemy.orm import Session
 from ..db import PPTX_TEMPLATES_DIR, get_session
 from ..models import Mission
 from ..services.ai_common import api_key_env_name, is_configured
+from ..services.analyse_import import (
+    AnalysisParseError,
+    decode_text_upload,
+    parse_analysis_markdown,
+)
 from ..services.mission_axes import axes_of
+from ..services.mission_export import build_export_markdown, slugify
+from ..services.pptx_export import build_presentation
+from ..services.synthese_ai import (
+    SynthesisAIError,
+    ai_precondition_error,
+    generate_difficulties,
+    generate_executive_summary,
+    generate_swot,
+)
 from ..services.synthese_ecriture import (
     apply_difficulties_result,
     apply_executive_summary_result,
@@ -31,22 +45,8 @@ from ..services.synthese_ecriture import (
     get_or_create_global_synthesis,
     get_or_create_swot,
 )
-from ..services.synthese_ai import (
-    SynthesisAIError,
-    ai_precondition_error,
-    generate_difficulties,
-    generate_executive_summary,
-    generate_swot,
-)
 from ..services.synthese_material import all_theme_material as _all_theme_material
 from ..services.synthese_material import total_answer_count as _total_answer_count
-from ..services.analyse_import import (
-    AnalysisParseError,
-    decode_text_upload,
-    parse_analysis_markdown,
-)
-from ..services.mission_export import build_export_markdown, slugify
-from ..services.pptx_export import build_presentation
 from ..templating import templates
 from ..uploads import UploadTropVolumineux, lire_upload_borne, verifier_zip_borne
 

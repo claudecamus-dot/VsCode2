@@ -16,7 +16,7 @@ from ..importers.docx_trame import (
     extract_text_bytes,
     parse_docx_bytes,
 )
-from ..models import Mission, Question, Theme, QUESTION_TYPES
+from ..models import QUESTION_TYPES, Mission, Question, Theme
 from ..services.trame_extract_ai import TrameExtractAIError, extract_trame_from_text
 from ..templating import templates
 from ..uploads import UploadTropVolumineux, lire_upload_borne, verifier_zip_borne
@@ -285,7 +285,7 @@ def import_confirm(
     mission = _get_mission(db, mission_id)
     try:
         parsed_trame = _parsed_from_json(parsed)
-    except (json.JSONDecodeError, AttributeError, TypeError):
+    except (json.JSONDecodeError, AttributeError, TypeError) as exc:
         # garde-fou : le champ caché transporte toute la trame re-postée par
         # le navigateur (`_parsed_to_json`) — tronqué, il lève JSONDecodeError ;
         # valide mais pas un objet (liste/chaîne), le `.get()` sur les entrées
@@ -296,7 +296,7 @@ def import_confirm(
         raise HTTPException(
             status_code=400,
             detail="Données d'import invalides ou tronquées — recommencez l'import.",
-        )
+        ) from exc
     _merge_parsed_trame(mission, parsed_trame, set(keep))
     db.commit()
     # Après import : on présente l'aperçu (questions importées + actions :

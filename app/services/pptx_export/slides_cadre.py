@@ -4,7 +4,7 @@ Extrait de pptx_export.py (découpage du gros module, finding audit
 2026-07-24) — code déplacé tel quel."""
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pptx import Presentation
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
@@ -45,7 +45,7 @@ def _slide_cover(prs: Presentation, mission: Mission) -> None:
     Outfit, tailles, éventuelle photo de couverture) vient du template. Repli sur un
     titre dessiné centré si le layout n'existe pas (deck synthétique sans marque)."""
     subtitle = "Synthèse transverse & recommandations"
-    date_str = datetime.now(timezone.utc).strftime("%d/%m/%Y")
+    date_str = datetime.now(UTC).strftime("%d/%m/%Y")
     cover = _layout_by_name(prs, "couverture", "cover")
     if cover is not None:
         slide = prs.slides.add_slide(cover)

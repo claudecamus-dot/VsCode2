@@ -198,7 +198,10 @@ def _slide_matrice_effort_valeur(prs: Presentation, axes: list,
                 xs = [pl + 0.02 + k * pas for k in range(len(xs))]
             else:
                 xs = decales
-        for x, (c, num, ai) in zip(xs, membres):
+        # `strict=True` : `xs` est construit à partir de `membres` juste
+        # au-dessus, les longueurs sont égales par construction. Si une branche
+        # future casse cet invariant, des bulles disparaîtraient sans bruit.
+        for x, (_c, num, ai) in zip(xs, membres, strict=True):
             D.add_badge(slide, x, by, d, num, palette[ai % len(palette)],
                         size=D.TYPE["small"], bold=True, radius=0.5)
 

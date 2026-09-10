@@ -9,8 +9,6 @@ d'incr.9, elle plantait de toute façon sur une mission sans trame.
 """
 from __future__ import annotations
 
-from datetime import datetime
-
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy import update
@@ -27,31 +25,29 @@ from ..models import (
 )
 from ..services.ai_common import api_key_env_name
 from ..services.global_synthesis_job import run_global_synthesis_job
-from ..services.pptx_export import field_fit_hint
 from ..services.mission_axes import axes_of, creer_axe, supprimer_axe
+from ..services.pptx_export import field_fit_hint
+from ..services.synthese_ai import (
+    SynthesisAIError,
+    ai_precondition_error,
+    generate_recommendations,
+    is_configured,
+)
 from ..services.synthese_ecriture import (
     EXEC_SUMMARY_FIELDS,
     SWOT_FIELDS,
-    apply_difficulties_result,
-    apply_executive_summary_result,
-    apply_global_synthesis_result,
     apply_recommendations_result,
-    apply_swot_result,
     get_or_create_executive_summary,
     get_or_create_global_synthesis,
     get_or_create_swot,
 )
-from ..services.synthese_ai import (
-    SynthesisAIError,
-    ai_precondition_error,
-    generate_global_synthesis,
-    generate_recommendations,
-    generate_swot,
-    is_configured,
-)
 from ..services.synthese_material import (
     all_theme_material as _all_theme_material,
+)
+from ..services.synthese_material import (
     libre_material as _libre_material,
+)
+from ..services.synthese_material import (
     total_answer_count as _total_answer_count,
 )
 from ..templating import templates
