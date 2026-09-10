@@ -122,6 +122,30 @@ def _sans_erreur(nav: Navigateur, etape: str) -> None:
     assert "Origine non autorisée" not in nav.texte(), f"{etape} : 403 CSRF rendu à l'écran"
 
 
+def test_les_deux_sessions_cdp_sont_sans_keepalive(nav: Navigateur) -> None:
+    """Non-régression du 2026-09-10 : les DEUX sessions CDP sont ouvertes sans
+    keepalive `websockets`.
+
+    Ce test prouve le RÉGLAGE, pas la cause. Le mécanisme de la panne qui l'a
+    motivé n'est pas établi (voir `navigateur_cdp._OPTIONS_WS`, qui dit ce qui
+    est mesuré et ce qui ne l'est pas) — mais le réglage, lui, est vérifiable,
+    et c'est justement ce qu'un reformatage des appels `websockets.connect`
+    ferait sauter en silence : la suite resterait verte et la panne
+    reviendrait. Sur le code d'avant, ces deux attributs valent 20 (défaut de
+    websockets), donc ce test échoue.
+
+    Il ne demande PAS le serveur : la fixture `nav` suffit, elle lance le
+    navigateur et ouvre les deux sessions dans son constructeur."""
+    assert nav._ws_navigateur.ping_interval is None, (
+        "session CDP du navigateur ouverte avec un keepalive : "
+        f"ping_interval={nav._ws_navigateur.ping_interval}"
+    )
+    assert nav._ws.ping_interval is None, (
+        "session CDP de la page ouverte avec un keepalive : "
+        f"ping_interval={nav._ws.ping_interval}"
+    )
+
+
 def test_choisir_le_mode_puis_demarrer(serveur: str, nav: Navigateur) -> None:
     """Les tout premiers clics, depuis `/` : « Usage réel » (POST /mode/reel,
     nommé dans le signalement comme cassé lui aussi), puis « Définir une

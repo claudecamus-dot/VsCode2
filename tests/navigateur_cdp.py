@@ -13,8 +13,8 @@ Sans Playwright ni Selenium dans le venv (choix du projet, cf. skill
 `websockets` que `uvicorn[standard]` installe déjà. Rien à ajouter aux
 dépendances.
 
-Trois leçons payées à la première mise au point (revue adversariale du
-2026-09-08, puis reproduction), qui expliquent la forme du code :
+Quatre leçons payées en mise au point (revues adversariales des 2026-09-08 et
+2026-09-10, chacune suivie d'une reproduction), qui expliquent la forme du code :
 
 - **Le processus lancé n'est pas le navigateur.** Sur Windows, `msedge.exe`
   se relance lui-même et le lanceur sort en ~1,5 s avec le code 0 : un
@@ -32,6 +32,15 @@ Trois leçons payées à la première mise au point (revue adversariale du
 - **Les évènements n'arrivent que quand quelqu'un lit la socket.** Réponses
   réseau et exceptions JS ne sont comptées que pendant une lecture :
   `drainer()` avant toute assertion « aucune erreur sur le parcours ».
+- **Une session CDP muette n'est pas une session morte, et l'inverse.** Le
+  keepalive de `websockets` est coupé (`_OPTIONS_WS`) : mesuré meilleur, sans
+  que la cause de la panne qu'il corrige soit établie — la constante dit
+  exactement ce qui est mesuré et ce qui ne l'est pas, parce qu'une première
+  version affirmait un mécanisme que la bibliothèque dément. Conséquence sur
+  la forme du code : `_run` traite MAINTENANT deux échecs distincts, la
+  connexion fermée et le délai expiré, et les enrichit tous deux du même
+  `_etat_navigateur()` — sans quoi couper le keepalive troquait un message
+  diagnosticable contre un `TimeoutError` nu.
 
 API synchrone minimale, pensée pour des tests qui lisent comme un parcours :
 
@@ -90,6 +99,36 @@ _LONGUEUR_MAX_PROFIL = 140
 # ci-dessous (ceux de Puppeteer : rien à installer, rien à contacter) et un
 # délai de démarrage distinct, plus long, du délai des commandes.
 _DELAI_DEMARRAGE_S = 60.0
+# Options communes aux DEUX sessions CDP (navigateur et page) — en constante
+# pour qu'une troisième connexion ne puisse pas les oublier.
+#
+# `ping_interval=None` (2026-09-10) coupe le keepalive de `websockets` (16.0
+# ici : ping toutes les 20 s, connexion fermée si le pong tarde 20 s de plus).
+# CE QUI EST MESURÉ, et rien de plus : sur le code d'avant,
+# `test_le_tour_de_table_se_rejoue_autant_de_fois_que_necessaire` a échoué 2
+# fois sur 2 en `ConnectionClosedError: no close frame received or sent`
+# (suite complète 1358 s ; fichier seul 615 s), navigateur TOUJOURS VIVANT et
+# journal vide ; avec ce réglage le même fichier rend « 2 passed in 96,68 s ».
+#
+# CE QUI N'EST PAS PROUVÉ — écrit ici parce qu'une première version de ce
+# commentaire l'affirmait à tort, et qu'une revue adversariale l'a démenti sur
+# le code de la bibliothèque : le MÉCANISME reste inconnu. Un dépassement de
+# keepalive poserait `close_sent` (`asyncio/connection.py`, `protocol.fail(1011,
+# "keepalive ping timeout")`) et le message serait « sent 1011 … keepalive ping
+# timeout » ; « no close frame received OR SENT » n'apparaît que si aucun des
+# deux côtés n'a envoyé de close, donc sur une coupure brutale du transport.
+# Deux pistes restent ouvertes, non tranchées : (1) l'échec durait PLUS
+# longtemps que le succès (615 s contre 97 s), ce qu'un échec-rapide de socket
+# n'explique pas — un blocage applicatif épuisant les budgets de polling
+# (`_DELAI_TRANSCRIPTION_S`) le ferait ; (2) `max_queue=16` met le transport en
+# pause (`pause_reading`) quand personne ne draine, ce qui est le cas pendant
+# les `time.sleep` du test et entre deux commandes.
+# Le réglage est donc conservé parce qu'il est EMPIRIQUEMENT meilleur (et sans
+# risque : voir `_run`, où chaque commande reste bornée par `self._delai`,
+# 30 s, soit moins que les 40 s du keepalive — celui-ci n'a jamais été le
+# premier détecteur), pas parce que la cause serait comprise. Trancher
+# demanderait un run avec `logging.getLogger("websockets")` en DEBUG.
+_OPTIONS_WS = {"max_size": _TAILLE_MAX_MESSAGE, "ping_interval": None}
 _DRAPEAUX_LANCEMENT = [
     "--headless=new", "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage",
     "--window-size=1280,1600",
@@ -252,14 +291,14 @@ class Navigateur:
             ws_navigateur, port = self._attendre_devtools()
             self._loop = asyncio.new_event_loop()
             self._ws_navigateur = self._run(
-                websockets.connect(ws_navigateur, max_size=_TAILLE_MAX_MESSAGE)
+                websockets.connect(ws_navigateur, **_OPTIONS_WS)
             )
             info = self._run(self._cmd_sur(self._ws_navigateur, "SystemInfo.getProcessInfo"))
             for processus in info.get("processInfo", []):
                 if processus.get("type") == "browser":
                     self.pid_navigateur = int(processus["id"])
             self._ws = self._run(
-                websockets.connect(self._cible_page(port), max_size=_TAILLE_MAX_MESSAGE)
+                websockets.connect(self._cible_page(port), **_OPTIONS_WS)
             )
             self._run(self._cmd("Network.enable"))
             self._run(self._cmd("Page.enable"))
@@ -370,15 +409,36 @@ class Navigateur:
             # La socket CDP s'est fermée : le navigateur est parti (crash, tué)
             # ou a fermé l'onglet. Dire lequel, avec son journal — sans ça il ne
             # reste que « no close frame received » (suite du 2026-09-09).
-            vivant = (
-                self.pid_navigateur is not None
-                and not _attendre_fin_processus(self.pid_navigateur, 0.0)
-            )
             raise RuntimeError(
-                f"connexion CDP fermée ({exc}) — navigateur pid {self.pid_navigateur} "
-                f"{'toujours vivant' if vivant else 'terminé'} ; journal :\n"
-                + self._journal_navigateur()[-2000:]
+                f"connexion CDP fermée ({exc}) — " + self._etat_navigateur()
             ) from exc
+        except TimeoutError as exc:
+            # Socket OUVERTE mais plus personne au bout : le navigateur est figé
+            # (renderer bloqué) ou n'a jamais répondu à cette commande. Le même
+            # enrichissement que ci-dessus, sinon il ne reste qu'un TimeoutError
+            # nu sans pid ni journal — c'est-à-dire exactement le diagnostic
+            # gagné le 2026-09-09, reperdu le 2026-09-10 par `ping_interval=
+            # None` : sans keepalive, ce cas ne se présente PLUS comme une
+            # fermeture de connexion mais comme une expiration de délai (revue
+            # adversariale du 2026-09-10, R2). Le budget est le même qu'avant
+            # (`self._delai`, 30 s, déjà plus court que les 40 s du keepalive) :
+            # on ne perd pas la borne, on récupère le message.
+            raise RuntimeError(
+                f"CDP muet en {self._delai:.0f}s — " + self._etat_navigateur()
+            ) from exc
+
+    def _etat_navigateur(self) -> str:
+        """Pid, vivacité et fin du journal du navigateur — la matière qui rend
+        un échec CDP diagnosticable au lieu de laisser une exception nue."""
+        vivant = (
+            self.pid_navigateur is not None
+            and not _attendre_fin_processus(self.pid_navigateur, 0.0)
+        )
+        return (
+            f"navigateur pid {self.pid_navigateur} "
+            f"{'toujours vivant' if vivant else 'terminé'} ; journal :\n"
+            + self._journal_navigateur()[-2000:]
+        )
 
     async def _envoyer(self, method: str, **params) -> int:
         self._id += 1
