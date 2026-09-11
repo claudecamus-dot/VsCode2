@@ -112,8 +112,50 @@ def _detenteur_vivant(pid: int) -> bool:
     return True
 
 
+def _debut_processus(pid: int):
+    """Instant de DÉMARRAGE du processus `pid`, ou `None` si indéterminable.
+
+    Un PID ne suffit pas à identifier un processus : Windows comme Linux les
+    recyclent. Un pytest tué peut donc voir son PID repris par n'importe quoi,
+    et son verrou tenir jusqu'à péremption — 45 min pendant lesquelles aucune
+    suite ne démarre, ce que le commentaire de `_VERROU_PERIME_S` qualifie
+    lui-même de pire que pas de verrou (revue du 2026-09-10, T14). L'instant de
+    démarrage, lui, distingue deux processus de même PID.
+
+    `None` veut dire « je ne sais pas » : l'appelant NE DOIT PAS conclure à la
+    mort du détenteur sur cette base — voler un verrou par excès de zèle rend
+    la cascade `WinError 32` que tout ceci cherche à éviter.
+    """
+    if pid <= 0:
+        return None
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        noyau = ctypes.windll.kernel32
+        handle = noyau.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return None
+        try:
+            creation = wintypes.FILETIME()
+            autres = (wintypes.FILETIME(), wintypes.FILETIME(), wintypes.FILETIME())
+            if not noyau.GetProcessTimes(handle, ctypes.byref(creation),
+                                         *[ctypes.byref(f) for f in autres]):
+                return None
+            return (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+        finally:
+            noyau.CloseHandle(handle)
+    try:  # Linux/macOS : 22e champ de /proc/<pid>/stat, en tops d'horloge.
+        with open(f"/proc/{pid}/stat", encoding="utf-8") as fh:
+            champs = fh.read().rsplit(")", 1)[-1].split()
+        return int(champs[19])
+    except Exception:
+        return None
+
+
 def _lire_le_verrou():
-    """`(pid, age_s)` du détenteur courant, ou `None` si le verrou n'existe pas.
+    """`(pid, age_s, debut)` du détenteur courant, ou `None` si le verrou
+    n'existe pas. `debut` vaut `None` pour un verrou d'avant ce format.
 
     Un verrou illisible ou malformé est rendu comme PÉRIMÉ (`age` au-delà du
     seuil) plutôt que comme absent : il faut pouvoir le reprendre, mais sans
@@ -124,28 +166,59 @@ def _lire_le_verrou():
     except FileNotFoundError:
         return None
     except OSError:
-        return (0, _VERROU_PERIME_S + 1)
+        return (0, _VERROU_PERIME_S + 1, None)
     try:
-        pid_str, _, horodatage = contenu.partition(" ")
-        return (int(pid_str or 0), time.time() - float(horodatage or 0))
+        champs = contenu.split()
+        pid = int(champs[0])
+        age = time.time() - float(champs[1])
+        debut = None
+        if len(champs) > 2:
+            try:
+                debut = int(champs[2])
+            except ValueError:
+                debut = None  # champ abîmé : on l'ignore, sans périmer le verrou
+        return (pid, age, debut)
     except Exception:
-        return (0, _VERROU_PERIME_S + 1)
+        return (0, _VERROU_PERIME_S + 1, None)
+
+
+def _contenu_du_verrou() -> str:
+    """`<pid> <horodatage>[ <debut>]`.
+
+    Le troisième champ est OMIS quand l'instant de démarrage est indéterminable,
+    jamais écrit « None » : le relire lèverait, et `_lire_le_verrou` traiterait
+    alors un verrou parfaitement valide comme périmé — donc à voler.
+    """
+    debut = _debut_processus(os.getpid())
+    base = f"{os.getpid()} {time.time()}"
+    return base if debut is None else f"{base} {debut}"
 
 
 def _detenteur_actif(detenteur) -> bool:
     """Le verrou lu est-il tenu par QUELQU'UN D'AUTRE, vivant et non périmé ?"""
     if detenteur is None:
         return False
-    pid, age = detenteur
+    pid, age, debut = detenteur
     if pid == os.getpid():
         # Notre propre verrou : ré-entrance, pas contention. Sans ce test, une
         # seconde exécution du module dans le MÊME processus (importmode,
         # second rootdir) se refuserait l'entrée à elle-même.
         return False
-    return _detenteur_vivant(pid) and age < _VERROU_PERIME_S
+    if not _detenteur_vivant(pid):
+        return False
+    if debut is not None:
+        actuel = _debut_processus(pid)
+        if actuel is not None and actuel != debut:
+            # Même PID, processus DIFFÉRENT : le détenteur est mort et son
+            # numéro a été réattribué. Le verrou est à prendre.
+            return False
+    return age < _VERROU_PERIME_S
 
 
-def _refuser(pid: int, age: float) -> None:
+def _refuser(pid: int, age: float, debut=None) -> None:
+    """`debut` est ignoré du message : il sert à identifier le détenteur, pas à
+    l'expliquer. Il figure dans la signature parce que `_lire_le_verrou` rend
+    un triplet et que les appelants le dépaquettent tel quel."""
     raise RuntimeError(
         f"Une autre suite pytest tourne deja sur cette base (PID {pid}, "
         f"depuis {int(age)} s) : {_BASE}\n"
@@ -163,6 +236,17 @@ def _refuser(pid: int, age: float) -> None:
 def _prendre_le_verrou() -> None:
     if os.environ.get("PYTEST_SANS_VERROU") == "1":
         return
+    if os.environ.get("PYTEST_XDIST_WORKER") and "xdist" in sys.modules:
+        # Les workers `pytest-xdist` sont les enfants d'un même run : ils
+        # partagent le verrou pris par leur maître. Sans cette sortie, le
+        # premier worker le prendrait et refuserait tous les autres, rendant
+        # `-n auto` impossible (revue du 2026-09-10, T14).
+        #
+        # La variable SEULE ne suffit pas : elle s'hérite par l'environnement,
+        # donc un pytest lancé depuis un worker (ou depuis un shell qui en a
+        # gardé la trace) tournerait SANS verrou — le trou exact que tout ceci
+        # ferme. On exige donc que xdist soit réellement chargé (ronde 2).
+        return
     detenteur = _lire_le_verrou()
     if _detenteur_actif(detenteur):
         _refuser(*detenteur)
@@ -170,7 +254,7 @@ def _prendre_le_verrou() -> None:
     # peuvent pas croire tous les deux avoir pris le verrou.
     try:
         with open(_VERROU, "x", encoding="utf-8") as fh:
-            fh.write(f"{os.getpid()} {time.time()}")
+            fh.write(_contenu_du_verrou())
         return
     except FileExistsError:
         pass
@@ -189,7 +273,7 @@ def _prendre_le_verrou() -> None:
     if _detenteur_actif(detenteur):
         _refuser(*detenteur)
     try:
-        _VERROU.write_text(f"{os.getpid()} {time.time()}", encoding="utf-8")
+        _VERROU.write_text(_contenu_du_verrou(), encoding="utf-8")
     except OSError:
         pass
 
