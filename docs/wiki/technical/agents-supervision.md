@@ -8,7 +8,7 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-09-11T09:25:33+02:00 · **84 sessions** (transcripts) · **192** invocations de skills · **149** lancements de sous-agents.
+Dernier scan : 2026-09-11T16:13:08+02:00 · **84 sessions** (transcripts) · **192** invocations de skills · **151** lancements de sous-agents.
 
 ## Skills — usage réel
 
@@ -40,7 +40,7 @@ Dernier scan : 2026-09-11T09:25:33+02:00 · **84 sessions** (transcripts) · **1
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 58 | 2026-07-15 | 2026-09-10 |
+| `general-purpose` | 60 | 2026-07-15 | 2026-09-11 |
 | `Explore` | 46 | 2026-06-30 | 2026-09-09 |
 | `bmad-revue` | 34 | 2026-08-31 | 2026-09-10 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
@@ -145,7 +145,7 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic à jour._
+_Diagnostic ⚠️ à relancer (> 14 j)._
 
 1. **L oracle de test n est fiable qu en suite complete (9 min) et cette suite n est pas reentrante : trois defauts du 2026-09-10 sont nes de la, pas du code** — Rendre l oracle bon marche et reentrant au lieu de dependre d une suite de 9 minutes qu on ne peut jouer qu une a la fois. · **Proposition** : Trois gestes d effort S : (a) test d inventaire des routes - figer l ensemble des (methode, chemin) enregistres sur app dans un instantane versionne, asserte en moins d une seconde : une decapitation de decorateur devient rouge immediatement, sans la suite complete ; (b) empreinte_code() hache le CONTENU (sha256 des octets) au lieu du mtime - la preuve de fraicheur du serveur dev reste vraie et l edition concurrente cesse de fabriquer des faux rouges ; (c) regle de selection dans CLAUDE.md : apres une edition de app/X.py, rejouer les fichiers de test qui CITENT le module ou la route touchee (grep -l), jamais le seul fichier neuf ; toute assertion d ordre d execution JS migre vers le harnais qui execute, les .index() sur du texte de template etant interdites. Plus un verrou de fichier dans conftest.py refusant un second pytest concurrent (20 WinError 32 mesurees ce jour, motif deja en memoire). Preuve de succes : le prochain decorateur casse est detecte par le test d inventaire et non par la suite complete, et zero echec fantome a la prochaine seance d edition.
 2. **Le hub audite un code qu il n a pas relu : 5 des 20 constats transmis etaient deja fermes, dont 2 par ses propres commits du matin - et la copie locale diverge de 157 lignes dans l autre sens** — Corriger au canon VScode5, jamais ici : c est le protocole de transmission hub vers projet qui est en cause, pas ce depot. · **Proposition** : Canon VScode5 : (a) un audit ne s emet qu avec le SHA de HEAD du depot audite au moment de la lecture, et le kit refuse de transmettre un finding dont le SHA est anterieur au HEAD courant de la cible - le projet voit immediatement lesquels sont perimes au lieu de les verifier a la main ; (b) sync_dispositif.py publie un rapport de divergence par fichier (lignes d ecart) et echoue au-dela d un seuil, au lieu de laisser la copie deriver en silence ; (c) .claude/audits/<projet>.json est ecrit par la synchro, jamais laisse orphelin. Preuve de succes : a la prochaine transmission, le taux de constats deja fermes tombe de 25 pour cent (5 sur 20) a zero.

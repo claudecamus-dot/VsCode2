@@ -834,10 +834,10 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-09-11T09:25:33+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-09-11T16:13:08+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>84 sessions</strong> couvertes · <strong>192</strong> invocations de skills · <strong>149</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>84 sessions</strong> couvertes · <strong>192</strong> invocations de skills · <strong>151</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">scan_transcripts.py · 2026-09-11 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
@@ -877,7 +877,7 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Sous-agent</th><th>Lancements</th><th>Premier</th><th>Dernier</th></tr></thead>
           <tbody>
-            <tr><td><code>general-purpose</code></td><td>58</td><td>2026-07-15</td><td>2026-09-10</td></tr>
+            <tr><td><code>general-purpose</code></td><td>60</td><td>2026-07-15</td><td>2026-09-11</td></tr>
             <tr><td><code>Explore</code></td><td>46</td><td>2026-06-30</td><td>2026-09-09</td></tr>
             <tr><td><code>bmad-revue</code></td><td>34</td><td>2026-08-31</td><td>2026-09-10</td></tr>
             <tr><td><code>claude</code></td><td>4</td><td>2026-07-16</td><td>2026-07-16</td></tr>
@@ -976,7 +976,7 @@ pytest -k "pptx or export"                                                     #
         <li><strong><code>VSCode2:audio-streaming-disque-sans-plafond</code></strong> (2026-09-10) : ACCEPTE + APPLIQUE (arbitrage utilisateur explicite du 2026-09-10, apres que je l'aie classe a tort hors perimetre). Commit aee74f1 : `uploads.ecrire_audio_borne` compte les octets ecrits, s'arrete au plafond audio, rend un 413, et supprime le fichier PARTIEL -- y compris sur interruption de flux. Les deux routes non authentifiees (transcribe_file, save_record_backup) y deleguent ; plus aucun `shutil.copyfileobj` non borne dans app/routers/interviews.py. Le plafond est lu a l'appel depuis le module, meme contrat que lire_upload_audio_borne. Note de methode : j'avais reecrit ce fichier le matin meme sans fermer ces jambes-la -- c'est la revue de supervision qui l'a releve, et c'est le motif « appliquer la lecon aux chemins freres » deja en memoire.</li>
       </ul>
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
-      <p><em>Diagnostic à jour.</em></p>
+      <p><em>Diagnostic ⚠️ à relancer (&gt; 14 j).</em></p>
       <div class="critical">
         <p><strong>L oracle de test n est fiable qu en suite complete (9 min) et cette suite n est pas reentrante : trois defauts du 2026-09-10 sont nes de la, pas du code</strong> — Rendre l oracle bon marche et reentrant au lieu de dependre d une suite de 9 minutes qu on ne peut jouer qu une a la fois. · <strong>Proposition</strong> : Trois gestes d effort S : (a) test d inventaire des routes - figer l ensemble des (methode, chemin) enregistres sur app dans un instantane versionne, asserte en moins d une seconde : une decapitation de decorateur devient rouge immediatement, sans la suite complete ; (b) empreinte_code() hache le CONTENU (sha256 des octets) au lieu du mtime - la preuve de fraicheur du serveur dev reste vraie et l edition concurrente cesse de fabriquer des faux rouges ; (c) regle de selection dans CLAUDE.md : apres une edition de app/X.py, rejouer les fichiers de test qui CITENT le module ou la route touchee (grep -l), jamais le seul fichier neuf ; toute assertion d ordre d execution JS migre vers le harnais qui execute, les .index() sur du texte de template etant interdites. Plus un verrou de fichier dans conftest.py refusant un second pytest concurrent (20 WinError 32 mesurees ce jour, motif deja en memoire). Preuve de succes : le prochain decorateur casse est detecte par le test d inventaire et non par la suite complete, et zero echec fantome a la prochaine seance d edition.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
