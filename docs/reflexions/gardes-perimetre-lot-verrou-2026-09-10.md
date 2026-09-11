@@ -232,6 +232,83 @@ contre le code d'avant — qui l'a révélé : le test passait AUSSI sans le
 correctif. Un test qui ne peut pas échouer ne prouve rien, et seule la mutation
 le dit.
 
+## 4 ter. Ronde 3 — l'outil anti-récidive portait le défaut qu'il traque
+
+`scripts/preuve_p1.py` a été écrit pour que le défaut des rondes 1 et 2 ne
+puisse plus revenir : il outille la preuve P1, dont la version artisanale avait
+produit deux faux négatifs et laissé passer un test qui passait des deux côtés.
+Sa revue a rendu 31 constats. Le motif s'est répété une troisième fois : l'outil
+contre les affirmations fausses en portait trois, et deux de ses tests passaient
+pour une mauvaise raison.
+
+**Corrigé :**
+
+- [x] **R3-1 — Un code pytest non nul n'est pas un test rouge.** Une mutation
+  cassant la syntaxe fait sortir pytest en 2 (collecte impossible) ; la première
+  version le comptait comme « rouge » et certifiait donc une PREUVE TENUE à
+  partir d'une erreur de syntaxe. Idem pour le code 5 (aucun test collecté :
+  chemin faux ou `-k` sans correspondance). Seuls 0 et 1 sont des verdicts ; tout
+  le reste rend un code d'OUTILLAGE distinct.
+- [x] **R3-2 — Un test VOISIN qui tombe faisait conclure.** Quand un sélecteur
+  est donné, l'outil exige désormais que l'échec porte sur lui.
+- [x] **R3-3 — Une restauration ratée rendait 0.** Le verdict est maintenant
+  écrasé par le code 6 : un dépôt resté sur le code d'avant avec un tampon de
+  conformité serait le défaut n°3 aggravé.
+- [x] **R3-4 — Corruption de fins de ligne.** Lecture/écriture en OCTETS : sur
+  Windows, `write_text` réécrivait un fichier LF en CRLF, et le rouge aurait pu
+  venir de là.
+- [x] **R3-5 — Cible hors du dépôt, bloc AVANT vide, marqueur multi-ligne en
+  ligne de commande, séparateur `---` ambigu** : tous refusés (le séparateur est
+  devenu `---PREUVE-P1---`). Le mode « suppression du marqueur » a été retiré
+  plutôt que documenté.
+- [x] **R3-6 — Édition concurrente** entre la lecture et la mutation : détectée
+  (code 8) au lieu d'être silencieusement écrasée. Les temporaires sont nettoyés.
+- [x] **R3-7 — Trois affirmations fausses** dans mes propres commentaires, et une
+  règle CLAUDE.md inapplicable (« jamais à la main » alors que l'outil ne traite
+  qu'un marqueur d'un seul fichier). Corrigées, la règle dit maintenant son
+  périmètre.
+- [x] **R3-8 — Deux tests passaient pour une mauvaise raison** : celui de la
+  restauration serait passé sur une erreur d'usage survenue avant toute écriture,
+  celui du diagnostic n'assertait qu'un texte générique.
+- [x] **R3-9 — La garde anti-sync passait sur un retrait PARTIEL** de clé, et
+  levait un `AttributeError` opaque au lieu d'émettre ses instructions T18.
+
+**Les quatre derniers, traités le 2026-09-11 sur demande utilisateur :**
+
+- [x] **R3-10 — Un processus TUÉ pendant la fenêtre mutée laissait le fichier
+  muté.** Le `finally` couvre les sorties normales et les exceptions, pas un
+  `taskkill`. Une **sentinelle** (`%TEMP%/preuve_p1_interrompue.json`, chemin
+  fixe donc retrouvable) est posée AVANT la mutation et retirée seulement après
+  restauration vérifiée. La preuve suivante la voit et REFUSE de partir (code 9)
+  en nommant la sauvegarde ; `--restaurer` remet le fichier. Elle ne restaure
+  jamais d'elle-même : elle prévient d'abord. Une sentinelle périmée — la
+  restauration avait eu lieu, seule la trace restait — est retirée sans bloquer.
+- [x] **R3-11 — Un marqueur non aligné sur des lignes entières** pouvait tomber
+  dans un commentaire ou au milieu d'une ligne et muter ailleurs que voulu.
+  Refusé (code 3), avec `--fragment` pour l'assumer. L'outil imprime en plus les
+  lignes exactes qu'il va muter, avec leur numéro.
+- [x] **R3-12 — La garde anti-sync ne vérifiait pas que `main()` APPELLE encore
+  les gardes** : un canon gardant les noms sans les câbler passait. Elle fait
+  maintenant parler le hook pour de vrai, une fois par garde. Prouvé : débrancher
+  l'appel du plafond la fait rougir.
+- [x] **R3-13 — Le code 5 (mutation sans effet) n'était épinglé par aucun test.**
+
+**Et un cinquième, trouvé en UTILISANT l'outil — pas en le relisant :**
+
+- [x] **R3-14 — Un marqueur multi-lignes ne pouvait pas fonctionner sur ce
+  dépôt.** L'arbre de travail est entièrement en CRLF (`core.autocrlf=true`) et
+  l'outil lit en octets, sans traduction. Un marqueur tapé en LF ne correspondait
+  donc jamais : « apparaît 0 fois », soit **exactement le faux négatif que
+  l'outil existe pour empêcher**. Les marqueurs sont désormais réécrits aux fins
+  de ligne du fichier cible, et `\r` compte comme fin de ligne dans le contrôle
+  d'alignement.
+  Les quatre preuves jouées jusque-là n'avaient tenu que parce que leurs
+  marqueurs faisaient une seule ligne. Aucune revue ne l'avait vu ; c'est la
+  première tentative de mutation multi-lignes sur un fichier réel qui l'a sorti.
+  La leçon est la même que celle de tout ce chantier, appliquée à l'outillage :
+  **un outil de vérification se vérifie en l'utilisant sur un cas réel**, pas en
+  le relisant.
+
 ## 5. Ce que cette revue dit du chantier lui-même
 
 Le chantier construit un outil contre « la garde posée sur un chemin, ses frères

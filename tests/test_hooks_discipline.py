@@ -558,6 +558,90 @@ def test_committer_la_CONFIGURATION_ne_declenche_pas_la_garde(tmp_path):
     )
 
 
+def test_une_SYNCHRONISATION_DU_CANON_ne_peut_pas_effacer_les_gardes_en_silence(tmp_path):
+    """Garde anti-régression pour T18, le seul finding que ce dépôt ne peut pas
+    corriger lui-même.
+
+    Ce hook est publié par le hub, et les deux gardes ont été écrites ICI avant
+    d'y être portées. Le risque nommé par la revue du 2026-09-10 : une
+    synchronisation du canon écrase le fichier, les gardes disparaissent, et les
+    clés `perimetre_enabled` / `plafond_lot` / `paires_de_garde` restent dans la
+    configuration locale comme des clés que plus personne ne lit. Personne ne le
+    verrait — un garde-fou qui s'évapore ne fait aucun bruit.
+
+    Ce test est ce bruit. Il ne vérifie PAS un comportement (ses voisins le
+    font) : il vérifie que le dépôt reste cohérent avec lui-même, que la
+    configuration et le code se répondent encore, dans les deux sens.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("hook_canon", WARN)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    manquants = [nom for nom in
+                 ("_commit_prend_tout", "_load_gardes_config", "_freres_nus",
+                  "_build_warning_perimetre", "_build_warning_lot", "_as_paires",
+                  # Les deux suivants sont utilises PLUS BAS dans ce test : sans
+                  # eux il leverait un AttributeError opaque au lieu d'emettre
+                  # les instructions T18 qu'il existe pour donner (revue du
+                  # 2026-09-11).
+                  "_config_path", "_PAIRES_DE_GARDE")
+                 if not hasattr(mod, nom)]
+    assert not manquants, (
+        "le hook ne porte plus " + ", ".join(manquants) + " : une "
+        "synchronisation du canon a probablement ecrase les gardes locales. "
+        "Rouvrir T18 dans docs/reflexions/gardes-perimetre-lot-verrou-2026-09-10.md, "
+        "et soit re-appliquer les gardes, soit retirer les cles devenues "
+        "orphelines de .claude/warn_verif_before_commit.json."
+    )
+
+    # Meme tolerance que le hook : une configuration absente ou malformee ne
+    # doit pas lever ici comme si le canon avait ete synchronise.
+    cfg = mod._read_config_dict() or {}
+    attendues = ("perimetre_enabled", "plafond_lot", "paires_de_garde")
+    absentes = [c for c in attendues if c not in cfg]
+    # Les TROIS, pas « au moins une » : un retrait PARTIEL est exactement
+    # l'effacement silencieux que ce test nomme, et la version precedente le
+    # laissait passer (revue du 2026-09-11).
+    assert not absentes, (
+        "la configuration de ce depot ne declare plus " + ", ".join(absentes)
+        + " : ce depot a arbitre les gardes le 2026-09-10, leurs cles doivent y "
+        "rester. Si le retrait est voulu, le tracer dans "
+        "docs/reflexions/gardes-perimetre-lot-verrou-2026-09-10.md plutot que de "
+        "laisser le code chercher des cles disparues."
+    )
+    # Dans l'autre sens : une garde armee sans paire est INERTE, et le depot
+    # croirait etre protege.
+    assert cfg["perimetre_enabled"] is False or mod._PAIRES_DE_GARDE, (
+        "perimetre_enabled est a true mais aucune paire n'est chargee : la "
+        "garde est armee et INERTE -- elle ne signalera jamais rien"
+    )
+
+    # Et le CABLAGE : des symboles presents que `main()` n'appellerait plus
+    # laisseraient ce test vert avec deux gardes mortes (revue du 2026-09-11,
+    # R3-12). On fait donc parler le hook pour de vrai, une fois par garde.
+    _depot_avec_frere_nu(tmp_path)
+    transcript = _transcript(tmp_path, [".venv/Scripts/python.exe -m pytest -q"])
+    ctx = _context(_run_hook(WARN, _payload_msg(tmp_path, "Borne posee", transcript)))
+    assert "PÉRIMÈTRE" in ctx, (
+        "les symboles de la garde Perimetre existent mais main() ne les appelle "
+        "plus : garde morte. Meme conclusion que ci-dessus -- rouvrir T18."
+    )
+
+    lot = tmp_path / "lot"
+    lot.mkdir()
+    _git(["init", "-q"], lot)
+    for i in range(10):
+        f = lot / "docs" / f"n{i}.md"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("x\n", encoding="utf-8")
+        _git(["add", f"docs/n{i}.md"], lot)
+    assert "LOT TROP LARGE" in _context(_run_hook(WARN, _payload_msg(lot, "Lot"))), (
+        "le plafond de lot n'est plus appele par main() : garde morte"
+    )
+
+
 def test_les_constantes_mortes_ne_reviennent_pas(tmp_path):
     """Deux constantes non référencées traînaient dans le hook. La pire,
     `_PLAFOND_FICHIERS_LOT = 6`, dupliquait EN DUR le seuil que la
