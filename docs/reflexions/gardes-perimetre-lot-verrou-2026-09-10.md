@@ -8,9 +8,12 @@ la section 4 se coche ici.
 (T1 à T6), chacun avec son test de régression prouvé échouant sur le code
 d'avant (P1). Périmètre arbitré par l'utilisateur : « les 6 hauts, le reste
 différé au registre », livré en trois commits scopés.
-**T7 à T16 restent OUVERTS ici** — ils n'ont pas été jugés faux, seulement
-différés. Ce fichier est leur seule trace : ne pas le supprimer sans les avoir
-traités ou explicitement écartés.
+**Statut au 2026-09-11, fin de chantier : TOUS les points sont clos.** T1–T6
+(hauts), T7–T16 (moyens et bas), T17–T19 (différés motivés), les rondes 2 et 3
+de revue, et T18 — le seul qui exigeait d'écrire dans un autre dépôt — porté
+dans VSCode3 (`f50f111`). Ce fichier reste la trace du chantier : il dit ce qui
+a été corrigé, ce qui a été écarté et pourquoi, et ce que chaque ronde de revue
+a coûté. Ne pas le supprimer.
 
 ## 1. Le problème d'origine
 
@@ -173,9 +176,31 @@ Vérifications faites au code par le triage, pas sur parole.
 ### Différés, avec leur raison
 
 - [x] **T17 — Branche « fichier illisible » d'`empreinte_code` non testée.** Différé : garde-fou étroit sur un chemin de diagnostic dev ; rendre un fichier illisible de façon portable coûte plus que le risque. À rouvrir si l'empreinte passe sur un chemin utilisateur.
-- [ ] **T18 — Le hook est édité LOCALEMENT alors que sa source vit au hub.**
-  **TRANSMIS le 2026-09-11**, en attente de décision du hub — donc toujours
-  ouvert : une transmission n'est pas un arbitrage.
+- [x] **T18 — Le hook est édité LOCALEMENT alors que sa source vit au hub.**
+  **PORTÉ le 2026-09-11** dans VSCode3, la source déclarée par
+  `export_agentic.GENERIQUE` — commit `f50f111`, scopé à ce seul fichier,
+  504 → 861 lignes. **Non poussé** : VSCode3 avait 2 commits d'avance qui ne sont
+  pas les nôtres, et publier le travail d'une autre session ne se décide pas ici.
+  La propagation du kit vers les cinq dépôts reste à la main du hub.
+
+  Vérifié IN SITU avant le commit, ce qui est le seul contrôle qui compte pour la
+  flotte : avec la configuration réelle de VSCode3
+  (`watched_prefixes: ["docs/cadrage-ppt/"]`, aucune des trois clés neuves), les
+  deux gardes sont **inertes** — `perimetre_enabled` False, `plafond_lot` 0,
+  `paires_de_garde` vide — et l'avertissement dont VSCode3 dépend part toujours
+  en citant son propre périmètre. L'invariant I1 n'est donc pas une intention :
+  il est mesuré chez la cible.
+
+  Le hook était portable tel quel grâce à T13 : tout le spécifique était déjà
+  passé en configuration. Ne restaient que des commentaires d'historique et un
+  `_DEFAULT_WATCHED_PREFIXES = ("app/",)` préexistant.
+
+  Deux choses ont retardé ce portage, et elles valent d'être notées : le hub
+  avait annoncé le prendre (double écriture évitée en le prévenant), et
+  l'écriture inter-dépôts a d'abord été **refusée par les permissions** — elle
+  n'a été faite qu'après arbitrage explicite de l'utilisateur. Une session tierce
+  travaillait chez VSCode3 sur un chantier sans recoupement ; elle a été
+  prévenue avant l'écriture, pas après.
   Mesure faite avant l'envoi : VSCode2 porte 817 lignes, VSCode3 (la source
   déclarée par l'en-tête du fichier, via `export_agentic.GENERIQUE`) 504 —
   375 lignes d'écart, et **aucune** des deux gardes n'y existe. Ni
