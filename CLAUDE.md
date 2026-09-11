@@ -64,7 +64,14 @@ sans texte, et le même numéro pour deux choses).
 changement sous `app/`, pas seulement en fin d'incrément :
 
 - **P1 — Tout bug corrigé ship avec son test de régression dans le même commit.** Le test
-  doit échouer sur le code d'avant.
+  doit échouer sur le code d'avant — **prouvé par `py scripts/preuve_p1.py`** dès que la
+  mutation tient en un marqueur d'un seul fichier, ce qui couvre le cas courant. Pour un
+  correctif multi-fichiers, prouver fichier par fichier ; la preuve à la main reste le
+  dernier recours, et elle s'annonce comme telle. Le 2026-09-11, cette procédure artisanale
+  a produit deux faux négatifs (échappement shell mangeant la mutation, donc « le test passe
+  sur le code d'avant » alors que rien n'avait été muté) et laissé passer un test qui passait
+  des DEUX côtés. L'outil refuse de conclure dans le doute : marqueur non unique, pytest qui
+  sort sur une erreur de collecte, test déjà rouge, échec portant sur un test voisin.
 - **P2 — Tout nouveau comportement** (route, service, branche de template) **arrive avec un
   test qui l'exerce.**
 - **P3 — Revue de code avant TOUT commit de code produit.** Au-dessus du seuil de

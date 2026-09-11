@@ -1,0 +1,355 @@
+"""Tests de `scripts/preuve_p1.py` — l'outil qui vérifie qu'un test de
+régression échoue bien sur le code d'avant.
+
+Un outil de preuve non testé serait exactement le défaut qu'il combat. Ce qui
+compte ici n'est pas qu'il dise « oui », c'est qu'il sache dire **non pour la
+bonne raison** : marqueur absent ou ambigu, test déjà rouge, test qui passe des
+deux côtés, mutation qui casse la collecte, restauration manquée. Chacun de ces
+refus a été payé une fois sur ce dépôt.
+
+Les assertions portent sur le CODE DE SORTIE (contrat documenté dans le
+docstring de l'outil) **et** sur un élément de sortie propre au chemin visé —
+une sortie générique laisserait le test passer pour une mauvaise raison, ce qui
+serait le comble ici. La première version de ce fichier en contenait deux
+(revue adversariale du 2026-09-11).
+"""
+from __future__ import annotations
+
+import hashlib
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+RACINE = Path(__file__).resolve().parent.parent
+OUTIL = RACINE / "scripts" / "preuve_p1.py"
+SEPARATEUR = "---PREUVE-P1---"
+
+# Le tableau des codes de sortie, tel que le docstring de l'outil le documente.
+TENUE, ECHOUEE, USAGE, MARQUEUR, DEJA_ROUGE = 0, 1, 2, 3, 4
+SANS_EFFET, RESTAURATION, OUTILLAGE, CONCURRENCE, INTERROMPUE = 5, 6, 7, 8, 9
+
+# Un module d'une ligne et son test : `double(3)` vaut 6 avec `x * 2`, 5 avec
+# `x + 2`. C'est le couple qui sert de support a presque tous les cas.
+MODULE = "def double(x):\n    return x * 2\n"
+AVANT, APRES = "    return x + 2", "    return x * 2"
+IMPORTE = ("import sys\n"
+           "sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent))\n"
+           "from sujet import double\n")
+
+
+def _bac(tmp_path: Path, corps_module: str, corps_test: str) -> tuple[Path, Path]:
+    """Un module et son test, dans un dossier à ce test seul.
+
+    Les chemins rendus sont ABSOLUS : le bac à sable vit dans le temporaire
+    système, hors du dépôt, et l'outil doit accepter cette forme.
+
+    Écrits en OCTETS, donc en LF : `write_text` traduirait les fins de ligne en
+    CRLF sur Windows, et la vérification « restauré octet pour octet » ne dirait
+    plus rien de l'outil — elle mesurerait la plateforme. En LF, elle prouve en
+    prime que l'outil PRÉSERVE les fins de ligne d'un fichier LF sur une machine
+    Windows, ce que `write_text` lui ferait perdre (revue du 2026-09-11).
+    """
+    dossier = tmp_path / "bac"
+    dossier.mkdir(parents=True, exist_ok=True)
+    module = dossier / "sujet.py"
+    module.write_bytes(corps_module.encode("utf-8"))
+    test = dossier / "test_sujet.py"
+    test.write_bytes(corps_test.encode("utf-8"))
+    return module, test
+
+
+def _lancer(module: Path, test: Path, avant: str = AVANT, apres: str = APRES,
+            extra: list[str] | None = None) -> subprocess.CompletedProcess:
+    """L'outil, en sous-processus, avec les marqueurs passés par FICHIER.
+
+    Jamais en ligne de commande : c'est précisément l'échappement qui a fabriqué
+    deux faux négatifs le 2026-09-11, et l'outil existe pour fermer ce trou.
+    """
+    marqueurs = test.parent / "marqueurs.txt"
+    marqueurs.write_text(avant + "\n" + SEPARATEUR + "\n" + apres, encoding="utf-8")
+    return subprocess.run(
+        [sys.executable, str(OUTIL), str(module), str(test),
+         "--hors-depot", "--marqueur-fichier", str(marqueurs)] + (extra or []),
+        cwd=str(RACINE), capture_output=True, text=True,
+        encoding="utf-8", errors="replace", timeout=1800,
+    )
+
+
+def test_une_vraie_preuve_est_acceptee(tmp_path):
+    """Le cas nominal : le test observe le comportement corrigé, donc il passe
+    sur le code actuel et échoue sur le code d'avant."""
+    module, test = _bac(tmp_path, MODULE,
+                        IMPORTE + "def test_double():\n    assert double(3) == 6\n")
+    r = _lancer(module, test)
+    assert r.returncode == TENUE, r.stdout + r.stderr
+    assert "PREUVE P1 TENUE" in r.stdout
+    assert "marqueur unique, ligne 2" in r.stdout, (
+        "l'outil doit dire OU il a mute : un marqueur unique mais situe dans un "
+        "commentaire ne prouverait rien"
+    )
+    assert "c'est bien le test vise" in r.stdout
+    # Octets, pas texte : une traduction de fins de ligne se verrait ici et
+    # passerait inapercue a travers `read_text` (revue du 2026-09-11).
+    assert module.read_bytes() == MODULE.encode("utf-8")
+
+
+def test_un_test_qui_passe_AUSSI_sur_le_code_d_avant_est_refuse(tmp_path):
+    """Le défaut central : un test qui ne distingue pas les deux versions.
+
+    Vécu le 2026-09-11 sur la garde Périmètre — le test passait des deux côtés
+    parce qu'il n'atteignait jamais le chemin qu'il croyait tester."""
+    module, test = _bac(
+        tmp_path, MODULE,
+        # `double(2)` vaut 4 avec `x * 2` ET avec `x + 2` : le seul point ou les
+        # deux versions se confondent. Un premier jet utilisait `double(0) == 0`,
+        # qui les distingue (0 contre 2) -- la fixture n'etait pas aveugle, et
+        # c'est l'outil qui avait raison de l'accepter.
+        IMPORTE + "def test_faible():\n    assert double(2) == 4\n")
+    r = _lancer(module, test)
+    assert r.returncode == ECHOUEE, r.stdout + r.stderr
+    assert "PREUVE ECHOUEE" in r.stdout
+    assert "passe pour une mauvaise raison" in r.stdout
+
+
+def test_un_marqueur_ambigu_est_REFUSE_et_non_devine(tmp_path):
+    """Deux occurrences : muter « quelque part » donne un résultat qu'on ne peut
+    pas interpréter. L'outil refuse plutôt que de choisir."""
+    module, test = _bac(
+        tmp_path,
+        "def a(x):\n    return x * 2\ndef b(x):\n    return x * 2\n",
+        "def test_rien():\n    assert True\n")
+    r = _lancer(module, test)
+    assert r.returncode == MARQUEUR, r.stdout + r.stderr
+    assert "apparait 2 fois" in r.stdout
+
+
+def test_un_marqueur_ABSENT_est_refuse(tmp_path):
+    """Le faux négatif d'échappement, reproduit : si le marqueur n'est pas là,
+    la mutation ne s'applique pas et le test « passe sur le code d'avant » sans
+    que rien n'ait été testé. Les deux situations se ressemblent ; seule
+    celle-ci est un bug de l'outillage, et elle doit le dire."""
+    module, test = _bac(tmp_path, MODULE, "def test_rien():\n    assert True\n")
+    r = _lancer(module, test, apres="    return x // 2  # absent du fichier")
+    assert r.returncode == MARQUEUR, r.stdout + r.stderr
+    assert "apparait 0 fois" in r.stdout
+
+
+def test_un_test_deja_rouge_ne_prouve_rien(tmp_path):
+    """Si le test échoue avant toute mutation, la preuve est vide : on ne sait
+    pas si le correctif change quoi que ce soit."""
+    module, test = _bac(tmp_path, MODULE,
+                        IMPORTE + "def test_casse():\n    assert double(3) == 7\n")
+    r = _lancer(module, test)
+    assert r.returncode == DEJA_ROUGE, r.stdout + r.stderr
+    assert "DEJA ROUGE" in r.stdout
+
+
+def test_une_mutation_qui_casse_la_COLLECTE_ne_prouve_rien(tmp_path):
+    """Le défaut le plus sournois, trouvé par la revue du 2026-09-11 : une
+    mutation qui rend le fichier inimportable fait sortir pytest en code 2, que
+    la première version comptait comme « rouge ». L'outil certifiait donc une
+    preuve à partir d'une erreur de syntaxe."""
+    module, test = _bac(tmp_path, MODULE,
+                        IMPORTE + "def test_double():\n    assert double(3) == 6\n")
+    r = _lancer(module, test, avant="    return x * 2 +  # syntaxe cassee")
+    assert r.returncode == OUTILLAGE, r.stdout + r.stderr
+    assert "n'est PAS un test rouge" in r.stdout
+
+
+def test_une_cible_pytest_invalide_est_une_erreur_D_OUTILLAGE(tmp_path):
+    """Aucun test collecté (chemin faux, `-k` qui ne matche rien) : pytest sort
+    en code 5. Le compter comme rouge ferait conclure une preuve sur du vide —
+    c'est le défaut n°1 sous un autre habit."""
+    module, test = _bac(tmp_path, MODULE, "def test_rien():\n    assert True\n")
+    r = _lancer(module, test, extra=["--k", "motif_qui_ne_matche_rien"])
+    assert r.returncode == OUTILLAGE, r.stdout + r.stderr
+    assert "Ce n'est PAS un verdict" in r.stdout
+
+
+def test_un_test_VOISIN_qui_tombe_ne_prouve_pas_le_correctif(tmp_path):
+    """La cible est un FICHIER : si un test sans rapport échoue sous la
+    mutation, le rouge n'est pas celui qu'on cherchait. L'outil exige que
+    l'échec corresponde au sélecteur."""
+    module, test = _bac(
+        tmp_path, MODULE,
+        IMPORTE
+        # Vise : insensible a la mutation (4 des deux cotes).
+        + "def test_vise():\n    assert double(2) == 4\n"
+        # Voisin : c'est LUI qui tombera.
+        + "def test_voisin():\n    assert double(3) == 6\n")
+    r = _lancer(module, test, extra=["--k", "test_vise"])
+    # `-k test_vise` ne collecte que le test insensible : il passe des deux
+    # cotes, donc PREUVE ECHOUEE -- et surtout pas TENUE sur le dos du voisin.
+    assert r.returncode == ECHOUEE, r.stdout + r.stderr
+
+
+def test_un_bloc_AVANT_vide_est_refuse(tmp_path):
+    """Sans code d'avant, la mutation SUPPRIME le marqueur : le rouge viendrait
+    d'une erreur de syntaxe et non du comportement. Foot-gun fermé."""
+    module, test = _bac(tmp_path, MODULE, "def test_rien():\n    assert True\n")
+    r = _lancer(module, test, avant="")
+    assert r.returncode == USAGE, r.stdout + r.stderr
+    assert "bloc AVANT est vide" in r.stdout
+
+
+def test_une_cible_HORS_DEPOT_est_refusee_sans_le_drapeau(tmp_path):
+    """Une faute de frappe ne doit pas pouvoir muter un fichier quelconque de la
+    machine. Les autres tests de ce fichier passent `--hors-depot` justement
+    parce que leur bac à sable est dehors."""
+    module, test = _bac(tmp_path, MODULE, "def test_rien():\n    assert True\n")
+    marqueurs = test.parent / "marqueurs.txt"
+    marqueurs.write_text(AVANT + "\n" + SEPARATEUR + "\n" + APRES, encoding="utf-8")
+    r = subprocess.run(
+        [sys.executable, str(OUTIL), str(module), str(test),
+         "--marqueur-fichier", str(marqueurs)],
+        cwd=str(RACINE), capture_output=True, text=True,
+        encoding="utf-8", errors="replace", timeout=600,
+    )
+    assert r.returncode == USAGE, r.stdout + r.stderr
+    assert "hors du depot" in r.stdout
+
+
+def test_un_fichier_cible_introuvable_est_une_erreur_d_usage(tmp_path):
+    module, test = _bac(tmp_path, MODULE, "def test_rien():\n    assert True\n")
+    r = _lancer(tmp_path / "bac" / "inexistant.py", test)
+    assert r.returncode == USAGE, r.stdout + r.stderr
+    assert "introuvable" in r.stdout
+
+
+def test_un_marqueur_multiligne_en_ligne_de_commande_est_refuse(tmp_path):
+    """La cause racine du défaut n°1 : un multi-lignes passé par le shell. On le
+    refuse au lieu de le laisser se faire tronquer en silence."""
+    module, test = _bac(tmp_path, MODULE, "def test_rien():\n    assert True\n")
+    r = subprocess.run(
+        [sys.executable, str(OUTIL), str(module), str(test), "--hors-depot",
+         "--avant", "ligne1\nligne2", "--apres", APRES],
+        cwd=str(RACINE), capture_output=True, text=True,
+        encoding="utf-8", errors="replace", timeout=600,
+    )
+    assert r.returncode == USAGE, r.stdout + r.stderr
+    assert "retour a la ligne" in r.stdout
+
+
+def test_un_marqueur_MULTILIGNE_marche_sur_un_fichier_CRLF(tmp_path):
+    """Le dépôt entier est en CRLF (`core.autocrlf=true`), et l'outil lit en
+    OCTETS, sans traduction. Un marqueur multi-lignes tapé en LF ne correspondait
+    donc JAMAIS : « apparait 0 fois », soit exactement le faux négatif que
+    l'outil existe pour empêcher. Trouvé en dogfoodant l'outil sur ce dépôt ; les
+    preuves precedentes n'avaient tenu que parce que leurs marqueurs faisaient
+    une seule ligne."""
+    module_crlf = "def double(x):\n    y = x\n    return y * 2\n".replace("\n", "\r\n")
+    module, test = _bac(tmp_path, "placeholder\n",
+                        IMPORTE + "def test_double():\n    assert double(3) == 6\n")
+    module.write_bytes(module_crlf.encode("utf-8"))
+    # Marqueur de DEUX lignes, tape en LF comme le ferait n'importe qui.
+    r = _lancer(module, test,
+                avant="    y = x\n    return y + 2",
+                apres="    y = x\n    return y * 2")
+    assert r.returncode == TENUE, r.stdout + r.stderr
+    assert module.read_bytes() == module_crlf.encode("utf-8"), (
+        "les fins de ligne CRLF n'ont pas ete preservees"
+    )
+
+
+def test_une_mutation_SANS_EFFET_est_signalee(tmp_path):
+    """Deux blocs identiques : le fichier ne change pas, donc le « rouge »
+    éventuel ne viendrait pas de la mutation. Code 5 — il n'était épinglé par
+    aucun test (revue du 2026-09-11, R3-13)."""
+    module, test = _bac(tmp_path, MODULE,
+                        IMPORTE + "def test_double():\n    assert double(3) == 6\n")
+    r = _lancer(module, test, avant=APRES, apres=APRES)
+    assert r.returncode == SANS_EFFET, r.stdout + r.stderr
+    assert "SANS EFFET" in r.stdout
+
+
+def test_un_marqueur_au_MILIEU_d_une_ligne_est_refuse(tmp_path):
+    """Un marqueur unique peut tomber dans un commentaire ou au milieu d'une
+    ligne : la mutation s'applique ailleurs que voulu et la preuve ne mesure
+    rien (revue du 2026-09-11, R3-11)."""
+    module, test = _bac(tmp_path, MODULE,
+                        IMPORTE + "def test_double():\n    assert double(3) == 6\n")
+    r = _lancer(module, test, avant="x + 2", apres="x * 2")
+    assert r.returncode == MARQUEUR, r.stdout + r.stderr
+    assert "NON ALIGNE" in r.stdout
+    assert "--fragment" in r.stdout
+    # …et le drapeau d'echappement fonctionne, sinon la regle serait un mur.
+    r2 = _lancer(module, test, avant="x + 2", apres="x * 2", extra=["--fragment"])
+    assert r2.returncode == TENUE, r2.stdout + r2.stderr
+
+
+def test_une_preuve_INTERROMPUE_bloque_la_suivante_et_se_restaure(tmp_path):
+    """Le `finally` couvre les sorties normales et les exceptions, pas un
+    `taskkill`. Une sentinelle survit, elle : la preuve suivante refuse de
+    partir sur un dépôt resté sur le code d'avant, et `--restaurer` le remet
+    (revue du 2026-09-11, R3-10)."""
+    import json
+
+    module, test = _bac(tmp_path, MODULE,
+                        IMPORTE + "def test_double():\n    assert double(3) == 6\n")
+    # On simule l'interruption : fichier mute, sauvegarde a cote, sentinelle en
+    # place — exactement l'etat que laisse un processus tue.
+    sauvegarde = tmp_path / "sujet.py.sauvegarde"
+    sauvegarde.write_bytes(MODULE.encode("utf-8"))
+    empreinte = hashlib.sha256(MODULE.encode("utf-8")).hexdigest()
+    module.write_bytes(MODULE.replace(APRES, AVANT).encode("utf-8"))
+    sentinelle = Path(tempfile.gettempdir()) / "preuve_p1_interrompue.json"
+    sentinelle.write_text(json.dumps({
+        "cible": str(module), "sauvegarde": str(sauvegarde),
+        "empreinte_depart": empreinte,
+    }), encoding="utf-8")
+    try:
+        r = _lancer(module, test)
+        assert r.returncode == INTERROMPUE, r.stdout + r.stderr
+        assert "PREUVE PRECEDENTE INTERROMPUE" in r.stdout
+        assert str(sauvegarde) in r.stdout, "la sauvegarde doit etre NOMMEE"
+        assert module.read_bytes() != MODULE.encode("utf-8"), (
+            "l'outil a restaure de lui-meme : il doit d'abord prevenir"
+        )
+
+        r2 = _lancer(module, test, extra=["--restaurer"])
+        assert r2.returncode == TENUE, r2.stdout + r2.stderr
+        assert module.read_bytes() == MODULE.encode("utf-8")
+        assert not sentinelle.exists(), "la sentinelle survit a la restauration"
+    finally:
+        sentinelle.unlink(missing_ok=True)
+
+
+def test_une_sentinelle_PERIMEE_ne_bloque_rien(tmp_path):
+    """Si la restauration avait eu lieu et que seule la trace est restée, il ne
+    faut pas bloquer : le fichier est déjà bon."""
+    import json
+
+    module, test = _bac(tmp_path, MODULE,
+                        IMPORTE + "def test_double():\n    assert double(3) == 6\n")
+    sentinelle = Path(tempfile.gettempdir()) / "preuve_p1_interrompue.json"
+    sentinelle.write_text(json.dumps({
+        "cible": str(module), "sauvegarde": str(tmp_path / "absente.py"),
+        "empreinte_depart": hashlib.sha256(MODULE.encode("utf-8")).hexdigest(),
+    }), encoding="utf-8")
+    try:
+        r = _lancer(module, test)
+        assert r.returncode == TENUE, r.stdout + r.stderr
+        assert "sentinelle perimee retiree" in r.stdout
+    finally:
+        sentinelle.unlink(missing_ok=True)
+
+
+def test_le_fichier_est_restaure_meme_quand_la_preuve_echoue(tmp_path):
+    """La restauration est dans un `finally`, et c'est non négociable : une
+    preuve interrompue a déjà laissé ce dépôt sur le code d'avant pendant des
+    heures, suite et revue jouées dessus.
+
+    On exige que la mutation ait REELLEMENT ete posee avant de conclure : sans
+    cette assertion, le test passerait aussi sur une erreur d'usage survenue
+    avant toute ecriture -- il passerait pour une mauvaise raison, le defaut
+    meme que cet outil traque (revue du 2026-09-11)."""
+    module, test = _bac(tmp_path, MODULE,
+                        IMPORTE + "def test_faible():\n    assert double(2) == 4\n")
+    r = _lancer(module, test)
+    assert r.returncode == ECHOUEE
+    assert "mutation posee" in r.stdout, "aucune mutation n'a ete posee"
+    assert "restauration : OK (octet pour octet)" in r.stdout
+    assert module.read_bytes() == MODULE.encode("utf-8"), (
+        "l'outil a laisse le fichier mute : c'est le defaut qu'il doit empecher"
+    )
