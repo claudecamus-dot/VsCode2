@@ -117,7 +117,7 @@ projet produit.
 | `pratique-dev` | Le projet a-t-il les garde-fous de dev de base (linter, CI, rules) ? | dimension pratiques+rules 🔴 ; pas de linter Python sur un projet à gros code Python ; CLAUDE.md absent |
 | `pratique-revue` | Le dispositif de revue (code + incrément) est-il réellement en place et exécuté ? | dimension revue 🟠/🔴 ; revue-increment nommée mais jamais exécutée (croiser avec `verifications_oubliees`) ; un seul projet a un agent `reviewer` + hook pré-commit |
 | `pratique-design` | Un projet qui produit un deck a-t-il une discipline de revue de design ? | dimension design 🔴/🟠 sur un projet à livrable deck ; `deck-design-review` absent alors que le livrable est un deck de restitution ; design-review du playbook `export-ppt-verifie` jamais joué |
-| `pratique-doc` | La documentation est-elle présente et utile (pas juste un fichier vide) ? | dimension documentation 🔴/🟠 ; README absent ou sans section install/usage ; pas de CLAUDE.md ; pas de wiki. **Remédiation** : `bmad-document-project` (documenter un brownfield), `bmad-agent-tech-writer` (Paige), `bmad-index-docs`, ou un README/CLAUDE.md rédigé directement |
+| `pratique-doc` | La documentation est-elle présente et utile (pas juste un fichier vide) ? | dimension documentation 🔴/🟠 ; README absent ou sans section install/usage ; pas de CLAUDE.md ; pas de wiki. **Remédiation** : `bmad-project-context` (règles agent d'un dépôt, brownfield compris), ou un README/CLAUDE.md rédigé directement — la v6.12.0 a retiré `bmad-index-docs`, `bmad-shard-doc` et Paige sans remplaçant |
 | `pratique-produit` | Le cadrage produit existe-t-il (persona, why, besoins, proposition de valeur) ? | dimension cadrage produit 🔴/🟠 ; aucun artefact `product-brief`/`prd` ; pas de persona ni de proposition de valeur formalisée. **Remédiation** : `bmad-product-brief`, `bmad-prd`, `bmad-forge-idea`, `bmad-agent-analyst` (Mary) / `bmad-agent-pm` (John) — sur demande explicite (skills BMAD) |
 
 Chaque finding de pratique porte une **preuve chiffrée** issue du scan (la pastille + son
@@ -144,6 +144,24 @@ résolutions ad hoc récurrentes) et les stats plan-vs-réel par playbook.
 avec le constat), l'humain *arbitre*, l'orchestrateur *applique* la version validée —
 jamais d'auto-modification, même « évidente ».
 
+### 3 ter. Relecture finale MAST — avant d'écrire (adopté 2026-09-08)
+
+Dernière question avant `write_diagnostic.py` : **ce diagnostic couvre-t-il des exemples
+des 3 catégories MAST — (i) spécification/design du système, (ii) mésalignement
+inter-agents, (iii) vérification de tâche et terminaison (arXiv:2503.13657, taxonomie
+validée kappa=0,88 sur 1600+ traces) — ou seulement 1 ou 2 ?** Une catégorie MAST absente
+de tout finding depuis **N cycles** doit être NOMMÉE explicitement dans le compte rendu
+(« angle mort MAST : <catégorie>, absente depuis N cycles ») plutôt que laissée
+silencieuse — un angle mort nommé vaut mieux qu'un angle mort tu.
+
+Correspondance entre les catégories du diagnostic (§ 3) et les 3 catégories MAST :
+
+| Catégorie diagnostic | Catégorie MAST |
+| --- | --- |
+| `agent-mort`, `inefficacite`, `ko-repete` | (i) spécification/design du système |
+| `interaction` | (ii) mésalignement inter-agents |
+| `verification-manquante`, `non-convergence` | (iii) vérification de tâche et terminaison |
+
 ### 4. Écrire le diagnostic, puis propager
 
 ```bash
@@ -152,7 +170,23 @@ py .claude/supervision/write_diagnostic.py '{"findings": [{"categorie": "ko-repe
 
 (JSON aussi accepté sur stdin. `cible` sur `ko-repete`/`inefficacite` alimente la liste
 `prudence` de routing-hints — l'orchestrateur route avec prudence explicite sur ces
-cibles.) Puis relancer le scan pour propager wiki + hints :
+cibles.)
+
+**Deux modes, et le choix n'est pas libre.** Le mode par défaut **écrase** le
+diagnostic en entier : il n'a de sens que sur son PROPRE diagnostic, qu'on vient de
+requalifier finding par finding (c'est le cas de cette skill tournant au hub sur le
+hub). Dès que la cible d'écriture est le diagnostic d'un **autre dépôt** — ou d'un
+dépôt dont on n'a pas relu tous les findings ouverts — c'est `--fusionner` : il
+conserve les findings précédents et ne remplace que ceux dont (cible, titre) est
+repris. Finding `flotte:mode-fusionner-absent-des-cibles-et-de-la-skill` (2026-09-08) :
+16 findings préservés par ce mode le 2026-09-04 étaient exposés à l'écrasement parce que
+cette page ne citait que la commande par défaut.
+
+```bash
+py .claude/supervision/write_diagnostic.py --fusionner '{"findings": [{"categorie": "pratique-test", "cible": "VSCode3", "priorite": 2, "titre": "…", "preuve": "…", "recommandation": "…", "proposition": "…"}]}'
+```
+
+Puis relancer le scan pour propager wiki + hints :
 
 ```bash
 py .claude/supervision/scan_transcripts.py

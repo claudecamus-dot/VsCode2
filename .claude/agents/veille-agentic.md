@@ -51,7 +51,8 @@ Trois déclencheurs, tous légitimes :
    mesurable à froid) et `action_corrective` (le correctif concret, par projet concerné).
    Une entrée sans débouché est une curiosité, pas une trouvaille.
 5. **Écrire `.claude/veille/veille.json`** en statut `nouveau`, avec `derniere_veille` à
-   jour. Le scan (`py scripts/scan_projets.py`) la rendra en section 3 du wiki — c'est
+   jour. Le scan du hub (`py scripts/scan_projets.py` — il n'existe que là) la rendra
+   en section 3 du wiki — c'est
    l'appelant qui relance le scan, pas toi, sauf si ton brief le demande.
 
 ## Ce que tu ne fais jamais

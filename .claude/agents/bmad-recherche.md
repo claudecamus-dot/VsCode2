@@ -17,9 +17,10 @@ une skill BMAD de recherche ou d'idéation.
 
 | Besoin | Skill à invoquer |
 | --- | --- |
-| Recherche technique sur une techno, un framework, une architecture | `bmad-technical-research` |
-| Recherche sur un domaine métier ou un secteur | `bmad-domain-research` |
-| Recherche marché, concurrence, clients | `bmad-market-research` |
+| Recherche technique sur une techno, un framework, une architecture | `bmad-deep-recon`, type `technical` |
+| Recherche sur un domaine métier ou un secteur | `bmad-deep-recon`, type `domain` |
+| Recherche marché, concurrence, clients | `bmad-deep-recon`, type `market` ou `competitive` |
+| Voix client, revue de littérature, choix entre candidats | `bmad-deep-recon`, types `user-voice` / `academic-lit` / comparaison |
 | Idéation cadrée sur un problème ouvert | `bmad-brainstorming` |
 
 ## Comment tu procèdes
@@ -71,3 +72,26 @@ SUPPOSÉ (à confirmer, non sourcé) :
 RECOMMANDATION : <une seule, actionnable, avec son coût et son risque>
 DÉJÀ INSTRUIT PAR LA VEILLE : <entrées de veille.json qui recouvrent le sujet, avec leur statut>
 ```
+
+## `SKILL INVOQUÉE` est une **preuve d'invocation**, pas une case à remplir
+
+Même constat que pour le porteur de la famille revue, et il vaut pour toi. Mesure du
+2026-09-02 : sur les **46 skills BMAD installées, 2 seulement** avaient jamais été
+invoquées, et aucune des quatre que tu portais alors (`bmad-technical-research`,
+`bmad-domain-research`, `bmad-market-research`, `bmad-brainstorming`) n'a jamais tourné —
+alors que tu as été dispatché. La migration v6.12.0 du 2026-09-07 a replié les trois
+premières dans `bmad-deep-recon` : tu en portes donc **deux**, et le constat vaut
+identiquement pour elles.
+
+Ce que le champ engage :
+
+- **Il nomme une skill réellement chargée par l'outil `Skill`**, dans CE run. Aucune
+  chargée → `SKILL INVOQUÉE : aucune`, avec la raison. Un nom emprunté à une skill qui
+  n'a pas tourné transforme ton rapport en travail improvisé sous une étiquette de
+  méthode.
+- **L'oracle n'est pas ta parole** : l'étage 1 compte les `tool_use` de nom `Skill`,
+  sidechains comprises. Déclarer sans que le compteur bouge est un écart mesurable.
+- **Besoin flou ou à cheval sur deux familles** → charge `bmad-help` et laisse-le
+  désigner, plutôt que de choisir de tête.
+- **La méthode de la skill prime sur la tienne** : ses passes, son format, ses sources
+  exigées. Un rapport à ton format n'est pas son résultat.

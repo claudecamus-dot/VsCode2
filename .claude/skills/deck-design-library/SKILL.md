@@ -1,27 +1,31 @@
 ---
 name: deck-design-library
-description: Bibliothèque de patterns de design de slides extraite de decks de soutenance OCTO réels — 22 représentations cataloguées par SITUATION (restituer des verbatims, montrer une trajectoire, évaluer une maturité, chiffrer une offre, présenter une équipe…) avec composition précise (formes, tailles, couleurs, typo) réutilisable en python-pptx. À consulter AVANT de dessiner une nouvelle slide ou d'améliorer une slide existante du deck de restitution — quand on se demande « quelle forme donner à ce contenu ? », quand une slide est un mur de texte/de cartes sans idée directrice, ou pour varier des représentations trop uniformes.
+description: Bibliothèque de patterns de design de slides extraite de decks OCTO réels — 90 représentations cataloguées par SITUATION à travers 4 fichiers par genre de deck (soutenance/restitution, proposition commerciale, formation technique, formation méthode/atelier), avec composition précise (formes, tailles, couleurs, typo) réutilisable en python-pptx. À consulter AVANT de dessiner une nouvelle slide ou d'améliorer une slide existante — quand on se demande « quelle forme donner à ce contenu ? », quand une slide est un mur de texte/de cartes sans idée directrice, ou pour varier des représentations trop uniformes.
 ---
 
 # deck-design-library — quelle représentation pour quelle situation
 
-Une bibliothèque de patterns éprouvés (decks de soutenance OCTO réels) pour choisir la
-FORME d'une slide à partir de son INTENTION, puis la construire en python-pptx.
-Complémentaire de : `restitution-deck-design` (principes généraux), `pptx-deck`
-(helpers + géométrie), `deck-design-review` (contrat par slide de CE projet),
-`swot-matrix`/`priority-matrix` (patterns déjà spécialisés).
+Une bibliothèque de patterns éprouvés (decks OCTO réels — soutenance, proposition
+commerciale, formation) pour choisir la FORME d'une slide à partir de son INTENTION,
+puis la construire en python-pptx. Complémentaire de : `restitution-deck-design`
+(principes généraux), `pptx-deck` (helpers + géométrie), `deck-design-review` (contrat
+par slide de CE projet), `swot-matrix`/`priority-matrix` (patterns déjà spécialisés).
 
 ## Méthode
 
 1. **Partir de l'intention, jamais de la forme** : qu'est-ce que la slide doit faire
    comprendre ? (diagnostiquer, comparer, dérouler dans le temps, chiffrer, incarner…)
-2. **Chercher la situation dans l'index ci-dessous** et lire l'entrée complète du
-   pattern dans `references/catalogue-restitution.md` (composition précise : formes,
-   tailles en pouces, couleurs, typo).
+2. **Identifier le GENRE de deck le plus proche** (soutenance/restitution, proposition
+   commerciale, formation technique, formation méthode/atelier — voir tableau
+   « Quel catalogue pour quel genre » ci-dessous), **chercher la situation dans son
+   index** et lire l'entrée complète du pattern dans le fichier `references/` visé
+   (composition précise : formes, tailles en pouces, couleurs, typo).
 3. **Transposer, pas copier** : adapter les cotes au gabarit du deck cible
    (ce projet : 10×5.625in OCTO, helpers `pptx_deck` — `add_card`, `add_rect`,
    `add_badge`, `estimer_lignes`…) en respectant sa charte (pas d'ombres, police du
-   thème, `verifier_geometrie` + `verifier_debordements_texte` à zéro).
+   thème, `verifier_geometrie` + `verifier_debordements_texte` à zéro). Couleurs,
+   polices et indices de layouts exacts du template partagé (flotte) :
+   `references/template-octo.md`.
 4. **Vérifier au rendu réel** (`pptx-verify` / `deck-design-review`) — un pattern
    bien choisi mais mal dimensionné reste un défaut.
 
@@ -50,6 +54,21 @@ Complémentaire de : `restitution-deck-design` (principes généraux), `pptx-dec
 | Prix / proposition financière | Fiche « ticket/coupon » (21) |
 | Avantage commercial / bonus | Médaillon rosette dédié (22) |
 
+## Quel catalogue pour quel genre de deck
+
+| Genre de deck source | Fichier | Patterns | Bon pour |
+| --- | --- | --- | --- |
+| Soutenance de transformation (client, anonymisé) | `references/catalogue-restitution.md` | 22 | Restituer, diagnostiquer, chiffrer, présenter une équipe, planifier |
+| Proposition commerciale (transfo mode produit) | `references/catalogue-transformation-commerciale.md` | 14 | Convaincre un sponsor, cadrer une gouvernance, montrer un avant/après |
+| Formation technique (fondamentaux IA générative) | `references/catalogue-formation-ia-generative.md` | 25 | Expliquer un concept, annoter un schéma technique, dérouler un pipeline |
+| Formation méthode/atelier (devenir Product Owner) | `references/catalogue-formation-po.md` | 29 | Personas, story mapping, canvas d'atelier, artefacts Agile/Scrum |
+
+Les 3 derniers fichiers ont été ajoutés le 2026-09-04 (source : 2 decks de formation
++ 1 deck de proposition commerciale fournis en PDF, plus une exploration graphique de
+VSCode3 sur le même template — voir leur en-tête pour la provenance exacte et la
+méthode d'extraction). Chaque fichier porte son propre index situation → pattern en
+tête, sur le même principe que celui-ci.
+
 ## Principes transversaux à appliquer d'office
 
 Détail complet en fin de `references/catalogue-restitution.md` — les 4 plus structurants :
@@ -62,6 +81,11 @@ Détail complet en fin de `references/catalogue-restitution.md` — les 4 plus s
   à enjeu, rouge argent/alerte, gris clair fond de support. Jamais décorative.
 - **La densité s'absorbe par la police (jusqu'à 6-8pt sur une slide de référence),
   JAMAIS par les marges externes** (~0.6in constants).
+
+**Vocabulaire de composants étendu** (contour vs aplat, pilule, chevron, badge à
+cheval sur un bord, emphase en ligne, barre d'accent, bandeau de clôture citation) :
+7 règles en tête de `references/catalogue-transformation-commerciale.md` — spécifique
+au registre navy/cyan proposition commerciale, pas universel à tous les genres de deck.
 
 ## Enrichir la bibliothèque
 

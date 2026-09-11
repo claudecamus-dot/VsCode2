@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : 3b9feba du 2026-09-08 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`3b9feba`, 2026-09-08) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 0ad0fed du 2026-09-11 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`0ad0fed`, 2026-09-11) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -215,7 +215,11 @@ description d'intention. Les gestes exacts :
   les porteurs réellement adressables.
 - **Consolidation obligatoire** : un fan-out sans étape de synthèse qui recroise les
   résultats (doublons, contradictions, trous) n'est pas un plan — c'est du bruit
-  distribué. La consolidation est une étape à part entière du plan journalisé.
+  distribué. La consolidation est une étape à part entière du plan journalisé. Chaque
+  étape du plan porte désormais un champ optionnel `etat` (`ok` | `echec` | `non-rendu`,
+  détail § 5) : un sous-agent d'un fan-out qui échoue ou ne rend rien doit l'y porter,
+  pas être absorbé silencieusement par la synthèse (motif OrchestraBench,
+  arXiv:2608.05263, veille 2026-09-08).
 - **Non-convergence d'un sous-agent d'arrière-plan** (veille adoptée 2026-09-03,
   incident source : un audit-technique resté `running` 4h+ contre 8-17 min pour
   4 tâches comparables). Ni `maxTurns` en frontmatter (non fiable sur les
@@ -804,6 +808,14 @@ personne qui doit décider ») :
    n'est plus la sienne — c'est une déformation, même flatteuse.
 6. **Les désaccords restants sont le livrable**, pas un reliquat : les nommer, dire ce qui
    les départagerait, et si c'est mesurable à froid, le mesurer AVANT de restituer (R6).
+7. **Porter une case dédiée « désaccord(s) documenté(s) : qui, quoi — ou aucun et
+   pourquoi »**, distincte de la synthèse du point 3 (veille adoptée 2026-09-08,
+   Deliberative Illusion, arXiv:2606.03032) : une délibération multi-agents peut faire
+   disparaître les faits nuancés au fil des tours (attrition factuelle) et faire
+   converger les postures artificiellement (homogénéisation) sans que le désaccord de
+   fond soit résolu. Une absence TOTALE de désaccord documenté sur un sujet qui a
+   justifié la convocation d'une salle est en soi un signal à interroger, pas une preuve
+   de consensus solide.
 
 Le reste — transcription, ordre des tours, qui a bougé — vient après, pour qui veut
 vérifier. Personne ne décide en lisant un dialogue.
@@ -842,10 +854,16 @@ l'oscillation ; l'oracle, c'est l'utilisateur sur SON artefact.
 À la fin du run (succès **ou** échec), une ligne dans `.claude/orchestration/runs.jsonl` :
 
 ```bash
-py .claude/orchestration/log_run.py '{"demande": "résumé court", "qualification": "orchestre", "playbook": "dev-verifie", "plan": [{"etape": "revue design", "agent": "Explore", "mode": "parallele", "modele": "haiku"}], "resultat": "succes", "reprises": 0, "notes": ""}'
+py .claude/orchestration/log_run.py '{"demande": "résumé court", "qualification": "orchestre", "playbook": "dev-verifie", "plan": [{"etape": "revue design", "agent": "Explore", "mode": "parallele", "modele": "haiku", "etat": "ok"}], "resultat": "succes", "reprises": 0, "notes": ""}'
 ```
 
-(JSON aussi accepté sur stdin. `qualification` : `orchestre` | `direct-signale` ;
+(JSON aussi accepté sur stdin. Chaque étape du `plan` accepte un champ optionnel `etat`
+(`ok` | `echec` | `non-rendu`) : `log_run.py` refuse un `resultat: succes` si une étape
+porte `etat: echec` ou `etat: non-rendu` — un fan-out dont un sous-agent a échoué ou n'a
+rien rendu ne peut pas être journalisé comme un succès global (motif OrchestraBench,
+arXiv:2608.05263, veille 2026-09-08). Le même contrôle joue au `--solde` (revue de code du
+2026-09-09 : il passait par la porte de derrière) ; un `etat` hors vocabulaire n'est refusé
+que sur `succes`, un `echec` mal étiqueté reste journalisable (R5). `qualification` : `orchestre` | `direct-signale` ;
 `resultat` (issue **discriminante** — pas un `succes` réflexe, un journal où tout est
 `succes` ne porte aucun signal) : `succes` = livrable produit ET toutes les exigences
 explicites de la demande couvertes ET vérifications obligatoires faites **ET, pour un

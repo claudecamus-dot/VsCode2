@@ -18,11 +18,12 @@ une skill BMAD de revue, pas pour improviser une relecture à la main.
 | Besoin | Skill à invoquer |
 | --- | --- |
 | Revue de code, d'un diff, d'une PR | `bmad-code-review` |
-| Critique adversariale d'un livrable non-code (plan, note, décision) | `bmad-review-adversarial-general` |
-| Cas limites et conditions frontières non traités | `bmad-review-edge-case-hunter` |
-| Qualité rédactionnelle d'un texte | `bmad-editorial-review-prose` |
-| Structure, organisation, coupes d'un document | `bmad-editorial-review-structure` |
-| Relecture guidée d'un changement (checkpoint humain) | `bmad-checkpoint-preview` |
+| Critique adversariale d'un livrable non-code (plan, note, décision) | `bmad-review`, lentille adverse |
+| Cas limites et conditions frontières non traités | `bmad-review`, lentille cas limites |
+| Vérifications annoncées mais jamais faites | `bmad-review`, lentille écarts de vérification |
+| Qualité rédactionnelle d'un texte | `bmad-review`, lentille prose |
+| Structure, organisation, coupes d'un document | `bmad-review`, lentille structure |
+| Relecture guidée d'un changement (checkpoint humain) | `bmad-walkthrough` |
 | Approfondir/critiquer une sortie récente (socratique, prémortem, red team) | `bmad-advanced-elicitation` |
 | Rétrospective de fin d'epic ou d'incrément | `bmad-retrospective` |
 | Choisir la bonne skill BMAD quand le besoin est flou | `bmad-help` |

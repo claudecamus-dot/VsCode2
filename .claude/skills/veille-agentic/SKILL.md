@@ -80,7 +80,8 @@ Règles d'entretien du fichier :
 - **Doublons** : si une trouvaille existe déjà (même url), mettre à jour sa pertinence
   plutôt que dupliquer.
 
-Puis régénérer le wiki : `py scripts/scan_projets.py` — la section 3 « Veille agentic »
+Puis régénérer le wiki — au hub `py scripts/scan_projets.py` ; depuis une cible ce
+script n'existe pas, il n'y a pas de wiki de flotte à régénérer. La section 3 « Veille agentic »
 reflète le fichier. Terminer en restituant à l'utilisateur les nouvelles entrées en une
 ligne chacune.
 
@@ -113,6 +114,14 @@ et **des actions correctives** arbitrables.
   signale ce qui existe, il ne dit ni si c'est vivant ni si ça vaut pour cette flotte —
   chaque entrée retenue se vérifie à la source (dernier commit, licence) avant d'être
   proposée à l'arbitrage.
+- **Guide « Coder avec Claude » de David Silvera**
+  ([davidsilvera.com/guides/coder-avec-claude](https://davidsilvera.com/guides/coder-avec-claude))
+  — ajouté le 2026-09-02 sur demande utilisateur. Première lecture le jour même (page mère
+  datée du 7 août 2026 + 5 chapitres) : 12 idées, **2 retenues** en `nouveau` dans
+  `veille.json` (règle des deux corrections → `/clear`, seuil de dilution des skills),
+  10 déjà couvertes ou hors périmètre. Un guide de synthèse, pas une source primaire : il
+  recoupe surtout les docs Anthropic ci-dessus — le relire quand sa date de mise à jour
+  change, pas à chaque cycle.
 - **Gestion optimisée des tokens** (thème transverse, à surveiller à chaque cycle) :
   outils et actions qui réduisent la consommation — prompt caching, gestion du contexte
   (/compact, /clear, statusline de suivi), sous-agents d'exploration, proxys CLI
@@ -143,7 +152,8 @@ pratique déjà généralisée sur la flotte ne mérite pas d'entrée.
 
 1. **Règles d'analyse** : quand l'utilisateur passe une pratique en `adopte`, sa
    `regle_proposee` est intégrée au référentiel (`criteres-pratiques.md` § 7) et,
-   si mesurable à froid, au scan (`scripts/scan_projets.py`) ou au répertoire craft.
+   si mesurable à froid, au scan du hub (`scripts/scan_projets.py` — seul lui le porte)
+   ou au répertoire craft.
 2. **Actions correctives** : l'`action_corrective` des pratiques adoptées se traite
    comme un finding arbitré — via le playbook `evolution-flotte` pour les projets
    cibles, arbitrage tracé dans `arbitrages.json`.

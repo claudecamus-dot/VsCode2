@@ -15,6 +15,22 @@
             "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/warn_verif_before_commit.py\"",
             "timeout": 10,
             "statusMessage": "Verif reelle avant commit de code app/ ?"
+          },
+          {
+            "type": "command",
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_service.py\"",
+            "timeout": 10,
+            "statusMessage": "Sous-agent : aucun service lance, redemarre ou purge..."
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_salle_skills.py\"",
+            "timeout": 10
           }
         ]
       }

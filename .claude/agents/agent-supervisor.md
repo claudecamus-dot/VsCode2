@@ -105,7 +105,8 @@ GitHub, dépôts publics d'agents/skills/playbooks) évoluent plus vite que le d
   appliquée. Catégorie `pratique-dev` ou `inefficacite` selon la nature, `cible` =
   `veille:<slug>`, proposition = l'arbitrage à poser.
 - **Une `regle_proposee` restée ⬜ dans `criteres-pratiques.md`** (jamais outillée dans
-  `scripts/scan_projets.py`) est un écart de mesure : le finding propose d'outiller la
+  le scanner — `scripts/scan_projets.py` au hub, `.claude/supervision/scan_transcripts.py`
+  depuis une cible) est un écart de mesure : le finding propose d'outiller la
   mesure, pas de corriger un projet.
 - **Si la veille est périmée** (`derniere_veille` > 3 jours, ce que le hook SessionStart
   signale) et que ton diagnostic a besoin de l'état de l'art pour trancher, lance le
@@ -128,7 +129,9 @@ GitHub, dépôts publics d'agents/skills/playbooks) évoluent plus vite que le d
   même moment, et son travail n'est pas commité. Pour lire une version antérieure :
   `git show <ref>:<chemin>`, jamais une commande qui touche le disque. Un hook les
   refuse (`guard_destructive_git.py`, étendu le 2026-09-02 après un incident réel
-  sur un relecteur), mais la consigne vaut par elle-même.
+  sur un relecteur), mais la consigne vaut par elle-même. (Paragraphe écrit chez
+  VSCode1 et VSCode3 le 2026-09-02, jamais remonté au hub — repris ici le 2026-09-08
+  avant propagation, finding `flotte:kit-installe-derive-sur-les-5-cibles`.)
 - **Dupliquer un TODO déterministe** déjà affiché par le scan, sauf pour le préciser.
 - **Dépasser 5 findings.** Un rapport que personne ne lit rejoint les skills mortes.
 

@@ -15,7 +15,7 @@ conformément à la règle de routage BMAD du catalogue.
 ```json
 {
   "nom": "cycle-produit-bmad",
-  "description": "Cycle produit BMAD complet : brief → PRD → architecture → epics/stories → readiness → sprint → cycle story (create/validate/dev/review), clos par revue-increment.",
+  "description": "Cycle produit BMAD complet (v6.12.0) : brief → PRD → architecture → epics/stories → sprint (qui porte la gate readiness) → build → code-review, clos par revue-increment.",
   "statut": "jamais-joue",
   "source": "genere:generate_bmad_playbook.py",
   "declencheurs": [
@@ -24,17 +24,6 @@ conformément à la règle de routage BMAD du catalogue.
   ],
   "etapes": [
     {
-      "id": "bmad-prd",
-      "agent": "bmad-prd",
-      "mode": "cascade",
-      "modele": "(session)",
-      "contrat": {
-        "type": "deterministe",
-        "critere": "artefact « prd » produit dans planning_artifacts"
-      },
-      "checkpoint": false
-    },
-    {
       "id": "bmad-product-brief",
       "agent": "bmad-product-brief",
       "mode": "cascade",
@@ -42,6 +31,17 @@ conformément à la règle de routage BMAD du catalogue.
       "contrat": {
         "type": "deterministe",
         "critere": "artefact « product brief » produit dans planning_artifacts"
+      },
+      "checkpoint": false
+    },
+    {
+      "id": "bmad-prd",
+      "agent": "bmad-prd",
+      "mode": "cascade",
+      "modele": "(session)",
+      "contrat": {
+        "type": "deterministe",
+        "critere": "artefact « prd » produit dans planning_artifacts"
       },
       "checkpoint": false
     },
@@ -76,7 +76,7 @@ conformément à la règle de routage BMAD du catalogue.
         "type": "deterministe",
         "critere": "artefact « sprint status » produit dans implementation_artifacts"
       },
-      "checkpoint": false
+      "checkpoint": "gate humain : PRD/UX/architecture/stories alignés avant d'engager l'implémentation"
     },
     {
       "id": "bmad-build",
@@ -85,7 +85,8 @@ conformément à la règle de routage BMAD du catalogue.
       "modele": "(session)",
       "contrat": {
         "type": "deterministe",
-        "critere": "artefact « spec and project implementation » produit dans implementation_artifacts"
+        "critere": "story implémentée, suite du projet verte",
+        "commande": "pytest -q"
       },
       "checkpoint": false
     },
@@ -98,7 +99,7 @@ conformément à la règle de routage BMAD du catalogue.
         "type": "llm",
         "critere": "revue adversariale rendue avec triage des findings (pas de vérification déterministe possible)"
       },
-      "checkpoint": "issues → retour bmad-dev-story (une relance) ; approuvé → story suivante ou fin d'epic"
+      "checkpoint": "issues → retour bmad-build (une relance) ; approuvé → story suivante ou fin d'epic"
     },
     {
       "id": "revue-increment",

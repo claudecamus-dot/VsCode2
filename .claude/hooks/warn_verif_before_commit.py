@@ -68,7 +68,7 @@ import sys
 import unicodedata
 
 try:  # réutilise le tokenizer éprouvé du guard voisin ; sinon, dégrade en silence
-    from guard_destructive_git import _strip_heredocs, _segments
+    from guard_destructive_git import _segments, _strip_heredocs
 except Exception:  # pragma: no cover - fail-open
     _strip_heredocs = None
     _segments = None

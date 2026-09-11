@@ -40,7 +40,13 @@ def search_photo(query, seed=0, aspect_ratio=None):
     url = f"{OPENVERSE_SEARCH}?{urllib.parse.urlencode(params)}"
     req = urllib.request.Request(url, headers={"User-Agent": "bmad-iap-cadrage-ppt/1.0"})
     with urllib.request.urlopen(req, timeout=15) as r:
-        data = json.load(r)
+        # `fetch_to` plafonne sa lecture reseau (_TAILLE_MAX) ; celle-ci ne l'etait pas
+        # -- des deux lectures reseau du module, une seule etait bornee (chasse aux cas
+        # limites, 2026-09-03). Une reponse Openverse decidait de la memoire du process.
+        brut = r.read(_TAILLE_MAX + 1)
+        if len(brut) > _TAILLE_MAX:
+            raise ValueError(f"Openverse response over {_TAILLE_MAX} bytes, refused")
+        data = json.loads(brut)
     results = data.get("results", [])
     if not results:
         raise RuntimeError(f"no Openverse cc0 result for {query!r}")
@@ -99,6 +105,14 @@ def _verifier_hote_public(url):
     injoignable, timeout, nom inconnu) n'en est plus une — l'incertitude doit se
     résoudre du côté du refus, jamais du téléchargement.
     """
+    # Le schema n'est verifie qu'une fois, sur l'URL DE DEPART (fetch_to) --
+    # chaque redirection re-appelle CETTE fonction (redirect_request) mais ne
+    # revalidait que l'hote, jamais le schema : la stdlib suit `ftp://` comme
+    # `http(s)://` (son allow-list de redirection vaut http/https/ftp/vide), donc
+    # une redirection vers `ftp://hote-interne/...` passait la garde d'hote et
+    # ouvrait quand meme un chemin non http(s) (chasse aux cas limites, 2026-09-03).
+    if not url.lower().startswith(_SCHEMES_AUTORISES):
+        raise ValueError(f"refused non-http(s) URL: {url[:80]!r}")
     hote = urllib.parse.urlsplit(url).hostname
     if not hote:
         raise ValueError(f"refused image URL without a host: {url[:80]!r}")

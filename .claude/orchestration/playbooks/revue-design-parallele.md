@@ -25,7 +25,7 @@ sous-agents.
 {
   "nom": "revue-design-parallele",
   "description": "Revue UX/design (ou revue multi-angles d'un livrable) par fan-out de sous-agents en lecture seule, puis consolidation en backlog d'actions priorisées.",
-  "statut": "jamais-joue",
+  "statut": "eprouve",
   "source": "manuel",
   "declencheurs": [
     "revue UX/UI indépendante d'un ensemble d'écrans ou de slides",
@@ -71,6 +71,10 @@ sous-agents.
   "regle_reprise": "une relance ciblée par étape en échec de contrat (sous-agent muet ou hors format : une seule relance du sous-agent concerné), puis escalade utilisateur avec l'état réel"
 }
 ```
+
+<!-- SOCLE-PROVENANCE: socle : 0ad0fed du 2026-09-11 -->
+> **Socle généré** — tout ce qui PRÉCÈDE ce bandeau vient du hub de supervision (`0ad0fed`, 2026-09-11) et sera **réécrit** à la prochaine propagation.
+> Le chapitre « Portée sur ce projet » placé après ce bandeau, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
 

@@ -115,3 +115,8 @@ faute de playbook qui matche.
   "regle_reprise": "une relance ciblée par étape en échec de contrat, puis escalade utilisateur avec l'état réel du/des dépôt(s) cible(s)"
 }
 ```
+
+<!-- SOCLE-PROVENANCE: socle : 0ad0fed du 2026-09-11 -->
+> **Socle généré** — tout ce qui PRÉCÈDE ce bandeau vient du hub de supervision (`0ad0fed`, 2026-09-11) et sera **réécrit** à la prochaine propagation.
+> Le chapitre « Portée sur ce projet » placé après ce bandeau, lui, n'est jamais réécrit : c'est le travail local.
+

@@ -175,3 +175,107 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# --- Garde de fetch_to : l'URL vient d'un agrégateur tiers -------------------
+# Trouvé par la session VSCode3 le 2026-09-01, en instruisant son finding
+# `ppt-toolkit.md` : sa copie locale portait une garde que les 6 autres copies de la
+# flotte n'avaient pas — dont celle-ci, la SOURCE du kit. La doctrine de resynchro
+# écrite chez elle aurait donc SUPPRIMÉ un correctif de sécurité.
+#
+# Openverse agrège Wikimedia, Flickr, StockSnap… : `img_url` est une donnée qu'on ne
+# contrôle pas. Or `urllib.request.urlopen` suit le schéma `file://` par défaut —
+# vérifié en une ligne : il lit un fichier local. Une entrée dont l'`url` ne serait
+# pas http(s) faisait donc recopier un fichier arbitraire du poste dans le cache
+# d'images du deck. Et `r.read()` sans plafond charge toute la réponse en mémoire.
+
+import importlib.util as _iu
+import os as _os
+
+_SPEC = _iu.spec_from_file_location(
+    "stock_images_test",
+    _os.path.join(_os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+                  "scripts", "stock_images.py"))
+_stock = _iu.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_stock)
+
+
+class TestFetchToRefuseCeQuIlNAPasDemande:
+    def test_une_url_file_est_refusee(self, tmp_path, monkeypatch):
+        """Le cas prouvé : sans garde, le deck embarque un fichier du poste."""
+        secret = tmp_path / "secret.txt"
+        secret.write_text("CONTENU_LOCAL", encoding="utf-8")
+        monkeypatch.setattr(_stock, "search_photo",
+                            lambda *a, **k: (secret.as_uri(), "qui", "ou"))
+        cible = tmp_path / "image.jpg"
+        try:
+            _stock.fetch_to(str(cible), "peu importe")
+        except ValueError:
+            return                      # refus explicite : c'est le comportement voulu
+        assert "CONTENU_LOCAL" not in cible.read_text(encoding="utf-8", errors="replace"), (
+            "fetch_to a recopie un fichier LOCAL dans le cache d'images du deck")
+
+    def test_une_url_http_normale_passe_toujours(self, tmp_path, monkeypatch):
+        """La garde ne doit pas casser le cas nominal — sinon on a remplacé une
+        faille par une panne."""
+        class _Reponse:
+            def __init__(self):
+                self._restant = [b"octets-image"]
+            def read(self, n=None):
+                return self._restant.pop(0) if self._restant else b""
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+        monkeypatch.setattr(_stock, "search_photo",
+                            lambda *a, **k: ("https://exemple.test/p.jpg", "qui", "ou"))
+        monkeypatch.setattr(_stock.urllib.request, "urlopen", lambda *a, **k: _Reponse())
+        cible = tmp_path / "ok.jpg"
+        _stock.fetch_to(str(cible), "peu importe")
+        assert cible.read_bytes() == b"octets-image"
+
+    def test_une_reponse_demesuree_est_interrompue(self, tmp_path, monkeypatch):
+        """`r.read()` sans plafond charge toute la réponse en mémoire : un serveur
+        tiers décide donc de la mémoire de la machine."""
+        class _Fleuve:
+            def read(self, n=None):
+                return b"x" * (n or 65536)
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+        monkeypatch.setattr(_stock, "search_photo",
+                            lambda *a, **k: ("https://exemple.test/gros.jpg", "q", "o"))
+        monkeypatch.setattr(_stock.urllib.request, "urlopen", lambda *a, **k: _Fleuve())
+        cible = tmp_path / "gros.jpg"
+        # `pytest.raises` et non un try/except tolérant : sans plafond, `r.read()` sans
+        # argument rend un seul bloc et le fichier reste petit — le test passerait sans
+        # rien prouver. C'est le REFUS qui doit être exigé.
+        import pytest as _pytest
+        with _pytest.raises(ValueError):
+            _stock.fetch_to(str(cible), "peu importe")
+
+    def test_le_fichier_partiel_est_efface_quand_le_plafond_saute(self, tmp_path,
+                                                                  monkeypatch):
+        """Le plafond arrête bien le téléchargement — mais laissait sur disque les
+        25 Mo déjà écrits (mesuré : 26 214 400 octets), sous le nom de l'image
+        attendue. Le deck aurait embarqué un fichier tronqué, ou le cache aurait
+        grossi d'un fichier que personne ne réclame. Trouvé par la re-cotation
+        d'audit du 2026-09-01, quelques heures après le correctif lui-même."""
+        class _Fleuve:
+            def read(self, n=None):
+                return b"x" * (n or 65536)
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                return False
+        monkeypatch.setattr(_stock, "search_photo",
+                            lambda *a, **k: ("https://exemple.test/gros.jpg", "q", "o"))
+        monkeypatch.setattr(_stock.urllib.request, "urlopen", lambda *a, **k: _Fleuve())
+        cible = tmp_path / "gros.jpg"
+        import pytest as _pytest
+        with _pytest.raises(ValueError):
+            _stock.fetch_to(str(cible), "peu importe")
+        assert not cible.exists(), (
+            f"fichier partiel laisse sur disque "
+            f"({cible.stat().st_size if cible.exists() else 0} octets)")

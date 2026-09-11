@@ -158,6 +158,32 @@ rect; that every nature scene renders at the requested size; that
 `frame_obstructions` flags a stray edge line / frame border while ignoring a
 shape fully covered by the frame.
 
+## Recette de test du projet (reprise de VSCode1)
+
+Repris PARTIELLEMENT de VSCode1/export/ppt-toolkit.md (§6) le 2026-09-02 — 3 des
+6 points, ceux qui touchent ce skill ; les trois autres (structure du deck, verrous
+anti-régression, rendu réel LibreOffice + comptage de pages PDF) vivent dans
+`pptx-verify`. Un test du deck qui utilise ce skill devrait vérifier, pas juste
+"une image existe" — avec l'API RÉELLE de `scripts/framed_image.py` :
+
+```python
+# 1. Alignement EXACT cadre/image : place_image_in_frame RETOURNE le pic
+left, top, width, height, geom = frame_geometry(group_shape, "Rectangle 7")  # nom de forme
+pic = place_image_in_frame(slide, image_path, left, top, width, height, geom=geom)
+assert (pic.left, pic.top, pic.width, pic.height) == (left, top, width, height)
+assert pic._element.spPr.find(qn("a:prstGeom")).get("prst") == "round2DiagRect"
+
+# 2. Aucun cadre laissé vide : le texte gabarit ne survit dans aucune forme
+for s in prs.slides:
+    for sh in s.shapes:
+        assert not (sh.has_text_frame and "ici mettre une Photo" in sh.text_frame.text)
+
+# 3. frame_obstructions en LISTE BLANCHE (pas juste "vide") — `name` peut être None
+attendues = {"<nom réel d'une forme de décor du template>"}   # à mesurer, pas à deviner
+trouvees = {o["name"] or "<sans nom>" for o in frame_obstructions(slide, left, top, width, height)}
+assert trouvees <= attendues              # tout le reste = régression
+```
+
 ## Environment notes
 - Windows here has PowerPoint COM (only reliable pptx→image route) and
   LibreOffice, but no poppler/pdftoppm (no PDF→PNG).

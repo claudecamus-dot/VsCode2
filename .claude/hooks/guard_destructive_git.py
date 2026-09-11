@@ -287,10 +287,10 @@ def _blocked_reason(segment: str, profondeur: int = 0):
                     break
         if vises:
             return (
-                "Lecture d'un fichier protege (%s) bloquee par un hook projet — "
+                f"Lecture d'un fichier protege ({vises[0]}) bloquee par un hook projet — "
                 "meme perimetre que les deny rules Read(...) de .claude/settings.json, "
                 "qui ne couvrent pas le shell. Confirmez explicitement avec l'utilisateur "
-                "si cette lecture est legitime." % vises[0]
+                "si cette lecture est legitime."
             )
 
     # 4. git destructif.
@@ -463,10 +463,10 @@ def _blocked_worktree(tokens_apres_git: list, rest: list):
         for t in args:
             if not t.startswith("-") and _est_un_chemin_du_depot(t):
                 return (
-                    "git checkout <chemin> est bloqué par un hook projet : `%s` existe "
+                    f"git checkout <chemin> est bloqué par un hook projet : `{t}` existe "
                     "sur le disque, ses modifications non commitées seraient écrasées. "
                     "Pour changer de branche, le nom ne doit pas être celui d'un fichier "
-                    "existant. " % t + _ALTERNATIVE
+                    "existant. " + _ALTERNATIVE
                 )
         return None
 

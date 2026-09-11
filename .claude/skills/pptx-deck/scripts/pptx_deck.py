@@ -1,8 +1,26 @@
 """pptx_deck — petite bibliotheque d'aide pour construire des slides python-pptx
 "de qualite" : echelle typographique coherente, formes (barres, jauge, cartes),
-couleurs, et surtout un controle geometrique automatique (`verifier_geometrie`)
-qui detecte toute forme qui sort de la slide — le defaut classique des decks
-generes a la main.
+couleurs, et surtout quatre filets de controle automatique :
+
+  - `verifier_geometrie` — toute forme qui sort de la slide (le defaut classique
+    des decks generes a la main) ;
+  - `verifier_debordements_texte` — le texte qui deborde de SA PROPRE boite,
+    que le controle des bords ne peut pas voir ;
+  - `verifier_chrome_gabarit` — la forme de contenu qui recouvre le badge de
+    pagination herite du gabarit (il vient du master/layout : ce n'est pas une
+    forme de la slide, donc `verifier_geometrie` l'ignore) ;
+  - `verifier_plancher_de_dessin` — le bas de bande qu'un generateur s'impose,
+    confronte au gabarit reellement charge.
+
+Les deux derniers sont portes depuis VSCode3 `docs/cadrage-ppt/pptx_deck.py`
+(version la plus aboutie de la flotte au 2026-09-10, elle-meme inspiree de
+VSCode4 `scripts/pptx_deck.py`) sur arbitrage du diagnostic hub du meme jour
+(1 filet sur 3 seulement etait remonte ici). PARAMETRES plutot que codes en
+dur : les zones protegees sont LUES sur le layout/master de la presentation
+passee en argument (jamais une liste figee pour un template precis), et les
+tolerances (`marge_in`, `bord_droit_in`) sont des arguments avec des valeurs
+par defaut documentees — un appelant avec un gabarit/canal different les
+repasse explicitement plutot que de forker la fonction.
 
 Réalignée sur la référence la plus avancée de la flotte (hub, 2026-09-04) :
 VSCode2 `app/services/pptx_deck.py`, qui avait déjà absorbé (arbitrage
@@ -28,7 +46,7 @@ Reutilisable hors de ce projet : aucune dependance au domaine metier ici.
 Les coordonnees des helpers sont exprimees en POUCES (float) pour la lisibilite.
 """
 from pptx.dml.color import RGBColor
-from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
 from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from pptx.opc.constants import RELATIONSHIP_TYPE as RT
 from pptx.oxml.ns import qn
@@ -818,6 +836,234 @@ def verifier_geometrie(prs, marge_in=0.02):
                     f"(l={Emu(l).inches:.2f} t={Emu(t).inches:.2f} "
                     f"r={Emu(l + w).inches:.2f} b={Emu(t + h).inches:.2f} ; "
                     f"slide {Emu(W).inches:.2f}x{Emu(H).inches:.2f})")
+    return problemes
+
+
+def _noter(compte, cle):
+    """Incremente `compte[cle]` quand un compteur est fourni. Le dict est cree
+    par l'APPELANT : un filet appele sans compteur garde exactement son
+    comportement d'avant."""
+    if compte is not None:
+        compte[cle] = compte.get(cle, 0) + 1
+
+
+# Zone de repli du badge de pagination herite du gabarit, pour un gabarit qui
+# ne declarerait aucun champ de numero de page (voir `zones_numero_page` :
+# dans le cas normal, la zone protegee est LUE sur le layout/master de CHAQUE
+# slide, jamais prise dans cette constante). Le numero de page n'est PAS un
+# placeholder pose sur chaque slide : PowerPoint le rend depuis le
+# master/layout, donc `verifier_geometrie` (qui ne regarde que les formes DE
+# LA SLIDE) ne peut pas le proteger — une forme de contenu peut le recouvrir
+# sans jamais depasser la slide.
+#
+# Valeur ci-dessous mesuree sur template-octo.pptx (VSCode3/VSCode4,
+# 2026-09-09), arrondie VERS L'EXTERIEUR pour ne pas sous-declarer la zone a
+# proteger. C'est un repli parmi d'autres gabarits OCTO possibles, pas une
+# verite generale : un appelant qui connait son propre gabarit passe
+# `defaut=` a `zones_numero_page`, ou mieux, laisse la lecture reelle faire
+# son travail (elle prime toujours sur ce repli).
+_ZONE_NUMERO_PAGE_IN = (9.25, 5.08, 9.80, 5.34)  # left, top, right, bottom
+
+
+def _xfrm_de_groupe_non_transforme(shp):
+    """True si `shp` est un groupe dont l'espace ENFANT coincide avec l'espace
+    parent (chOff == off, chExt == ext, ni rotation ni miroir) : les
+    coordonnees de ses enfants sont alors directement lisibles dans le meme
+    repere que leurs ancetres (in fine la slide). Sinon False — l'appelant
+    retombe sur la boite englobante du groupe plutot que de rendre une
+    position fausse."""
+    try:
+        grp = shp._element.find(qn("p:grpSpPr"))
+        xfrm = grp.find(qn("a:xfrm")) if grp is not None else None
+        if xfrm is None:
+            return False
+        if xfrm.get("rot") or xfrm.get("flipH") or xfrm.get("flipV"):
+            return False
+        off, ext = xfrm.find(qn("a:off")), xfrm.find(qn("a:ext"))
+        choff, chext = xfrm.find(qn("a:chOff")), xfrm.find(qn("a:chExt"))
+        if None in (off, ext, choff, chext):
+            return False
+        return (off.get("x") == choff.get("x") and off.get("y") == choff.get("y")
+                and ext.get("cx") == chext.get("cx")
+                and ext.get("cy") == chext.get("cy"))
+    except Exception:
+        return False
+
+
+def _porte_un_champ_numero(shp):
+    element = getattr(shp, "_element", None)
+    if element is None:
+        return False
+    return any(f.get("type") == "slidenum" for f in element.iter(qn("a:fld")))
+
+
+def _bornes_in(shp):
+    """(l, t, r, b) en POUCES, ou None si la forme n'a pas de geometrie lisible."""
+    try:
+        l, t, w, h = shp.left, shp.top, shp.width, shp.height
+    except Exception:
+        return None
+    if None in (l, t, w, h):
+        return None
+    return (Emu(l).inches, Emu(t).inches, Emu(l + w).inches, Emu(t + h).inches)
+
+
+def _zones_numero_page_de(conteneur):
+    """Bornes (l, t, r, b) en POUCES de chaque bloc de numero de page porte par
+    `conteneur` (un master, un layout, ou toute forme exposant `.shapes`).
+
+    Reconnu par le CHAMP qu'il contient (`<a:fld type="slidenum">`), jamais par
+    son nom ni par sa position : le nom d'une forme est souvent un artefact
+    d'export (ex. « Google Shape;10;p1 » sur un gabarit importe de Google
+    Slides) propre a UN gabarit, et une heuristique de position (« en bas a
+    droite ») designerait la premiere forme qui passe par la sur un autre.
+
+    DESCENTE DANS LES GROUPES NON TRANSFORMES. Certains gabarits OCTO reels
+    (constate sur VSCode3, 2026-09-09 : 10 des 34 layouts de son
+    template-octo.pptx) ne portent pas le champ sur une forme de premier
+    niveau mais sur un ENFANT d'un groupe qui couvre presque toute la slide.
+    S'arreter au premier niveau — comme `conteneur.shapes` seul y invite —
+    rendrait alors la boite ENGLOBANTE du groupe (plusieurs pouces carres) au
+    lieu du petit badge reel, et ferait crier `verifier_chrome_gabarit` sur
+    toute forme de contenu de ces slides : un filet vrai partout est un filet
+    qu'on debranche. On descend donc dans les groupes dont l'espace enfant
+    n'est pas transforme (`_xfrm_de_groupe_non_transforme` : chOff == off,
+    chExt == ext, ni rotation ni miroir — la seule configuration ou les
+    coordonnees des enfants se lisent directement dans le repere du parent),
+    et on retombe sur la boite englobante du groupe des que cette condition
+    n'est pas verifiee (rotation, mise a l'echelle...) — une zone trop large
+    vaut mieux qu'une position fausse."""
+    zones = []
+    for shp in conteneur.shapes:
+        if not _porte_un_champ_numero(shp):
+            continue
+        enfants = getattr(shp, "shapes", None)
+        if enfants is not None and _xfrm_de_groupe_non_transforme(shp):
+            sous_zones = _zones_numero_page_de(shp)
+            if sous_zones:  # sinon (enfants sans geometrie lisible) on retombe
+                zones.extend(sous_zones)  # sur la boite du groupe : une zone
+                continue                  # trop large vaut mieux qu'aucune
+        bornes = _bornes_in(shp)
+        if bornes is not None:
+            zones.append(bornes)
+    return zones
+
+
+def zones_numero_page(slide, defaut=_ZONE_NUMERO_PAGE_IN):
+    """Les zones de numero de page qui s'appliquent a `slide` : celles de son
+    LAYOUT et celles de son MASTER (un gabarit redouble parfois le bloc a
+    l'identique sur les deux — dedoublonne ici), lues DYNAMIQUEMENT sur le
+    gabarit charge par la presentation (jamais une liste figee pour un
+    template precis). Repli sur `defaut` si le gabarit n'en declare aucune —
+    un deck sans numero de page n'a rien a proteger, mais un repli muet vaut
+    mieux qu'un filet qui disparait en silence."""
+    layout = slide.slide_layout
+    zones = _zones_numero_page_de(layout) + _zones_numero_page_de(layout.slide_master)
+    uniques = {tuple(round(v, 4) for v in z) for z in zones}
+    return sorted(uniques) or [defaut]
+
+
+def verifier_plancher_de_dessin(prs, plancher_in, bord_droit_in=None):
+    """Retourne un probleme si le bas de bande qu'un generateur s'impose
+    (`plancher_in`, en pouces) descend AU NIVEAU du numero de page reellement
+    declare par le gabarit CHARGE (`zones_numero_page`, jamais une constante
+    figee cote appelant).
+
+    Un generateur qui derive son plancher d'une constante locale (une sorte de
+    `CONTENT_BOTTOM`) s'expose a une derive SILENCIEUSE : un gabarit qui
+    remonterait son numero de page rendrait cette constante fausse sans que
+    rien ne le dise, et le generateur continuerait de dessiner jusqu'a
+    l'ancien plancher. Ce filet confronte la constante au gabarit reellement
+    charge — c'est a l'appelant de repasser SA constante en `plancher_in` a
+    chaque build.
+
+    `bord_droit_in` (optionnel) : certains generateurs ne dessinent pas pleine
+    largeur — ils s'arretent a une abscisse qui peut rester a GAUCHE du badge
+    de pagination, meme quand leur plancher vertical passe SOUS le haut du
+    badge (exemple reel, VSCode3, 2026-09-09 : bande dessinee jusqu'a 9.15in,
+    badge a partir de 9.25in — une comparaison purement verticale, comme
+    lorsque `bord_droit_in` est omis, crierait a tort sur CE canal precis).
+    Quand `bord_droit_in` est fourni, le constat n'est leve que si la bande
+    dessinee ATTEINT reellement le badge horizontalement (`bord_droit_in` >
+    bord gauche de la zone). Omis, le filet reste purement vertical (defaut,
+    correct pour un generateur qui dessine pleine largeur).
+
+    A SAVOIR AVANT DE S'APPUYER SUR UN VERT AVEC `bord_droit_in` FIXE : si la
+    bande dessinee reste durablement a gauche du badge, ce filet est vert quel
+    que soit `plancher_in` — meme absurde. Ce n'est pas un filet inerte (c'est
+    un verdict « pas de recouvrement horizontal », correct), mais les deux se
+    ressemblent de l'exterieur : ce qui le fait tomber, c'est une derive qui
+    ramene le badge DANS la bande (gabarit qui deplace le bloc, ou generateur
+    qui elargit sa largeur de dessin), jamais une derive purement verticale
+    d'un badge qui reste hors de la bande horizontalement."""
+    zones = [zone for slide in prs.slides for zone in zones_numero_page(slide)]
+    if not zones:
+        return []
+    if bord_droit_in is not None:
+        zones = [z for z in zones if bord_droit_in > z[0]]
+        if not zones:
+            return []
+    plus_haut = min(z[1] for z in zones)
+    if plancher_in <= plus_haut:
+        return []
+    return [f"plancher de dessin ({plancher_in:.2f}in) sous le haut de la zone "
+            f"du numero de page declaree par le gabarit ({plus_haut:.2f}in) : "
+            f"la constante de plancher cote appelant a decroche du gabarit"]
+
+
+def verifier_chrome_gabarit(prs, zone_in=None, marge_in=0.02, compte=None):
+    """Retourne la liste des problemes : toute forme DE CONTENU (posee sur une
+    slide, pas sur le layout/master) dont les bords chevauchent la zone du
+    numero de page heritee du gabarit CHARGE par la presentation. Liste vide =
+    OK.
+
+    `zone_in` force une zone unique (l, t, r, b) en pouces pour toutes les
+    slides (utile en test, ou pour un gabarit dont la lecture automatique ne
+    convient pas) ; par defaut (None) la zone est LUE sur le layout/master de
+    CHAQUE slide via `zones_numero_page` — jamais une liste codee en dur pour
+    un template precis. `marge_in` (defaut 0.02in) est la tolerance de
+    chevauchement, a repasser explicitement si le gabarit cible exige une
+    marge differente.
+
+    Meme forme de resultat que `verifier_geometrie` (chaine « slide N: … »),
+    pour rester agregeable telle quelle dans un self-check de build.
+
+    `compte` : dict optionnel (`examinees`, `ignorees`, `groupes`), meme
+    principe que sur `verifier_debordements_texte` — un filet qui ne dit pas
+    combien de formes il a REGARDEES laisse croire que son vert couvre tout le
+    deck. Les trois clefs sont posees d'avance : « 0 groupe » doit se lire 0,
+    pas se deviner d'une clef absente. Les formes groupees sont examinees sur
+    leur boite ENGLOBANTE : un enfant fautif se signale alors au nom du
+    groupe, jamais au sien."""
+    if compte is not None:
+        for cle in ("examinees", "ignorees", "groupes"):
+            compte.setdefault(cle, 0)
+    tol_in = marge_in
+    problemes = []
+    for si, slide in enumerate(prs.slides, start=1):
+        zones = [zone_in] if zone_in is not None else zones_numero_page(slide)
+        for shp in slide.shapes:
+            bornes = _bornes_in(shp)
+            if bornes is None:
+                _noter(compte, "ignorees")
+                continue
+            _noter(compte, "examinees")
+            if getattr(shp, "shape_type", None) == MSO_SHAPE_TYPE.GROUP:
+                _noter(compte, "groupes")
+            l, t, r, b = bornes
+            for zone in zones:
+                zl, zt, zr, zb = zone
+                chevauche = (l < zr - tol_in and r > zl + tol_in
+                             and t < zb - tol_in and b > zt + tol_in)
+                if not chevauche:
+                    continue
+                nom = shp.name or "shape"
+                problemes.append(
+                    f"slide {si}: '{nom}' recouvre la zone du numero de page "
+                    f"(l={l:.2f} t={t:.2f} r={r:.2f} b={b:.2f} ; "
+                    f"zone {zone[0]:.2f}-{zone[2]:.2f} x "
+                    f"{zone[1]:.2f}-{zone[3]:.2f})")
+                break
     return problemes
 
 
