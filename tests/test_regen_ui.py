@@ -322,13 +322,22 @@ def test_autosave_erreur_couvre_status_ind(client: TestClient) -> None:
     assert 'class="status-ind" id="status-' in capture
 
 
-def test_fraicheur_empreinte_python_servie_et_sensible_au_mtime(client: TestClient) -> None:
+def test_fraicheur_empreinte_python_servie_et_sensible_au_contenu(client: TestClient) -> None:
     """GET /__fraicheur (diagnostic superviseur 2026-07-23 — le --reload a servi
     plusieurs fois du code périmé) : l'empreinte SERVIE est celle capturée à
-    l'import et vaut celle du disque tant que rien n'a changé ; toucher le mtime
-    d'un .py d'app/ change l'empreinte DISQUE (c'est l'écart servi≠disque qui
-    prouve un serveur périmé). Le mtime est restauré à l'octet près."""
+    l'import et vaut celle du disque tant que rien n'a changé ; modifier le
+    CONTENU d'un .py d'app/ change l'empreinte disque, et c'est l'écart
+    servi != disque qui prouve un serveur périmé.
+
+    Ce test portait sur le `mtime` jusqu'au 2026-09-10. L'horodatage rendait
+    l'empreinte sensible à des gestes qui ne changent RIEN au code servi — un
+    `touch`, une copie de travail, un formateur qui réécrit à l'identique — et,
+    mesuré ce jour-là, à toute édition faite PENDANT une suite de tests : deux
+    échecs fantômes en ont été fabriqués, sur des tests sans rapport avec les
+    fichiers touchés. Les deux moitiés comptent, et sont vérifiées ici : le
+    contenu DOIT changer l'empreinte, le seul horodatage NON."""
     import os
+
     from app import main as app_main
 
     rep = client.get("/__fraicheur")
@@ -336,12 +345,30 @@ def test_fraicheur_empreinte_python_servie_et_sensible_au_mtime(client: TestClie
     servie = rep.json()["empreinte"]
     assert servie == app_main.EMPREINTE_AU_CHARGEMENT
     assert servie == app_main.empreinte_code(), "disque et import divergent sans modification"
+
     cible = app_main.BASE_DIR / "models.py"
+    octets = cible.read_bytes()
     st = cible.stat()
     try:
-        os.utime(cible, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000))
+        # 1. Le CONTENU change -> l'empreinte change (le stale reste detectable).
+        cible.write_bytes(octets + b"\n# marqueur de test de fraicheur\n")
         assert app_main.empreinte_code() != servie, (
-            "l'empreinte disque ignore un mtime modifié — le stale serait indétectable"
+            "l'empreinte disque ignore une modification de contenu — un serveur "
+            "perime serait indetectable"
+        )
+    finally:
+        cible.write_bytes(octets)
+        os.utime(cible, ns=(st.st_atime_ns, st.st_mtime_ns))
+
+    assert app_main.empreinte_code() == servie, "le contenu restaure doit rendre l'empreinte d'origine"
+
+    # 2. Le seul HORODATAGE change -> l'empreinte ne bouge PAS. C'est la
+    #    propriete gagnee : plus d'echec fantome quand on edite pendant un run.
+    try:
+        os.utime(cible, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000))
+        assert app_main.empreinte_code() == servie, (
+            "un simple touch change l'empreinte : elle fabriquera des echecs "
+            "fantomes des qu'on edite pendant une suite de tests"
         )
     finally:
         os.utime(cible, ns=(st.st_atime_ns, st.st_mtime_ns))

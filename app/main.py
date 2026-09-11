@@ -48,16 +48,42 @@ from .services.interview_segment_jobs import (  # noqa: E402
 
 
 def empreinte_code() -> str:
-    """Empreinte du code python d'app/ : hash des (chemin, mtime_ns) de tous les
+    """Empreinte du code python d'app/ : hash des (chemin, CONTENU) de tous les
     .py. Sert la preuve de fraîcheur du serveur dev (diagnostic superviseur
     2026-07-23 : le --reload a servi plusieurs fois du code périmé — la preuve
-    octets-du-statique ne couvrait pas le python)."""
+    octets-du-statique ne couvrait pas le python).
+
+    Le CONTENU, plus le `mtime_ns` (2026-09-10). L'horodatage rendait
+    l'empreinte sensible à des gestes qui ne changent RIEN au code servi : un
+    `touch`, une copie de travail, un formateur qui réécrit un fichier à
+    l'identique — et, mesuré ce jour-là, toute édition faite PENDANT une suite
+    de tests. Deux échecs fantômes en ont été fabriqués, sur des tests sans
+    aucun rapport avec les fichiers touchés. Le contenu ne bouge que quand le
+    code bouge, ce qui est exactement la question posée.
+
+    Contrepartie assumée, MESURÉE le 2026-09-10 sur ce dépôt (46 fichiers,
+    783 Ko) : 84 ms par appel à chaud, contre 21 ms pour la version `stat`.
+    Quatre fois plus cher, donc — et c'est acceptable ici parce que cette
+    fonction n'est appelée qu'AU CHARGEMENT du module
+    (`EMPREINTE_AU_CHARGEMENT`) et par `/__fraicheur`, une route de diagnostic
+    de dev. Aucun chemin servant une page ne la traverse.
+
+    Commande : boucler `empreinte_code()` vingt fois après un appel de chauffe,
+    et diviser. La chauffe compte : le premier appel, cache disque froid, a
+    mesuré 398 ms — un chiffre que j'ai d'abord pris pour le coût réel.
+    """
     import hashlib
 
     h = hashlib.sha256()
     for p in sorted(BASE_DIR.rglob("*.py")):
         h.update(str(p.relative_to(BASE_DIR)).encode())
-        h.update(str(p.stat().st_mtime_ns).encode())
+        try:
+            h.update(p.read_bytes())
+        except OSError:
+            # Fichier disparu ou illisible entre le glob et la lecture : on
+            # marque le trou plutôt que de lever. Une preuve de fraîcheur qui
+            # fait tomber le serveur ne protège plus rien.
+            h.update(b"<illisible>")
     return h.hexdigest()[:16]
 
 
