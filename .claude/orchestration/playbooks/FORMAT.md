@@ -2,9 +2,11 @@
 
 Un playbook = un fichier `*.md` de ce dossier décrivant un workflow récurrent de façon
 déclarative. La partie machine est un bloc ` ```json ` unique (parsé par la skill
-`agent-orchestrator` et par `tests/test_agent_orchestration.py`) ; le reste du fichier
-est de la prose libre (contexte, précédents, limites). Conception :
-`docs/reflexions/agent-orchestrateur.md` §4 (brique 3) et §10 (incrément O-B).
+`agent-orchestrator`) ; le reste du fichier est de la prose libre (contexte, précédents,
+limites). Référence : `.claude/skills/agent-orchestrator/SKILL.md` § 2 (composition du
+plan). **Aucun test de ce hub ne verrouille ce format** — vérifié le 2026-08-31 : le
+`tests/test_agent_orchestration.py` que cette page citait vit dans VSCode2 et VSCode3,
+pas ici. Le bloc JSON n'est donc protégé que par la relecture.
 
 ## Champs du bloc JSON
 
@@ -24,7 +26,7 @@ est de la prose libre (contexte, précédents, limites). Conception :
 | --- | --- | --- |
 | `id` | slug unique dans le playbook | Référence (journal, diagnostic superviseur) |
 | `agent` | agent/skill du catalogue, ou `session principale` | Qui exécute |
-| `mode` | `cascade` \| `parallele` \| `asynchrone` | La dépendance de données décide (§5 de la conception) |
+| `mode` | `cascade` \| `parallele` \| `asynchrone` | La dépendance de données décide (§5 de `docs/reflexions/conception-agent-orchestrator.md`) |
 | `modele` | `haiku` \| `sonnet` \| `opus` \| `fable` \| `(session)` | Sous-agents uniquement ; `(session)` pour tout ce qui tourne inline |
 | `fan_out_max` | entier ≤ 4 | Obligatoire si `mode` = `parallele` |
 | `contrat` | objet `{type, critere[, commande]}` | Vérifié avant de passer à l'étape suivante. `type` : `deterministe` (fichier attendu présent, commande verte — préférer) \| `reel` (rendu regardé par un humain/screenshot : run-dev-server, pptx-verify) \| `llm` (dernier recours) |
@@ -35,6 +37,17 @@ Une étape `parallele` doit être suivie d'une étape de consolidation en `casca
 par l'étape `revue-increment` (leçon superviseur : « jamais invoquée » — rendue
 structurelle ici).
 
+## Jalon intermédiaire (étapes longues)
+
+Le format n'a pas de champ dédié pour un point d'étape intermédiaire — veille adoptée
+2026-09-08 (Beyond the Leaderboard, arXiv:2607.05775) : un sous-agent long (plusieurs
+dizaines d'appels d'outils) risque la « behavioral state decay » (l'état pertinent
+d'une décision se noie dans une trajectoire qui s'allonge) sans jalon qu'un
+orchestrateur pourrait auditer en cours de route. Tant qu'aucun champ n'est ajouté au
+schéma, noter l'exigence dans le `critere` du `contrat` de l'étape longue elle-même : un
+point d'étape journalisable rendu par l'agent avant de poursuivre, coût tokens/latence
+mis en regard du bénéfice de détection précoce.
+
 ## Exécution et journal
 
 La skill instancie le playbook (adapte les étapes à la demande, sans en retirer les
@@ -42,3 +55,14 @@ vérifications obligatoires ni les checkpoints), le suit avec TodoWrite, vérifi
 contrat, et journalise le run dans `runs.jsonl` avec `"playbook": "<nom>"` dans les notes
 ou le plan — c'est ce qui permettra au superviseur (étage 2 / incrément O-C) de mesurer
 le taux de réussite par playbook et de remonter les playbooks jamais joués.
+
+## Portée sur ce projet
+
+Le bloc JSON de ce format est, **dans ce dépôt**, verrouillé par un test réel :
+`tests/test_agent_orchestration.py`. Le socle publié par le hub dit « aucun test de ce
+hub ne verrouille ce format » — c'est vrai du hub, faux ici : toute évolution du schéma
+doit rejouer cette suite avant commit.
+
+Conception locale de l'orchestrateur : `docs/reflexions/agent-orchestrateur.md` §4
+(brique 3) et §10 (incrément O-B). C'est ce document qui fait foi ici ; le socle pointe
+`docs/reflexions/conception-agent-orchestrator.md`, qui est la version du hub.

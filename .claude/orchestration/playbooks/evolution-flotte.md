@@ -52,7 +52,7 @@ faute de playbook qui matche.
       "modele": "(session)",
       "contrat": {
         "type": "deterministe",
-        "critere": "modification scopée et adaptée à la cible (jamais un écrasement aveugle d'une copie divergée — édits ciblés si le fichier a des adaptations locales) ; chaque exigence explicite de la demande cochée contre le diff ; si plusieurs cibles, appliquer projet par projet"
+        "critere": "modification scopée et adaptée à la cible (jamais un écrasement aveugle d'une copie divergée — édits ciblés si le fichier a des adaptations locales) ; chaque exigence explicite de la demande cochée contre le diff ; si plusieurs cibles, appliquer projet par projet ; si l'étape s'étend sur plusieurs cibles ou une longue série d'édits, rendre un jalon intermédiaire journalisable (cible traitée, ce qui reste) avant de poursuivre — coût tokens/latence mis en regard du bénéfice de détection précoce (veille 2026-09-08, Beyond the Leaderboard, arXiv:2607.05775)"
       },
       "checkpoint": false
     },
