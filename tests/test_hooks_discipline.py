@@ -301,3 +301,280 @@ def test_un_message_de_commit_qui_DECRIT_la_commande_passe(depot):
         "EOF"
     )
     assert _refus(commande, depot) == ""
+
+
+# --------------------------------------------------------------------------- #
+# Gardes « périmètre » et « plafond de lot » (2026-09-10)
+#
+# Arbitrées par l'utilisateur sur le plan du superviseur, après une séance où
+# 4 rondes de revue adversariale ont trouvé 3 bloquants et 13 majeurs dans des
+# correctifs fraîchement écrits — dont 3 de la même forme : une garde posée sur
+# un chemin, ses frères laissés nus.
+#
+# La garde « périmètre » a été calibrée TROIS fois, et c'est la mesure sur les
+# commits réels qui a tranché, jamais l'intuition :
+#   - « le diff ajoute un motif de garde »            -> 62 % de déclenchement,
+#     et ZÉRO des trois cas que la garde citait nommément ;
+#   - « … plus les mots d'exhaustivité dans le code » -> 70 %, parce que
+#     « dernier », « toutes les », « plus aucun » sont du français courant ;
+#   - « la forme gardée est ajoutée ET sa forme NUE subsiste ailleurs » -> 22 %,
+#     en nommant les fichiers frères.
+# Une garde qui parle à deux commits sur trois ne se fait même pas débrancher :
+# on cesse de la lire, et rien ne le signale.
+# --------------------------------------------------------------------------- #
+
+def _payload_msg(tmp_path: Path, message: str, transcript: Path = None) -> dict:
+    return {
+        "tool_input": {"command": 'git commit -m "' + message + '"'},
+        "cwd": str(tmp_path),
+        "transcript_path": str(transcript) if transcript else "",
+    }
+
+
+def _depot_avec_frere_nu(tmp_path: Path) -> Path:
+    """Un dépôt où le commit pose la garde et où un AUTRE fichier, déjà
+    committé, conserve la forme nue."""
+    _git(["init", "-q"], tmp_path)
+    app = tmp_path / "app"
+    app.mkdir(parents=True, exist_ok=True)
+    (app / "frere.py").write_text(
+        "async def autre(file):\n    contenu = await file.read()\n", encoding="utf-8")
+    _git(["add", "app/frere.py"], tmp_path)
+    _git(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"], tmp_path)
+    (app / "garde.py").write_text(
+        "async def route(file):\n    contenu = await lire_upload_borne(file)\n",
+        encoding="utf-8")
+    _git(["add", "app/garde.py"], tmp_path)
+    return tmp_path
+
+
+def test_garde_perimetre_nomme_le_frere_reste_nu(tmp_path):
+    """Le cœur de la garde : elle ne dit pas « attention », elle donne le
+    `grep` qu'on aurait dû lancer — le fichier frère, par son nom."""
+    _depot_avec_frere_nu(tmp_path)
+    transcript = _transcript(tmp_path, [".venv/Scripts/python.exe -m pytest -q"])
+    r = _run_hook(WARN, _payload_msg(tmp_path, "Borne posee sur la route", transcript))
+    ctx = _context(r)
+    assert "PÉRIMÈTRE" in ctx
+    assert "app/frere.py" in ctx, "la garde n'a pas nomme le frere reste nu"
+    assert "await file.read()" in ctx, "la garde ne dit pas QUELLE forme reste nue"
+
+
+def test_garde_perimetre_voit_le_frere_nu_DANS_LE_FICHIER_TOUCHE(tmp_path):
+    """Le défaut fondateur : « garde posée sur 1 chemin d'écriture sur 3 ».
+
+    Ces trois chemins vivent d'ordinaire dans le MÊME fichier. La première
+    version excluait en bloc tous les fichiers touchés par le commit, donc se
+    taisait exactement sur le cas qui l'a fait naître (revue du 2026-09-10, T3).
+    """
+    _git(["init", "-q"], tmp_path)
+    app = tmp_path / "app"
+    app.mkdir(parents=True, exist_ok=True)
+    # Un seul fichier : une route gardée, DEUX routes encore nues.
+    (app / "routes.py").write_text(
+        "async def une(file):\n    return await lire_upload_borne(file)\n"
+        "async def deux(file):\n    return await file.read()\n"
+        "async def trois(file):\n    return await file.read()\n",
+        encoding="utf-8")
+    _git(["add", "app/routes.py"], tmp_path)
+    transcript = _transcript(tmp_path, [".venv/Scripts/python.exe -m pytest -q"])
+    r = _run_hook(WARN, _payload_msg(tmp_path, "Borne posee sur une route", transcript))
+    ctx = _context(r)
+    assert "PÉRIMÈTRE" in ctx, (
+        "la garde est aveugle au cas qui l'a fait naitre : les chemins freres "
+        "dans le fichier qu'on vient de toucher"
+    )
+    assert "app/routes.py" in ctx, "la garde ne nomme pas le fichier concerne"
+    assert "dans CE commit" in ctx, (
+        "la garde ne dit pas que le site restant est dans le fichier du commit"
+    )
+
+
+def test_garde_perimetre_se_tait_quand_aucun_frere_ne_reste(tmp_path):
+    """La contrepartie, et c'est elle qui rend la garde lisible : si la forme
+    nue n'existe plus nulle part, silence."""
+    _git(["init", "-q"], tmp_path)
+    app = tmp_path / "app"
+    app.mkdir(parents=True, exist_ok=True)
+    (app / "garde.py").write_text(
+        "async def route(file):\n    contenu = await lire_upload_borne(file)\n",
+        encoding="utf-8")
+    _git(["add", "app/garde.py"], tmp_path)
+    transcript = _transcript(tmp_path, [".venv/Scripts/python.exe -m pytest -q"])
+    r = _run_hook(WARN, _payload_msg(tmp_path, "Borne posee", transcript))
+    assert "PÉRIMÈTRE" not in _context(r)
+
+
+def test_garde_perimetre_se_tait_si_le_perimetre_est_annonce(tmp_path):
+    """Un périmètre partiel ASSUMÉ n'est pas un défaut. La ligne suffit, quel
+    que soit son compte — et elle est acceptée SANS accents, parce que les
+    commits de ce dépôt sont écrits ainsi (le premier jet exigeait
+    « Périmètre: » accentué : inapplicable en pratique)."""
+    _depot_avec_frere_nu(tmp_path)
+    transcript = _transcript(tmp_path, [".venv/Scripts/python.exe -m pytest -q"])
+    message = "Borne. Perimetre: grep read app/ -> 2 sites, 1 garde, 1 differe : a part"
+    r = _run_hook(WARN, _payload_msg(tmp_path, message, transcript))
+    assert "PÉRIMÈTRE" not in _context(r)
+
+
+def _hook_avec_config(tmp_path: Path, config: dict = None):
+    """Le hook chargé comme s'il vivait dans un AUTRE dépôt, avec la config de
+    ce dépôt-là (ou sans config du tout).
+
+    `_config_path()` dérive du chemin du hook : pour observer ce que voit
+    VSCode1/3/4, il faut donc une COPIE du fichier dans une arborescence à
+    nous. Le charger sur place ne prouve rien — il lit alors la configuration
+    de CE dépôt, où les deux clés sont posées.
+    """
+    import importlib.util
+    import shutil
+
+    hooks = tmp_path / ".claude" / "hooks"
+    hooks.mkdir(parents=True, exist_ok=True)
+    copie = hooks / WARN.name
+    shutil.copy(WARN, copie)
+    if config is not None:
+        (tmp_path / ".claude" / "warn_verif_before_commit.json").write_text(
+            json.dumps(config), encoding="utf-8")
+    spec = importlib.util.spec_from_file_location("hook_autre_depot", copie)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_la_porte_de_sortie_ne_s_ouvre_PAS_depuis_le_CODE(tmp_path):
+    """La garde cherchait `Périmètre:` dans le message ET dans tout le diff
+    ajouté — or son propre diff ajoute la constante `_LIGNE_PERIMETRE =
+    "Périmètre:"`. Elle se désarmait donc elle-même, et avec elle tout commit
+    touchant ce hook ou n'importe quel fichier portant un commentaire français
+    « périmètre : » sans rapport (revue du 2026-09-10, T2).
+
+    Ici le CODE contient la ligne, le MESSAGE non : la garde doit parler."""
+    _depot_avec_frere_nu(tmp_path)
+    garde = tmp_path / "app" / "garde.py"
+    garde.write_text(
+        '_LIGNE_PERIMETRE = "Perimetre:"\n'
+        "async def route(file):\n    contenu = await lire_upload_borne(file)\n",
+        encoding="utf-8")
+    _git(["add", "app/garde.py"], tmp_path)
+    transcript = _transcript(tmp_path, [".venv/Scripts/python.exe -m pytest -q"])
+    r = _run_hook(WARN, _payload_msg(tmp_path, "Borne posee sur la route", transcript))
+    ctx = _context(r)
+    assert "PÉRIMÈTRE" in ctx, (
+        "une ligne de CODE a desarme la garde : n'importe quel commentaire "
+        "francais suffirait, et ce hook eteint la sienne en se committant"
+    )
+    assert "app/frere.py" in ctx
+
+
+def test_les_gardes_sont_OPT_IN_et_ne_s_heritent_pas(tmp_path):
+    """Ce hook est publié tel quel dans CINQ dépôts, et son propre contrat dit
+    qu'aucun n'hérite d'un signal sans le déclarer. Sans `perimetre_enabled` /
+    `plafond_lot` dans sa configuration, un dépôt ne voit ni l'une ni l'autre —
+    c'est ce qui protège VSCode1/3/4, où personne n'a rien arbitré (revue du
+    2026-09-10, M11).
+
+    Ce test n'assertait d'abord que les deux CONSTANTES `_DEFAULT_*`, sans
+    jamais appeler le chargeur qui décide. Faire de `cfg.get("perimetre_enabled",
+    True)` le défaut le laissait vert pendant que les quatre dépôts frères
+    héritaient des deux signaux — exactement le défaut visé (revue du
+    2026-09-10, T5). Ce qu'on vérifie ici, c'est la valeur EFFECTIVE.
+    """
+    # 1. Aucune configuration du tout (dépôt qui n'a jamais rien déclaré).
+    sans_rien = _hook_avec_config(tmp_path / "vierge")
+    assert sans_rien._PERIMETRE_ENABLED is False, "la garde perimetre s'herite"
+    assert sans_rien._PLAFOND_LOT == 0, "le plafond de lot s'herite"
+
+    # 2. Une configuration RÉELLE mais muette sur ces deux clés — le cas de
+    #    VSCode1/3/4, qui ont un périmètre surveillé et rien arbitré au-delà.
+    muette = _hook_avec_config(
+        tmp_path / "muette", {"watched_prefixes": ["src/"], "verif_bash": ["pytest"]})
+    assert muette._PERIMETRE_ENABLED is False, (
+        "une config qui ne parle pas des gardes les active quand meme"
+    )
+    assert muette._PLAFOND_LOT == 0, "idem pour le plafond de lot"
+
+    # 3. Et le dépôt qui les a bien arbitrées les voit.
+    declaree = _hook_avec_config(
+        tmp_path / "declaree", {"perimetre_enabled": True, "plafond_lot": 6})
+    assert declaree._PERIMETRE_ENABLED is True
+    assert declaree._PLAFOND_LOT == 6
+
+    # 4. `True` n'est pas un plafond : en Python `isinstance(True, int)` vaut
+    #    vrai, et un plafond de 1 refuserait tout commit de 2 fichiers.
+    absurde = _hook_avec_config(tmp_path / "absurde", {"plafond_lot": True})
+    assert absurde._PLAFOND_LOT == 0, "un booleen a ete accepte comme plafond"
+
+
+def test_plafond_de_lot_avertit_au_dela_du_seuil(tmp_path):
+    """16 fichiers / 1841 insertions / 4 sujets en un commit, le 2026-09-10 :
+    4 rondes de revue. Le lot était trop gros pour être revu en un passage."""
+    _git(["init", "-q"], tmp_path)
+    for i in range(8):
+        f = tmp_path / "app" / ("module" + str(i) + ".py")
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("x = 1\n", encoding="utf-8")
+        _git(["add", "app/module" + str(i) + ".py"], tmp_path)
+    transcript = _transcript(tmp_path, [".venv/Scripts/python.exe -m pytest -q"])
+    r = _run_hook(WARN, _payload_msg(tmp_path, "Un gros lot", transcript))
+    ctx = _context(r)
+    assert "LOT TROP LARGE" in ctx
+    assert "8 fichiers" in ctx, "le message doit donner le compte reel"
+
+
+def test_plafond_de_lot_se_tait_sur_un_commit_scope(tmp_path):
+    """Un commit d'un ou deux fichiers — le cas normal — ne dit rien."""
+    _git(["init", "-q"], tmp_path)
+    for i in range(2):
+        f = tmp_path / "app" / ("module" + str(i) + ".py")
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("x = 1\n", encoding="utf-8")
+        _git(["add", "app/module" + str(i) + ".py"], tmp_path)
+    transcript = _transcript(tmp_path, [".venv/Scripts/python.exe -m pytest -q"])
+    r = _run_hook(WARN, _payload_msg(tmp_path, "Un correctif scope", transcript))
+    assert "LOT TROP LARGE" not in _context(r)
+
+
+def test_le_hook_survit_a_un_diff_non_decodable_en_cp1252(tmp_path):
+    """BLOQUANT B1 du 2026-09-10, reproduit deux fois : `subprocess.run(text=True)`
+    sans `encoding=` décode dans l'encodage de la console. Un diff portant un
+    emoji à sélecteur de variante — il y en a dans des centaines de fichiers de
+    ce dépôt, dont ce hook — rendait `stdout = None`, et le `.splitlines()`
+    levait HORS du try. Le hook plantait, et les TROIS avertissements
+    préexistants partaient avec lui : une garde neuve désactivait le garde-fou
+    qu'elle venait renforcer.
+
+    La première version de ce test n'assertait que `returncode == 0` et un
+    contexte non vide — deux choses que l'avertissement « vérif réelle »
+    préexistant satisfait à lui seul, quel que soit le retour de
+    `_diff_ajoute`. Retirer `encoding="utf-8"` la laissait VERTE pendant que la
+    garde Périmètre devenait muette sur tout diff portant un tel octet : la
+    régression que ce test porte son nom d'empêcher passait au travers
+    (revue adversariale du 2026-09-10, T4). On exige donc que la garde
+    FONCTIONNE sur ce diff, pas seulement que le hook y survive.
+    """
+    _depot_avec_frere_nu(tmp_path)
+    garde = tmp_path / "app" / "garde.py"
+    garde.write_text(
+        "# ⚠️ attention : caractere non definissable en cp1252\n"
+        "async def route(file):\n    contenu = await lire_upload_borne(file)\n",
+        encoding="utf-8")
+    _git(["add", "app/garde.py"], tmp_path)
+    r = _run_hook(WARN, _payload_msg(tmp_path, "Un commit avec un emoji"))
+    ctx = _context(r)
+    assert r.returncode == 0, "le hook a plante : " + (r.stderr or "")[:300]
+    assert ctx, "le hook est muet : les avertissements preexistants sont perdus"
+    assert "app/frere.py" in ctx, (
+        "la garde Perimetre est muette sur un diff portant un emoji : "
+        "`_diff_ajoute` a rendu une chaine vide au lieu du diff"
+    )
+
+
+def test_les_gardes_restent_NON_BLOQUANTES(tmp_path):
+    """Comme tout ce hook : elles avertissent, elles n'empêchent pas de livrer.
+    Un garde-fou qui bloque se fait débrancher la semaine suivante."""
+    _depot_avec_frere_nu(tmp_path)
+    r = _run_hook(WARN, _payload_msg(tmp_path, "Borne posee"))
+    assert "permissionDecision" not in (r.stdout or ""), (
+        "la garde bloque le commit : ce n'est pas le contrat de ce hook"
+    )

@@ -65,6 +65,7 @@ import re
 import shlex
 import subprocess
 import sys
+import unicodedata
 
 try:  # réutilise le tokenizer éprouvé du guard voisin ; sinon, dégrade en silence
     from guard_destructive_git import _strip_heredocs, _segments
@@ -100,6 +101,14 @@ _DEFAULT_VERIF_SKILL = ("revue-increment",)
 _DEFAULT_DOD_ENABLED = False
 _DEFAULT_DISPOSITIF_PREFIXES = (".claude/orchestration/", ".claude/supervision/", ".claude/hooks/")
 _DEFAULT_DISPOSITIF_TESTS = ()  # vide = signal dispositif desactive
+# Gardes du 2026-09-10, OPT-IN elles aussi. Ce fichier est publié tel quel dans
+# cinq dépôts, et son contrat (bloc du haut) dit : « Chaque dépôt active ce
+# qu'il a explicitement choisi via sa propre configuration ; aucun n'hérite
+# d'un nouveau signal sans le déclarer. » Les livrer inconditionnelles aurait
+# imposé à VSCode1/3/4 un signal que personne n'y a arbitré — et cassé le
+# contrat dans le fichier qui l'énonce (revue du 2026-09-10, M11).
+_DEFAULT_PERIMETRE_ENABLED = False
+_DEFAULT_PLAFOND_LOT = 0  # 0 = signal desactive
 
 
 def _config_path():
@@ -167,11 +176,27 @@ def _load_extra_config():
     return dod_enabled, disp_prefixes, disp_tests
 
 
+def _load_gardes_config():
+    """(perimetre_enabled, plafond_lot) — les deux gardes du 2026-09-10, OPT-IN.
+    Fonction séparée, encore, pour ne changer l'arité d'aucune des deux
+    précédentes (contrat testé sur VSCode3)."""
+    perimetre, plafond = _DEFAULT_PERIMETRE_ENABLED, _DEFAULT_PLAFOND_LOT
+    cfg = _read_config_dict()
+    if cfg is not None:
+        if isinstance(cfg.get("perimetre_enabled"), bool):
+            perimetre = cfg["perimetre_enabled"]
+        valeur = cfg.get("plafond_lot")
+        if isinstance(valeur, int) and not isinstance(valeur, bool) and valeur >= 0:
+            plafond = valeur
+    return perimetre, plafond
+
+
 # Périmètre et preuves EFFECTIFS de ce dépôt : lus une fois au chargement du
 # hook (chaque commit relance ce script comme process neuf, donc pas besoin
 # de rechargement à chaud).
 _WATCHED_PREFIXES, _VERIF_BASH, _VERIF_SKILL = _load_config()
 _DOD_ENABLED, _DISPOSITIF_PREFIXES, _DISPOSITIF_TESTS = _load_extra_config()
+_PERIMETRE_ENABLED, _PLAFOND_LOT = _load_gardes_config()
 
 # Signaux de definition-of-done : la boucle DoD complète (skill), ou le run
 # d'orchestration journalisé (où la DoD assumée se trace dans `notes`). Fixes
@@ -414,6 +439,228 @@ def _build_warning_dispositif(prefixes, tests):
     )
 
 
+# --------------------------------------------------------------------------- #
+# Garde « PÉRIMÈTRE » et plafond de lot (2026-09-10)
+#
+# Arbitrées par l'utilisateur sur le plan du superviseur, après une séance où
+# QUATRE rondes de revue adversariale ont trouvé 3 bloquants et 13 majeurs dans
+# des correctifs fraîchement écrits. Le superviseur a refusé d'en conclure
+# « ajoutons une 5e ronde » : la revue avait parfaitement fonctionné, et c'est
+# le problème — elle a fait, à 4x le prix et APRÈS coup, un travail mécanique
+# qui coûtait un `grep` AVANT d'écrire.
+#
+# Les deux causes qu'il a nommées, chacune mesurée :
+#
+# 1. Le périmètre n'est jamais énuméré avant d'écrire. Forme commune de la
+#    majorité des défauts du jour : « garde posée sur 1 chemin d'écriture sur
+#    3 » ; « équivalence rompue dont 3 consommateurs en aval dépendaient » ;
+#    « dernier résidu du message d'exception brut » démenti par 5 sites frères.
+#    La leçon existait déjà en mémoire (« appliquer la leçon aux chemins
+#    frères ») : elle est écrite et elle ne tient pas, parce qu'elle dépend
+#    d'une vigilance et non d'une commande.
+#
+# 2. Le lot mélange les sujets, donc rien n'est revuable en un passage. Mesuré :
+#    un commit de 16 fichiers / 1841 insertions portant 4 dimensions d'audit,
+#    le lendemain d'un triage qui relevait déjà « commit non scopé (4 sujets) ».
+#    Le profil 2 -> 1 -> 0 -> 0 bloquants ne dit pas « la revue a convergé », il
+#    dit « le lot était trop gros pour être revu une fois ».
+#
+# Ces deux gardes sont NON BLOQUANTES, comme le reste de ce hook : elles
+# avertissent. Un garde-fou qui empêche de livrer se fait débrancher la semaine
+# suivante — mais un garde-fou muet ne sert à rien non plus, et c'est la leçon
+# du hook voisin (`check_ci_after_push`, qui s'est tu pendant sept semaines).
+# --------------------------------------------------------------------------- #
+
+# Mots qui annoncent une EXHAUSTIVITÉ : celui qui les écrit affirme avoir
+# regardé tous les sites. C'est précisément l'affirmation qui a été fausse deux
+# fois dans la séance du 2026-09-10.
+_MOTS_D_EXHAUSTIVITE = (
+    "tous les", "toutes les", "dernier", "derniere", "dernière",
+    "partout", "plus aucun", "plus aucune", "idempotent", "idempotente",
+    "aucun autre", "aucune autre", "l'ensemble des", "chaque site",
+)
+
+# La ligne que la garde réclame. Volontairement une COMMANDE et un COMPTE : une
+# phrase d'intention (« j'ai vérifié les autres appels ») ne prouve rien et ne
+# se rejoue pas.
+_LIGNE_PERIMETRE = "Périmètre:"
+
+
+def _sans_accents(texte: str) -> str:
+    """Comparaison INSENSIBLE aux accents.
+
+    Les messages de commit de ce dépôt sont écrits sans accents (console
+    Windows), et le premier jet de cette garde exigeait littéralement
+    « Périmètre: » : elle aurait été inapplicable en pratique et se serait fait
+    débrancher — le mode de défaillance que ce hook cherche justement à éviter.
+    Trouvé par ses propres tests avant commit.
+    """
+    return unicodedata.normalize("NFKD", texte or "").encode(
+        "ascii", "ignore").decode("ascii").lower()
+
+_PLAFOND_FICHIERS_LOT = 6
+
+
+def _diff_ajoute(cwd, commit_flags) -> str:
+    """Les lignes AJOUTÉES par le commit en préparation. Chaîne vide si git est
+    indéterminable — fail-open, comme le reste du hook.
+
+    `encoding`/`errors` EXPLICITES, comme `_staged_files` : sans eux,
+    `text=True` décode dans l'encodage de la console (cp1252 ici) et un diff
+    portant un octet qu'elle ne définit pas — un emoji à sélecteur de variante,
+    présent dans des centaines de fichiers de ce dépôt — rend `stdout = None`.
+    Le `.splitlines()` levait alors HORS du try : le hook plantait et les TROIS
+    avertissements préexistants partaient avec lui. Une garde neuve qui
+    désactive le garde-fou qu'elle vient renforcer est pire que pas de garde
+    (revue adversariale du 2026-09-10, bloquant B1, reproduit deux fois).
+
+    `--all` : `git commit -a` met en scène les modifications suivies au moment
+    du commit, que `--cached` ne voit pas encore. On lit alors `HEAD` pour
+    rester cohérent avec `_staged_files`, qui unionne déjà le non-stagé.
+    """
+    args = ["git", "diff", "--cached", "--unified=0"]
+    if commit_flags and any(f in commit_flags for f in ("-a", "--all", "-am")):
+        args = ["git", "diff", "HEAD", "--unified=0"]
+    try:
+        r = subprocess.run(args, cwd=cwd or None, capture_output=True,
+                           encoding="utf-8", errors="replace",
+                           text=True, timeout=10)
+    except Exception:
+        return ""
+    if r.returncode != 0 or r.stdout is None:
+        return ""
+    return chr(10).join(
+        l for l in r.stdout.splitlines() if l.startswith("+") and not l.startswith("+++")
+    )
+
+
+# PAIRES (forme NON gardée, forme gardée, quoi chercher) — le cœur de la garde.
+#
+# Le défaut visé n'est pas « une garde a été posée » mais « une garde a été
+# posée ICI pendant que ses frères restent NUS ». C'est la forme commune des
+# 3 bloquants du 2026-09-10, et de deux affirmations d'exhaustivité fausses.
+#
+# Deux calibrages précédents ont été MESURÉS puis jetés, et c'est la mesure qui
+# a tranché, pas l'intuition :
+#   - « le diff ajoute un motif de garde » -> 62 % des commits `app/` récents,
+#     et ZÉRO des trois cas que la garde citait nommément ;
+#   - « … plus les mots d'exhaustivité cherchés dans le code » -> 70 %, parce
+#     que « dernier », « toutes les », « plus aucun » sont du français courant
+#     dans des commentaires.
+# Une garde qui parle à deux commits sur trois ne se fait même pas débrancher :
+# on cesse de la lire, et rien ne le signale.
+#
+# Ce calibrage-ci ne parle que si le compte est VÉRIFIABLE : la forme gardée
+# apparaît dans les lignes ajoutées, et la forme nue subsiste ailleurs sous le
+# périmètre surveillé. Le message donne alors les fichiers exacts — c'est-à-dire
+# le `grep` qu'on aurait dû lancer avant d'écrire.
+_PAIRES_DE_GARDE = (
+    # (forme gardée ajoutée, forme NUE à compter, libellé pour le message)
+    ("lire_upload_borne", "await file.read()", "lecture d'upload en mémoire"),
+    ("lire_upload_audio_borne", "await file.read()", "lecture d'audio en mémoire"),
+    ("ecrire_audio_borne", "shutil.copyfileobj", "écriture d'audio sur disque"),
+    ("verifier_zip_borne", "zipfile.ZipFile", "ouverture d'archive zip"),
+    ("logger.exception", "str(exc)", "message d'exception rendu au client"),
+    ("on_conflict_do_nothing", "db.add(", "création concurrente (lire-puis-écrire)"),
+)
+
+
+def _sites_nus(cwd, forme_nue: str, prefixes) -> list[str]:
+    """Les fichiers du périmètre surveillé qui portent ENCORE la forme nue.
+
+    `git grep` plutôt qu'un parcours Python : il respecte `.gitignore`, ignore
+    `.venv` et `__pycache__`, et coûte quelques millisecondes. Fail-open : une
+    erreur rend une liste vide, donc pas d'avertissement — jamais de friction
+    fabriquée par une panne d'outil.
+    """
+    try:
+        r = subprocess.run(
+            ["git", "grep", "-l", "--fixed-strings", forme_nue, "--", *prefixes],
+            cwd=cwd or None, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=10,
+        )
+    except Exception:
+        return []
+    if r.returncode not in (0, 1) or not r.stdout:
+        return []
+    return [l for l in r.stdout.splitlines() if l.strip()]
+
+
+def _freres_nus(cwd, diff_ajoute: str, fichiers_du_commit, prefixes) -> list[tuple]:
+    """[(libellé, forme nue, sites portant ENCORE la forme nue)].
+
+    Les fichiers touchés par le commit ne sont PAS exclus — ils sont signalés
+    comme tels. La première version les retirait en bloc, ce qui rendait la
+    garde aveugle au défaut exact qui l'a fait naître : « garde posée sur 1
+    chemin d'écriture sur 3 », qui vit typiquement dans le MÊME fichier que la
+    garde qu'on vient d'ajouter (revue adversariale du 2026-09-10, T3). La
+    garde se taisait précisément là où on l'avait bâtie pour parler.
+
+    Aucun risque de faux positif sur un fichier réellement traité : `git grep`
+    lit l'arbre de travail, donc un site corrigé n'y figure déjà plus.
+    """
+    touches = set(fichiers_du_commit or ())
+    trouves = []
+    for forme_gardee, forme_nue, libelle in _PAIRES_DE_GARDE:
+        if forme_gardee not in diff_ajoute:
+            continue
+        restants = [
+            f + ("   <- dans CE commit" if f in touches else "")
+            for f in _sites_nus(cwd, forme_nue, prefixes)
+        ]
+        if restants:
+            trouves.append((libelle, forme_nue, restants))
+    return trouves
+
+
+def _build_warning_perimetre(freres) -> str:
+    lignes = [
+        "PÉRIMÈTRE — ce commit pose une garde, et sa forme NUE subsiste ailleurs :",
+        "",
+    ]
+    for libelle, forme_nue, restants in freres:
+        lignes.append(f"  • {libelle} : `{forme_nue}` encore présent dans")
+        for f in restants[:4]:
+            lignes.append(f"      {f}")
+        if len(restants) > 4:
+            lignes.append(f"      … et {len(restants) - 4} autre(s)")
+    lignes += [
+        "",
+        "C'est la forme exacte des 3 bloquants du 2026-09-10 : une garde posée "
+        "sur un chemin, ses frères oubliés — trouvés par quatre rondes de revue "
+        "adversariale, à 4x le prix du `grep` ci-dessus.",
+        "",
+        "Deux sorties, l'une comme l'autre acceptable :",
+        "  1. garder les frères dans ce commit ;",
+        "  2. dire pourquoi pas, avec le compte réel, dans le MESSAGE DE "
+        "COMMIT (seul endroit lu — pas un commentaire de code) :",
+        f"     {_LIGNE_PERIMETRE} 3 sites, 1 gardé, 2 différés : <raison>",
+        "",
+        "Un périmètre partiel ASSUMÉ n'est pas un défaut ; un périmètre partiel "
+        "qui s'annonce complet en est un.",
+    ]
+    return "\n".join(lignes)
+
+
+def _build_warning_lot(fichiers_app, plafond) -> str:
+    return (
+        f"LOT TROP LARGE — {len(fichiers_app)} fichiers sous un périmètre "
+        f"surveillé dans un seul commit (seuil : {plafond}).\n\n"
+        "Mesuré le 2026-09-10 : un commit de 16 fichiers / 1841 insertions "
+        "portant 4 sujets a demandé QUATRE rondes de revue adversariale, et le "
+        "triage de la veille relevait déjà « commit non scopé (4 sujets) ». Le "
+        "profil 2 → 1 → 0 → 0 bloquants ne dit pas que la revue a convergé : il "
+        "dit que le lot était trop gros pour être revu en un passage. R2 demande "
+        "un commit scopé au périmètre.\n\n"
+        "Découper par SUJET (un correctif = un commit) rend chaque passage "
+        "revuable, et un `git bisect` ultérieur utilisable. Si le lot est "
+        "réellement indivisible — une migration et son appelant, par exemple — "
+        "dis-le dans le message.\n"
+        "Fichiers : " + ", ".join(sorted(fichiers_app)[:8])
+        + (" …" if len(fichiers_app) > 8 else "")
+    )
+
+
 def main() -> None:
     try:
         data = json.load(sys.stdin)
@@ -458,6 +705,26 @@ def main() -> None:
     if watched_disp and not sig["dispositif"]:
         avertissements.append(_build_warning_dispositif(
             _matched_prefixes(watched_disp, _DISPOSITIF_PREFIXES), _DISPOSITIF_TESTS))
+    # Gardes du 2026-09-10 (voir le bloc au-dessus de `main`).
+    message_commit = _commit_message(commit_flags)
+    if watched:
+        diff = _diff_ajoute(data.get("cwd"), commit_flags) if _PERIMETRE_ENABLED else ""
+        # La porte de sortie est cherchée dans le MESSAGE DE COMMIT seul.
+        # La première version la cherchait aussi dans tout le diff ajouté — et
+        # le diff de cette garde ajoute la ligne `_LIGNE_PERIMETRE =
+        # "Périmètre:"` : elle se désarmait donc elle-même, et avec elle tout
+        # commit touchant ce fichier, ou n'importe quel fichier portant un
+        # commentaire français « périmètre : » sans le moindre rapport
+        # (revue adversariale du 2026-09-10, T2). Le message de commit est le
+        # seul endroit que l'auteur écrit délibérément, commit par commit.
+        ligne_presente = _sans_accents(_LIGNE_PERIMETRE) in _sans_accents(message_commit)
+        if _PERIMETRE_ENABLED and not ligne_presente:
+            freres = _freres_nus(data.get("cwd"), diff, files, _WATCHED_PREFIXES)
+            if freres:
+                avertissements.append(_build_warning_perimetre(freres))
+        if _PLAFOND_LOT and len(watched) > _PLAFOND_LOT:
+            avertissements.append(_build_warning_lot(watched, _PLAFOND_LOT))
+
     if not avertissements:
         return
 
