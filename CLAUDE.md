@@ -19,6 +19,18 @@ Sur Windows, ajouter `--basetemp` sur un dossier neuf si le teardown se plaint. 
 l'app et regarder un écran : skill `run-dev-server` (un port vierge — un serveur sans
 `--reload` sert du code périmé).
 
+Après une édition de `app/X.py`, rejouer aussi les fichiers de test qui CITENT le module
+ou la route touchée (`grep -rl "X\." tests/` ou le chemin de route), jamais le seul
+fichier neuf — un fichier de test ajouté dans le même lot ne couvre pas encore l'existant
+(diagnostic superviseur 2026-09-07 : un décorateur décapité rendu 404, vu seulement par la
+suite complète). `tests/test_route_inventory.py` fige la table (méthode, chemin) via
+`app.openapi()` et tourne en ~1 s : un décorateur décapité y est rouge immédiatement.
+
+Toute assertion d'ORDRE d'exécution JS passe par le harnais qui exécute réellement le
+script (`tests/test_tranches_et_reprise_execution.py`), jamais par un `.index()` sur le
+texte brut d'un template — aveugle à la portée d'une fermeture JS
+(`feedback_inline_script_closure_appended_code_runs_outside`).
+
 ## Claude Code — configuration du projet
 
 - `.claude/settings.json` (versionné) : garde-fou git destructif, rappel de vérif

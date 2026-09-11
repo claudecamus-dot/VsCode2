@@ -569,6 +569,33 @@
       ],
       "source": "hub",
       "decision": "ACCEPTE + APPLIQUE (arbitrage utilisateur explicite du 2026-09-10, apres que je l'aie classe a tort hors perimetre). Commit aee74f1 : `uploads.ecrire_audio_borne` compte les octets ecrits, s'arrete au plafond audio, rend un 413, et supprime le fichier PARTIEL -- y compris sur interruption de flux. Les deux routes non authentifiees (transcribe_file, save_record_backup) y deleguent ; plus aucun `shutil.copyfileobj` non borne dans app/routers/interviews.py. Le plafond est lu a l'appel depuis le module, meme contrat que lire_upload_audio_borne. Note de methode : j'avais reecrit ce fichier le matin meme sans fermer ces jambes-la -- c'est la revue de supervision qui l'a releve, et c'est le motif « appliquer la lecon aux chemins freres » deja en memoire."
+    },
+    {
+      "cible": "pytest",
+      "date": "2026-09-11",
+      "categories": [
+        "verification-manquante"
+      ],
+      "source": "hub",
+      "decision": "ACCEPTE + APPLIQUE PARTIELLEMENT (mandat utilisateur du 2026-09-11, « traite tous les sujets remontes dans vscode5 »). Sur les 3 gestes proposes le 2026-09-07 (reverifies par le diagnostic du 2026-09-10), 2 etaient DEJA fermes par des commits anterieurs a cette session : (b) empreinte_code() hache deja le CONTENU (sha256), pas le mtime -- commits 2b0fd43 et 1fe60a4 ; (c, verrou) conftest.py porte deja un verrou de fichier qui refuse un second pytest concurrent -- commits 0ad0ad6 et b6efea1. Traite aujourd'hui : (a) tests/test_route_inventory.py cree -- instantane verse (methode, chemin) de 117 routes via `app.openapi()` (pas `app.routes`, dont la representation interne FastAPI >= 0.138 est un `_IncludedRouter` paresseux qui ne reflete plus les routes sans etre force), tourne en ~1 s. Preuve P1 tenue via scripts/preuve_p1.py (marqueur-fichier, contournant l'echappement shell) : decorateur de /interviews/segment-jobs/status decapite -> rouge ; restaure octet pour octet. (c, regle) CLAUDE.md complete : rejouer apres une edition d'app/X.py les tests qui CITENT le module/la route touchee (grep -rl), jamais le seul fichier neuf ; toute assertion d'ordre d'execution JS migre vers le harnais qui execute, jamais un `.index()` sur du texte de template. Suite complete rejouee : 1027 passed, 2 warnings preexistants sans rapport (SAWarning identity-key), 570 s, exit 0. PARTIEL et non SUCCES : aucun gate CI/hook n'impose encore mecaniquement le grep -rl (c'est une regle ecrite, pas outillee) -- laisse en l'etat, la mecanisation n'a pas ete demandee."
+    },
+    {
+      "cible": "VSCode2:audit-local-orphelin-contredit-le-hub",
+      "date": "2026-09-11",
+      "categories": [
+        "interaction"
+      ],
+      "source": "hub",
+      "decision": "CONFIRME, NON CORRIGIBLE ICI (mandat utilisateur du 2026-09-11). Reverifie : .claude/audits/VSCode2.json est toujours date du 2026-09-03 (8 jours). Le constat du 2026-09-10 est exact et sa propre recommandation dit pourquoi je ne le corrige pas localement : c'est le protocole de transmission hub -> projet qui est en cause (audit non re-emis apres re-mesure, SHA de HEAD non trace, sync_dispositif.py qui laisse deriver sans rapport d'ecart), pas ce depot -- editer ce fichier a la main ici reproduirait exactement le defaut signale. Remonte a la session hub live (vscode5-supervision-projets-ff) par message le 2026-09-11 avec la proposition du finding (SHA-stamping, rapport de divergence, ecriture par la synchro jamais orpheline)."
+    },
+    {
+      "cible": "flotte:point-du-jour-absent-des-5-cibles",
+      "date": "2026-09-11",
+      "categories": [
+        "pratique-dev"
+      ],
+      "source": "hub",
+      "decision": "PARTIEL : la part VSCode2 est DEJA FAITE, la part flotte reste au hub. `.claude/hooks/point_du_jour.py` existe et est cable en SessionStart ici (commit 7e61193, « rattrape les 4 autres cibles ») -- verifie par `test -f`. RESERVE, hors de portee de ce depot : les 4 AUTRES cibles (VSCode, VSCode1, VSCode3, VSCode4) et la decision A/B du finding (distribuer point_du_jour.py par le kit exporte, ou documenter explicitement que c'est une fonction hub-only) restent au hub. Remonte a la session hub live par message le 2026-09-11."
     }
   ]
 }
