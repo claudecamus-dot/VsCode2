@@ -6,8 +6,11 @@ sur une base jetable (et non sur `data/app.db`, la base de dev/prod).
 """
 from __future__ import annotations
 
+import atexit
 import os
+import sys
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -19,6 +22,192 @@ os.environ.setdefault("APP_DB_PATH", _TEST_DB)
 # Images des têtes de chapitre : jamais de fetch réseau en test (offline,
 # déterministe, rapide) — génération procédurale locale. cf. pptx_export.
 os.environ.setdefault("PPTX_NO_PHOTO_FETCH", "1")
+
+
+# --------------------------------------------------------------------------- #
+# Verrou : UNE SEULE suite pytest à la fois sur cette base (2026-09-10)
+#
+# Tous les modules de tests partagent `_TEST_DB` (chemin FIXE dans le
+# temporaire système) et beaucoup la suppriment en `setup_module`. Deux pytest
+# concurrents se marchent donc dessus : le second trouve la base verrouillée ou
+# supprimée sous lui, et rend une cascade de `PermissionError [WinError 32]` —
+# des erreurs qui ne décrivent AUCUN défaut du produit.
+#
+# Mesuré deux fois : 10 erreurs le 2026-09-09 (un sous-agent relecteur lançant
+# pytest pendant la suite complète), 20 le 2026-09-10 (j'ai lancé un fichier de
+# test alors que la suite tournait encore). Le motif était déjà consigné en
+# mémoire — il a récidivé, parce qu'une mémoire dépend d'une vigilance et pas
+# d'une commande. Garde arbitrée par l'utilisateur sur le plan du superviseur.
+#
+# Le verrou ÉCHOUE VITE et DIT POURQUOI, plutôt que de laisser 20 erreurs
+# illisibles. Il ne bloque pas un usage légitime : `PYTEST_SANS_VERROU=1` le
+# désarme (une base distincte par runner via `APP_DB_PATH` est l'autre sortie,
+# et la bonne si l'on veut vraiment paralléliser un jour).
+# --------------------------------------------------------------------------- #
+# Le verrou suit la base RÉELLEMENT utilisée, pas `_TEST_DB` : un runner lancé
+# avec `APP_DB_PATH=<autre>` a sa propre base et ne doit donc PAS se voir
+# refuser par le verrou du runner par défaut. Le premier jet dérivait le verrou
+# de `_TEST_DB`, si bien que la sortie de secours annoncée dans son propre
+# message (« lancer sur sa propre base ») ne marchait pas — il ne restait que
+# `PYTEST_SANS_VERROU=1`, qui SUPPRIME la protection au lieu de l'isoler
+# (revue adversariale du 2026-09-10, bloquant B4).
+_BASE = os.environ["APP_DB_PATH"]
+_VERROU = Path(_BASE + ".verrou")
+# Au-delà, on considère le détenteur mort (processus tué, machine redémarrée) et
+# on reprend le verrou : un verrou qui survit à son propriétaire est pire que
+# pas de verrou du tout — il faut alors le supprimer à la main, et personne ne
+# sait où il est.
+# Ordre de grandeur d'une suite complète (mesurée entre 8 et 22 min ce jour-là),
+# pas d'une demi-journée : le filet ne sert que si `GetExitCodeProcess` échoue à
+# trancher, et un verrou qui survit une demi-heure de trop est déjà une gêne.
+_VERROU_PERIME_S = 45 * 60
+
+
+def _detenteur_vivant(pid: int) -> bool:
+    """Le processus `pid` tourne-t-il encore ? Sans dépendance externe.
+
+    Sur WINDOWS, `os.kill(pid, 0)` ne répond pas à la question : mesuré le
+    2026-09-10, un PID inexistant y lève `OSError [WinError 87] Paramètre
+    incorrect` — indistinguable d'un vrai problème d'accès. Un premier jet
+    traitait ce cas en « vivant, dans le doute » : le verrou d'un pytest TUÉ
+    survivait alors 4 heures et bloquait tout, c'est-à-dire précisément ce que
+    son propre commentaire décrit comme pire que pas de verrou. Trouvé par le
+    scénario de vérification, pas par la lecture.
+
+    `OpenProcess` tranche, lui : handle nul pour un PID mort, non nul sinon
+    (0x1000 = PROCESS_QUERY_LIMITED_INFORMATION, le droit le plus faible, il
+    suffit à savoir qu'il existe).
+    """
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        import ctypes
+
+        noyau = ctypes.windll.kernel32
+        handle = noyau.OpenProcess(0x1000, False, pid)
+        if not handle:
+            return False
+        try:
+            # `OpenProcess` ne suffit PAS : il réussit encore sur un processus
+            # TERMINÉ tant qu'un handle reste ouvert quelque part (le shell
+            # lanceur, un parent `Popen`, un antivirus). Un verrou de pytest tué
+            # bloquait donc jusqu'à sa péremption — ce que le commentaire de
+            # `_VERROU_PERIME_S` qualifie lui-même de pire que pas de verrou
+            # (revue du 2026-09-10, bloquant B2). `GetExitCodeProcess` tranche :
+            # seul 259 (STILL_ACTIVE) veut dire « tourne encore ».
+            code = ctypes.c_ulong()
+            if not noyau.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return True  # état indéterminable : ne pas voler le verrou
+            return code.value == 259
+        finally:
+            noyau.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # existe, mais appartient à quelqu'un d'autre
+    except OSError:
+        return True  # doute : mieux vaut refuser un run de trop
+    return True
+
+
+def _lire_le_verrou():
+    """`(pid, age_s)` du détenteur courant, ou `None` si le verrou n'existe pas.
+
+    Un verrou illisible ou malformé est rendu comme PÉRIMÉ (`age` au-delà du
+    seuil) plutôt que comme absent : il faut pouvoir le reprendre, mais sans
+    prétendre savoir qui le tenait.
+    """
+    try:
+        contenu = _VERROU.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        return None
+    except OSError:
+        return (0, _VERROU_PERIME_S + 1)
+    try:
+        pid_str, _, horodatage = contenu.partition(" ")
+        return (int(pid_str or 0), time.time() - float(horodatage or 0))
+    except Exception:
+        return (0, _VERROU_PERIME_S + 1)
+
+
+def _detenteur_actif(detenteur) -> bool:
+    """Le verrou lu est-il tenu par QUELQU'UN D'AUTRE, vivant et non périmé ?"""
+    if detenteur is None:
+        return False
+    pid, age = detenteur
+    if pid == os.getpid():
+        # Notre propre verrou : ré-entrance, pas contention. Sans ce test, une
+        # seconde exécution du module dans le MÊME processus (importmode,
+        # second rootdir) se refuserait l'entrée à elle-même.
+        return False
+    return _detenteur_vivant(pid) and age < _VERROU_PERIME_S
+
+
+def _refuser(pid: int, age: float) -> None:
+    raise RuntimeError(
+        f"Une autre suite pytest tourne deja sur cette base (PID {pid}, "
+        f"depuis {int(age)} s) : {_BASE}\n"
+        "Deux runs concurrents partagent le meme fichier et beaucoup de "
+        "modules le SUPPRIMENT en setup_module -- le second produit une "
+        "cascade de PermissionError (WinError 32) qui ne decrit aucun "
+        "defaut du produit. Mesure les 2026-09-09 (10 erreurs) et "
+        "2026-09-10 (20).\n"
+        "Attendre la fin du run en cours, ou lancer celui-ci sur sa "
+        "propre base : APP_DB_PATH=<autre chemin>. Pour desarmer ce "
+        "verrou : PYTEST_SANS_VERROU=1."
+    )
+
+
+def _prendre_le_verrou() -> None:
+    if os.environ.get("PYTEST_SANS_VERROU") == "1":
+        return
+    detenteur = _lire_le_verrou()
+    if _detenteur_actif(detenteur):
+        _refuser(*detenteur)
+    # Création EXCLUSIVE (`x`) : deux runners qui démarrent en même temps ne
+    # peuvent pas croire tous les deux avoir pris le verrou.
+    try:
+        with open(_VERROU, "x", encoding="utf-8") as fh:
+            fh.write(f"{os.getpid()} {time.time()}")
+        return
+    except FileExistsError:
+        pass
+    except OSError:
+        return  # verrou non posable : on ne bloque pas la suite pour autant
+    # `x` a échoué : quelqu'un a créé le verrou ENTRE notre lecture et notre
+    # écriture. C'est la course que ce fichier existe pour fermer, et la
+    # première version la perdait en silence — elle écrasait d'autorité le
+    # verrou du gagnant, laissait les deux suites tourner (donc la cascade
+    # `WinError 32` revenait), et privait le gagnant de son propre nettoyage
+    # puisque `_rendre_le_verrou` ne retire QUE le verrou portant son PID.
+    # Son commentaire affirmait « le perdant retombe sur le chemin de refus en
+    # relisant le fichier du gagnant » : il n'y avait aucune relecture.
+    # On relit, et on ré-applique la même décision (revue du 2026-09-10, T1).
+    detenteur = _lire_le_verrou()
+    if _detenteur_actif(detenteur):
+        _refuser(*detenteur)
+    try:
+        _VERROU.write_text(f"{os.getpid()} {time.time()}", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _rendre_le_verrou() -> None:
+    """Ne retire QUE notre propre verrou : si un autre processus l'a repris
+    entre-temps (le nôtre ayant été jugé périmé), le lui laisser."""
+    try:
+        contenu = _VERROU.read_text(encoding="utf-8").strip()
+        if contenu.split(" ")[0] == str(os.getpid()):
+            _VERROU.unlink()
+    except Exception:
+        pass
+
+
+_prendre_le_verrou()
+atexit.register(_rendre_le_verrou)
+
 
 
 def vider_recordings_de_test() -> None:
