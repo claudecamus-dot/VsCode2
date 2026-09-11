@@ -109,6 +109,31 @@ _DEFAULT_DISPOSITIF_TESTS = ()  # vide = signal dispositif desactive
 # contrat dans le fichier qui l'énonce (revue du 2026-09-10, M11).
 _DEFAULT_PERIMETRE_ENABLED = False
 _DEFAULT_PLAFOND_LOT = 0  # 0 = signal desactive
+# Repli VIDE : un depot qui ne declare pas `paires_de_garde` ne voit jamais la
+# garde perimetre, quoi qu'il arrive. Les formes gardees sont propres a chaque
+# depot (revue du 2026-09-10, T13).
+_DEFAULT_PAIRES_DE_GARDE = ()
+
+
+def _as_paires(value):
+    """JSON -> tuple de (forme gardée, forme nue, libellé).
+
+    Chaque entrée est une liste de trois chaînes non vides ; tout ce qui ne
+    ressemble pas à ça est ignoré SILENCIEUSEMENT et individuellement — une
+    configuration à moitié fausse ne doit pas emporter la garde entière, ni
+    faire planter un hook dont tout le reste est fail-open.
+    """
+    if not isinstance(value, list):
+        return _DEFAULT_PAIRES_DE_GARDE
+    paires = []
+    for entree in value:
+        # `c.strip()` et pas seulement `c` : une forme gardée réduite à un
+        # espace est présente dans TOUS les diffs, donc la garde parlerait à
+        # chaque commit (ronde 2 de la revue).
+        if (isinstance(entree, list) and len(entree) == 3
+                and all(isinstance(c, str) and c.strip() for c in entree)):
+            paires.append(tuple(entree))
+    return tuple(paires)
 
 
 def _config_path():
@@ -177,10 +202,11 @@ def _load_extra_config():
 
 
 def _load_gardes_config():
-    """(perimetre_enabled, plafond_lot) — les deux gardes du 2026-09-10, OPT-IN.
-    Fonction séparée, encore, pour ne changer l'arité d'aucune des deux
-    précédentes (contrat testé sur VSCode3)."""
+    """(perimetre_enabled, plafond_lot, paires_de_garde) — les gardes du
+    2026-09-10, OPT-IN. Fonction séparée, encore, pour ne changer l'arité
+    d'aucune des deux précédentes (contrat testé sur VSCode3)."""
     perimetre, plafond = _DEFAULT_PERIMETRE_ENABLED, _DEFAULT_PLAFOND_LOT
+    paires = _DEFAULT_PAIRES_DE_GARDE
     cfg = _read_config_dict()
     if cfg is not None:
         if isinstance(cfg.get("perimetre_enabled"), bool):
@@ -188,7 +214,8 @@ def _load_gardes_config():
         valeur = cfg.get("plafond_lot")
         if isinstance(valeur, int) and not isinstance(valeur, bool) and valeur >= 0:
             plafond = valeur
-    return perimetre, plafond
+        paires = _as_paires(cfg.get("paires_de_garde"))
+    return perimetre, plafond, paires
 
 
 # Périmètre et preuves EFFECTIFS de ce dépôt : lus une fois au chargement du
@@ -196,7 +223,7 @@ def _load_gardes_config():
 # de rechargement à chaud).
 _WATCHED_PREFIXES, _VERIF_BASH, _VERIF_SKILL = _load_config()
 _DOD_ENABLED, _DISPOSITIF_PREFIXES, _DISPOSITIF_TESTS = _load_extra_config()
-_PERIMETRE_ENABLED, _PLAFOND_LOT = _load_gardes_config()
+_PERIMETRE_ENABLED, _PLAFOND_LOT, _PAIRES_DE_GARDE = _load_gardes_config()
 
 # Signaux de definition-of-done : la boucle DoD complète (skill), ou le run
 # d'orchestration journalisé (où la DoD assumée se trace dans `notes`). Fixes
@@ -278,6 +305,55 @@ def _dod_assumee(message):
     return bool(_DOD_MESSAGE_RE.search(low) or any(m in low for m in _DOD_MESSAGE_MARKERS))
 
 
+# Drapeaux courts de `git commit` qui CONSOMMENT une valeur : dans `-mabc`, le
+# « a » appartient au message, pas aux options. `u` et `S` en font partie
+# (`-uall`, `-S<keyid>`) : sans eux, `git commit -uall` était jugé `--all`
+# (ronde 2 de la revue).
+_COURTS_AVEC_VALEUR = "mFCctuS"
+
+
+def _commit_prend_tout(commit_flags) -> bool:
+    """Ce commit met-il en scène les modifications des fichiers suivis (`-a`) ?
+
+    UN SEUL juge pour les deux lecteurs du périmètre — la liste des fichiers et
+    le diff. Ils divergeaient : `_staged_files` ne testait que `-a`/`--all`,
+    `_diff_ajoute` y ajoutait le littéral `-am`, et aucun des deux ne
+    reconnaissait un groupe comme `-va`. Pour `git commit -am "x"` sans rien de
+    stagé, la liste des fichiers était donc vide et le hook sortait avant même
+    d'évaluer une garde (revue du 2026-09-10, T7).
+
+    Les groupes de drapeaux courts sont lus caractère par caractère, en
+    s'arrêtant au premier qui consomme une valeur : sans cela `git commit
+    -mabc` (message « abc ») serait pris pour un `-a`. `--amend` est exclu par
+    construction — il commence par deux tirets.
+
+    Une valeur SÉPARÉE est sautée, comme le fait déjà `_commit_message` : sinon
+    `git commit -m "-analyse du lot"` présentait son message comme un groupe de
+    drapeaux, et le « a » d'« analyse » rendait True (ronde 2 de la revue).
+    """
+    flags = list(commit_flags or ())
+    i = 0
+    while i < len(flags):
+        f = flags[i]
+        if f in ("-a", "--all"):
+            return True
+        if len(f) > 1 and f[0] == "-" and f[1] != "-":
+            consomme_separement = False
+            for pos, ch in enumerate(f[1:]):
+                if ch == "a":
+                    return True
+                if ch in _COURTS_AVEC_VALEUR:
+                    # Valeur collée (`-mabc`) : le reste du groupe est la
+                    # valeur. Valeur séparée (`-m abc`) : c'est le jeton
+                    # suivant, qu'il faut sauter sans le lire comme un groupe.
+                    consomme_separement = pos == len(f) - 2
+                    break
+            if consomme_separement:
+                i += 1
+        i += 1
+    return False
+
+
 def _staged_files(cwd, commit_flags):
     """Tous les fichiers qui seront réellement commités (le filtrage par zone se
     fait chez l'appelant), ou None si indéterminable."""
@@ -299,7 +375,7 @@ def _staged_files(cwd, commit_flags):
         return None
     # `git commit -a/--all` valide aussi les modifs de fichiers suivis non stagés :
     # les ajouter, sinon on manquerait le périmètre réel du commit.
-    if any(f in ("-a", "--all") for f in commit_flags):
+    if _commit_prend_tout(commit_flags):
         unstaged = _run(["diff", "--name-only"])
         if unstaged:
             files = list(dict.fromkeys(files + unstaged))
@@ -471,14 +547,13 @@ def _build_warning_dispositif(prefixes, tests):
 # du hook voisin (`check_ci_after_push`, qui s'est tu pendant sept semaines).
 # --------------------------------------------------------------------------- #
 
-# Mots qui annoncent une EXHAUSTIVITÉ : celui qui les écrit affirme avoir
-# regardé tous les sites. C'est précisément l'affirmation qui a été fausse deux
-# fois dans la séance du 2026-09-10.
-_MOTS_D_EXHAUSTIVITE = (
-    "tous les", "toutes les", "dernier", "derniere", "dernière",
-    "partout", "plus aucun", "plus aucune", "idempotent", "idempotente",
-    "aucun autre", "aucune autre", "l'ensemble des", "chaque site",
-)
+# Le vocabulaire d'exhaustivité (« tous les », « dernier », « plus aucun »…) a
+# été un calibrage CANDIDAT, mesuré puis abandonné : cherché dans le code, il
+# portait le taux de déclenchement à 70 %, parce que ce sont des mots français
+# courants en commentaire. Sa table de mots est restée derrière lui, sans
+# référence — un lecteur la trouvait et croyait la garde fondée dessus
+# (revue du 2026-09-10, T9). Le calibrage retenu est plus bas, dans
+# `_PAIRES_DE_GARDE` : la forme gardée est ajoutée ET sa forme nue subsiste.
 
 # La ligne que la garde réclame. Volontairement une COMMANDE et un COMPTE : une
 # phrase d'intention (« j'ai vérifié les autres appels ») ne prouve rien et ne
@@ -498,7 +573,11 @@ def _sans_accents(texte: str) -> str:
     return unicodedata.normalize("NFKD", texte or "").encode(
         "ascii", "ignore").decode("ascii").lower()
 
-_PLAFOND_FICHIERS_LOT = 6
+
+# Le seuil EFFECTIF du plafond de lot est `_PLAFOND_LOT`, lu dans la
+# configuration du dépôt. Une constante `_PLAFOND_FICHIERS_LOT = 6` traînait
+# ici, jamais référencée : elle se lisait comme une seconde source de vérité,
+# et l'éditer ne changeait rien (revue du 2026-09-10, T9).
 
 
 def _diff_ajoute(cwd, commit_flags) -> str:
@@ -519,8 +598,16 @@ def _diff_ajoute(cwd, commit_flags) -> str:
     rester cohérent avec `_staged_files`, qui unionne déjà le non-stagé.
     """
     args = ["git", "diff", "--cached", "--unified=0"]
-    if commit_flags and any(f in commit_flags for f in ("-a", "--all", "-am")):
+    if _commit_prend_tout(commit_flags):
         args = ["git", "diff", "HEAD", "--unified=0"]
+    # Restreint aux chemins SURVEILLÉS. La garde ne s'intéresse qu'aux formes
+    # gardées ajoutées au code surveillé ; lire tout le diff faisait déclencher
+    # n'importe quel fichier qui MENTIONNE une forme gardée — au premier chef le
+    # fichier de configuration qui les déclare, dont le diff contient les six
+    # littéraux. Mesuré en ronde 2 : committer ce JSON produisait cinq blocs
+    # PÉRIMÈTRE fantômes, sur ce commit même.
+    if _WATCHED_PREFIXES:
+        args += ["--", *_WATCHED_PREFIXES]
     try:
         r = subprocess.run(args, cwd=cwd or None, capture_output=True,
                            encoding="utf-8", errors="replace",
@@ -554,15 +641,13 @@ def _diff_ajoute(cwd, commit_flags) -> str:
 # apparaît dans les lignes ajoutées, et la forme nue subsiste ailleurs sous le
 # périmètre surveillé. Le message donne alors les fichiers exacts — c'est-à-dire
 # le `grep` qu'on aurait dû lancer avant d'écrire.
-_PAIRES_DE_GARDE = (
-    # (forme gardée ajoutée, forme NUE à compter, libellé pour le message)
-    ("lire_upload_borne", "await file.read()", "lecture d'upload en mémoire"),
-    ("lire_upload_audio_borne", "await file.read()", "lecture d'audio en mémoire"),
-    ("ecrire_audio_borne", "shutil.copyfileobj", "écriture d'audio sur disque"),
-    ("verifier_zip_borne", "zipfile.ZipFile", "ouverture d'archive zip"),
-    ("logger.exception", "str(exc)", "message d'exception rendu au client"),
-    ("on_conflict_do_nothing", "db.add(", "création concurrente (lire-puis-écrire)"),
-)
+# Les paires sont PROPRES À CHAQUE DÉPÔT et se déclarent dans sa configuration
+# JSON (`paires_de_garde`) — voir `_as_paires` en tête de fichier. Elles
+# étaient écrites en dur ICI, alors que `lire_upload_borne` et consorts
+# n'existent que dans VSCode2 et que ce fichier est publié verbatim dans cinq
+# dépôts : le contrat « le spécifique va dans le JSON » était enfreint dans le
+# fichier même qui l'énonce, et pendant qu'on rendait les deux gardes opt-in
+# pour le respecter (revue du 2026-09-10, T13).
 
 
 def _sites_nus(cwd, forme_nue: str, prefixes) -> list[str]:
@@ -600,16 +685,29 @@ def _freres_nus(cwd, diff_ajoute: str, fichiers_du_commit, prefixes) -> list[tup
     lit l'arbre de travail, donc un site corrigé n'y figure déjà plus.
     """
     touches = set(fichiers_du_commit or ())
-    trouves = []
+    # Regroupées par forme NUE : deux paires peuvent la partager. Dans la
+    # configuration de ce dépôt, `lire_upload_borne` et `lire_upload_audio_borne`
+    # gardent toutes deux `await file.read()` : un commit qui ajoute les deux
+    # imprimait deux blocs identiques sous deux libellés (revue du 2026-09-10,
+    # T13). Un premier commentaire justifiait ça par une inclusion de chaînes —
+    # `"lire_upload_borne" in "lire_upload_audio_borne"` vaut False, c'était
+    # faux (ronde 2). La vraie cause est plus simple : deux paires distinctes
+    # partagent la même forme nue, donc la même liste de fichiers.
+    libelles_par_forme = {}
     for forme_gardee, forme_nue, libelle in _PAIRES_DE_GARDE:
         if forme_gardee not in diff_ajoute:
             continue
+        libelles = libelles_par_forme.setdefault(forme_nue, [])
+        if libelle not in libelles:
+            libelles.append(libelle)
+    trouves = []
+    for forme_nue, libelles in libelles_par_forme.items():
         restants = [
             f + ("   <- dans CE commit" if f in touches else "")
             for f in _sites_nus(cwd, forme_nue, prefixes)
         ]
         if restants:
-            trouves.append((libelle, forme_nue, restants))
+            trouves.append((" / ".join(libelles), forme_nue, restants))
     return trouves
 
 
@@ -642,10 +740,10 @@ def _build_warning_perimetre(freres) -> str:
     return "\n".join(lignes)
 
 
-def _build_warning_lot(fichiers_app, plafond) -> str:
+def _build_warning_lot(fichiers, plafond) -> str:
     return (
-        f"LOT TROP LARGE — {len(fichiers_app)} fichiers sous un périmètre "
-        f"surveillé dans un seul commit (seuil : {plafond}).\n\n"
+        f"LOT TROP LARGE — {len(fichiers)} fichiers dans un seul commit "
+        f"(seuil : {plafond}).\n\n"
         "Mesuré le 2026-09-10 : un commit de 16 fichiers / 1841 insertions "
         "portant 4 sujets a demandé QUATRE rondes de revue adversariale, et le "
         "triage de la veille relevait déjà « commit non scopé (4 sujets) ». Le "
@@ -656,8 +754,8 @@ def _build_warning_lot(fichiers_app, plafond) -> str:
         "revuable, et un `git bisect` ultérieur utilisable. Si le lot est "
         "réellement indivisible — une migration et son appelant, par exemple — "
         "dis-le dans le message.\n"
-        "Fichiers : " + ", ".join(sorted(fichiers_app)[:8])
-        + (" …" if len(fichiers_app) > 8 else "")
+        "Fichiers : " + ", ".join(sorted(fichiers)[:8])
+        + (" …" if len(fichiers) > 8 else "")
     )
 
 
@@ -690,12 +788,27 @@ def main() -> None:
     watched = [f for f in files if f.startswith(_WATCHED_PREFIXES)]
     watched_disp = ([f for f in files if f.startswith(_DISPOSITIF_PREFIXES)]
                      if _DISPOSITIF_TESTS else [])
+    # Le plafond compte TOUT le lot, pas seulement la zone surveillée : un lot
+    # « 4 sujets » est fait de code, de tests, de dispositif et de docs, et
+    # c'est ce mélange qui le rend non revuable en un passage. En ne comptant
+    # que `app/`, la garde serait restée muette sur le commit de 16 fichiers
+    # qui l'a motivée (revue du 2026-09-10, T8).
+    #
+    # Il est évalué AVANT la sortie « rien sous un périmètre surveillé » —
+    # sinon il ne s'applique qu'aux lots contenant déjà du code surveillé, et
+    # un lot de docs et de tests, précisément le genre qu'on veut découper,
+    # passe sans un mot. Premier jet placé après cette sortie, avec un
+    # commentaire affirmant l'inverse : mesuré à 10 fichiers sous
+    # docs/tests/scripts, zéro avertissement (ronde 2 de la revue).
+    avertissements = []
+    if _PLAFOND_LOT and len(files) > _PLAFOND_LOT:
+        avertissements.append(_build_warning_lot(files, _PLAFOND_LOT))
+
     if not watched and not watched_disp:
-        return  # rien sous un périmètre surveillé dans ce commit — silence
+        return _emettre(avertissements)  # hors périmètre : seul le plafond parle
 
     sig = _session_signals(data.get("transcript_path"))
 
-    avertissements = []
     if watched and not sig["verif"]:
         avertissements.append(_build_warning(_matched_prefixes(watched, _WATCHED_PREFIXES),
                                               _VERIF_BASH, _VERIF_SKILL))
@@ -722,12 +835,18 @@ def main() -> None:
             freres = _freres_nus(data.get("cwd"), diff, files, _WATCHED_PREFIXES)
             if freres:
                 avertissements.append(_build_warning_perimetre(freres))
-        if _PLAFOND_LOT and len(watched) > _PLAFOND_LOT:
-            avertissements.append(_build_warning_lot(watched, _PLAFOND_LOT))
+    return _emettre(avertissements)
 
+
+def _emettre(avertissements) -> None:
+    """Rend les avertissements accumulés, ou rien s'il n'y en a pas.
+
+    Extrait de la fin de `main()` parce que celle-ci a désormais DEUX sorties :
+    un lot trop large doit parler même quand rien n'est sous un périmètre
+    surveillé. Deux `print` recopiés auraient divergé à la première retouche.
+    """
     if not avertissements:
         return
-
     message = "\n\n".join(avertissements)
     print(json.dumps({
         "systemMessage": message,

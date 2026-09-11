@@ -25,5 +25,14 @@
   ],
   "perimetre_enabled": true,
   "plafond_lot": 6,
+  "paires_de_garde": [
+    ["lire_upload_borne", "await file.read()", "lecture d'upload en memoire"],
+    ["lire_upload_audio_borne", "await file.read()", "lecture d'audio en memoire"],
+    ["ecrire_audio_borne", "shutil.copyfileobj", "ecriture d'audio sur disque"],
+    ["verifier_zip_borne", "zipfile.ZipFile", "ouverture d'archive zip"],
+    ["logger.exception", "str(exc)", "message d'exception rendu au client"],
+    ["on_conflict_do_nothing", "db.add(", "creation concurrente (lire-puis-ecrire)"]
+  ],
+  "_comment_paires": "paires_de_garde : (forme gardee ajoutee par le commit, forme NUE a chercher ailleurs, libelle du message). Propres a CE depot -- elles etaient en dur dans le hook, qui est publie verbatim dans cinq depots et dont le contrat dit que le specifique va dans le JSON (revue du 2026-09-10, T13). Un depot qui ne declare pas cette cle ne voit jamais la garde perimetre.",
   "_comment_gardes_2026_09_10": "perimetre_enabled / plafond_lot : gardes arbitrees par l'utilisateur le 2026-09-10 sur le plan du superviseur. OPT-IN, donc declarees ICI et non heritees : les 4 autres depots portent le meme hook et n'ont rien arbitre. perimetre_enabled avertit quand un commit pose une garde dont la forme NUE subsiste ailleurs sous watched_prefixes (mesure sur les 40 derniers commits app/ : 22 % de declenchement, contre 62 et 70 % pour deux calibrages precedents jetes). plafond_lot = nombre de fichiers surveilles au-dela duquel le lot est juge trop large pour une revue en un passage."
 }

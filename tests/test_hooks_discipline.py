@@ -442,6 +442,203 @@ def _hook_avec_config(tmp_path: Path, config: dict = None):
     return mod
 
 
+def test_garde_perimetre_couvre_git_commit_a(tmp_path):
+    """`git commit -a` valide les fichiers suivis sans passer par l'index.
+
+    Deux lecteurs du périmètre répondaient différemment à « ce commit prend-il
+    tout ? » : `_staged_files` ne connaissait que `-a`/`--all`, `_diff_ajoute` y
+    ajoutait le littéral `-am`, et ni l'un ni l'autre ne voyait `-va`. Pour
+    `git commit -am`, la liste des fichiers était vide et le hook sortait avant
+    d'évaluer la moindre garde (revue du 2026-09-10, T7). C'est pourtant la
+    forme la plus propice aux lots larges — celle que la garde vise.
+    """
+    _git(["init", "-q"], tmp_path)
+    app = tmp_path / "app"
+    app.mkdir(parents=True, exist_ok=True)
+    (app / "frere.py").write_text(
+        "async def autre(file):\n    contenu = await file.read()\n", encoding="utf-8")
+    (app / "garde.py").write_text("x = 1\n", encoding="utf-8")
+    _git(["add", "app/frere.py", "app/garde.py"], tmp_path)
+    _git(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"], tmp_path)
+    # Modifié mais JAMAIS mis en scène : seul `-a` le verra.
+    (app / "garde.py").write_text(
+        "async def route(file):\n    contenu = await lire_upload_borne(file)\n",
+        encoding="utf-8")
+    transcript = _transcript(tmp_path, [".venv/Scripts/python.exe -m pytest -q"])
+    payload = {
+        "tool_input": {"command": 'git commit -am "Borne posee"'},
+        "cwd": str(tmp_path),
+        "transcript_path": str(transcript),
+    }
+    ctx = _context(_run_hook(WARN, payload))
+    assert "app/frere.py" in ctx, (
+        "la garde est aveugle a `git commit -am` : la forme la plus propice "
+        "aux lots larges passe au travers"
+    )
+
+
+def test_un_message_court_n_est_pas_pris_pour_un_git_commit_a(tmp_path):
+    """`git commit -mabc` porte le message « abc », pas un `-a`.
+
+    Lire un groupe de drapeaux courts caractère par caractère sans s'arrêter au
+    premier qui consomme une valeur ferait de tout message contenant un « a »
+    un commit `--all`."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("hook_flags", WARN)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert mod._commit_prend_tout(["-am"]) is True
+    assert mod._commit_prend_tout(["-va"]) is True
+    assert mod._commit_prend_tout(["-a"]) is True
+    assert mod._commit_prend_tout(["--all"]) is True
+    assert mod._commit_prend_tout(["-mabc"]) is False, (
+        "le 'a' du message a ete pris pour le drapeau --all"
+    )
+    assert mod._commit_prend_tout(["--amend"]) is False, "--amend pris pour --all"
+    assert mod._commit_prend_tout([]) is False
+    # Trouvés en ronde 2 : `-u<mode>` et `-S<keyid>` consomment aussi la fin du
+    # groupe, et une valeur SÉPARÉE commençant par un tiret était relue comme
+    # un groupe de drapeaux.
+    assert mod._commit_prend_tout(["-uall"]) is False, "`-uall` pris pour --all"
+    assert mod._commit_prend_tout(["-Sabc"]) is False, "`-Sabc` pris pour --all"
+    assert mod._commit_prend_tout(["-m", "-analyse du lot"]) is False, (
+        "un message separe commencant par un tiret est lu comme des drapeaux"
+    )
+    assert mod._commit_prend_tout(["-m", "msg", "-a"]) is True, (
+        "un `-a` apres une valeur separee n'est plus vu"
+    )
+
+
+def test_plafond_de_lot_parle_meme_hors_perimetre_surveille(tmp_path):
+    """Un lot de docs et de tests, sans une ligne de code surveillé, reste un
+    lot trop large — et c'est même la forme qu'on veut le plus découper.
+
+    Le premier jet évaluait le plafond APRÈS la sortie « rien sous un périmètre
+    surveillé » : mesuré à 10 fichiers sous docs/tests/scripts, zéro
+    avertissement, pendant que le commentaire affirmait l'inverse (ronde 2).
+    """
+    _git(["init", "-q"], tmp_path)
+    for i in range(10):
+        f = tmp_path / "docs" / f"note{i}.md"
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("x\n", encoding="utf-8")
+        _git(["add", f"docs/note{i}.md"], tmp_path)
+    ctx = _context(_run_hook(WARN, _payload_msg(tmp_path, "Dix notes")))
+    assert "LOT TROP LARGE" in ctx, (
+        "un lot de 10 fichiers hors perimetre surveille ne declenche rien"
+    )
+    assert "10 fichiers" in ctx
+
+
+def test_committer_la_CONFIGURATION_ne_declenche_pas_la_garde(tmp_path):
+    """Le fichier de configuration DÉCLARE les formes gardées : son diff les
+    contient toutes. Lire le diff entier faisait donc déclencher la garde sur
+    le commit qui touche cette configuration — cinq blocs fantômes mesurés en
+    ronde 2, sur le commit même qui introduisait la clé."""
+    _depot_avec_frere_nu(tmp_path)
+    # `app/garde.py` posait une garde : on le remplace par un changement
+    # applicatif ANODIN. Le commit reste donc sous le perimetre surveille --
+    # sans quoi le hook sortirait avant toute garde et le test passerait pour
+    # une mauvaise raison (constate en jouant la preuve P1).
+    (tmp_path / "app" / "garde.py").write_text("VERSION = 2\n", encoding="utf-8")
+    _git(["add", "app/garde.py"], tmp_path)
+    # La SEULE mention d'une forme gardee vient du JSON de configuration.
+    faux_config = tmp_path / "config_des_gardes.json"
+    faux_config.write_text(
+        json.dumps({"paires_de_garde": [
+            ["lire_upload_borne", "await file.read()", "lecture d'upload"]]}),
+        encoding="utf-8")
+    _git(["add", "config_des_gardes.json"], tmp_path)
+    transcript = _transcript(tmp_path, [".venv/Scripts/python.exe -m pytest -q"])
+    ctx = _context(_run_hook(WARN, _payload_msg(tmp_path, "Declare les paires", transcript)))
+    assert "PÉRIMÈTRE" not in ctx, (
+        "le fichier qui DECLARE les formes gardees declenche la garde : "
+        "elle parle sur un commit qui n'ajoute aucune garde"
+    )
+
+
+def test_les_constantes_mortes_ne_reviennent_pas(tmp_path):
+    """Deux constantes non référencées traînaient dans le hook. La pire,
+    `_PLAFOND_FICHIERS_LOT = 6`, dupliquait EN DUR le seuil que la
+    configuration porte : qui l'éditait ne changeait rien, et qui la lisait
+    croyait tenir le seuil effectif (revue du 2026-09-10, T9)."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("hook_mortes", WARN)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert not hasattr(mod, "_PLAFOND_FICHIERS_LOT"), (
+        "seconde source de verite pour le seuil : le seuil effectif est "
+        "_PLAFOND_LOT, lu dans la configuration"
+    )
+    assert not hasattr(mod, "_MOTS_D_EXHAUSTIVITE"), (
+        "vocabulaire d'un calibrage mesure puis abandonne (70 % de "
+        "declenchement) : le garder laisse croire que la garde s'y appuie"
+    )
+
+
+def test_les_paires_de_garde_viennent_de_la_CONFIGURATION(tmp_path):
+    """`lire_upload_borne` et consorts n'existent que dans VSCode2, et ce hook
+    est publié verbatim dans cinq dépôts. Les paires étaient écrites en dur,
+    enfreignant le contrat « le spécifique va dans le JSON » dans le fichier
+    même qui l'énonce (revue du 2026-09-10, T13)."""
+    sans = _hook_avec_config(tmp_path / "sans")
+    assert sans._PAIRES_DE_GARDE == (), (
+        "un depot qui n'a rien declare herite des formes gardees de VSCode2"
+    )
+    avec = _hook_avec_config(tmp_path / "avec", {
+        "paires_de_garde": [["ecrire_borne", "open(", "ecriture"]],
+    })
+    assert avec._PAIRES_DE_GARDE == (("ecrire_borne", "open(", "ecriture"),)
+    # Une entrée malformée est ignorée SEULE, sans emporter la garde entière.
+    partiel = _hook_avec_config(tmp_path / "partiel", {
+        "paires_de_garde": [["ok", "bare", "libelle"], ["trop", "court"], "pas une liste"],
+    })
+    assert partiel._PAIRES_DE_GARDE == (("ok", "bare", "libelle"),)
+
+
+def test_deux_paires_de_meme_forme_nue_ne_font_qu_UN_bloc(tmp_path):
+    """`lire_upload_borne` est un préfixe de `lire_upload_audio_borne`, et les
+    deux gardent `await file.read()` : poser la borne audio déclenchait les
+    deux paires et imprimait deux fois la même liste de fichiers sous deux
+    libellés (revue du 2026-09-10, T13)."""
+    _depot_avec_frere_nu(tmp_path)
+    garde = tmp_path / "app" / "garde.py"
+    garde.write_text(
+        "async def route(file):\n    return await lire_upload_audio_borne(file)\n",
+        encoding="utf-8")
+    _git(["add", "app/garde.py"], tmp_path)
+    transcript = _transcript(tmp_path, [".venv/Scripts/python.exe -m pytest -q"])
+    ctx = _context(_run_hook(WARN, _payload_msg(tmp_path, "Borne audio", transcript)))
+    assert ctx.count("await file.read()") == 1, (
+        "la meme forme nue est signalee deux fois : le message se lit comme "
+        "deux defauts distincts alors qu'il n'y en a qu'un"
+    )
+
+
+def test_plafond_de_lot_compte_TOUT_le_lot_pas_seulement_app(tmp_path):
+    """Le commit qui a motivé cette garde faisait 16 fichiers et 4 sujets :
+    du code, des tests, du dispositif et des docs. En ne comptant que la zone
+    surveillée, la garde serait restée muette dessus (revue du 2026-09-10, T8).
+    """
+    _git(["init", "-q"], tmp_path)
+    for chemin in ("app/un.py", "tests/deux.py", "docs/trois.md",
+                   ".claude/quatre.json", "scripts/cinq.ps1",
+                   "six.txt", "sept.md", "huit.cfg"):
+        f = tmp_path / chemin
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("x\n", encoding="utf-8")
+        _git(["add", chemin], tmp_path)
+    transcript = _transcript(tmp_path, [".venv/Scripts/python.exe -m pytest -q"])
+    ctx = _context(_run_hook(WARN, _payload_msg(tmp_path, "Un lot melange", transcript)))
+    assert "LOT TROP LARGE" in ctx, (
+        "un lot de 8 fichiers sur 4 zones ne declenche rien : la garde ne voit "
+        "que app/, donc pas le melange qui rend le lot non revuable"
+    )
+    assert "8 fichiers" in ctx, "le message doit donner le compte REEL du lot"
+
+
 def test_la_porte_de_sortie_ne_s_ouvre_PAS_depuis_le_CODE(tmp_path):
     """La garde cherchait `Périmètre:` dans le message ET dans tout le diff
     ajouté — or son propre diff ajoute la constante `_LIGNE_PERIMETRE =
