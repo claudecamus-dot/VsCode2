@@ -53,7 +53,8 @@ def empreinte_code() -> str:
     2026-07-23 : le --reload a servi plusieurs fois du code périmé — la preuve
     octets-du-statique ne couvrait pas le python).
 
-    Le CONTENU, plus le `mtime_ns` (2026-09-10). L'horodatage rendait
+    Le CONTENU, et NON PLUS le `mtime_ns` (2026-09-10) — l'horodatage a été
+    remplacé, pas complété ; c'est toute la propriété gagnée. L'horodatage rendait
     l'empreinte sensible à des gestes qui ne changent RIEN au code servi : un
     `touch`, une copie de travail, un formateur qui réécrit un fichier à
     l'identique — et, mesuré ce jour-là, toute édition faite PENDANT une suite
@@ -65,8 +66,12 @@ def empreinte_code() -> str:
     783 Ko) : 84 ms par appel à chaud, contre 21 ms pour la version `stat`.
     Quatre fois plus cher, donc — et c'est acceptable ici parce que cette
     fonction n'est appelée qu'AU CHARGEMENT du module
-    (`EMPREINTE_AU_CHARGEMENT`) et par `/__fraicheur`, une route de diagnostic
-    de dev. Aucun chemin servant une page ne la traverse.
+    (`EMPREINTE_AU_CHARGEMENT`) et, hors du serveur, par `scripts/serveur-dev.ps1`
+    qui la relance dans un interpréteur à part pour comparer disque et servi.
+    Aucun chemin servant une page ne la traverse — `/__fraicheur` lui-même rend
+    la constante capturée à l'import, sans jamais rappeler cette fonction. Une
+    première version de ce paragraphe citait `/__fraicheur` comme appelant :
+    c'était faux, et la revue du 2026-09-10 (T11) l'a relevé.
 
     Commande : boucler `empreinte_code()` vingt fois après un appel de chauffe,
     et diviser. La chauffe compte : le premier appel, cache disque froid, a
@@ -164,7 +169,10 @@ def fraicheur() -> dict:
     """Preuve de fraîcheur du code SERVI : l'empreinte capturée à l'import.
     Le vérifieur (serveur-dev.ps1, playbooks) recompile l'empreinte du DISQUE
     et compare — égalité = le python servi est bien celui du disque. Outil
-    interne de dev, lecture seule, n'expose que des mtimes hashés."""
+    interne de dev, lecture seule : n'expose qu'un sha256 tronqué du contenu
+    des .py d'`app/` — plus des mtimes hashés depuis le 2026-09-10, ce que
+    cette phrase affirmait encore (revue du 2026-09-10, T11). Aucun contenu
+    n'en est déductible, mais le contrat annoncé doit dire ce qui est calculé."""
     return {"empreinte": EMPREINTE_AU_CHARGEMENT}
 app.mount(
     "/static",

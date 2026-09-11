@@ -124,27 +124,27 @@ Vérifications faites au code par le triage, pas sur parole.
 
 ### À corriger — gravité moyenne
 
-- [ ] **T7 — `_staged_files` et `_diff_ajoute` ne s'accordent pas sur `-am`.**
+- [x] **T7 (corrigé 2026-09-11) — `_staged_files` et `_diff_ajoute` ne s'accordent pas sur `-am`.**
   Hook `:302` teste `("-a", "--all")`, `:522` teste `("-a", "--all", "-am")`. Pour
   `git commit -am` sans rien de stagé, `files` est vide et `main()` sort avant
   toute garde. Le chemin `git commit -a` n'est couvert par aucun test.
 
-- [ ] **T8 — Le plafond de lot aurait raté le commit qui le motive.**
+- [x] **T8 (corrigé 2026-09-11) — Le plafond de lot aurait raté le commit qui le motive.**
   Hook `:704` ne compte que `watched` (`app/`), pas les tests, `.claude/` ni docs
   — soit exactement la forme d'un lot « 4 sujets ». Ce diff-ci : 9 fichiers,
   1 seul sous `app/`, aucun avertissement.
 
-- [ ] **T9 — Deux constantes mortes, dont une fausse source de vérité.**
+- [x] **T9 (corrigé 2026-09-11) — Deux constantes mortes, dont une fausse source de vérité.**
   Hook `:477` `_MOTS_D_EXHAUSTIVITE` et `:501` `_PLAFOND_FICHIERS_LOT = 6`, non
   référencées. La seconde duplique en dur le seuil que `_load_gardes_config` lit
   dans le JSON : qui l'édite ne change rien.
 
-- [ ] **T10 — Le message de refus du verrou nomme la MAUVAISE base.**
+- [x] **T10 (déjà livré dans 0ad0ad6) — Le message de refus du verrou nomme la MAUVAISE base.**
   `tests/conftest.py:128` interpole `_TEST_DB` alors que le verrou dérive de
   `APP_DB_PATH` (correctif B4). Le runner qui a suivi la porte de sortie annoncée
   est celui à qui le message ment.
 
-- [ ] **T11 — `empreinte_code` : deux affirmations fausses dans sa propre justification.**
+- [x] **T11 (corrigé 2026-09-11) — `empreinte_code` : deux affirmations fausses dans sa propre justification.**
   `app/main.py:66-69` annonce un appel « par `/__fraicheur` » : vérifié,
   `fraicheur()` retourne `EMPREINTE_AU_CHARGEMENT` et n'appelle jamais
   `empreinte_code()`. Le vrai second appelant est `scripts/serveur-dev.ps1`.
@@ -152,13 +152,13 @@ Vérifications faites au code par le triage, pas sur parole.
   été REMPLACÉ). Et la docstring de `fraicheur()` annonce encore « des mtimes
   hashés » alors que la route expose désormais un sha256 du contenu.
 
-- [ ] **T12 — Un test mute un fichier source suivi.**
+- [x] **T12 (corrigé 2026-09-11) — Un test mute un fichier source suivi.**
   `tests/test_regen_ui.py:347-361` écrit un marqueur dans `app/models.py`. La
   restauration est en `finally`, mais une interruption laisse le marqueur dans un
   module réel — et fait recharger le serveur `--reload` en cours. Ce mode de
   défaillance est déjà consigné en mémoire sur ce dépôt.
 
-- [ ] **T13 — `_PAIRES_DE_GARDE` est spécifique à VSCode2, dans un fichier publié verbatim dans 5 dépôts (viole I5).**
+- [x] **T13 (corrigé 2026-09-11) — `_PAIRES_DE_GARDE` est spécifique à VSCode2, dans un fichier publié verbatim dans 5 dépôts (viole I5).**
   `lire_upload_borne`, `ecrire_audio_borne`, `verifier_zip_borne` n'existent
   qu'ici. Le travail fait à côté sur l'opt-in respectait le contrat ; ce tableau
   l'enfreint. Deux paires partagent en outre la forme nue `await file.read()` :
@@ -166,15 +166,71 @@ Vérifications faites au code par le triage, pas sur parole.
 
 ### Gravité basse
 
-- [ ] **T14** — Verrou non idempotent pour son propre PID (`if pid == os.getpid(): return`) ; PID recyclé par Windows non départagé ; workers `pytest-xdist` refusés les uns par les autres.
-- [ ] **T15** — `PYTHON = .venv/Scripts/python.exe` + `skipif` : 3 tests sur 4 se taisent hors Windows. `sys.executable` est le bon interpréteur par construction.
-- [ ] **T16** — `sys.path.insert(0, tests/)` jamais retiré (`monkeypatch.syspath_prepend`).
+- [x] **T14 (corrigé 2026-09-11)** — Verrou non idempotent pour son propre PID (`if pid == os.getpid(): return`) ; PID recyclé par Windows non départagé ; workers `pytest-xdist` refusés les uns par les autres.
+- [x] **T15 (corrigé 2026-09-11)** — `PYTHON = .venv/Scripts/python.exe` + `skipif` : 3 tests sur 4 se taisent hors Windows. `sys.executable` est le bon interpréteur par construction.
+- [x] **T16 (déjà livré dans 0ad0ad6)** — `sys.path.insert(0, tests/)` jamais retiré (`monkeypatch.syspath_prepend`).
 
 ### Différés, avec leur raison
 
 - [x] **T17 — Branche « fichier illisible » d'`empreinte_code` non testée.** Différé : garde-fou étroit sur un chemin de diagnostic dev ; rendre un fichier illisible de façon portable coûte plus que le risque. À rouvrir si l'empreinte passe sur un chemin utilisateur.
-- [x] **T18 — Le hook est édité LOCALEMENT alors que sa source vit au hub.** Différé ici parce que le correctif n'est pas du code de ce dépôt : il se remonte au hub, faute de quoi les deux gardes disparaissent à la prochaine synchro et les clés JSON restent orphelines. **À signaler au hub avant tout commit de ce fichier.**
+- [ ] **T18 — Le hook est édité LOCALEMENT alors que sa source vit au hub.**
+  **TRANSMIS le 2026-09-11**, en attente de décision du hub — donc toujours
+  ouvert : une transmission n'est pas un arbitrage.
+  Mesure faite avant l'envoi : VSCode2 porte 817 lignes, VSCode3 (la source
+  déclarée par l'en-tête du fichier, via `export_agentic.GENERIQUE`) 504 —
+  375 lignes d'écart, et **aucune** des deux gardes n'y existe. Ni
+  `export_agentic` ni `scripts/scan_projets.py` ne sont présents sur cette
+  machine : le hub n'y est pas, donc la publication ne peut pas se faire d'ici.
+  Message envoyé à la session `vscode5-supervision-projets-e5` avec les trois
+  éléments à canoniser (garde Périmètre, plafond de lot, et `_commit_prend_tout`
+  — ce dernier vaut pour les cinq dépôts indépendamment des gardes) et les trois
+  invariants à tenir (défauts neutres, paires en configuration, non bloquantes).
+  **À rouvrir à chaque synchronisation du canon tant que la réponse n'est pas là.**
 - [x] **T19 — `test_les_gardes_restent_NON_BLOQUANTES` est satisfait par un hook totalement muet.** Différé : ses tests frères couvrent l'avertissement ; note, pas trou.
+
+## 4 bis. Ronde 2 — ce que les correctifs de T7-T16 avaient cassé
+
+Revue rejouée sur le diff des correctifs eux-mêmes, le 2026-09-11. Elle a
+trouvé **trois affirmations fausses et deux correctifs inopérants**, tous
+introduits par la ronde précédente. Le motif est constant sur ce dépôt : c'est
+la correction d'une revue qui fabrique le défaut suivant.
+
+- [x] **R2-1 — T8 ne marchait pas, et son commentaire affirmait le contraire.**
+  Le plafond de lot était évalué APRÈS la sortie « rien sous un périmètre
+  surveillé » : un lot de docs et de tests — la forme même qu'on veut découper —
+  passait sans un mot. Mesuré : 10 fichiers sous `docs/`, zéro avertissement.
+  Le plafond est remonté avant cette sortie, `main()` a désormais deux sorties
+  et un `_emettre()` commun.
+- [x] **R2-2 — La garde se déclenchait sur le fichier qui DÉCLARE les formes
+  gardées.** Le diff était lu en entier, or le JSON de configuration contient
+  les six littéraux : committer cette configuration produisait cinq blocs
+  fantômes — sur le commit même qui introduisait la clé. Le diff est maintenant
+  restreint aux chemins surveillés (`git diff -- <prefixes>`).
+- [x] **R2-3 — La preuve de sensibilité au CONTENU avait été perdue.** En
+  passant d'une mutation de `app/models.py` (T12) à la création d'un fichier
+  neuf, le test restait vert même en supprimant `h.update(p.read_bytes())` :
+  l'ajout d'un chemin suffisait à bouger l'empreinte. Le test réécrit
+  maintenant le fichier jetable EN PLACE, à liste de chemins constante.
+- [x] **R2-4 — `_commit_prend_tout` se trompait dans les deux sens.** `-uall` et
+  `-Sabc` étaient pris pour `--all` (`u` et `S` manquaient à
+  `_COURTS_AVEC_VALEUR`), et une valeur séparée commençant par un tiret
+  (`-m "-analyse du lot"`) était relue comme un groupe de drapeaux.
+- [x] **R2-5 — La sortie xdist ouvrait un trou.** `PYTEST_XDIST_WORKER` s'hérite
+  par l'environnement : un pytest lancé depuis un worker tournait donc SANS
+  verrou. La garde exige désormais que le module `xdist` soit réellement chargé.
+- [x] **R2-6 — Deux justifications fausses.** « `lire_upload_borne` est un
+  préfixe de `lire_upload_audio_borne` » : `in` vaut `False`. Et « trois tests
+  sur quatre se taisaient » : `git show HEAD` donne 6 `def test_` et 4 `skipif`.
+- [x] **R2-7 — Un résidu de test rendait le test rouge à perpétuité**, au lieu
+  d'être simplement supprimé ; une entrée de configuration réduite à un espace
+  passait la validation et aurait fait parler la garde à chaque commit.
+
+Et une leçon de méthode, payée ici : **le premier test de R2-2 passait pour une
+mauvaise raison**. Il ne mettait aucun fichier surveillé dans le commit, donc le
+hook sortait avant d'évaluer la moindre garde. C'est la preuve P1 — le jouer
+contre le code d'avant — qui l'a révélé : le test passait AUSSI sans le
+correctif. Un test qui ne peut pas échouer ne prouve rien, et seule la mutation
+le dit.
 
 ## 5. Ce que cette revue dit du chantier lui-même
 

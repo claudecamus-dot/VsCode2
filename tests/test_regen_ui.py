@@ -346,32 +346,53 @@ def test_fraicheur_empreinte_python_servie_et_sensible_au_contenu(client: TestCl
     assert servie == app_main.EMPREINTE_AU_CHARGEMENT
     assert servie == app_main.empreinte_code(), "disque et import divergent sans modification"
 
-    cible = app_main.BASE_DIR / "models.py"
-    octets = cible.read_bytes()
-    st = cible.stat()
+    # Un fichier JETABLE, cree puis supprime par le test. La version
+    # precedente ecrivait un marqueur dans `app/models.py` — un module suivi
+    # par git — et le restaurait en `finally` : une interruption entre les deux
+    # (Ctrl+C, runner tue) le laissait modifie dans l'arbre de travail, et
+    # faisait recharger un serveur `--reload` en cours. Ce mode de defaillance
+    # est deja consigne sur ce depot (revue du 2026-09-10, T12).
+    cible = app_main.BASE_DIR / "_fraicheur_jetable.py"
+    # Un residu d'un run interrompu se SUPPRIME, il ne fait pas echouer le test
+    # a perpetuite (ronde 2 de la revue).
+    cible.unlink(missing_ok=True)
     try:
-        # 1. Le CONTENU change -> l'empreinte change (le stale reste detectable).
-        cible.write_bytes(octets + b"\n# marqueur de test de fraicheur\n")
-        assert app_main.empreinte_code() != servie, (
-            "l'empreinte disque ignore une modification de contenu — un serveur "
+        # 1. Un fichier de plus -> l'empreinte change.
+        cible.write_bytes(b"# fichier jetable du test de fraicheur\n")
+        avec_fichier = app_main.empreinte_code()
+        assert avec_fichier != servie, (
+            "l'empreinte disque ignore un fichier .py de plus — un serveur "
             "perime serait indetectable"
         )
-    finally:
-        cible.write_bytes(octets)
-        os.utime(cible, ns=(st.st_atime_ns, st.st_mtime_ns))
 
-    assert app_main.empreinte_code() == servie, "le contenu restaure doit rendre l'empreinte d'origine"
+        # 2. Le CONTENU du fichier change, sans que la LISTE des fichiers bouge
+        #    -> l'empreinte doit changer aussi. C'est la propriete centrale, et
+        #    elle n'etait plus couverte : en passant d'une mutation de
+        #    `app/models.py` a la creation d'un fichier neuf, le test restait
+        #    vert meme en supprimant le `h.update(p.read_bytes())` -- l'ajout
+        #    d'un chemin suffisait a bouger l'empreinte (ronde 2 de la revue).
+        cible.write_bytes(b"# contenu different, meme chemin\n")
+        apres_edition = app_main.empreinte_code()
+        assert apres_edition != avec_fichier, (
+            "l'empreinte ne depend pas du CONTENU mais seulement de la liste "
+            "des chemins : une edition reelle passerait inapercue"
+        )
 
-    # 2. Le seul HORODATAGE change -> l'empreinte ne bouge PAS. C'est la
-    #    propriete gagnee : plus d'echec fantome quand on edite pendant un run.
-    try:
+        # 3. Le seul HORODATAGE change -> l'empreinte ne bouge PAS. C'est la
+        #    propriete gagnee : plus d'echec fantome quand on edite pendant un
+        #    run. Comparee a `apres_edition`, la derniere empreinte connue.
+        st = cible.stat()
         os.utime(cible, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000))
-        assert app_main.empreinte_code() == servie, (
+        assert app_main.empreinte_code() == apres_edition, (
             "un simple touch change l'empreinte : elle fabriquera des echecs "
             "fantomes des qu'on edite pendant une suite de tests"
         )
     finally:
-        os.utime(cible, ns=(st.st_atime_ns, st.st_mtime_ns))
+        cible.unlink(missing_ok=True)
+
+    assert app_main.empreinte_code() == servie, (
+        "le fichier jetable supprime, l'empreinte doit revenir a celle d'origine"
+    )
 
 
 def test_apercu_fiche_parite_chips_et_bandeau_resultats(client: TestClient) -> None:
