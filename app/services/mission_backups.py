@@ -25,6 +25,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import select
+from sqlalchemy.orm import load_only
 
 # Un « orphelin » plus jeune que ce seuil peut appartenir à un enregistrement
 # EN COURS : pendant le wizard, les tranches uploadées ne sont référencées que
@@ -452,15 +453,33 @@ def lister_orphelins_globaux(recordings_dir: Path, db) -> dict:
     écrans se contrediraient : un fichier caché à sa mission par la garde
     anti-réutilisation d'id serait absent des deux listes.
 
-    Aucune écriture : comme le reste du module, on lit le disque et la base."""
+    Aucune écriture : comme le reste du module, on lit le disque et la base.
+
+    `load_only` sur les trois requêtes (2026-09-11, constat d'audit
+    performance du 2026-09-09) : cette fonction ne lit jamais que quelques
+    colonnes étroites par ligne (des noms de fichiers, un statut, une date),
+    mais `select(Mission)`/`select(Interview)`/`select(AudioFileJob)` nus
+    chargent TOUTES les colonnes ORM — `Interview.raw_transcript` compris, le
+    texte intégral d'un entretien CLIENT réel, et `AudioFileJob.blocks`, les
+    blocs déjà transcrits d'un import en cours. Sur la page la plus visitée du
+    produit, à CHAQUE visite. Un comptage de requêtes n'aurait rien vu (le
+    nombre de requêtes ne change pas, `test_missions_liste_cout_sql.py` le
+    couvre déjà) : c'est le volume par ligne qui explose, mesuré ici par les
+    colonnes réellement demandées au moteur SQL
+    (`test_orphelins_globaux_colonnes_legeres.py`)."""
     from ..models import AudioFileJob, Interview, Mission  # local : sans dépendance de schéma
     from .audio_file_jobs import is_audio_file_job_stale
 
-    missions = list(db.scalars(select(Mission)))
+    missions = list(
+        db.scalars(select(Mission).options(load_only(Mission.id, Mission.created_at)))
+    )
     par_id = {m.id: m for m in missions}
 
     references: set[str] = set()
-    for interview in db.scalars(select(Interview)):
+    requete_interviews = select(Interview).options(
+        load_only(Interview.id, Interview.audio_segments, Interview.audio_backup_path)
+    )
+    for interview in db.scalars(requete_interviews):
         for segment in interview.audio_segments or []:
             if segment.get("filename"):
                 references.add(segment["filename"])
@@ -478,7 +497,13 @@ def lister_orphelins_globaux(recordings_dir: Path, db) -> dict:
     # un import de juillet resté à `running` retenait 18,4 Mo à lui seul. Sans
     # cette borne, la protection d'A5 refabriquait le fichier indestructible
     # que C1 venait de supprimer — le remède redevenait la maladie.
-    for job in db.scalars(select(AudioFileJob)):
+    requete_jobs = select(AudioFileJob).options(
+        load_only(
+            AudioFileJob.id, AudioFileJob.status, AudioFileJob.created_at,
+            AudioFileJob.filename, AudioFileJob.filenames,
+        )
+    )
+    for job in db.scalars(requete_jobs):
         if job.status in ("done", "failed") or is_audio_file_job_stale(job):
             continue
         if job.filename:
