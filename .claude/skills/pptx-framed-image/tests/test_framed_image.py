@@ -217,7 +217,15 @@ class TestFetchToRefuseCeQuIlNAPasDemande:
 
     def test_une_url_http_normale_passe_toujours(self, tmp_path, monkeypatch):
         """La garde ne doit pas casser le cas nominal — sinon on a remplacé une
-        faille par une panne."""
+        faille par une panne.
+
+        La résolution DNS est simulée au même titre que `urlopen`. Sans cela le test
+        dépend du DNS de la machine : `exemple.test` est un TLD RÉSERVÉ, qui ne résout
+        nulle part par conception (RFC 2606), donc la garde anti-SSRF le refusait avant
+        même d'atteindre le réseau simulé — le cas nominal n'était jamais exercé et le
+        test échouait sur sa propre mise en scène. L'inverse est aussi vrai et pire :
+        derrière un résolveur qui détourne les domaines inconnus vers une page de
+        recherche, le test serait passé au vert sans rien prouver de plus."""
         class _Reponse:
             def __init__(self):
                 self._restant = [b"octets-image"]
@@ -229,7 +237,27 @@ class TestFetchToRefuseCeQuIlNAPasDemande:
                 return False
         monkeypatch.setattr(_stock, "search_photo",
                             lambda *a, **k: ("https://exemple.test/p.jpg", "qui", "ou"))
-        monkeypatch.setattr(_stock.urllib.request, "urlopen", lambda *a, **k: _Reponse())
+        # Adresse PUBLIQUE : la garde doit la laisser passer. Une adresse privée ici
+        # ferait échouer le test, ce qui est exactement ce qu'on attend d'elle — la
+        # garde reste donc réellement exercée, pas neutralisée. Surtout PAS une plage
+        # « de documentation » type 203.0.113.0/24 : `ipaddress` la classe `is_private`
+        # (elle est réservée), donc `_hote_interne` la refuse — piège vérifié ici même.
+        monkeypatch.setattr(_stock.socket, "getaddrinfo",
+                            lambda *a, **k: [(2, 1, 6, "", ("93.184.216.34", 443))])
+        # C'est un OPENER DÉDIÉ qui télécharge, PAS `urlopen` : depuis que le module
+        # s'en est doté (garde des redirections), patcher `urlopen` ne remplaçait plus
+        # rien et le test partait pour de bon sur le réseau — 21 s d'attente, puis
+        # `URLError`. Un test qui sort vraiment sur Internet ne mesure plus le code
+        # mais la connectivité de la machine.
+        #
+        # On patche la MÉTHODE de la classe, pas l'instance par son nom : ce fichier
+        # est publié dans le kit et installé sur cinq dépôts dont les implémentations
+        # divergent légitimement — l'opener s'appelle `_OUVREUR_TELECHARGEMENT` ici et
+        # `_OUVREUR_DURCI` chez VSCode4, qui l'a renommé le jour où `search_photo` s'y
+        # est branchée aussi (le nom aurait menti). Viser `OpenerDirector.open` attrape
+        # les deux, et tout opener à venir, sans rien supposer du nommage local.
+        monkeypatch.setattr(_stock.urllib.request.OpenerDirector, "open",
+                            lambda self, *a, **k: _Reponse())
         cible = tmp_path / "ok.jpg"
         _stock.fetch_to(str(cible), "peu importe")
         assert cible.read_bytes() == b"octets-image"

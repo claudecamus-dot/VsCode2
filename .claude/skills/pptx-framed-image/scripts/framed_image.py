@@ -38,6 +38,8 @@ glance at the render (dark photo content hides thin lines) both miss these.
 ``frame_obstructions`` reports them by ID so you can neutralise the right shape.
 """
 import copy
+import os
+import tempfile
 
 from pptx.oxml.ns import qn
 from pptx.oxml import parse_xml
@@ -129,6 +131,14 @@ def cover_crop_to_aspect(src, dst, aspect):
     long one, preserving the source's proportions (no letterbox, no stretch).
     Feed the result to :func:`place_image_in_frame` so the preset clip is
     distortion-free. Returns ``dst``.
+
+    The write is ATOMIC: encode into a temporary file in ``dst``'s own directory,
+    then ``os.replace``. ``im.save(dst)`` used to encode straight onto the cache
+    name, so any interruption -- ctrl-C, full disk, killed process -- left a
+    truncated PNG behind, and every later run read it back and died with
+    ``OSError: image file is truncated`` (audit 2026-09-09). Same pattern, same
+    reason as ``stock_images._ecrire_manifest``, fixed on 2026-09-08 three lines
+    away: either the previous image stays intact, or the new one is complete.
     """
     from PIL import Image
 
@@ -146,7 +156,19 @@ def cover_crop_to_aspect(src, dst, aspect):
             im = im.crop((0, y0, w, y0 + new_h))
     if im.mode not in ("RGB", "L"):
         im = im.convert("RGB")
-    im.save(dst)
+    dossier = os.path.dirname(os.path.abspath(dst)) or "."
+    fd, temporaire = tempfile.mkstemp(
+        dir=dossier, prefix=".crop-", suffix=os.path.splitext(dst)[1] or ".png")
+    os.close(fd)  # PIL reopens by name; the suffix is what picks the encoder
+    try:
+        im.save(temporaire)
+        os.replace(temporaire, dst)
+    except BaseException:
+        try:
+            os.remove(temporaire)
+        except OSError:
+            pass
+        raise
     return dst
 
 
