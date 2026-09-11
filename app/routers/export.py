@@ -15,10 +15,10 @@ import logging
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import RedirectResponse, Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..db import PPTX_TEMPLATES_DIR, get_session
-from ..models import Mission
+from ..models import Interview, Mission
 from ..services.ai_common import api_key_env_name, is_configured
 from ..services.analyse_import import (
     AnalysisParseError,
@@ -56,7 +56,33 @@ logger = logging.getLogger(__name__)
 
 
 def _get_mission(db: Session, mission_id: int) -> Mission:
-    mission = db.get(Mission, mission_id)
+    """Point d'entrée commun de toutes les routes de ce fichier, TOUTES
+    rendent `synthese/apercu.html` (aperçu, génération SWOT/difficultés/
+    executive summary, import d'analyse).
+
+    `selectinload` sur `interviews.verbatims` (2026-09-11, constat d'audit
+    performance du 2026-09-09, N+1 systémique — « zéro selectinload dans tout
+    app/ ») : `Mission.all_verbatims` (property nue, `models.py`) est évaluée
+    plusieurs fois par `apercu.html` pour la planche « Paroles d'acteurs ».
+    Coût mesuré en ISOLANT `_get_mission` + `all_verbatims` + `v.interview`
+    (`test_apercu_verbatims_cout_sql.py`, pas le total de la route HTTP —
+    celui-ci reste linéaire à cause d'`all_theme_material`, cf. plus bas) :
+    4 requêtes pour 2 entretiens, 17 pour 15 sans ce correctif ; 3, constant,
+    avec lui. Le double N+1 était celui d'`iv.verbatims` PAR entretien et de
+    `v.interview` PAR verbatim (le retour arrière n'est peuplé par l'identity
+    map que si l'entretien parent est déjà chargé — c'est ce que résout le
+    `selectinload` ci-dessous, sans requête supplémentaire dédiée).
+    Ciblé sur CE SEUL chemin (mandat : pas de refactor balayant) — laisse
+    `Mission.all_verbatims` et les autres appelants (routers/synthese.py)
+    inchangés, eux non mesurés comme coûteux ici. `all_theme_material`,
+    l'autre N+1 nommé par le même audit et appelé par les mêmes routes
+    (`_synthese_context` ci-dessous), a déjà été mesuré et volontairement
+    laissé tel quel (revue du 2026-09-10 : 26 requêtes/8 ms, négligeable
+    devant l'appel IA qui suit) — pas rouvert ici."""
+    mission = db.get(
+        Mission, mission_id,
+        options=[selectinload(Mission.interviews).selectinload(Interview.verbatims)],
+    )
     if mission is None:
         raise HTTPException(status_code=404, detail="Mission introuvable.")
     return mission
