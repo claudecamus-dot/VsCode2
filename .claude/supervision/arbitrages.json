@@ -596,6 +596,15 @@
       ],
       "source": "hub",
       "decision": "PARTIEL : la part VSCode2 est DEJA FAITE, la part flotte reste au hub. `.claude/hooks/point_du_jour.py` existe et est cable en SessionStart ici (commit 7e61193, « rattrape les 4 autres cibles ») -- verifie par `test -f`. RESERVE, hors de portee de ce depot : les 4 AUTRES cibles (VSCode, VSCode1, VSCode3, VSCode4) et la decision A/B du finding (distribuer point_du_jour.py par le kit exporte, ou documenter explicitement que c'est une fonction hub-only) restent au hub. SendMessage a ECHOUE deux fois (session vscode5-supervision-projets-ff injoignable), puis REUSSI une fois une session hub relancee (vscode5-supervision-projets-6e, message livre le 2026-09-11)."
+    },
+    {
+      "cible": "VSCode1,VSCode2:permissions-hors-git-exec-arbitraire",
+      "date": "2026-09-11",
+      "categories": [
+        "pratique-securite"
+      ],
+      "source": "hub",
+      "decision": "PARTIEL, cote VSCode2 uniquement. Le hub a precise le joker (arbitrage flotte du 2026-09-04) : `.claude/settings.local.json` (gitignore, 16 entrees dans permissions.allow) portait `Bash(node -e ' *)` -- execution Node arbitraire, le prefixe ne restreignant rien puisque `node -e` execute la chaine passee telle quelle. Utilisateur a lu le fichier en entier avec moi (feu vert explicite, requis par un hook projet qui bloque cette lecture sinon) et choisi de ne retirer QUE cette entree precise, via la skill update-config -- retrait via Edit, verifie par relecture JSON (15 entrees restantes, `node -e` absent). RESERVE, laissee EXPLICITEMENT en l'etat sur decision utilisateur : les 15 autres entrees (dont `Bash`/`PowerShell` nus, `Bash(./.venv/Scripts/python.exe -c ' *)`, `Bash(python -)`, et 9 entrees liees a un outil « opencode » sans rapport avec la structure de ce projet -- probable contamination d'un autre contexte de travail jamais nettoyee, invisible car le fichier est gitignore) n'ont pas ete jugees aujourd'hui. Rien a committer : fichier hors git par design."
     }
   ]
 }
