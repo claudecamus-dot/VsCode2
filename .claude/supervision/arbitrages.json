@@ -586,7 +586,7 @@
         "interaction"
       ],
       "source": "hub",
-      "decision": "CONFIRME, NON CORRIGIBLE ICI (mandat utilisateur du 2026-09-11). Reverifie : .claude/audits/VSCode2.json est toujours date du 2026-09-03 (8 jours). Le constat du 2026-09-10 est exact et sa propre recommandation dit pourquoi je ne le corrige pas localement : c'est le protocole de transmission hub -> projet qui est en cause (audit non re-emis apres re-mesure, SHA de HEAD non trace, sync_dispositif.py qui laisse deriver sans rapport d'ecart), pas ce depot -- editer ce fichier a la main ici reproduirait exactement le defaut signale. Remonte a la session hub live (vscode5-supervision-projets-ff) par message le 2026-09-11 avec la proposition du finding (SHA-stamping, rapport de divergence, ecriture par la synchro jamais orpheline)."
+      "decision": "CONFIRME, NON CORRIGIBLE ICI (mandat utilisateur du 2026-09-11, repete apres un premier passage). Reverifie : .claude/audits/VSCode2.json est toujours date du 2026-09-03 (8 jours). Le constat du 2026-09-10 est exact et sa propre recommandation dit pourquoi je ne le corrige pas localement : c'est le protocole de transmission hub -> projet qui est en cause (audit non re-emis apres re-mesure, SHA de HEAD non trace, sync_dispositif.py qui laisse deriver sans rapport d'ecart), pas ce depot -- editer ce fichier a la main ici reproduirait exactement le defaut signale. SendMessage vers la session hub live (vscode5-supervision-projets-ff) a ECHOUE deux fois le 2026-09-11 (session injoignable, disparue de ListAgents entre deux appels) : PAS de remise en main propre. Sur arbitrage utilisateur explicite du 2026-09-11, cette entree EST le canal de relais retenu -- versionnee et poussee (commit 3527b8d), lisible par le hub a sa prochaine synchronisation/audit de ce depot, meme protocole que la reserve pptx-deck SKILL.md deja posee ici. Proposition du finding, sur le hub : SHA-stamping des audits emis, rapport de divergence dans sync_dispositif.py, ecriture de audits/<projet>.json par la synchro jamais orpheline."
     },
     {
       "cible": "flotte:point-du-jour-absent-des-5-cibles",
@@ -595,7 +595,7 @@
         "pratique-dev"
       ],
       "source": "hub",
-      "decision": "PARTIEL : la part VSCode2 est DEJA FAITE, la part flotte reste au hub. `.claude/hooks/point_du_jour.py` existe et est cable en SessionStart ici (commit 7e61193, « rattrape les 4 autres cibles ») -- verifie par `test -f`. RESERVE, hors de portee de ce depot : les 4 AUTRES cibles (VSCode, VSCode1, VSCode3, VSCode4) et la decision A/B du finding (distribuer point_du_jour.py par le kit exporte, ou documenter explicitement que c'est une fonction hub-only) restent au hub. Remonte a la session hub live par message le 2026-09-11."
+      "decision": "PARTIEL : la part VSCode2 est DEJA FAITE, la part flotte reste au hub. `.claude/hooks/point_du_jour.py` existe et est cable en SessionStart ici (commit 7e61193, « rattrape les 4 autres cibles ») -- verifie par `test -f`. RESERVE, hors de portee de ce depot : les 4 AUTRES cibles (VSCode, VSCode1, VSCode3, VSCode4) et la decision A/B du finding (distribuer point_du_jour.py par le kit exporte, ou documenter explicitement que c'est une fonction hub-only) restent au hub. SendMessage vers la session hub live a ECHOUE deux fois le 2026-09-11 (aucune session VSCode5 joignable) ; sur arbitrage utilisateur explicite du 2026-09-11, cette entree versionnee et poussee (commit 3527b8d) vaut relais, lisible par le hub a sa prochaine synchronisation de ce depot."
     }
   ]
 }
