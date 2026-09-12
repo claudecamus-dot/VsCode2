@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : 0ad0fed du 2026-09-11 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`0ad0fed`, 2026-09-11) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 5e2a698 du 2026-09-12 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`5e2a698`, 2026-09-12) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -128,7 +128,24 @@ réellement de sujet (celle-là, orchestrable si elle qualifie). Journaliser un 
 chaque aller-retour ne mesure rien : ça dilue le seul signal qui compte (le livrable est-il
 enfin validé ?) dans du bruit qu'aucun humain ne va soldé un par un.
 
-### 2. Composer le plan
+### 1 bis. Les signaux de SessionStart se traitent au premier message, pas sur demande
+
+Mesuré sur `runs.jsonl` le 2026-09-12 (157 runs) : 10 demandes portent sur « reprendre /
+relancer les travaux » et 20 sur « traiter les findings/écarts » — un motif récurrent que
+l'utilisateur a explicitement demandé de réduire. Le hook SessionStart annonce pourtant déjà
+tout ce qui justifie ces demandes (reliquat non commité, N commits jamais poussés,
+`point_du_jour.py` qui donne la commande exacte à taper). La reformulation répétée ne
+comble pas un manque d'information — elle comble l'absence d'un premier geste avant que
+l'utilisateur n'ait à la demander.
+
+**Règle** : quand le hook SessionStart signale un reliquat non commité ou des findings/
+trouvailles sans arbitrage, et que le premier message de l'utilisateur ne les mentionne pas
+déjà, les traiter (ou au minimum les proposer explicitement) AU PREMIER TOUR de la session —
+avant, ou en même temps que, la nouvelle demande. Ne pas attendre une formulation du type
+« relance les travaux », « traite les findings » : le signal du hook EST la demande. Ça ne
+dispense d'aucune des étapes qui suivent (qualifier, composer, valider si le geste est
+coûteux ou irréversible) — ça évite seulement d'attendre une redite de ce que le hook a
+déjà dit.
 
 **D'abord, chercher un playbook.** Si la demande matche les `declencheurs` d'un playbook
 de `.claude/orchestration/playbooks/`, l'instancier plutôt que composer à vide : adapter
