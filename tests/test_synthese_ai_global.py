@@ -111,6 +111,52 @@ def test_global_synthesis_mission_longue_map_puis_reduce(monkeypatch: pytest.Mon
     assert result["contexte"] == "- partiel 4"
 
 
+def test_relance_apres_echec_tardif_ne_repaye_pas_les_tronçons_reussis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Constat audit-technique performance VSCode2 (2026-09-11) : `partials`
+    ne vivait que dans une variable locale — une exception sur un tronçon
+    TARDIF perdait tous les tronçons déjà réussis, et la relance repayait
+    tout depuis le tronçon 1. Ici, le 3e tronçon (sur 3) échoue une première
+    fois ; la relance sur la MÊME mission et la MÊME matière ne doit rappeler
+    QUE ce qui manque (le tronçon 3 puis la réduction), jamais régénérer 1 et 2."""
+    monkeypatch.setattr(synthese_ai, "ollama_chunk_max_words", lambda: 20)
+    mission = _mission()
+    calls: list[dict] = []
+
+    def _resultat(n: int) -> dict:
+        return {
+            "contexte": f"- partiel {n}", "culture_adn": "- culture",
+            "forces_succes": "- force", "points_amelioration": "- point",
+            "aspirations": "- aspiration",
+        }
+
+    def echoue_au_3e(system, prompt, schema, json_hint, **kwargs):
+        calls.append({"system": system, "prompt": prompt})
+        if len(calls) == 3:
+            raise synthese_ai.SynthesisAIError("panne simulée sur le tronçon tardif")
+        return _resultat(len(calls))
+
+    monkeypatch.setattr(synthese_ai, "_call_claude", echoue_au_3e)
+    with pytest.raises(synthese_ai.SynthesisAIError):
+        synthese_ai.generate_global_synthesis(mission, _material(3))
+    assert len(calls) == 3  # 2 tronçons réussis (mis en cache) + le 3e, raté
+
+    # Relance : même mission (même objet Python — la clé de reprise en test),
+    # même matière -> les tronçons 1 et 2 ne doivent PAS être rejoués.
+    calls.clear()
+    monkeypatch.setattr(
+        synthese_ai, "_call_claude",
+        lambda system, prompt, schema, json_hint, **kw: (
+            calls.append({"system": system, "prompt": prompt}) or _resultat(len(calls))
+        ),
+    )
+    result = synthese_ai.generate_global_synthesis(mission, _material(3))
+    assert len(calls) == 2  # tronçon 3 manquant + réduction — PAS 1 et 2 refaits
+    assert "(extrait 3/3)" in calls[0]["prompt"]
+    assert result["contexte"] == "- partiel 2"  # vient de l'appel de réduction (2e)
+
+
 def test_la_matiere_libre_d_un_axe_sur_mesure_atteint_le_prompt():
     """Trouvé en revue adversariale (2026-07-28) : `_global_material_blocks` construisait
     la table des libellés d'axes puis ne la lisait JAMAIS — sa boucle restait figée sur

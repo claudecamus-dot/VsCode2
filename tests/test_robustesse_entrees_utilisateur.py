@@ -249,3 +249,48 @@ def test_exception_non_prevue_rend_500_propre_pas_de_trace_brute(
     assert response.json() == {"detail": "Erreur interne inattendue."}
     assert "KeyError" not in response.text
     assert "Traceback" not in response.text
+
+
+def test_exception_dans_verifier_origine_avant_call_next_rend_500_propre(
+    client_http: TestClient, monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Constat audit-technique robustesse VSCode2 (2026-09-11) : le handler
+    générique ne couvrirait pas une exception levée dans `verifier_origine`
+    (middleware CSRF, `app/main.py`) AVANT `call_next` — hors du périmètre de
+    l'`ExceptionMiddleware` qui porte `erreur_inattendue`, donc réponse brute
+    de Starlette et log hors logger applicatif.
+
+    Vérifié réellement (pas seulement lu) : avec le `BaseHTTPMiddleware` de la
+    version de Starlette épinglée par ce dépôt (`create_collapsing_task_group`,
+    cf. `starlette/middleware/base.py`), une exception levée AVANT `call_next`
+    dans `verifier_origine` se propage jusqu'au `ServerErrorMiddleware` — le
+    plus extérieur de la pile — qui invoque bien le handler applicatif
+    `erreur_inattendue` (log `app.main` + JSON générique), pas une réponse
+    brute. Ce test fige ce comportement : il doit rester rouge si un futur
+    changement de version de Starlette (ou de l'ordre des middlewares)
+    réintroduit le contournement décrit par le constat."""
+    import app.csrf as csrf
+
+    def _explose(request):
+        raise RuntimeError("exception avant call_next, dans le middleware CSRF")
+
+    monkeypatch.setattr(csrf, "meme_origine", _explose)
+
+    with caplog.at_level("ERROR", logger="app.main"):
+        response = client_http.post(
+            "/missions", headers={"origin": "http://evil.example"},
+            data={"name": "x", "description": "x"},
+        )
+
+    assert response.status_code == 500
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json() == {"detail": "Erreur interne inattendue."}
+    assert "RuntimeError" not in response.text
+    assert "Traceback" not in response.text
+    # Logué par le logger APPLICATIF (`erreur_inattendue`), pas seulement par
+    # une trace Starlette par défaut hors de ce logger.
+    assert any(
+        record.name == "app.main" and "Exception non gérée" in record.message
+        for record in caplog.records
+    )

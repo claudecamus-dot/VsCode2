@@ -380,6 +380,55 @@ def _reduce_partial_globals(mission, partials: list[dict], axes) -> dict:
     return _clean_global(data, keys)
 
 
+# Tronçons DÉJÀ réussis d'un map-reduce en cours, par mission — constat
+# audit-technique performance VSCode2 (2026-09-11) : `partials` vivait
+# uniquement dans une variable locale à `generate_global_synthesis` ; une
+# exception sur un tronçon TARDIF (ou sur l'appel de réduction final) perdait
+# tous les tronçons déjà réussis, et la relance (même déclenchée dans la
+# foulée, mission et matière inchangées) repayait depuis le tronçon 1 — pour
+# une mission volumineuse, jusqu'à re-consommer la quasi-totalité des ~100 min
+# déjà mesurées côté `global_synthesis_job`.
+#
+# Volontairement EN MÉMOIRE DE PROCESSUS, jamais sur disque ni en base — même
+# arbitrage que `pptx_export.images._ECHECS_FETCH` : ça couvre le cas de loin
+# le plus fréquent (l'utilisateur relance depuis l'écran, serveur inchangé)
+# sans migration de schéma ni changement de contrat pour les appelants/tests
+# existants (`generate_global_synthesis` garde exactement sa signature). Un
+# redémarrage reperd le cache — déjà le cas de TOUT le job, `generation_status`
+# étant lui-même remis à "error" au démarrage (`reconcile_running_on_startup`).
+#
+# Clé = id de mission ; valeur = (empreinte du plan de tronçons, tronçons déjà
+# réussis). L'empreinte évite de resservir des tronçons obsolètes si la
+# matière a changé entre deux tentatives (nouvel entretien importé, etc.) —
+# sans elle, une reprise partielle mélangerait de la matière d'avant et
+# d'après dans la même synthèse.
+_PARTIAL_GLOBALS_CACHE: dict[int, tuple[str, list[dict]]] = {}
+
+
+def _fingerprint_groups(groups: list[list[str]]) -> str:
+    import hashlib
+
+    h = hashlib.sha256()
+    for group in groups:
+        for bloc in group:
+            h.update(bloc.encode("utf-8"))
+            h.update(b"\x1e")
+        h.update(b"\x1f")
+    return h.hexdigest()
+
+
+def _cle_partial_cache(mission) -> int:
+    """Clé de cache stable pour une VRAIE mission persistée (son `id`, toujours
+    renseigné : `run_global_synthesis_job` la recharge par `db.get(Mission,
+    mission_id)`). Repli sur l'identité Python de l'objet pour les tests
+    unitaires qui passent un double sans attribut `id` (`SimpleNamespace`) —
+    chaque appel de test y construit un objet neuf, donc jamais de collision
+    entre deux tests, seulement entre deux appels sur le MÊME objet mission
+    (le cas visé)."""
+    mission_id = getattr(mission, "id", None)
+    return mission_id if mission_id is not None else id(mission)
+
+
 def generate_global_synthesis(mission, material_by_theme, material_libre=None, axes=None) -> dict:
     """Retourne un dict aux clés des AXES de la mission. Lève SynthesisAIError.
 
@@ -392,7 +441,12 @@ def generate_global_synthesis(mission, material_by_theme, material_libre=None, a
     par tronçon, puis fusionnée par un appel de réduction dédié — même
     pattern que `interview_libre_extract_ai.generate_repartition_from_turns`.
     Une mission qui tient dans un tronçon ne fait qu'un appel, comportement
-    inchangé."""
+    inchangé.
+
+    Les tronçons déjà réussis survivent à une exception sur un tronçon tardif
+    ou sur la réduction finale (cf. `_PARTIAL_GLOBALS_CACHE`) : une relance
+    sur la même mission et la même matière reprend là où l'échec a eu lieu au
+    lieu de re-payer les tronçons déjà obtenus."""
     # `axes` optionnel : les appelants historiques (et les tests) qui ne le
     # passent pas retombent sur les 5 axes par défaut, comportement inchangé.
     axes = list(axes) if axes else _axes_par_defaut()
@@ -407,11 +461,27 @@ def generate_global_synthesis(mission, material_by_theme, material_libre=None, a
         data = _call_claude(system, "\n\n".join([header, *groups[0]]), schema, hint)
         return _clean_global(data, keys)
 
-    partials = []
-    for i, group in enumerate(groups, start=1):
+    cle = _cle_partial_cache(mission)
+    empreinte = _fingerprint_groups(groups)
+    cache = _PARTIAL_GLOBALS_CACHE.get(cle)
+    if cache is not None and cache[0] == empreinte:
+        partials = list(cache[1])  # copie : jamais la liste mise en cache elle-même
+    else:
+        partials = []
+    debut = len(partials)
+
+    # Une exception ici (tronçon tardif OU réduction finale) se propage telle
+    # quelle — AUCUN try/except à ajouter pour ça : les tronçons réussis sont
+    # déjà dans le cache au moment où elle serait levée, écrits à chaque
+    # succès ci-dessous.
+    for i, group in enumerate(groups[debut:], start=debut + 1):
         prompt = "\n\n".join([f"{header} (extrait {i}/{len(groups)})", *group])
         partials.append(_clean_global(_call_claude(system, prompt, schema, hint), keys))
-    return _reduce_partial_globals(mission, partials, axes)
+        _PARTIAL_GLOBALS_CACHE[cle] = (empreinte, list(partials))
+    resultat = _reduce_partial_globals(mission, partials, axes)
+    # Succès (map ET réduction) : plus besoin de la reprise pour cette mission.
+    _PARTIAL_GLOBALS_CACHE.pop(cle, None)
+    return resultat
 
 
 # --------------------------------------------------------------------------- #

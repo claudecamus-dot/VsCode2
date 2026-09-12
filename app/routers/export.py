@@ -10,6 +10,7 @@ PowerPoint avec sélection de slides et upload d'un template PPT client
 """
 from __future__ import annotations
 
+import asyncio
 import io
 import logging
 
@@ -302,7 +303,7 @@ def generate_difficulties_view(
 # Étape 4 — Export PowerPoint (respecte la sélection de slides si soumise)
 # --------------------------------------------------------------------------- #
 @router.get("/missions/{mission_id}/export/pptx")
-def export_pptx(
+async def export_pptx(
     mission_id: int,
     request: Request,
     db: Session = Depends(get_session),
@@ -341,7 +342,16 @@ def export_pptx(
         include_kwargs = {}
 
     try:
-        prs = build_presentation(
+        # Le fetch photo Openverse (app/services/pptx_export/images.py) est en
+        # série et purement synchrone : injoignable, il bloquait jusqu'à
+        # l'ordre de 4 scènes x 3 orientations x 140 s dans le thread de CETTE
+        # requête (constat audit-technique performance VSCode2, 2026-09-11).
+        # Même pattern que `interviews.py` pour la transcription (CPU/réseau
+        # bound hors de la boucle d'événements) : `build_presentation` part
+        # dans un thread à part, la boucle d'événements reste libre pour les
+        # autres requêtes pendant l'attente réseau.
+        prs = await asyncio.to_thread(
+            build_presentation,
             mission, template_path=template_path,
             axes_etude=axes_of(db, mission), **include_kwargs
         )
