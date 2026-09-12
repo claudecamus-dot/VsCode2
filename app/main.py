@@ -32,6 +32,7 @@ from .routers import (  # noqa: E402
     entretiens,
     export,
     interviews,
+    interviews_audio,
     missions,
     synthese,
     trames,
@@ -184,6 +185,7 @@ app.include_router(entretiens.router)
 app.include_router(missions.router)
 app.include_router(trames.router)
 app.include_router(interviews.router)
+app.include_router(interviews_audio.router)
 app.include_router(synthese.router)
 app.include_router(export.router)
 app.include_router(agents.router)

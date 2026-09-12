@@ -472,7 +472,10 @@ def test_la_relance_accepte_un_job_perime_encore_marque_running(client, monkeypa
     2026-07-29)."""
     from datetime import datetime, timedelta, timezone
 
-    from app.routers import interviews as interviews_router
+    # `transcribe_file_retry` vit dans `interviews_audio.py` depuis le
+    # 2026-09-12 (extraction du sous-ensemble import/transcription audio) :
+    # c'est CE module qui résout `run_audio_file_job` à l'appel.
+    from app.routers import interviews_audio as interviews_router
 
     fichier = RECORDINGS_DIR / "import_test_stale_retry.weba"
     fichier.write_bytes(b"audio")
@@ -548,7 +551,10 @@ def test_la_relance_rearme_l_horloge_de_detection_de_blocage(client, monkeypatch
     démarrer."""
     from datetime import datetime, timedelta, timezone
 
-    from app.routers import interviews as interviews_router
+    # `transcribe_file_retry` vit dans `interviews_audio.py` depuis le
+    # 2026-09-12 (extraction du sous-ensemble import/transcription audio) :
+    # c'est CE module qui résout `run_audio_file_job` à l'appel.
+    from app.routers import interviews_audio as interviews_router
 
     fichier = RECORDINGS_DIR / "import_test_rearme.weba"
     fichier.write_bytes(b"audio")

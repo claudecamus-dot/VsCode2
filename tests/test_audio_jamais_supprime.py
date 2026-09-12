@@ -446,8 +446,15 @@ def test_le_fichier_importe_porte_le_prefixe_de_mission() -> None:
     (`mission_backups.lister_backups` cherche par `glob("{mission.id}_*")`) :
     « ne jamais supprimer automatiquement » produirait alors un fichier
     fantôme, invisible ET indestructible. La règle et le nommage tiennent
-    ensemble."""
-    source = (RACINE / "app" / "routers" / "interviews.py").read_text(encoding="utf-8")
+    ensemble.
+
+    `transcribe_file` vit dans `interviews_audio.py` depuis le 2026-09-12
+    (extraction du sous-ensemble import/transcription audio, hors CRUD
+    d'entretien — constat d'audit risque technique sur `interviews.py`, alors
+    à 3611 lignes)."""
+    source = (RACINE / "app" / "routers" / "interviews_audio.py").read_text(
+        encoding="utf-8"
+    )
     # Fenêtre bornée par la route SUIVANTE, jamais par un nombre de caractères :
     # un `[:3000]` s'arrêtait avant la ligne de nommage dès qu'on ajoutait des
     # validations en tête de fonction, et l'échec accusait alors le code d'avoir
@@ -500,8 +507,13 @@ def test_le_statut_d_import_expose_le_nom_du_fichier() -> None:
     Sans rattachement, le fichier survit mais reste orphelin : `_tranches_audio`
     ne le voit pas, donc « Relancer la transcription » ne peut pas rejouer
     depuis lui — le geste même que tout ce chantier existe pour rendre
-    possible."""
-    source = (RACINE / "app" / "routers" / "interviews.py").read_text(encoding="utf-8")
+    possible.
+
+    `transcribe_file_status` vit dans `interviews_audio.py` depuis le
+    2026-09-12 (même extraction que ci-dessus)."""
+    source = (RACINE / "app" / "routers" / "interviews_audio.py").read_text(
+        encoding="utf-8"
+    )
     bloc = source[source.index("def transcribe_file_status") :][:4000]
     assert '"filename"' in bloc, (
         "le statut d'import n'expose plus le nom du fichier : le client ne peut "
