@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : 5e2a698 du 2026-09-12 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`5e2a698`, 2026-09-12) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 8a38e0b du 2026-09-12 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`8a38e0b`, 2026-09-12) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -188,6 +188,16 @@ description d'intention. Les gestes exacts :
   purger un service du dépôt** — sinon écrire « non vérifié au rendu ». Une
   vérification manquante annoncée vaut mieux qu'un service tiers tué (finding
   `flotte:depot-au-repos-ne-voit-pas-un-serveur-en-cours`, § non-convergence).
+  **Gabarit bounded-efficiency** (veille adoptée 2026-09-12, arXiv:2608.01347 et
+  arXiv:2608.25399 — 2700 runs mesurés, un brief incomplet coûte +29,7 % de tokens
+  en moyenne, de +13 % à +115 % selon la tâche) : le brief porte, en plus de ce qui
+  précède, une **condition d'arrêt explicite** (qu'est-ce qui marque la tâche
+  finie ?) et une **clause anti-ambiguïté** (« si un point n'est pas couvert par ce
+  brief, l'inspecter dans le code réel plutôt que le supposer ») — les deux évitent
+  l'aller-retour qui coûte le plus cher, une reprise pour completer un brief bâclé.
+  Le contrat de sortie précise aussi un **budget de longueur** (viser 1000-2000
+  tokens condensés, pas une prose qui recopie tout ce qui a été lu) — sauf quand la
+  tâche exige explicitement le détail complet (revue de sécurité, audit).
 - **Arrière-plan** : `run_in_background: true` (défaut) rend la main immédiatement,
   la notification arrive à la fin — ne jamais écrire le résultat à sa place ; s'il
   faut le résultat pour continuer, `run_in_background: false` (synchrone).
