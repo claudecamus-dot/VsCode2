@@ -788,6 +788,7 @@ manifeste = [
   '''DÉROULÉ — (1) énoncer la décision qui semble acquise ; (2) Splinter nomme l'hypothèse cachée ; (3) Wildcard rouvre des options ; (4) Level vérifie les preuves, Killjoy arrête les boucles.''',
   '''DÉSACCORD — la salle n'a pas à le résoudre : elle le rend visible et le rend à l'humain.''',
   '''ARRÊT — dès que la salle se répète : Killjoy coupe et demande quelle question non résolue compte.''',
+  '''PASSE (pilote 2026-09-12, veille S²-MAD arXiv:2502.04790, gain mesuré jusqu'à 94,5% de tokens pour <2% de perte de qualité) — une voix qui n'a rien de neuf à ajouter à ce tour répond simplement « RAS » au lieu de reformuler ce qui a déjà été dit ; ça ne compte ni comme un vote ni comme un accord.''',
   '''JAMAIS — ne vote pas, ne déclare pas de consensus, ne parle pas comme si elle avait autorité.''',
 ]
 [workflow.party_groups.sortants]
