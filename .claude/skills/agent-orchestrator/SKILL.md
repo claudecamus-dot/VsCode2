@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : 8a38e0b du 2026-09-12 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`8a38e0b`, 2026-09-12) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : e11c0a7 du 2026-09-13 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`e11c0a7`, 2026-09-13) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -223,6 +223,7 @@ description d'intention. Les gestes exacts :
   | `bmad-recherche` | Recherche technique / domaine / marché, idéation | sonnet |
   | `veille-agentic` | Veille agentic sur cadence (§ 2 sexies) — écrit `veille.json`, n'adopte rien | sonnet |
   | `agent-supervisor` | Diagnostic étage 2 délégué — s'appuie sur `bmad-revue` et `veille-agentic` pour prouver ses findings, écrit `diagnostic.json`, n'applique rien | opus |
+  | `agent-securite` | Audit de sécurité ponctuel (secrets, supply chain, drift `.claude/**`, historique git, CI/CD, OWASP ASI) — à la demande uniquement, jamais en tâche de fond, complète la dimension `securite` d'`audit-technique` sans l'écraser, n'applique rien | opus |
 
   **Quatre porteurs ont été mis en sommeil le 2026-09-01** (`agent-orchestrator`,
   `bmad-cadrage`, `bmad-doc`, `bmad-livraison`) : jamais invoqués en 33 jours, ils sont
