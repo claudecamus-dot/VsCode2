@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
-from sqlalchemy import delete
+from sqlalchemy import delete, update
 from sqlalchemy.orm import Session
 
 from ..db import RECORDINGS_DIR, get_session
@@ -261,17 +261,54 @@ def transcribe_file_retry(
             },
             status_code=410,
         )
-    job.status = "pending"
-    job.error = None
-    # `created_at` sert d'horloge à `is_audio_file_job_stale` (et à la purge
-    # des 7 jours) : sans ce réarmement, un job relancé plus de 3 h après
-    # l'import initial serait déclaré « ne répond plus » au premier poll,
-    # alors que la reprise vient de démarrer.
-    job.created_at = datetime.now(UTC).replace(tzinfo=None)
+    reprise_au_bloc = len(job.blocks or [])
+    # UPDATE CONDITIONNEL et non lire-puis-écrire (audit-technique robustesse du
+    # 2026-09-13). La garde au-dessus est un test Python sur une ligne lue au
+    # début de la fonction : deux POST concurrents — double-clic sur
+    # « Relancer », onglet dupliqué, rejeu réseau — la franchissent TOUS DEUX et
+    # programmaient chacun un `run_audio_file_job` sur le même `job.id`. Les deux
+    # tâches ouvrent alors leur propre session et font
+    # `job.blocks = list(job.blocks or []) + [text]` : blocs dupliqués et mises à
+    # jour perdues DANS LA TRANSCRIPTION, plus un `total_blocks` incohérent avec
+    # le curseur `since` du client. Ce n'est pas un risque théorique importé
+    # d'ailleurs : le chemin frère `retranscrire` le dit déjà de lui-même, et le
+    # patron correct est posé deux fois dans le dépôt (synthese.py:272,
+    # interviews.py:1108) — il manquait ici.
+    #
+    # Comparaison-et-échange sur (status, created_at) et non sur `status` seul :
+    # un job PÉRIMÉ est relançable en étant resté `pending`/`running` en base
+    # (serveur redémarré), donc `status` seul laisserait passer les deux
+    # concurrents. Le gagnant re-date `created_at` ; le perdant, qui a lu
+    # l'ancienne date, ne matche plus rien.
+    pris = db.execute(
+        update(AudioFileJob)
+        .where(
+            AudioFileJob.id == job.id,
+            AudioFileJob.status == job.status,
+            AudioFileJob.created_at == job.created_at,
+        )
+        .values(
+            status="pending",
+            error=None,
+            # `created_at` sert d'horloge à `is_audio_file_job_stale` (et à la
+            # purge des 7 jours) : sans ce réarmement, un job relancé plus de
+            # 3 h après l'import initial serait déclaré « ne répond plus » au
+            # premier poll, alors que la reprise vient de démarrer.
+            created_at=datetime.now(UTC).replace(tzinfo=None),
+        )
+    ).rowcount
     db.commit()
+    if pris != 1:
+        # Un concurrent a déjà repris ce job : on ne programme PAS une seconde
+        # tâche. Même code que la garde « pas en échec » au-dessus — de la place
+        # de l'appelant, c'est la même situation : il n'y a rien à relancer.
+        return JSONResponse(
+            {"error": "Cet import est déjà en cours de relance.", "status": "pending"},
+            status_code=409,
+        )
     background_tasks.add_task(run_audio_file_job, job.id)
     return JSONResponse(
-        {"job_id": job.id, "status": "pending", "reprise_au_bloc": len(job.blocks or [])}
+        {"job_id": job.id, "status": "pending", "reprise_au_bloc": reprise_au_bloc}
     )
 
 

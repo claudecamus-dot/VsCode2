@@ -453,6 +453,67 @@ def test_la_relance_reprend_au_bloc_echoue_sans_re_transcrire(client, monkeypatc
     )
 
 
+def test_deux_relances_concurrentes_ne_lancent_qu_une_seule_tache(client, monkeypatch):
+    """Course sur la relance d'un import — finding audit-technique robustesse du
+    2026-09-13.
+
+    La garde de `transcribe_file_retry` (`status != "failed" and not stale`)
+    était un test Python sur une ligne lue au début de la fonction, suivi d'une
+    écriture : deux POST concurrents — double-clic sur « Relancer », onglet
+    dupliqué, rejeu réseau — la franchissaient TOUS DEUX et programmaient chacun
+    un `run_audio_file_job` sur le MÊME job. Les deux tâches ouvrent leur propre
+    session et font `job.blocks = list(job.blocks or []) + [text]` : blocs
+    dupliqués, mises à jour perdues dans la transcription, `total_blocks`
+    incohérent avec le curseur `since` du client. Le patron correct (UPDATE
+    conditionnel sur `rowcount`) était déjà posé deux fois dans le dépôt, et le
+    chemin frère de retranscription commente lui-même le double-clic.
+
+    Entrelacement FORCÉ, aucun thread ni sleep : la requête 1 est suspendue sur
+    le `datetime.now()` qui re-date le job — dernier appel après TOUTES les
+    gardes et avant l'écriture, sur le code d'avant comme sur celui-ci — le
+    temps qu'une requête 2 complète parte, prenne le job et le re-date. La
+    requête 1 reprend alors sur sa lecture périmée.
+
+    Rouge sur le code d'avant : DEUX `run_audio_file_job` programmés.
+    """
+    def _iter(content: bytes, block_s: int | None = None, start_index: int = 0):
+        raise audio_transcribe.TranscriptionError("worker mort")
+        yield  # pragma: no cover - rend la fonction génératrice
+
+    monkeypatch.setattr(audio_transcribe, "iter_transcribe_blocks", _iter)
+    job_id = _upload(client)["job_id"]
+
+    lancements: list[int] = []
+    monkeypatch.setattr(
+        interviews_audio, "run_audio_file_job", lambda jid: lancements.append(jid)
+    )
+
+    vrai_datetime = interviews_audio.datetime
+    imbriquee: list[object] = []
+    secondes: list[int] = []
+
+    class _DatetimeQuiEntrelace:
+        @staticmethod
+        def now(tz=None):
+            if not imbriquee:
+                imbriquee.append(True)
+                # Requête 2 : complète, session distincte — elle gagne la course.
+                secondes.append(_retry(client, job_id).status_code)
+            return vrai_datetime.now(tz)
+
+    monkeypatch.setattr(interviews_audio, "datetime", _DatetimeQuiEntrelace)
+
+    premiere = _retry(client, job_id)
+    assert imbriquee, "l'entrelacement n'a pas eu lieu : le test ne prouve rien"
+    assert secondes == [200], f"la requete gagnante aurait du aboutir : {secondes}"
+    # La perdante repart en 409 « deja en cours de relance » — de la place de
+    # l'appelant, la meme situation que la garde « pas en echec ».
+    assert premiere.status_code == 409, premiere.text
+    assert lancements == [job_id], (
+        f"une seule tache de fond doit etre programmee, vu {len(lancements)}"
+    )
+
+
 def test_la_relance_exige_le_jeton_de_session(client, monkeypatch):
     """Même exigence que `/status` : les `job_id` sont séquentiels, sans le
     jeton n'importe qui relancerait (et ferait tourner Whisper sur) l'import
