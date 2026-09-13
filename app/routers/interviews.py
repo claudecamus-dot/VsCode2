@@ -1856,6 +1856,16 @@ async def save_record_backup(
             # symptôme du 2026-09-08 (zéro octet d'audio sur 2h), à faire
             # ressortir plutôt que le laisser passer pour « écrite ».
             logger.warning("Sauvegarde audio de secours VIDE : %s (mission %s)", filename, mission_id)
+    except UploadTropVolumineux as exc:
+        # 413, pas 500 — jumeau exact du correctif posé sur `transcribe_file`
+        # (audit-technique sécurité du 2026-09-13). Le dépassement de plafond
+        # était aplati en « panne serveur », message explicite perdu. Ici
+        # l'enjeu est plus direct encore qu'à l'import : l'onglet détient la
+        # SEULE copie de cet audio, et le client relance automatiquement les
+        # `status >= 500` — un refus de taille rendu en 500 fait donc rejouer
+        # le même volume hors norme au lieu de dire à l'utilisateur ce qui ne
+        # va pas.
+        return JSONResponse({"error": str(exc)}, status_code=413)
     except Exception:
         logger.exception("Échec de la sauvegarde audio de secours")
         return JSONResponse(

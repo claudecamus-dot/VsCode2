@@ -157,6 +157,23 @@ async def transcribe_file(
         await asyncio.to_thread(
             ecrire_audio_borne, file.file, RECORDINGS_DIR / filename
         )
+    except UploadTropVolumineux as exc:
+        # 413 et message EXPLICITE, comme le chemin mémoire de ce même fichier
+        # (audit-technique sécurité du 2026-09-13). `ecrire_audio_borne` lève
+        # `EcritureAudioTropVolumineuse` — une sous-classe de
+        # `UploadTropVolumineux` — mais le `except Exception` ci-dessous
+        # l'attrapait et répondait « Échec de l'import du fichier audio. » en
+        # 500 : le plafond était annoncé au client sous un code qui signifie
+        # « panne serveur », et le message qui dit POURQUOI (« Fichier audio
+        # trop volumineux (plafond 100 Mo) ») était perdu.
+        #
+        # Le message est écrit par le projet (`uploads.py`) et ne porte aucun
+        # chemin : le publier ne contredit pas la règle « message FIXE, jamais
+        # str(exc) », qui vise le texte d'exceptions TIERCES. C'est d'ailleurs
+        # déjà ce que fait la route sœur en mémoire, quinze lignes plus haut,
+        # avec sa raison écrite : un refus de taille est DÉFINITIF pour ces
+        # octets, et un 5xx invite le client à rejouer le même volume.
+        return JSONResponse({"error": str(exc)}, status_code=413)
     except Exception:
         # Même règle qu'au-dessus : l'écriture disque échoue avec un message
         # qui contient RECORDINGS_DIR en absolu.

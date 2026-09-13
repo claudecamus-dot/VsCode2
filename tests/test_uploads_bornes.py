@@ -359,6 +359,56 @@ def test_notes_audio_trop_grosses_refusees_avant_de_tout_charger_en_ram(
     assert "trop volumineux" in response.json()["error"].lower()
 
 
+def test_import_fichier_trop_gros_rend_413_et_dit_pourquoi(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Chemin DISQUE de `/audio/transcribe-file` — finding audit-technique
+    sécurité du 2026-09-13.
+
+    Les deux chemins MÉMOIRE ci-dessus rendaient déjà 413 avec le message qui
+    dit pourquoi. Les deux chemins qui écrivent en streaming sur DISQUE, eux,
+    ont reçu leur plafond le 2026-09-10 (`ecrire_audio_borne`) mais pas leur
+    code de retour : `EcritureAudioTropVolumineuse` — sous-classe de
+    `UploadTropVolumineux` — était attrapée par le `except Exception` qui
+    enveloppe l'écriture et aplatie en 500 « Échec de l'import du fichier
+    audio. ». Le plafond était donc annoncé sous un code qui signifie « panne
+    serveur », et la raison perdue.
+
+    Rouge sur le code d'avant : 500 au lieu de 413."""
+    monkeypatch.setattr("app.uploads.MAX_AUDIO_UPLOAD_BYTES", 4096)
+    mission_id = _creer_mission(client, "Mission import trop gros")
+
+    response = client.post(
+        "/audio/transcribe-file",
+        files={"file": ("entretien.weba", b"\0" * 20000, "audio/webm")},
+        data={"session_token": "sess-plafond", "mission_id": str(mission_id)},
+    )
+
+    assert response.status_code == 413, response.text
+    assert "trop volumineux" in response.json()["error"].lower()
+    assert "plafond" in response.json()["error"].lower()
+    assert "detail" not in response.json()
+
+
+def test_sauvegarde_de_secours_trop_grosse_rend_413_et_dit_pourquoi(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Jumeau du précédent sur `save_record_backup`. L'enjeu y est plus direct
+    encore : l'onglet détient la SEULE copie de cet audio, et le JS relance
+    automatiquement les `status >= 500` — un refus de taille rendu en 500 fait
+    donc rejouer le même volume hors norme au lieu de dire ce qui ne va pas."""
+    monkeypatch.setattr("app.uploads.MAX_AUDIO_UPLOAD_BYTES", 4096)
+    mission_id = _creer_mission(client, "Mission backup trop gros")
+
+    response = client.post(
+        f"/missions/{mission_id}/interviews/record/backup",
+        files={"file": ("secours.webm", b"\0" * 20000, "audio/webm")},
+    )
+
+    assert response.status_code == 413, response.text
+    assert "trop volumineux" in response.json()["error"].lower()
+
+
 def test_le_plafond_audio_par_defaut_laisse_passer_un_enregistrement_reel() -> None:
     """Garde-fou sur la garde. Mesuré le 2026-09-09 sur les enregistrements du
     poste : MediaRecorder produit 15,72 Ko/s (18,43 Mio pour 1200,0 s,
