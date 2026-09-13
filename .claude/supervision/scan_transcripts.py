@@ -4,7 +4,7 @@
 # | garder : la signaler au hub, qui corrige le canon et re-synchronise.
 # | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
 # |  n'est pas déployé, il n'existe pas dans ce dépôt.)
-# | Provenance canon : 97c2183 du 2026-09-02 — permet, au prochain sync, de dire si
+# | Provenance canon : 13d7355 du 2026-09-11 — permet, au prochain sync, de dire si
 # | une différence vient d'une édition locale ou d'une avance du canon (voir
 # | `determiner_cause` dans sync_dispositif.py au hub).
 # +---------------------------------------------------------------------------
@@ -45,16 +45,17 @@ automatique — le TODO correspondant disparaît, la décision reste affichée d
 Env (surcharges, utilisées par les tests) : AGENT_SUPERVISION_TRANSCRIPTS,
 AGENT_SUPERVISION_STATE, AGENT_SUPERVISION_WIKI_PAGE, AGENT_SUPERVISION_WIKI_INDEX,
 AGENT_SUPERVISION_RUNS, AGENT_SUPERVISION_ROUTING_HINTS, AGENT_SUPERVISION_DIAGNOSTIC,
-AGENT_SUPERVISION_OPENHUB_DB, AGENT_SUPERVISION_ARBITRAGES.
+AGENT_SUPERVISION_ARBITRAGES.
 """
 import datetime as dt
 import glob
+import hashlib
 import json
 import os
-import traceback
 import re
 import subprocess
 import sys
+import traceback
 
 SUP_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(os.path.dirname(SUP_DIR))
@@ -71,14 +72,19 @@ WIKI_HTML = os.environ.get("AGENT_SUPERVISION_WIKI_HTML") or os.path.join(
 RUNS_PATH = os.environ.get("AGENT_SUPERVISION_RUNS") or os.path.join(
     REPO, ".claude", "orchestration", "runs.jsonl"
 )
+PROMPTS_PATH = os.environ.get("AGENT_ORCHESTRATION_PROMPTS") or os.path.join(
+    REPO, ".claude", "orchestration", "prompts.jsonl"
+)
+# Optionnel : présent seulement sur les projets qui embarquent une app OpenHub
+# (SQLite `agent_results`, ex. VSCode2) — `openhub_stats()` rend None ailleurs.
+OPENHUB_DB = os.environ.get("AGENT_SUPERVISION_OPENHUB_DB") or os.path.join(
+    REPO, "data", "app.db"
+)
 ROUTING_HINTS_PATH = os.environ.get("AGENT_SUPERVISION_ROUTING_HINTS") or os.path.join(
     REPO, ".claude", "orchestration", "routing-hints.json"
 )
 DIAGNOSTIC_PATH = os.environ.get("AGENT_SUPERVISION_DIAGNOSTIC") or os.path.join(
     SUP_DIR, "diagnostic.json"
-)
-OPENHUB_DB = os.environ.get("AGENT_SUPERVISION_OPENHUB_DB") or os.path.join(
-    REPO, "data", "app.db"
 )
 ARBITRAGES_PATH = os.environ.get("AGENT_SUPERVISION_ARBITRAGES") or os.path.join(
     SUP_DIR, "arbitrages.json"
@@ -96,6 +102,14 @@ PROVEN_MIN = 3  # invocations à partir desquelles un agent/skill est "éprouvé
 DIAGNOSTIC_CADENCE_DAYS = 14  # au-delà : le diagnostic étage 2 est signalé "à relancer"
 DIAGNOSTIC_STALE_RUNS = 3  # runs d'orchestration non couverts qui périment aussi le diagnostic
 ECHEC_PRUDENCE_MIN = 2  # échecs en orchestration à partir desquels un agent passe en prudence
+# `echec` est un mot du vocabulaire de log_run.py quasiment jamais utilisé en pratique
+# (0 sur 131 runs mesurés le 2026-09-04, malgré 85 reprises journalisées ailleurs) : la
+# branche echecs ci-dessus ne peut donc jamais se déclencher (finding
+# `VScode5:prudence-routage-inerte`). Les reprises, elles, SONT journalisées à chaque
+# run — seuil structurellement atteignable, ne remplace pas la branche echecs (gardée
+# pour le jour où `echec` sera vraiment utilisé), s'y ajoute.
+REPRISE_PRUDENCE_SEUIL = 2  # reprises sur un même run à partir desquelles il compte comme "fort"
+REPRISES_PRUDENCE_MIN_RUNS = 2  # runs à forte reprise avant qu'un agent/skill passe en prudence
 MARK_START = "<!-- TODO-AGENTS:START"
 MARK_END = "<!-- TODO-AGENTS:END -->"
 HTML_MARK_START = "<!-- TODO-AGENTS-HTML:START"
@@ -197,6 +211,10 @@ def reset_si_detecteur_change(state: dict) -> bool:
     state["files"] = {}
     state["skills"] = {}
     state["subagents"] = {}
+    state["skills_journal"] = {}
+    state["subagents_journal"] = {}
+    state.pop("usage_offset", None)
+    state.pop("usage_empreinte", None)
     state["detector_version"] = DETECTOR_VERSION
     state["last_replay"] = dt.datetime.now().astimezone().isoformat(timespec="seconds")
     return True
@@ -267,6 +285,209 @@ def scan(state: dict) -> int:
     return new_events
 
 
+def scan_journal_usage(state: dict) -> int:
+    """Le TROISIÈME canal : `usage.jsonl`, écrit par le hook PostToolUse.
+
+    POURQUOI IL FALLAIT L'AJOUTER (mesure du 2026-09-02). Les deux canaux existants —
+    `skills` et `subagents` — dérivent tous deux des transcripts, et 126 des 137
+    transcripts référencés avaient disparu du disque. Résultat publié au tableau de
+    bord : « Élaguer les skills BMAD : 43/46 jamais invoqués », alors que `usage.jsonl`
+    portait au même instant 8 invocations de `bmad-code-review`, 10 de
+    `bmad-review-edge-case-hunter`, 6 de `bmad-review-adversarial-general` et 1 de
+    `bmad-technical-research` — plus `pdf-quality`. Cinq skills réellement invoquées
+    étaient comptées « jamais utilisées », et le TODO proposait d'élaguer ce qui venait
+    de servir le jour même. `dormants()` annonçait déjà « tous canaux confondus » : ses
+    deux canaux étaient en fait la même source, disparue.
+
+    Ce journal-ci est local, append-only et écrit à l'instant de l'appel : il survit à
+    la purge des transcripts. Il ne REMPLACE pas les transcripts (eux seuls portent les
+    slash-commands et le contexte), il les complète — d'où des agrégats SÉPARÉS
+    (`skills_journal`, `subagents_journal`) plutôt qu'une fusion des compteurs : les
+    deux sources se recouvrent partiellement, additionner leurs `n` inventerait un
+    volume. Ce qui se déduit des deux, et qui est tout ce dont les TODO ont besoin,
+    c'est « ce nom a-t-il servi, et quand pour la dernière fois » — cf. `derniers_usages`.
+
+    Lecture INCRÉMENTALE par offset d'octets, comme les transcripts : un scan qui
+    relirait tout à chaque session doublerait les compteurs. Fail-open intégral
+    (hook SessionStart) : journal absent, ligne illisible, offset incohérent →
+    on ignore, jamais d'exception.
+    """
+    chemin = os.environ.get("AGENT_SUPERVISION_USAGE") or os.path.join(SUP_DIR, "usage.jsonl")
+    # Un `state.json` abime ne doit pas couter le scan de demarrage : les agregats et
+    # l'offset sont RETYPES avant usage plutot que supposes sains (revue 2026-09-02 —
+    # `usage_offset` en chaine levait un TypeError, `skills_journal` en liste un
+    # AttributeError, et le docstring ci-dessus promettait « jamais d'exception »).
+    if not isinstance(state.get("skills_journal"), dict):
+        state["skills_journal"] = {}
+    if not isinstance(state.get("subagents_journal"), dict):
+        state["subagents_journal"] = {}
+    skills, subagents = state["skills_journal"], state["subagents_journal"]
+    offset = state.get("usage_offset")
+    offset = offset if isinstance(offset, int) and offset >= 0 else 0
+    try:
+        taille = os.path.getsize(chemin)
+    except OSError:
+        return 0
+    if offset > taille:      # journal tronqué ou remplacé : on repart de zéro
+        offset, state["skills_journal"], state["subagents_journal"] = 0, {}, {}
+        skills, subagents = state["skills_journal"], state["subagents_journal"]
+    # Un journal remplacé par un contenu DIFFÉRENT mais de MÊME taille ou plus long
+    # (rotation, restauration, `git checkout`) ne déclenche pas `offset > taille` :
+    # la lecture reprendrait au milieu d'une ligne qui n'existe plus dans le nouveau
+    # fichier (chasse aux cas limites, 2026-09-02). On empreinte exactement le
+    # PRÉFIXE DÉJÀ CONSOMMÉ (`offset` octets, pas un nombre fixe) : un pur APPEND ne
+    # touche jamais ces octets-là, quelle que soit la taille du fichier — une
+    # empreinte à fenêtre fixe (4096) échouait sur tout journal plus petit que la
+    # fenêtre, où un simple append fait grossir CE QUE `read(4096)` renvoie.
+    if offset > 0:
+        try:
+            with open(chemin, "rb") as fh:
+                empreinte = hashlib.sha1(fh.read(offset)).hexdigest()
+        except OSError:
+            empreinte = None
+        if empreinte is not None and state.get("usage_empreinte") not in (None, empreinte):
+            offset, state["skills_journal"], state["subagents_journal"] = 0, {}, {}
+            skills, subagents = state["skills_journal"], state["subagents_journal"]
+    n = 0
+    avant_skills = {k: dict(v) for k, v in skills.items() if isinstance(v, dict)}
+    avant_subagents = {k: dict(v) for k, v in subagents.items() if isinstance(v, dict)}
+    try:
+        with open(chemin, "rb") as fh:
+            fh.seek(offset)
+            for raw in fh:
+                if not raw.endswith(b"\n"):      # ligne en cours d'écriture
+                    break
+                offset += len(raw)
+                try:
+                    e = json.loads(raw.decode("utf-8-sig", "replace"))
+                except ValueError:
+                    continue
+                if not isinstance(e, dict) or e.get("event"):
+                    continue
+                ts = e.get("ts") if isinstance(e.get("ts"), str) else ""
+                # `log_usage.py` marque `echec: true` quand la reponse de l'outil est
+                # une erreur. On compte quand meme : le canal transcripts compte des
+                # `tool_use` sans regarder leur issue, et deux canaux fusionnes par un
+                # `max()` doivent mesurer LA MEME CHOSE. La question de la page est « ce
+                # nom a-t-il servi », pas « a-t-il reussi » — R6 dit precisement que
+                # l'etage 1 mesure la presence, jamais le fonctionnement.
+                for canal, cle in ((skills, "skill"), (subagents, "subagent_type")):
+                    nom = e.get(cle)
+                    if isinstance(nom, str) and nom:
+                        record(canal, nom, ts)
+                        n += 1
+    except Exception:
+        # Fail-open integral, comme le docstring l'annonce : l'offset n'est PAS ecrit,
+        # donc les lignes deja comptees le seraient une seconde fois au scan suivant.
+        # On rend le state a son etat d'avant plutot que de publier un double comptage.
+        state["skills_journal"], state["subagents_journal"] = avant_skills, avant_subagents
+        return 0
+    state["usage_offset"] = offset
+    # Empreinte du prefixe maintenant consomme (`offset` octets APRES cette lecture) :
+    # comparee au debut du PROCHAIN appel, elle detecte un remplacement de contenu
+    # qu'un simple `offset > taille` laisserait passer (meme taille ou plus long).
+    try:
+        with open(chemin, "rb") as fh:
+            state["usage_empreinte"] = hashlib.sha1(fh.read(offset)).hexdigest()
+    except OSError:
+        pass
+    return n
+
+
+def ratio_qualification(runs: list) -> dict:
+    """Le ratio « demandes vues / demandes orchestrées », enfin calculable.
+
+    Finding `VScode5:seuil-qualification-non-mesurable` (2026-09-02), option A. Le
+    numérateur existait depuis juillet (`runs.jsonl`), le dénominateur nulle part :
+    106 runs, 106 `orchestre`, 0 `direct-signale`, parce qu'une exécution directe ne
+    se journalise pas. `orchestrator_gate.py` voit CHAQUE prompt et en écrit une ligne
+    dans `prompts.jsonl` — c'est ce fichier-ci qu'on lit.
+
+    On compare sur la MÊME fenêtre : le journal de prompts commence le jour où le hook
+    s'est mis à écrire, donc ne compter que les runs postérieurs à sa première ligne.
+    Comparer 106 runs de six semaines à trois jours de prompts donnerait un ratio
+    supérieur à 1 — un chiffre qui ne veut rien dire est pire que pas de chiffre.
+
+    Rend `None` tant que le journal est vide : un lecteur qui afficherait « 0 % » sur
+    une mesure qui n'a pas commencé serait lu comme un résultat.
+    """
+    lignes = [l for l in load_jsonl(PROMPTS_PATH) if isinstance(l, dict)]
+    vus = [l for l in lignes if not l.get("slash")]
+    # Compte EXPLICITE, jamais une soustraction (revue 2026-09-02) : `len(lignes) -
+    # len(vus)` publiait toute ligne mal formee comme « commande slash », un chiffre
+    # invente sur une page d'arbitrage.
+    slash = sum(1 for l in lignes if l.get("slash"))
+    horodates = [l["ts"] for l in lignes if isinstance(l.get("ts"), str) and l["ts"]]
+    if not lignes or not horodates:
+        return None
+    depuis = min(horodates)
+    orchestres = [r for r in runs if isinstance(r, dict) and (r.get("ts") or "") >= depuis]
+    part = (len(orchestres) / len(vus)) if vus else None
+    # Un ratio > 1 ne veut rien dire (chasse aux cas limites, 2026-09-02 : 4 commandes
+    # slash + 1 demande hors-slash pour 5 runs -> 500 %) : les commandes slash restent
+    # HORS denominateur (elles ont deja tranche « orchestrer », rien a qualifier), mais
+    # leurs runs, eux, comptent au numerateur -- d'ou la possibilite d'un ecart. On NE
+    # BORNE PAS le chiffre (un ecart est un signal, pas une erreur a masquer), on le
+    # SIGNALE pour que l'affichage ne publie pas un pourcentage absurde sans avertir.
+    part_fiable = part is None or part <= 1
+    return {"depuis": depuis, "prompts": len(vus), "slash": slash,
+            "runs": len(orchestres), "part": part, "part_fiable": part_fiable}
+
+
+def usage_affiche(state: dict, canal: str = "skills") -> dict:
+    """Vue d'AFFICHAGE d'un canal et de son journal, fusionnés par nom.
+
+    Pourquoi elle existe (revue du 2026-09-02, trois constats bloquants). Le canal
+    journal avait été branché sur « Jamais utilisés » et sur rien d'autre : une skill
+    connue du seul journal sortait de la liste des jamais-utilisées SANS entrer dans le
+    tableau d'usage, donc disparaissait de la page — un faux négatif visible remplacé
+    par une absence, plus difficile à rattraper. Et la section HTML, le canal que
+    CLAUDE.md désigne comme celui à contrôler, n'avait pas suivi du tout : la même page
+    affichait « 43/46 jamais invoqués » au-dessus de son propre TODO qui disait autre
+    chose.
+
+    `n` prend le MAXIMUM des canaux, jamais leur somme : les deux sources se recouvrent
+    partiellement (un même appel peut être vu par le transcript ET par le hook), et
+    additionner inventerait du volume — c'est déjà la règle posée par
+    `scan_journal_usage`. Le maximum est donc une borne BASSE assumée : « au moins tant
+    d'appels », ce qui suffit à tout ce que la page en fait (a servi / dort depuis).
+    `last` prend le maximum des dates, `first` le minimum des dates non vides.
+    """
+    fusion = {}
+    for source in (canal, f"{canal}_journal"):
+        entrees = state.get(source)
+        if not isinstance(entrees, dict):
+            continue
+        for nom, e in entrees.items():
+            if not isinstance(e, dict):
+                continue
+            cur = fusion.setdefault(nom, {"n": 0, "first": "", "last": ""})
+            n = e.get("n")
+            cur["n"] = max(cur["n"], n if isinstance(n, int) else 0)
+            first = e.get("first") or ""
+            if first and (not cur["first"] or first < cur["first"]):
+                cur["first"] = first
+            cur["last"] = max(cur["last"], e.get("last") or "")
+    return fusion
+
+
+def derniers_usages(state: dict) -> dict:
+    """`{nom: dernier usage ISO}` sur les QUATRE canaux — la seule base honnête pour
+    dire « a servi » ou « dort depuis ».
+
+    Prend le MAXIMUM des dates, jamais un choix de canal : une entité qui a servi dans
+    un canal quelconque n'est ni endormie ni « jamais invoquée ». C'est l'extension
+    exacte du raisonnement déjà écrit dans `dormants()` le 2026-09-01, à la source qui
+    manquait."""
+    derniers = {}
+    for canal in ("skills", "subagents", "skills_journal", "subagents_journal"):
+        for nom, e in (state.get(canal) or {}).items():
+            last = (e or {}).get("last", "") or ""
+            if last > derniers.get(nom, ""):
+                derniers[nom] = last
+    return derniers
+
+
 def mesure_incomplete(state: dict) -> dict:
     """Constat de FIABILITÉ de la mesure — jamais un correctif de la mesure elle-même.
 
@@ -305,10 +526,19 @@ def mesure_incomplete(state: dict) -> dict:
             last = entry.get("last") or ""
             if last > dernier:
                 dernier = last
+    # Le TROISIEME canal (chasse aux cas limites, 2026-09-02) : un `usage.jsonl`
+    # present mais dont l'offset ne s'est jamais pose (permission refusee, chemin
+    # incoherent) rend 0 evenement neuf pour la MEME raison qu'un canal sain qui n'a
+    # simplement rien de nouveau -- c'est exactement le defaut que cet increment
+    # existe pour corriger sur les transcripts, reintroduit tel quel sur le canal
+    # neuf s'il n'est pas signale a son tour.
+    chemin_usage = os.environ.get("AGENT_SUPERVISION_USAGE") or os.path.join(SUP_DIR, "usage.jsonl")
+    journal_muet = os.path.isfile(chemin_usage) and not isinstance(state.get("usage_offset"), int)
     return {
         "transcripts_absents": absents,
         "total_fichiers": len(files),
         "dernier_evenement": dernier,
+        "journal_usage_muet": journal_muet,
     }
 
 
@@ -366,6 +596,48 @@ def skills_reference_declares() -> set:
     if not isinstance(data, list):
         return set()
     return {s for s in data if isinstance(s, str)}
+
+
+# Un frontmatter de skill qui commence sa `description` par DEPRECATED — la seule
+# declaration d obsolescence qui vienne de l EDITEUR et non de notre compteur.
+_RE_DESCRIPTION = re.compile(r"^description:\s*(.+)$", re.MULTILINE)
+_RE_DEPRECATED = re.compile(r"\bDEPRECATED\b", re.IGNORECASE)
+_RE_REMPLACANT = re.compile(r"in favor of `([A-Za-z0-9_.-]+)`", re.IGNORECASE)
+
+
+def skills_depreciees(fam: dict) -> dict:
+    """`{nom: remplacant}` pour les skills que LEUR PROPRE frontmatter declare
+    depreciees (`remplacant` vaut "" quand la description n en nomme aucun).
+
+    Pourquoi cette lecture existe (finding `bmad-catalogue-elagage`, 2026-09-04). Le
+    TODO « Elaguer les skills BMAD : N/M jamais invoques » melange deux choses qui
+    n ont rien a voir : ce que BMAD DECLARE obsolete, et ce que notre compteur n a pas
+    vu passer. Le second a failli faire desinstaller sur VSCode, le 2026-09-01,
+    `bmad-forge-idea` et `bmad-party-mode` — les deux skills qui ont porte toute la
+    refonte du produit COMOP trois jours plus tard. Le premier, lui, est une donnee
+    sure, lisible dans le depot, independante de la fiabilite de notre mesure.
+
+    Deterministe et sans liste codee en dur (meme exigence que `non_invocation_skills`)
+    : on LIT la `description` du frontmatter. A ce jour BMAD v6.10.0 en declare quatre
+    — bmad-create-architecture, bmad-create-prd, bmad-edit-prd, bmad-validate-prd —
+    mais la liste n est ecrite nulle part ici : elle suivra l editeur.
+
+    Fail-open : SKILL.md absent, illisible ou sans frontmatter -> le nom n est
+    simplement pas declare deprecie. On ne suppose jamais l obsolescence."""
+    out = {}
+    for nom in (fam or {}):
+        chemin = os.path.join(REPO, ".claude", "skills", nom, "SKILL.md")
+        try:
+            with open(chemin, encoding="utf-8", errors="ignore") as fh:
+                tete = fh.read(4096)
+        except OSError:
+            continue
+        m = _RE_DESCRIPTION.search(tete)
+        if not m or not _RE_DEPRECATED.search(m.group(1)):
+            continue
+        r = _RE_REMPLACANT.search(m.group(1))
+        out[nom] = r.group(1) if r else ""
+    return out
 
 
 def non_invocation_skills(fam: dict) -> set:
@@ -531,7 +803,12 @@ def load_jsonl(path: str) -> list:
     out = []
     illisibles = 0
     try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
+        # utf-8-sig, comme log_run.py/log_usage.py (memoire 2026-07-23) : un pipe
+        # PowerShell 5.1 prefixe un BOM qui, sans ce mode, colle a la premiere ligne
+        # et la fait echouer au parse -- perdue DEFINITIVEMENT ici, puisque le
+        # lecteur avance en offset d'octets sur certains journaux (chasse aux cas
+        # limites, 2026-09-02). Sans BOM, utf-8-sig == utf-8.
+        with open(path, encoding="utf-8-sig", errors="replace") as fh:
             for line in fh:
                 line = line.strip()
                 if not line:
@@ -746,33 +1023,6 @@ def catalogue_gaps(runs: list) -> dict:
     return gaps
 
 
-def openhub_stats():
-    """Couverture OpenHub (incrément C) : lit la table agent_results de l'app (SQLite,
-    lecture seule) — résultats réels vs fallback simulé (opencode absent). None si base
-    ou table absente : la couverture reste optionnelle, jamais bloquante."""
-    import sqlite3
-
-    try:
-        con = sqlite3.connect(f"file:{OPENHUB_DB}?mode=ro", uri=True)
-        try:
-            rows = con.execute(
-                "SELECT agent_label, runtime_available, created_at FROM agent_results"
-            ).fetchall()
-        finally:
-            con.close()
-    except sqlite3.Error:
-        return None
-    par_agent = {}
-    reels = 0
-    last = ""
-    for label, runtime, created in rows:
-        par_agent[label] = par_agent.get(label, 0) + 1
-        reels += 1 if runtime else 0
-        last = max(last, created or "")
-    return {"n": len(rows), "reels": reels, "simules": len(rows) - reels,
-            "last": last, "par_agent": par_agent}
-
-
 def build_runs_stats(runs: list):
     """Plan vs réel (O-C) : taux de réussite par playbook et par agent, à partir de runs.jsonl.
 
@@ -807,7 +1057,13 @@ def build_runs_stats(runs: list):
         e = agg.setdefault(cle, {
             "n": 0, "succes": 0, "echecs": 0, "reprises": 0,
             "en_cours": 0, "en_attente_validation": 0, "partiels": 0,
+            "runs_fortes_reprises": 0,
         })
+        # Compté AVANT le early-return non-terminal : une reprise pèse sur la
+        # prudence qu'elle finisse en succès, partiel ou en attente (cf. commentaire
+        # ECHEC_PRUDENCE_MIN plus haut — echec, lui, ne se déclenche jamais).
+        if reprises >= REPRISE_PRUDENCE_SEUIL:
+            e["runs_fortes_reprises"] += 1
         cle_non_terminale = NON_TERMINAUX.get(resultat)
         if cle_non_terminale:
             e[cle_non_terminale] += 1
@@ -832,6 +1088,163 @@ def build_runs_stats(runs: list):
     return par_playbook, par_agent
 
 
+# Skills dont la portee est le HUB de supervision, jamais le depot ou elles sont
+# installees : `audit-technique/SKILL.md` le declare noir sur blanc (« Portee :
+# artefact HUB uniquement, aucun miroir local », « s invoque depuis le hub, en ciblant
+# un projet de la flotte — jamais depuis le projet cible lui-meme »). Leur `n=0` sur
+# une CIBLE n est donc pas un defaut d usage : c est le fonctionnement nominal, et
+# aucun usage local ne le corrigera jamais. Les melanger aux skills locales sans usage
+# produit un TODO definitivement incorrigible (finding `skills-projet-sans-usage`,
+# volet hub-only, diagnostic VSCode du 2026-09-04 — le commit 6de0e92 avait clarifie
+# la portee dans le SKILL.md sans que le scan, lui, l apprenne).
+#
+# Liste STATIQUE et non detection textuelle, contrairement a `non_invocation_skills` :
+# la declaration de portee vit en PROSE dans le SKILL.md, pas dans un champ lisible a
+# coup sur — un grep sur « hub » y attraperait n importe quelle skill qui parle du hub.
+# Une liste courte, nommee et commentee dit mieux la verite qu une heuristique qui
+# devine. Elle vaut pour TOUS les projets cibles, le canon etant propage a tous.
+HUB_ONLY_SKILLS = ("audit-technique",)
+
+
+def skills_hub_only(fam: dict) -> list:
+    """Les skills hub-only INSTALLEES ici (triees) — vide sur un depot qui n en a pas."""
+    return sorted(k for k in (fam or {}) if k in HUB_ONLY_SKILLS)
+
+
+def _cadence_propre() -> set:
+    """Noms dont la fraicheur est DEJA suivie, et affichee, ailleurs sur cette meme
+    page — les compter une seconde fois en « sommeil » est un double-compte.
+
+    Deterministe pour la part qui peut l etre : tout hook `.claude/hooks/remind_*.py`
+    EST un mecanisme de cadence, et son nom de fichier designe ce qu il rappelle
+    (`remind_veille_agentic.py` -> `veille-agentic`). S y ajoute `agent-supervisor`,
+    dont la cadence de 14 jours n est pas portee par un hook mais par CE script
+    (`DIAGNOSTIC_CADENCE_DAYS`, rendu en toutes lettres section « Diagnostic
+    qualitatif » de la meme page) — le seul nom code en dur, et pour cette raison-la.
+    """
+    noms = {"agent-supervisor"}
+    for chemin in glob.glob(os.path.join(REPO, ".claude", "hooks", "remind_*.py")):
+        base = os.path.splitext(os.path.basename(chemin))[0]
+        noms.add(base[len("remind_"):].replace("_", "-"))
+    return noms
+
+
+def hors_perimetre_sommeil(noms) -> set:
+    """Parmi `noms`, ceux qu un TODO « en sommeil » ne peut pas rendre actionnables.
+
+    Finding `en-sommeil-indicateur` (diagnostic VSCode du 2026-09-04). La liste
+    publiee ce jour-la tenait en deux entrees, et aucune des deux n etait elaguable :
+
+    - `Explore` — un type de sous-agent NATIF du harnais. Aucun `.claude/agents/
+      Explore.md` n existe, il n y a donc rien a reveiller ni a desinstaller. Idem
+      `Plan`, `general-purpose`, `(defaut)` ;
+    - `agent-supervisor` — dont la cadence de 14 jours est deja suivie, et affichee,
+      plus haut sur la MEME page. Il en est d ailleurs sorti tout seul entre deux
+      scans, sans aucune decision humaine : un signal qui se corrige en silence n en
+      etait pas un.
+
+    Un TODO dont aucune entree n appelle de geste n est pas une liste imprecise,
+    c est une liste inactionnable — et elle use l attention qu on devra a la
+    prochaine, vraie. On mesure toujours le sommeil pareil (`dormants` reste la
+    definition unique) ; on ne PROPOSE que ce sur quoi un geste existe.
+
+    Est « natif » un nom qui n est ni une skill installee (`installed_skills`) ni un
+    sous-agent declare par un `.claude/agents/<nom>.md` du depot.
+    """
+    fam = installed_skills()
+    cadences = _cadence_propre()
+    exclus = set()
+    for nom in noms:
+        if nom in cadences:
+            exclus.add(nom)
+            continue
+        if nom in fam:
+            continue
+        if os.path.isfile(os.path.join(REPO, ".claude", "agents", f"{nom}.md")):
+            continue
+        exclus.add(nom)     # sous-agent natif : rien a reveiller, rien a desinstaller
+    return exclus
+
+
+def mesure_non_fiable(state: dict) -> bool:
+    """La mesure d usage couvre-t-elle encore ce qu elle pretend couvrir ?
+
+    Une seule definition, lue par routing-hints.json ET par l avertissement du bloc
+    TODO : deux reponses a la meme question, sur la meme page, ne peuvent pas etre
+    toutes les deux la mesure (meme raison que `dormants`)."""
+    mesure = (state or {}).get("mesure_incomplete") or {}
+    return bool(mesure.get("transcripts_absents") or mesure.get("journal_usage_muet"))
+
+
+def avertissement_mesure(state: dict) -> str:
+    """L avertissement a afficher EN TETE du bloc TODO quand la mesure n est pas
+    fiable, ou "" quand elle l est.
+
+    Le drapeau existait depuis le 2026-09-02 — mais seulement dans routing-hints.json
+    et dans une note d arbitrage. Il manquait la ou l humain arbitre : sur le bloc
+    qu il lit pour decider de desinstaller. Un `n=0` sur une base fondue ne veut plus
+    dire « jamais invoquee », il veut dire « on ne regarde plus » ; rien ne
+    distinguait les deux a l endroit ou ca compte."""
+    mesure = (state or {}).get("mesure_incomplete") or {}
+    absents = mesure.get("transcripts_absents") or 0
+    total = mesure.get("total_fichiers") or 0
+    causes = []
+    if absents:
+        causes.append(f"{absents} transcript(s) sur {total} absent(s) du disque")
+    if mesure.get("journal_usage_muet"):
+        causes.append("journal d usage muet (offset jamais pose)")
+    if not causes:
+        return ""
+    return (
+        "⚠️ **Mesure incomplète** — " + " ; ".join(causes) + ". Un `n=0` ne veut "
+        "plus dire « jamais invoquée » mais « on ne le voit plus » : les listes "
+        "ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base."
+    )
+
+
+def veille_sans_production(state: dict) -> str:
+    """L avertissement « veille lancee, rien produit », ou "" quand tout va bien.
+
+    Finding `veille-sans-depot` (diagnostic VSCode du 2026-09-10), volet (b). Le
+    sous-agent `veille-agentic` avait tourne le 2026-09-04 et n avait rien depose :
+    `.claude/veille/` etait absent du disque quatre heures plus tard, et le volet
+    « etat de l art agentic » du diagnostic sortait donc structurellement vide. Rien
+    ne distinguait ce cas d une veille JAMAIS LANCEE — deux situations qui n appellent
+    pas le meme geste (relancer avec un brief corrige vs simplement lancer).
+
+    Deterministe, 0 token : on compare la derniere invocation mesuree (tous canaux,
+    `derniers_usages`) a ce que le fichier declare (`derniere_veille`). Une invocation
+    POSTERIEURE au dernier artefact veut dire que le tour s est perdu.
+
+    Fail-open a chaque etape (fichier absent mais jamais lancee -> rien a signaler ;
+    JSON illisible -> pas d alarme inventee) : un scan ne tombe jamais sur cette
+    lecture, et n accuse jamais sur un doute."""
+    dernier_lancement = (derniers_usages(state) or {}).get("veille-agentic", "")
+    if not dernier_lancement:
+        return ""          # jamais lancee ici : ce n est pas le cas que ce signal vise
+    chemin = os.path.join(REPO, ".claude", "veille", "veille.json")
+    try:
+        with open(chemin, encoding="utf-8") as fh:
+            derniere_veille = (json.load(fh) or {}).get("derniere_veille", "") or ""
+    except FileNotFoundError:
+        return (
+            f"⚠️ **Veille lancée le {dernier_lancement[:10]}, aucun artefact produit** — "
+            "`.claude/veille/veille.json` est absent de ce dépôt : le volet « état de "
+            "l'art agentic » est structurellement vide, et une veille qui échoue reste "
+            "indistinguable d'une veille jamais lancée. Relancer avec un brief imposant "
+            "le chemin ABSOLU d'écriture."
+        )
+    except (OSError, ValueError):
+        return ""          # illisible : on ne fabrique pas une alarme sur un doute
+    if derniere_veille and derniere_veille >= dernier_lancement:
+        return ""
+    return (
+        f"⚠️ **Veille lancée le {dernier_lancement[:10]}, artefact plus ancien** — "
+        f"`.claude/veille/veille.json` date du {(derniere_veille or '?')[:10]} : le "
+        "dernier tour n'a rien déposé. Vérifier où sa sortie a atterri avant de relancer."
+    )
+
+
 def dormants(state):
     """Les noms dont l usage LE PLUS RECENT, tous canaux confondus, depasse le seuil.
 
@@ -850,16 +1263,16 @@ def dormants(state):
     hasard, le sous-agent etant le plus recent. On prend le MAXIMUM des deux dates :
     une entite qui a servi dans un canal quelconque n est pas endormie.
     """
-    derniers = {}
-    for canal in ("skills", "subagents"):
-        for nom, e in (state.get(canal) or {}).items():
-            last = e.get("last", "") or ""
-            if last > derniers.get(nom, ""):
-                derniers[nom] = last
-    return sorted(
+    derniers = derniers_usages(state)
+    endormis = sorted(
         nom for nom, last in derniers.items()
         if (lambda d: d is not None and d > DORMANT_DAYS)(days_since(last))
     )
+    # Le filtre vit ICI, dans la definition unique, et pas chez l un des deux
+    # consommateurs : routing-hints.json et le TODO du wiki doivent continuer de lire
+    # exactement la meme liste (c est le finding scan_transcripts.py:807 ci-dessus).
+    hors = hors_perimetre_sommeil(endormis)
+    return [nom for nom in endormis if nom not in hors]
 
 
 def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: dict, diagnostic,
@@ -867,15 +1280,25 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
     """Sens superviseur → orchestrateur (conception §6) : ce que le scan mesure, appliqué
     par la skill agent-orchestrator lors de la composition d'un plan."""
     skills = state.get("skills", {})
-    subagents = state.get("subagents", {})
-    combined = {**skills, **subagents}
+    # `eprouves` et `verifications_oubliees` lisaient encore le SEUL canal transcripts,
+    # six lignes sous le commentaire qui annonce les quatre canaux (revue 2026-09-02) :
+    # routing-hints.json, que l'orchestrateur consomme, continuait donc d'affirmer
+    # exactement ce que cet increment pretend corriger.
+    vu_skills = usage_affiche(state, "skills")
+    combined = {**vu_skills, **usage_affiche(state, "subagents")}
     eprouves = sorted(k for k, e in combined.items() if e["n"] >= PROVEN_MIN)
     libref = non_invocation_skills(fam)
-    jamais = sorted(k for k, v in fam.items() if k not in skills and k not in libref)
-    bibliotheque = sorted(k for k in libref if k not in skills)
+    # « Jamais utilise » se juge sur les QUATRE canaux (derniers_usages), pas sur le
+    # seul canal transcripts : 126 transcripts sur 137 avaient disparu le 2026-09-02
+    # et 5 skills invoquees le jour meme etaient publiees « jamais utilisees ».
+    vus = set(skills) | set(derniers_usages(state))
+    hub_only = skills_hub_only(fam)
+    jamais = sorted(k for k, v in fam.items()
+                    if k not in vus and k not in libref and k not in hub_only)
+    bibliotheque = sorted(k for k in libref if k not in vus)
     en_sommeil = dormants(state)
     verifs_oubliees = []
-    if "revue-increment" in fam and "revue-increment" not in skills:
+    if "revue-increment" in fam and "revue-increment" not in vus:
         verifs_oubliees.append(
             "revue-increment jamais invoquee malgre le rappel SessionStart -> l'inserer d'office en etape terminale des plans de dev"
         )
@@ -895,10 +1318,21 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
     # sans attendre le diagnostic LLM (dédupliqué sur les cibles déjà signalées).
     deja = {p["cible"] for p in prudence}
     for agent, e in sorted(par_agent.items()):
-        if agent not in deja and e["echecs"] >= ECHEC_PRUDENCE_MIN and e["echecs"] > e["succes"]:
+        if agent in deja:
+            continue
+        if e["echecs"] >= ECHEC_PRUDENCE_MIN and e["echecs"] > e["succes"]:
             prudence.append({
                 "cible": agent,
                 "raison": f"échecs répétés en orchestration ({e['echecs']}/{e['n']} runs)",
+            })
+        elif e.get("runs_fortes_reprises", 0) >= REPRISES_PRUDENCE_MIN_RUNS:
+            prudence.append({
+                "cible": agent,
+                "raison": (
+                    f"reprises répétées en orchestration "
+                    f"({e['runs_fortes_reprises']} run(s) à >= {REPRISE_PRUDENCE_SEUIL} "
+                    f"reprise(s) sur {e['n']})"
+                ),
             })
     gaps = catalogue_gaps(runs or [])
     # Fiabilité de la mesure elle-même (finding state-transcripts-absents,
@@ -918,6 +1352,10 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
         # d'invocations (constat #2) — sortis de jamais_utilises pour que
         # l'orchestrateur ne les traite pas comme morts.
         "bibliotheque_reference": bibliotheque,
+        # Skills hub-only (cf. HUB_ONLY_SKILLS) : leur `n=0` sur une cible est le
+        # fonctionnement nominal, pas un defaut d usage — sorties de jamais_utilises
+        # pour que l orchestrateur ne les propose ni a l elagage ni au routage local.
+        "hub_only": hub_only,
         "en_sommeil": en_sommeil,
         "verifications_oubliees": verifs_oubliees,
         "playbooks": par_playbook,
@@ -936,7 +1374,7 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
         # mais ce drapeau dit qu'ils ne couvrent plus tout l'historique attendu —
         # à l'orchestrateur/au lecteur de ne pas les lire comme une mesure fraîche.
         "mesure_incomplete": mesure,
-        "mesure_non_fiable": bool(mesure.get("transcripts_absents")),
+        "mesure_non_fiable": mesure_non_fiable(state),
     }
 
 
@@ -961,27 +1399,61 @@ def build_todos(skills: dict, fam: dict, gaps: dict = None,
                 f"**Trou récurrent du catalogue** : `{nom}` a nécessité une résolution ad hoc "
                 f"×{n} ({res}) — l'ancrer pour de bon (création/restauration à arbitrer)."
             )
+    # `skills` (canal transcripts) est complete par les autres canaux quand `state`
+    # est fourni : une skill vue par le journal du hook n est pas « jamais invoquee »
+    # (cf. scan_journal_usage — le TODO « 43/46 » du 2026-09-02 comptait comme mortes
+    # 5 skills invoquees le jour meme).
+    vus = set(skills) | (set(derniers_usages(state)) if state is not None else set())
+    non_fiable = mesure_non_fiable(state)
     bmad = [k for k, v in fam.items() if v == "BMAD"]
-    bmad_unused = [k for k in bmad if k not in skills]
+    bmad_unused = [k for k in bmad if k not in vus]
     if "famille:BMAD" in arbitres:
         bmad_unused = []  # tri déjà arbitré par l'humain — ne pas re-nagguer
-    if bmad and bmad_unused:
-        if len(bmad_unused) == len(bmad):
+    # (a) Le SEUL élagage qui ne dépende pas de notre mesure d'usage : les shims que
+    # BMAD lui-même déclare dépréciés, chacun avec son remplaçant nommé. Ceux-là se
+    # proposent toujours, mesure fiable ou non — la déprécation est une déclaration
+    # de l'éditeur, pas une déduction de notre compteur.
+    deprecies = {k: v for k, v in skills_depreciees(fam).items()
+                 if k in bmad and k not in arbitres}
+    if deprecies:
+        listing = ", ".join(f"`{k}`" + (f" → `{v}`" if v else "")
+                            for k, v in sorted(deprecies.items()))
+        todos.append(
+            f"**Désinstaller les shims BMAD dépréciés** ({len(deprecies)}) : {listing} — "
+            "dépréciés par BMAD dans leur propre `description`, chacun avec son "
+            "remplaçant ; le seul élagage qui ne repose pas sur notre mesure d'usage."
+        )
+    # (b) Tout le reste : un `n=0` sur une base de mesure fondue ne prouve aucune
+    # inutilité. Le TODO « N/M jamais invoqués » a failli faire désinstaller, le
+    # 2026-09-01 sur VSCode, `bmad-forge-idea` et `bmad-party-mode` — les deux skills
+    # qui ont porté toute la refonte du produit COMOP jusqu'à un `forged-idea.md`
+    # HARDENED trois jours plus tard. Tant que `mesure_non_fiable` est vrai, on ne
+    # propose donc RIEN sur ce lot : une skill inutilisée aujourd'hui n'a peut-être
+    # pas encore eu son moment, et l'avertissement en tête du bloc dit pourquoi la
+    # liste ne s'y trouve pas (finding `bmad-catalogue-elagage`, 2026-09-04).
+    reste_unused = [k for k in bmad_unused if k not in deprecies]
+    if bmad and reste_unused and not non_fiable:
+        if len(reste_unused) == len(bmad):
             todos.append(
                 f"**Trier les skills BMAD** : {len(bmad)} installés, 0 invocation à ce jour — "
                 "décider lesquels garder, customiser ou désinstaller."
             )
         else:
             todos.append(
-                f"**Élaguer les skills BMAD** : {len(bmad_unused)}/{len(bmad)} jamais invoqués — "
+                f"**Élaguer les skills BMAD** : {len(reste_unused)}/{len(bmad)} jamais invoqués — "
                 "confirmer l'utilité des non-utilisés."
             )
     # Les skills-bibliothèque/référence (constat #2) ne sont pas des « sans usage » :
     # leur valeur passe par scripts/sous-agent, invisible au compteur d'invocations.
     libref = non_invocation_skills(fam)
+    # Les skills hub-only ne sont pas des « sans usage » locales : cf. HUB_ONLY_SKILLS.
+    # Elles s'affichent a part, section « Skills hub-only » de la page — pas en TODO,
+    # puisqu'il n'existe aucun geste local a proposer.
+    hub_only = skills_hub_only(fam)
     proj_unused = sorted(
         k for k, v in fam.items()
-        if v == "projet" and k not in skills and k not in arbitres and k not in libref
+        if v == "projet" and k not in vus and k not in arbitres and k not in libref
+        and k not in hub_only
     )
     if "revue-increment" in proj_unused:
         proj_unused.remove("revue-increment")
@@ -1040,11 +1512,39 @@ def _usage_table(agg: dict, fam: dict = None) -> list:
     return lines
 
 
+def openhub_stats():
+    """Couverture OpenHub (incrément C, VSCode2) : lit la table agent_results de l'app
+    (SQLite, lecture seule) — résultats réels vs fallback simulé (opencode absent). None
+    si base ou table absente : la couverture reste optionnelle, jamais bloquante — les
+    projets sans app OpenHub (la majorité de la flotte) ne voient simplement rien."""
+    import sqlite3
+
+    try:
+        con = sqlite3.connect(f"file:{OPENHUB_DB}?mode=ro", uri=True)
+        try:
+            rows = con.execute(
+                "SELECT agent_label, runtime_available, created_at FROM agent_results"
+            ).fetchall()
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+    par_agent = {}
+    reels = 0
+    last = ""
+    for label, runtime, created in rows:
+        par_agent[label] = par_agent.get(label, 0) + 1
+        reels += 1 if runtime else 0
+        last = max(last, created or "")
+    return {"n": len(rows), "reels": reels, "simules": len(rows) - reels,
+            "last": last, "par_agent": par_agent}
+
+
 def build_page(state: dict, fam: dict, todos: list, diag_todos: list = None, diag_a_jour: bool = False,
                openhub: dict = None, arbitrages: list = None, diagnostic_ran: bool = False,
                masques: list = None) -> str:
-    skills = state.get("skills", {})
-    subagents = state.get("subagents", {})
+    skills = usage_affiche(state, "skills")
+    subagents = usage_affiche(state, "subagents")
     nb_files = len(state.get("files", {}))
     total_skill = sum(e["n"] for e in skills.values())
     total_sub = sum(e["n"] for e in subagents.values())
@@ -1069,13 +1569,20 @@ def build_page(state: dict, fam: dict, todos: list, diag_todos: list = None, dia
     L += ["", "## Sous-agents", ""]
     L += _usage_table(subagents)
     libref = non_invocation_skills(fam)
+    # Les 4 canaux, pas le seul canal transcripts (2026-09-02) : 126 transcripts sur
+    # 137 avaient disparu du disque, et la page listait « jamais utilisées » cinq
+    # skills que le journal du hook avait vu tourner le jour même.
+    vus = set(skills) | set(derniers_usages(state))
     L += ["", "## Jamais utilisés", ""]
     unused_by_family = {}
     libref_unused = []
+    hub_only_unused = []
     for name, family in fam.items():
-        if name in skills:
+        if name in vus:
             continue
-        if name in libref:
+        if name in HUB_ONLY_SKILLS:
+            hub_only_unused.append(name)
+        elif name in libref:
             libref_unused.append(name)
         else:
             unused_by_family.setdefault(family, []).append(name)
@@ -1101,6 +1608,15 @@ def build_page(state: dict, fam: dict, todos: list, diag_todos: list = None, dia
         else:
             L.append(", ".join(f"`{n}`" for n in names))
         L.append("")
+    if hub_only_unused:
+        L += [
+            "## Skills hub-only", "",
+            "_S'invoquent DEPUIS le hub de supervision, en ciblant ce projet — jamais "
+            "depuis ce dépôt (leur `SKILL.md` le déclare). Leur `n=0` ici est le "
+            "fonctionnement nominal, pas un défaut d'usage : aucun usage local ne le "
+            "corrigera, il n'y a donc rien à en conclure ni rien à désinstaller._", "",
+            ", ".join(f"`{n}`" for n in sorted(hub_only_unused)), "",
+        ]
     if libref_unused:
         L += [
             "## Skills bibliothèque / référence", "",
@@ -1120,6 +1636,12 @@ def build_page(state: dict, fam: dict, todos: list, diag_todos: list = None, dia
         L.append(", ".join(f"`{k}` ×{v}" for k, v in sorted(openhub["par_agent"].items())))
         L.append("")
     L += ["## TODO agents (constats automatiques)", ""]
+    avert = avertissement_mesure(state)
+    if avert:
+        L += [avert, ""]
+    avert_veille = veille_sans_production(state)
+    if avert_veille:
+        L += [avert_veille, ""]
     if todos:
         L += [f"{i}. {t}" for i, t in enumerate(todos, 1)]
     else:
@@ -1163,6 +1685,41 @@ def build_page(state: dict, fam: dict, todos: list, diag_todos: list = None, dia
             "",
         ]
         L += [f"- ~~{m['titre']}~~ (`{m['cible']}`)" for m in masques]
+    # Le ratio de qualification — la mesure que la décision n°2 de la conception
+    # attendait depuis juillet. Affichée ICI et non dans routing-hints.json : c'est
+    # une donnée d'arbitrage humain, pas de routage.
+    ratio = ratio_qualification(load_jsonl(RUNS_PATH))
+    L += ["", "## Seuil de qualification — la mesure", ""]
+    if not ratio:
+        L.append(
+            "_Journal de prompts vide : `orchestrator_gate.py` vient d'être outillé "
+            "(finding `VScode5:seuil-qualification-non-mesurable`). Le ratio "
+            "apparaîtra dès les premières demandes vues._"
+        )
+    else:
+        part = "?" if ratio["part"] is None else f"{ratio['part'] * 100:.0f} %"
+        L.append(
+            f"Depuis le {_fmt_date(ratio['depuis'])} : **{ratio['prompts']}** demande(s) "
+            f"vue(s) hors commande slash (+ {ratio['slash']} slash), **{ratio['runs']}** "
+            f"run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **{part}** "
+            "des demandes orchestrées."
+        )
+        if not ratio.get("part_fiable", True):
+            # Chasse aux cas limites, 2026-09-02 : plus de runs que de demandes hors
+            # slash (des runs proviennent de commandes slash, hors dénominateur par
+            # construction) rend ce pourcentage > 100 % — le dire plutôt que publier
+            # un chiffre absurde sans avertissement.
+            L.append(
+                "_⚠️ Ratio non fiable ici : plus de runs journalisés que de demandes "
+                "hors slash sur la fenêtre — une partie des runs provient probablement "
+                "de commandes slash (déjà tranchées « orchestrer », hors dénominateur). "
+                "Se lira mieux avec plus d'historique._"
+            )
+        L.append(
+            "_Ce chiffre ne dit pas ce qui AURAIT dû être orchestré : le hook compte, "
+            "il ne juge pas. Il donne le dénominateur qui manquait pour arbitrer le "
+            "seuil sur données plutôt que sur habitude._"
+        )
     L += [
         "",
         "---",
@@ -1207,19 +1764,26 @@ def _html_usage_rows(agg: dict, fam: dict = None) -> str:
 def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = None, diag_a_jour: bool = False,
                        openhub: dict = None, arbitrages: list = None, diagnostic_ran: bool = False,
                        masques: list = None) -> str:
-    skills = state.get("skills", {})
-    subagents = state.get("subagents", {})
+    skills = usage_affiche(state, "skills")
+    subagents = usage_affiche(state, "subagents")
     nb_files = len(state.get("files", {}))
     total_skill = sum(e["n"] for e in skills.values())
     total_sub = sum(e["n"] for e in subagents.values())
     today = dt.date.today().isoformat()
     libref = non_invocation_skills(fam)
+    # Les QUATRE canaux, comme build_page (revue 2026-09-02) : cette section-ci est le
+    # canal SERVI, celui que CLAUDE.md demande de controler ; elle republiait
+    # « jamais invoques » ce que le journal du hook avait vu tourner le jour meme.
+    vus = set(skills) | set(derniers_usages(state))
     unused_by_family = {}
     libref_unused = []
+    hub_only_unused = []
     for name, family in fam.items():
-        if name in skills:
+        if name in vus:
             continue
-        if name in libref:
+        if name in HUB_ONLY_SKILLS:
+            hub_only_unused.append(name)
+        elif name in libref:
             libref_unused.append(name)
         else:
             unused_by_family.setdefault(family, []).append(name)
@@ -1235,6 +1799,13 @@ def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = N
         unused_html.append(
             f"      <p><strong>{family}</strong> — {len(names)}/{total_family} jamais invoqués : {listing}</p>"
         )
+    if hub_only_unused:
+        listing = ", ".join(f"<code>{_esc(n)}</code>" for n in sorted(hub_only_unused))
+        unused_html.append(
+            "      <p><strong>hub-only</strong> — s'invoquent depuis le hub de "
+            "supervision en ciblant ce projet, jamais depuis ce dépôt : n=0 est ici "
+            f"le fonctionnement nominal, pas un défaut d'usage : {listing}</p>"
+        )
     if libref_unused:
         listing = ", ".join(f"<code>{_esc(n)}</code>" for n in sorted(libref_unused))
         unused_html.append(
@@ -1242,6 +1813,13 @@ def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = N
             f"non capté par le compteur (n=0 ≠ mort, constat #2) : {listing}</p>"
         )
     todo_html = []
+    avert = avertissement_mesure(state)
+    if avert:
+        todo_html.append(f'      <p class="avertissement"><em>{_md_inline(avert)}</em></p>')
+    avert_veille = veille_sans_production(state)
+    if avert_veille:
+        todo_html.append(
+            f'      <p class="avertissement"><em>{_md_inline(avert_veille)}</em></p>')
     for t in todos:
         todo_html.append(
             '      <div class="critical">\n'
@@ -1343,10 +1921,9 @@ def build_html_section(state: dict, fam: dict, todos: list, diag_todos: list = N
       <h3>Jamais utilisés</h3>
 {chr(10).join(unused_html) if unused_html else "      <p><em>(tous les skills installés ont déjà été invoqués)</em></p>"}
 
-{openhub_html}
       <h3>TODO agents — chantiers à lancer (constats automatiques)</h3>
 {chr(10).join(todo_html)}
-
+{openhub_html}
 {arbitrages_html}      <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
 {diag_body}
     </section>
@@ -1387,8 +1964,13 @@ def update_wiki_html(state: dict, fam: dict, todos: list, diag_todos: list = Non
     return True
 
 
-def update_index(todos: list) -> None:
+def update_index(todos: list, avertissement: str = "") -> None:
+    """`avertissement` : la ligne « mesure incomplète » d'`avertissement_mesure()`,
+    reprise ICI aussi — l'index est la première page lue, et un extrait de trois
+    constats y est plus exposé encore que la page complète."""
     bullets = "\n".join(f"- {t}" for t in todos[:3]) or "- _(aucun constat automatique)_"
+    if avertissement:
+        bullets = f"{avertissement}\n\n{bullets}"
     block = (
         f"{MARK_START} — section générée par .claude/supervision/scan_transcripts.py, ne pas éditer à la main -->\n"
         "## TODO agents 🤖\n"
@@ -1492,7 +2074,7 @@ def arbre_sale():
     supervision. Le signal se pose donc au DÉMARRAGE de la séance suivante.
     Fail-open : git indisponible -> aucune ligne, jamais d'erreur."""
     ignores = ("docs/wiki", ".claude/supervision/", ".claude/orchestration/routing-hints.json",
-               ".claude/orchestration/runs.jsonl")
+               ".claude/orchestration/runs.jsonl", ".claude/orchestration/prompts.jsonl")
     try:
         res = subprocess.run(["git", "status", "--porcelain"], cwd=REPO,
                              capture_output=True, text=True, encoding="utf-8", timeout=8)
@@ -1510,9 +2092,107 @@ def arbre_sale():
     return fichiers
 
 
+def commits_non_journalises():
+    """Commits réels faits depuis le dernier run journalisé, sans qu'aucun run ne
+    les couvre — le trou qui a laissé une demande utilisateur (permissions Bash,
+    2026-09-03 19:30:50Z) traitée SANS laisser de trace arbitrable : `arbre_sale()`
+    ne voit qu'un travail encore NON commité, mais la même faute vaut pour un commit
+    réel qu'aucun run ne journalise ensuite (finding
+    `VScode5:seance-non-journalisee-2026-09-03`, 2026-09-04). Dénominateur : le
+    dernier `ts` de `runs.jsonl` (append-only, donc croissant) comparé à
+    `git log --since=<ce ts>`.
+
+    N'est PAS un détecteur précis de « travail non journalisé » — une exécution
+    directe (étape 1 de la skill agent-orchestrator) commite parfois sans se
+    journaliser PAR CONCEPTION, et ce n'est pas une faute. C'est un simple rappel :
+    « voici ce qui a été commité depuis le dernier run, vérifier qu'aucune demande
+    ne s'y est perdue » — au lecteur de juger, comme pour `arbre_sale()`.
+
+    Fail-open : aucun run encore journalisé, ou git indisponible -> liste vide."""
+    runs = [r for r in load_jsonl(RUNS_PATH) if isinstance(r, dict)]
+    horodates = sorted(r["ts"] for r in runs
+                       if isinstance(r.get("ts"), str) and r["ts"])
+    if not horodates:
+        return []
+    dernier_run = horodates[-1]
+    try:
+        res = subprocess.run(
+            ["git", "log", f"--since={dernier_run}", "--format=%h|%cI|%s"],
+            cwd=REPO, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=10)
+    except Exception:
+        return []
+    if res.returncode != 0:
+        return []
+    commits = []
+    for ligne in res.stdout.splitlines():
+        parts = ligne.split("|", 2)
+        if len(parts) == 3:
+            hash_, ts, sujet = parts
+            commits.append({
+                "hash": hash_,
+                "sujet": sujet.encode("ascii", "replace").decode("ascii"),
+            })
+    return commits
+
+
+def commits_non_pousses():
+    """Commits locaux jamais poussés sur la branche amont — signale un correctif
+    réel (ex. un CSRF ou un DoS corrigé et vérifié) resté invisible hors du poste
+    qui l'a produit, tant qu'il n'est pas poussé (finding
+    `flotte:commits-jamais-pousses`, 2026-09-04 : 36 commits non poussés mesurés
+    sur les 6 dépôts de la flotte, dont deux correctifs de sécurité du jour même).
+
+    Dénominateur : `git log <amont>..HEAD` si un amont est configuré (`@{u}`),
+    sinon liste vide (fail-open — poste sans remote suivi, ou premier commit
+    d'une branche encore non poussée : pas une faute à signaler).
+
+    Volontairement un simple compteur informatif, jamais un déclencheur qui
+    pousserait à la place de l'utilisateur : `git push` reste hors de
+    l'allowlist du dispositif par choix délibéré (arbitrage
+    `VScode5:allowlist-permissions-inoperante`, 2026-09-04) — la friction sur ce
+    geste est le prix de la revue humaine avant publication, pas un défaut à
+    corriger en l'automatisant."""
+    try:
+        amont = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+            cwd=REPO, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=10)
+    except Exception:
+        return []
+    if amont.returncode != 0:
+        return []
+    ref_amont = amont.stdout.strip()
+    if not ref_amont:
+        return []
+    try:
+        res = subprocess.run(
+            ["git", "log", f"{ref_amont}..HEAD", "--format=%h|%s"],
+            cwd=REPO, capture_output=True, text=True, encoding="utf-8",
+            errors="replace", timeout=10)
+    except Exception:
+        return []
+    if res.returncode != 0:
+        return []
+    commits = []
+    for ligne in res.stdout.splitlines():
+        parts = ligne.split("|", 1)
+        if len(parts) == 2:
+            hash_, sujet = parts
+            commits.append({
+                "hash": hash_,
+                "sujet": sujet.encode("ascii", "replace").decode("ascii"),
+            })
+    return commits
+
+
 def main(argv) -> int:
     state = {} if "--full" in argv else load_state()
     new_events = scan(state)
+    # Troisieme canal (2026-09-02) : le journal du hook PostToolUse survit a la purge
+    # des transcripts. Sans cet appel, scan_journal_usage() est une fonction definie
+    # et jamais lue — exactement l'etat dans lequel la seance precedente l'a laissee.
+    new_events += scan_journal_usage(state)
     apparus = agents_apparus(state)   # avant save_state : la liste connue s'y enregistre
     # Fiabilité de la mesure (finding state-transcripts-absents, 2026-09-02) : après
     # scan() donc sur le state['files'] à jour du passage courant, avant save_state
@@ -1530,7 +2210,6 @@ def main(argv) -> int:
     diag_todos = diagnostic_todos(diagnostic, arbitrages)
     masques = diagnostic_masques(diagnostic, arbitrages)
     diag_a_jour = diagnostic_a_jour(diagnostic, runs)
-    openhub = openhub_stats()
     hints = build_routing_hints(state, fam, par_playbook, par_agent, diagnostic, runs, arbitrages)
     hints_dir = os.path.dirname(ROUTING_HINTS_PATH)
     if hints_dir:
@@ -1542,10 +2221,17 @@ def main(argv) -> int:
     if page_dir:
         os.makedirs(page_dir, exist_ok=True)
     diagnostic_ran = diagnostic is not None
+    openhub = openhub_stats()
+    # Le CONTENU est calcule AVANT l'ouverture du fichier (chasse aux cas limites,
+    # 2026-09-02) : `open(..., "w")` tronque des l'ouverture, et une exception levee
+    # PENDANT `build_page(...)` (celui-ci a gagne deux nouvelles sources d'exception
+    # avec cet increment) laissait la page a 0 octet, `rc=0`, scan silencieusement
+    # degrade -- exactement le defaut que ce fichier existe pour signaler ailleurs.
+    contenu_page = build_page(state, fam, todos, diag_todos, diag_a_jour, openhub, arbitrages,
+                              diagnostic_ran, masques)
     with open(WIKI_PAGE, "w", encoding="utf-8") as fh:
-        fh.write(build_page(state, fam, todos, diag_todos, diag_a_jour, openhub, arbitrages,
-                            diagnostic_ran, masques))
-    update_index(todos)
+        fh.write(contenu_page)
+    update_index(todos, avertissement_mesure(state))
     html_ok = update_wiki_html(state, fam, todos, diag_todos, diag_a_jour, openhub, arbitrages,
                                diagnostic_ran, masques)
     missing = state.get("transcript_dir_missing")
@@ -1559,6 +2245,9 @@ def main(argv) -> int:
         detail += (f" (mesure non fiable : {mesure['transcripts_absents']}/"
                    f"{mesure.get('total_fichiers', '?')} transcript(s) references "
                    "disparus du disque)")
+    if mesure.get("journal_usage_muet"):
+        detail += (" (journal d'usage present mais illisible : le 3e canal ne mesure "
+                    "plus rien depuis un scan indetermine)")
     if html_ok is False:
         detail += " (wiki.html sans marqueurs TODO-AGENTS-HTML : bloc HTML non mis a jour)"
     if not diag_a_jour:
@@ -1613,6 +2302,20 @@ def main(argv) -> int:
         apercu = ", ".join(reliquat[:5]) + ("..." if len(reliquat) > 5 else "")
         print(f"  reliquat de la seance precedente : {len(reliquat)} fichier(s) "
               f"non commite(s) ({apercu}) - committer ou nommer avant toute nouvelle demande.")
+    commits_non_journalises_ = commits_non_journalises()
+    if commits_non_journalises_:
+        apercu = ", ".join(f"{c['hash']} {c['sujet']}" for c in commits_non_journalises_[:3])
+        suite = "..." if len(commits_non_journalises_) > 3 else ""
+        print(f"  {len(commits_non_journalises_)} commit(s) depuis le dernier run "
+              f"journalise ({apercu}{suite}) - verifier qu'aucune demande ne s'y "
+              "est perdue sans run ni arbitrage.")
+    commits_non_pousses_ = commits_non_pousses()
+    if commits_non_pousses_:
+        apercu = ", ".join(f"{c['hash']} {c['sujet']}" for c in commits_non_pousses_[:3])
+        suite = "..." if len(commits_non_pousses_) > 3 else ""
+        print(f"  {len(commits_non_pousses_)} commit(s) local(-aux) jamais pousse(s) "
+              f"({apercu}{suite}) - git push reste hors allowlist (choix delibere), "
+              "a valider par vous.")
     return 0
 
 
