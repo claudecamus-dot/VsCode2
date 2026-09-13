@@ -28,10 +28,13 @@ un modèle plus costaud (14B+) donne de meilleurs résultats si le poste suit.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import urllib.error
 import urllib.request
+
+logger = logging.getLogger(__name__)
 
 _API_KEY_ENV = {
     "openai": "OPENAI_API_KEY",
@@ -363,6 +366,27 @@ def is_configured() -> bool:
 
 
 def _friendly(exc) -> str:
+    """Message RENDU AU NAVIGATEUR pour un échec d'appel IA — jamais le texte
+    brut de l'exception.
+
+    Les trois branches nommées rendaient déjà un message fixe ; le repli final,
+    lui, concaténait `str(exc)` de n'importe quelle exception du SDK ou
+    d'urllib. Atteint depuis `call_ai_json` par un `except Exception`, ce texte
+    remontait tel quel dans l'interface par sept sites d'appel (export.py ×4,
+    trames.py, interviews.py ×2) — et le texte d'un SDK cite volontiers une URL
+    d'API, un chemin de modèle ou un chemin du poste.
+
+    C'est la règle que le projet s'est écrite lui-même (« Message FIXE, jamais
+    `str(exc)` », `audio_transcribe.py`), et ce repli en était l'un des DEUX
+    derniers résidus — nommé comme tel, en toutes lettres, dans le commentaire
+    qui porte la règle (« hors du périmètre de l'audit du 2026-09-09 : non
+    traitées, pas closes »). Fermé ici par l'audit du 2026-09-13.
+
+    Le détail n'est pas perdu, il change de canal : `logger.exception` l'écrit
+    au journal serveur, où il sert au diagnostic sans être publié — exactement
+    le geste de `audio_transcribe._decode_to_pcm16k`. Le TYPE reste dans le
+    message rendu : il distingue deux pannes sans rien divulguer.
+    """
     name = type(exc).__name__
     if "Authentication" in name or "PermissionDenied" in name:
         return "Clé API refusée (authentification)."
@@ -370,7 +394,13 @@ def _friendly(exc) -> str:
         return "Limite de débit atteinte — réessayez dans un instant."
     if "Connection" in name or "Timeout" in name:
         return "Impossible de joindre l'API IA (réseau)."
-    return f"Erreur lors de l'appel à l'IA : {getattr(exc, 'message', None) or exc}"
+    # `_friendly` n'est appelé que depuis un `except` (cf. `call_ai_json`) :
+    # `logger.exception` y capture bien la trace d'origine.
+    logger.exception("Echec inattendu d'un appel IA (%s)", name)
+    return (
+        f"Erreur inattendue lors de l'appel à l'IA ({name}) — "
+        "le détail est au journal serveur."
+    )
 
 
 def _parse_json(text: str) -> dict:

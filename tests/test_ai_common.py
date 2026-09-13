@@ -581,3 +581,55 @@ def test_call_ai_json_propage_le_drapeau_timeout(monkeypatch: pytest.MonkeyPatch
     with pytest.raises(ErreurAppelant) as exc:
         ai_common.call_ai_json("sys", "prompt", {}, "\nJSON.", error_cls=ErreurAppelant)
     assert exc.value.timeout is True
+
+
+# --------------------------------------------------------------------------- #
+# Repli de `_friendly` : message FIXE, jamais le texte de l'exception
+# (finding audit-technique securite du 2026-09-13 — l'un des DEUX derniers
+#  residus de la regle que le projet s'est ecrite dans audio_transcribe.py)
+# --------------------------------------------------------------------------- #
+class _ErreurSdkBavarde(Exception):
+    """Exception d'un SDK qui cite une URL d'API et un chemin du poste — ce que
+    le repli concatenait tel quel dans un message rendu au navigateur."""
+
+
+def test_le_repli_de_friendly_ne_publie_pas_le_texte_de_l_exception() -> None:
+    secret = r"https://api.exemple.test/v1/chat + C:\Users\quelqu-un\modeles\gguf"
+    message = ai_common._friendly(_ErreurSdkBavarde(secret))
+    assert secret not in message, f"texte d'exception republie : {message!r}"
+    assert "api.exemple.test" not in message
+    assert r"C:\Users" not in message
+    # Le TYPE reste : il distingue deux pannes sans rien divulguer.
+    assert "_ErreurSdkBavarde" in message
+    assert "journal serveur" in message
+
+
+def test_le_repli_de_friendly_ecrit_le_detail_au_journal(caplog) -> None:
+    """Le detail n'est pas perdu, il change de canal — meme geste que
+    `audio_transcribe._decode_to_pcm16k`. Sans cette ligne, durcir le message
+    rendu aurait juste rendu la panne indiagnosticable."""
+    import logging
+
+    secret = "detail-technique-a-diagnostiquer"
+    with caplog.at_level(logging.ERROR, logger=ai_common.__name__):
+        try:
+            raise _ErreurSdkBavarde(secret)
+        except _ErreurSdkBavarde as exc:
+            ai_common._friendly(exc)
+    trace = "\n".join(r.getMessage() + (r.exc_text or "") for r in caplog.records)
+    assert secret in trace, "le detail doit rester disponible au serveur"
+
+
+def test_les_trois_branches_nommees_restent_des_messages_fixes() -> None:
+    """Elles etaient deja correctes : verrouillees pour que le durcissement du
+    repli ne les emporte pas au passage."""
+    cas = [
+        ("AuthenticationError", "authentification"),
+        ("RateLimitError", "Limite de débit"),
+        ("ConnectionError", "réseau"),
+    ]
+    for nom, attendu in cas:
+        exc = type(nom, (Exception,), {})("texte-brut-qui-ne-doit-pas-sortir")
+        message = ai_common._friendly(exc)
+        assert attendu in message
+        assert "texte-brut-qui-ne-doit-pas-sortir" not in message
