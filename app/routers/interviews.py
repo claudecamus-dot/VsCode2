@@ -1412,6 +1412,63 @@ def record_libre_retour_tours(
     )
 
 
+def _lire_proposition(proposed: str, keep: list[str]) -> tuple[dict, set[int]]:
+    """Décode les deux champs de formulaire d'un écran de CONFIRMATION — la
+    proposition JSON relue par l'utilisateur, et les identifiants cochés.
+
+    Ni `json.loads(proposed)` ni `{int(k) for k in keep}` n'étaient protégés
+    (audit-technique robustesse du 2026-09-13) : un champ tronqué, ré-encodé ou
+    non numérique levait `JSONDecodeError`/`ValueError` AVANT le moindre
+    `db.add`, donc une 500 nue — et l'utilisateur perdait la proposition qu'il
+    venait justement de relire et de valider. Les deux autres lecteurs de JSON
+    de formulaire de ce fichier (`_parse_repartition`, `_parse_audio_segments`)
+    étaient protégés, eux : l'incohérence était interne au fichier.
+
+    Le repli n'est PAS le leur : ces deux-là redonnent silencieusement une
+    valeur vide parce qu'ils portent un champ annexe. Ici le champ EST le
+    contenu à enregistrer — l'avaler enregistrerait un entretien vide en disant
+    que tout s'est bien passé. On refuse donc explicitement, en 400 (la requête
+    est mal formée) et non en 500 (le serveur n'est pas en panne), avec un
+    message qui dit quoi faire.
+    """
+    try:
+        data = json.loads(proposed)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="La proposition envoyée n'a pas pu être relue — "
+            "recommence depuis l'écran précédent.",
+        ) from exc
+    if not isinstance(data, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="La proposition envoyée n'a pas le format attendu — "
+            "recommence depuis l'écran précédent.",
+        )
+    try:
+        keep_ids = {int(k) for k in keep}
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="La sélection envoyée n'a pas pu être relue — "
+            "recommence depuis l'écran précédent.",
+        ) from exc
+    return data, keep_ids
+
+
+def _entier_positif(valeur, defaut: int = 0) -> int:
+    """Entier d'un champ venu du JSON de formulaire, jamais une 500.
+
+    `int(data.get("tranches_manquantes") or 0)` levait sur une valeur non
+    numérique — même chemin, même conséquence que ci-dessus, pour un compteur
+    d'affichage. Ici le repli silencieux est le bon : ce champ n'alimente qu'un
+    bandeau d'information, le perdre ne perd aucun contenu d'entretien."""
+    try:
+        return max(defaut, int(valeur or defaut))
+    except (TypeError, ValueError):
+        return defaut
+
+
 def _parse_audio_segments(raw: str) -> list[dict]:
     """Décode la liste de tranches audio (champ caché JSON alimenté par la
     rotation JS de `backupRecorder`, cf. `record_libre.html`) — un JSON
@@ -1927,9 +1984,8 @@ def import_interview_confirm(
     db: Session = Depends(get_session),
 ):
     _get_mission(db, mission_id)
-    data = json.loads(proposed)
+    data, keep_ids = _lire_proposition(proposed, keep)
     identity = data.get("identity") or {}
-    keep_ids = {int(k) for k in keep}
 
     try:
         parsed_date = (
@@ -1954,7 +2010,7 @@ def import_interview_confirm(
         # Traversé depuis `_proposed_to_json` (2026-09-04, bmad-code-review
         # finding F2) : sans lui, le bandeau affiché sur la revue disparaissait
         # à la validation de l'import.
-        tranches_manquantes=max(0, int(data.get("tranches_manquantes") or 0)),
+        tranches_manquantes=_entier_positif(data.get("tranches_manquantes")),
     )
     db.add(interview)
     db.flush()  # attribue interview.id avant de créer les réponses liées
@@ -2969,8 +3025,7 @@ def confirm_notes(
     db: Session = Depends(get_session),
 ):
     interview = _get_interview(db, interview_id)
-    data = json.loads(proposed)
-    keep_ids = {int(k) for k in keep}
+    data, keep_ids = _lire_proposition(proposed, keep)
 
     for row in data.get("answers") or []:
         qid = row.get("question_id")

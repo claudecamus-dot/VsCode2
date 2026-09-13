@@ -186,6 +186,101 @@ def test_import_confirm_trame_json_pas_un_objet_rend_400_pas_500(client: TestCli
 
 
 # --------------------------------------------------------------------------- #
+# 3 bis. app/routers/interviews.py — les DEUX confirmations sœurs, laissées nues
+#        quand celle des trames a été protégée (audit-technique du 2026-09-13)
+# --------------------------------------------------------------------------- #
+def test_import_confirm_entretien_json_tronque_rend_400_pas_500(client: TestClient) -> None:
+    """Même défaut, même forme, autre fichier : `import_interview_confirm`
+    faisait `json.loads(proposed)` sans garde sur le champ caché qui reposte
+    toute la proposition d'import. L'incohérence était interne au dépôt — la
+    confirmation de TRAME a été protégée le 2026-09-04, ses deux sœurs
+    d'entretien ne l'ont jamais été. C'est l'écran où l'utilisateur vient de
+    RELIRE sa proposition : une 500 la lui fait perdre juste après validation."""
+    mission_id = _creer_mission(client, "Confirm entretien JSON tronque")
+    response = client.post(
+        f"/missions/{mission_id}/interviews/import/confirm",
+        data={"proposed": '{"identity": {"interviewee_name": "Ada"', "keep": []},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert "recommence" in response.json()["detail"]
+
+
+def test_import_confirm_entretien_json_pas_un_objet_rend_400_pas_500(
+    client: TestClient,
+) -> None:
+    """JSON valide mais pas un objet : `data.get(...)` lèverait `AttributeError`."""
+    mission_id = _creer_mission(client, "Confirm entretien JSON liste")
+    response = client.post(
+        f"/missions/{mission_id}/interviews/import/confirm",
+        data={"proposed": '["pas un objet"]', "keep": []},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert "format attendu" in response.json()["detail"]
+
+
+def test_import_confirm_entretien_selection_non_numerique_rend_400_pas_500(
+    client: TestClient,
+) -> None:
+    """`{int(k) for k in keep}` coerçait une `list[str] = Form([])` sans garde :
+    une case cochée dont la valeur n'est pas un entier levait `ValueError`."""
+    mission_id = _creer_mission(client, "Confirm entretien keep non numerique")
+    response = client.post(
+        f"/missions/{mission_id}/interviews/import/confirm",
+        data={"proposed": '{"identity": {}, "answers": []}', "keep": ["pas-un-entier"]},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert "sélection" in response.json()["detail"]
+
+
+def test_import_confirm_entretien_tranches_manquantes_non_numerique_passe(
+    client: TestClient,
+) -> None:
+    """`int(data.get("tranches_manquantes") or 0)` levait, lui aussi. Ce
+    champ-là n'alimente qu'un bandeau d'information : le repli silencieux est le
+    bon, l'import DOIT aboutir. La distinction est le cœur du correctif — on ne
+    refuse que ce dont la perte perdrait du contenu d'entretien."""
+    mission_id = _creer_mission(client, "Confirm entretien tranches illisibles")
+    response = client.post(
+        f"/missions/{mission_id}/interviews/import/confirm",
+        data={
+            "proposed": '{"identity": {"interviewee_name": "Ada"}, '
+                        '"tranches_manquantes": "beaucoup", "answers": []}',
+            "keep": [],
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303, response.text
+    db = SessionLocal()
+    try:
+        cree = db.query(Interview).filter(Interview.interviewee_name == "Ada").first()
+        assert cree is not None, "l'import doit aboutir malgre le compteur illisible"
+        assert cree.tranches_manquantes == 0
+    finally:
+        db.close()
+
+
+def test_confirm_notes_json_tronque_rend_400_pas_500(client: TestClient) -> None:
+    """Second site du même défaut : `confirm_notes`, la confirmation des notes
+    libres. Protégé par le même chemin que son jumeau."""
+    mission_id = _creer_mission_avec_entretien(client, "Confirm notes JSON tronque")
+    db = SessionLocal()
+    try:
+        interview_id = db.query(Interview).order_by(Interview.id.desc()).first().id
+    finally:
+        db.close()
+    response = client.post(
+        f"/interviews/{interview_id}/notes/confirm",
+        data={"proposed": '{"answers": [', "keep": []},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert "recommence" in response.json()["detail"]
+
+
+# --------------------------------------------------------------------------- #
 # 4. app/routers/export.py:export_pptx — template déclenchant un débordement
 # --------------------------------------------------------------------------- #
 def test_export_pptx_template_incompatible_ne_leve_pas_500(
