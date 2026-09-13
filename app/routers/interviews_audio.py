@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from ..db import RECORDINGS_DIR, get_session
@@ -362,6 +363,20 @@ def transcribe_file_status(
         # en transcrivant le bloc suivant, donc sans nouveau bloc à livrer, donc
         # avec `since == len(blocks)`. `purge_stale_audio_file_jobs` (7 j)
         # reste le filet qui efface blocs ET fichier si la relance n'a pas lieu.
-        db.delete(job)
+        #
+        # DELETE CONDITIONNEL et non `db.delete(job)` (audit-technique
+        # robustesse du 2026-09-13). Cette suppression part d'une route GET
+        # sondée toutes les 3 s sur la seule foi d'une lecture faite 50 lignes
+        # plus haut. Si un tick dépasse l'intervalle client et qu'un second
+        # arrive avant la réponse du premier, les deux lisent le même job et les
+        # deux le suppriment : le flush du second levait `StaleDataError`
+        # (« DELETE ... expected to delete 1 row(s); 0 were matched ») et
+        # l'écran recevait une 500 JUSTE APRÈS une transcription réussie. Un
+        # rejeu réseau ou un prefetch navigateur suffisait. Le DELETE Core
+        # n'affecte alors aucune ligne et le perdant rend sa réponse
+        # normalement — même geste que les UPDATE conditionnels sur `rowcount`
+        # déjà posés ailleurs (`synthese.py`, `interviews.py`). `payload` est
+        # déjà construit : le perdant sert la même charge utile que le gagnant.
+        db.execute(delete(AudioFileJob).where(AudioFileJob.id == job.id))
         db.commit()
     return JSONResponse(payload)

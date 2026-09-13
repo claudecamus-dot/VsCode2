@@ -27,6 +27,7 @@ from sqlalchemy.orm import object_session
 from app.db import DB_PATH, RECORDINGS_DIR, SessionLocal, engine, init_db
 from app.main import app
 from app.models import AudioFileJob, Mission
+from app.routers import interviews_audio
 from app.services import audio_file_jobs, audio_transcribe
 
 
@@ -157,6 +158,78 @@ def test_le_statut_exige_le_jeton_de_session(client, monkeypatch):
     assert _status(client, job_id, token="sess-intrus").status_code == 404
     ok = _status(client, job_id, token="sess-proprietaire")
     assert ok.status_code == 200 and ok.json()["blocks"] == ["Secret."]
+
+
+def test_deux_sondages_qui_se_chevauchent_suppriment_sans_bruit(client, monkeypatch, recwarn):
+    """Course sur la suppression faite DEPUIS LA ROUTE GET de statut — finding
+    audit-technique robustesse du 2026-09-13, dont la SÉVÉRITÉ EST CORRIGÉE À LA
+    BAISSE ICI, par mesure.
+
+    `transcribe_file_status` supprimait le job avec `db.delete(job)`, sur la
+    seule foi d'une lecture faite 50 lignes plus haut. L'écran sonde toutes les
+    3 s : dès qu'un tick dépasse l'intervalle, un second part avant la réponse
+    du premier, les deux lisent le même job `done` entièrement consommé et les
+    deux le suppriment.
+
+    L'audit annonçait un `StaleDataError` donc une 500 « juste après une
+    transcription réussie ». REPRODUIT ICI, ce n'est PAS ce qui arrive : le
+    mapper `AudioFileJob` n'a pas de `version_id_col`, donc SQLAlchemy se
+    contente d'un `SAWarning` (« DELETE statement on table 'audio_file_jobs'
+    expected to delete 1 row(s); 0 were matched ») et rend 200. Mesuré en
+    rejouant CE test contre le code d'avant : « 1 passed, 1 warning ». Le
+    défaut réel est donc du bruit et une intention implicite sur un verbe censé
+    être idempotent, pas une panne visible par l'utilisateur — c'est ce que ce
+    test verrouille, et c'est pour cela qu'il porte sur l'ABSENCE du warning
+    autant que sur le code de retour.
+
+    L'entrelacement est forcé, pas espéré : aucun thread, aucun sleep. La
+    requête 1 est suspendue APRÈS avoir lu le job et construit sa charge utile,
+    mais AVANT la suppression — `_mission_du_job_absente` est le dernier appel
+    de cette fenêtre — le temps qu'une requête 2 complète parte, supprime et
+    commite. La requête 1 reprend alors sur sa lecture périmée. Un test à deux
+    threads prouverait la même chose au prix d'un ordonnancement non
+    reproductible (même geste que `test_synthese_globale_concurrence`).
+
+    Rouge sur le code d'avant : le SAWarning ci-dessous.
+    """
+    monkeypatch.setattr(
+        audio_transcribe, "iter_transcribe_blocks", _fake_blocks("Un seul bloc."),
+    )
+    job_id = _upload(client)["job_id"]
+
+    vrai = interviews_audio._mission_du_job_absente
+    sondages_imbriques = []
+
+    def _sonde_concurrente(job, db):
+        # Ne s'imbrique qu'une fois : la requête 2 doit se dérouler normalement.
+        if not sondages_imbriques:
+            sondages_imbriques.append(True)
+            # Requête 2 : complète, session distincte, elle gagne la course.
+            deuxieme = _status(client, job_id, since=1)
+            assert deuxieme.status_code == 200, deuxieme.text
+        return vrai(job, db)
+
+    monkeypatch.setattr(interviews_audio, "_mission_du_job_absente", _sonde_concurrente)
+
+    # Requête 1 : `since=1` == len(blocks) et statut `done` -> elle entre dans la
+    # branche de suppression, sur un job que la requête 2 vient d'effacer.
+    recwarn.clear()
+    premiere = _status(client, job_id, since=1)
+    assert sondages_imbriques, "l'entrelacement n'a pas eu lieu : le test ne prouve rien"
+    assert premiere.status_code == 200, premiere.text
+    assert premiere.json()["status"] == "done"
+
+    # Le point qui vire au rouge sur le code d'avant : le perdant de la course ne
+    # doit plus faire crier l'ORM sur une ligne déjà partie.
+    bruit = [str(w.message) for w in recwarn if "expected to delete" in str(w.message)]
+    assert not bruit, f"suppression non conditionnelle : {bruit}"
+
+    # Et la ligne est bien partie, une seule fois, sans erreur.
+    db = SessionLocal()
+    try:
+        assert db.get(AudioFileJob, job_id) is None
+    finally:
+        db.close()
 
 
 def test_import_sans_jeton_refuse_SANS_rien_ecrire(client):
