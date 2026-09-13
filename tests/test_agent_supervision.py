@@ -38,6 +38,15 @@ def _env(tmp_path):
         # Jamais la vraie base app ni les vrais arbitrages par défaut dans les tests.
         AGENT_SUPERVISION_OPENHUB_DB=str(tmp_path / "absent.db"),
         AGENT_SUPERVISION_ARBITRAGES=str(tmp_path / "arbitrages.json"),
+        # TROISIÈME canal du scan, arrivé par le canon du 2026-09-11
+        # (`scan_journal_usage`) : sans cette redirection, le scan retombe sur
+        # `.claude/supervision/usage.jsonl` — le journal RÉEL du dépôt — et
+        # mélange ses centaines d'invocations aux deux événements fabriqués
+        # ici. Mesuré : « +376 evenement(s) » au lieu de « +2 », `revue-increment`
+        # comptée utilisée, et les TODO d'élagage BMAD calculés sur l'usage
+        # réel. Chaque nouveau chemin de lecture du canon doit être redirigé
+        # ici, sinon la suite mesure le dépôt au lieu de mesurer le scan.
+        AGENT_SUPERVISION_USAGE=str(tmp_path / "usage.jsonl"),
     )
 
 
@@ -66,6 +75,33 @@ def test_scan_counts_and_generates_page_and_index(tmp_path):
     index = (tmp_path / "index.md").read_text(encoding="utf-8")
     assert "## TODO agents" in index
     assert "technical/agents-supervision.md" in index
+
+
+def test_le_scan_ne_lit_aucun_journal_reel_du_depot(tmp_path):
+    """Garde d'HERMÉTICITÉ de la suite elle-même, pas d'une fonction du scan.
+
+    Le canon du 2026-09-11 a ajouté `scan_journal_usage`, un troisième canal
+    dont le chemin par défaut est `.claude/supervision/usage.jsonl` — le
+    journal RÉEL de ce dépôt. `_env()` ne le redirigeait pas : quatre tests
+    mesuraient donc l'usage réel du poste au lieu du scan, et les 8 rouges
+    permanents de la suite en venaient pour moitié. Ce test échoue si un
+    prochain sync du canon rajoute un canal de lecture sans redirection : les
+    agrégats du journal doivent être VIDES quand aucun `usage.jsonl` n'existe
+    dans le bac à sable, quoi que porte le dépôt."""
+    tdir = tmp_path / "transcripts"
+    tdir.mkdir()
+    (tdir / "s1.jsonl").write_text(_line(skill="run-dev-server"), encoding="utf-8")
+    assert not (tmp_path / "usage.jsonl").exists()
+
+    result = _run(tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert "+1 evenement" in result.stdout, (
+        "le compteur d'evenements doit refleter le SEUL transcript fabrique ici : "
+        f"stdout={result.stdout!r}"
+    )
+    state = json.loads((tmp_path / "state.json").read_text(encoding="utf-8"))
+    assert state.get("skills_journal", {}) == {}
+    assert state.get("subagents_journal", {}) == {}
 
 
 def test_incremental_scan_only_reads_new_lines_and_is_idempotent(tmp_path):
@@ -190,13 +226,18 @@ def test_routing_hints_croisent_usage_et_runs(tmp_path):
     # `en-attente-validation` et `partiel` rejoignent `en-cours` : comptés à part,
     # jamais dans `n` (canon du hub, 2026-08-31 — un playbook sans aucun échec
     # s'affichait à 83 % parce que ses runs non soldés gonflaient le dénominateur).
+    # `runs_fortes_reprises` : agrégat ajouté par le canon du 2026-09-11 — nombre de
+    # runs dont les reprises atteignent REPRISE_PRUDENCE_SEUIL (2). Le run en échec
+    # fabriqué ici en porte exactement 2, il compte donc pour 1 des deux côtés.
+    # L'égalité stricte est CONSERVÉE (et non relâchée en sous-ensemble) : c'est elle
+    # qui a signalé l'arrivée de la clé au lieu de la laisser passer en silence.
     assert hints["playbooks"]["dev-verifie"] == {
         "n": 2, "succes": 1, "echecs": 1, "reprises": 2, "en_cours": 1,
-        "en_attente_validation": 0, "partiels": 0,
+        "en_attente_validation": 0, "partiels": 0, "runs_fortes_reprises": 1,
     }
     assert hints["agents"]["Explore"] == {
         "n": 1, "succes": 0, "echecs": 1, "reprises": 2, "en_cours": 0,
-        "en_attente_validation": 0, "partiels": 0,
+        "en_attente_validation": 0, "partiels": 0, "runs_fortes_reprises": 1,
     }
     # Pas de diagnostic étage 2 : signalé comme à lancer.
     assert hints["diagnostic_a_jour"] is False
@@ -751,9 +792,14 @@ def test_arbitrages_closent_les_todos_et_restent_affiches(tmp_path):
     (tdir / "s1.jsonl").write_text(_line(skill="run-dev-server"), encoding="utf-8")
 
     # Sans arbitrage : les constats d'usage nagguent (skills BMAD réels du repo, 0 invocation).
+    # Le canon du 2026-09-11 a SCINDÉ ce constat en deux : les shims que BMAD déclare
+    # lui-même dépréciés sortent dans un TODO à part (« Désinstaller les shims BMAD
+    # dépréciés »), le reste devient « Élaguer les skills BMAD : N/M » — le libellé
+    # « Trier » ne sort plus que si AUCUN BMAD n'est déprécié, ce qui n'est plus le cas
+    # ici (21 dépréciés sur 50 installés). C'est le TODO d'USAGE qu'on suit ci-dessous.
     _run(tmp_path)
     page = (tmp_path / "page.md").read_text(encoding="utf-8")
-    assert "Trier les skills BMAD" in page
+    assert "Élaguer les skills BMAD" in page
     assert "Arbitrages enregistrés" not in page
 
     # Avec arbitrages : le TODO correspondant disparaît, la décision reste visible
@@ -774,7 +820,13 @@ def test_arbitrages_closent_les_todos_et_restent_affiches(tmp_path):
     result = _run(tmp_path)
     assert result.returncode == 0, result.stderr
     page = (tmp_path / "page.md").read_text(encoding="utf-8")
+    assert "Élaguer les skills BMAD" not in page
     assert "Trier les skills BMAD" not in page
+    # …mais la proposition de désinstaller les shims DÉPRÉCIÉS survit, et c'est
+    # délibéré : elle ne repose pas sur notre mesure d'usage mais sur la `description`
+    # que BMAD publie lui-même. Un arbitrage « famille:BMAD » porte sur l'usage, il ne
+    # peut pas trancher une déprécation décidée par l'éditeur.
+    assert "Désinstaller les shims BMAD dépréciés" in page
     assert "## Arbitrages enregistrés" in page
     assert "tri exécuté le 2026-07-18" in page
     # La skill arbitrée sort de la ligne TODO « Skills projet sans usage »…
