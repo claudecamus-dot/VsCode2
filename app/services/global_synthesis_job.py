@@ -84,6 +84,20 @@ def run_global_synthesis_job(mission_id: int) -> None:
         global_synthesis.generation_error = None
         db.commit()
     except Exception as exc:  # garde-fou : un job planté ne doit pas rester "running"
+        # Journal À L'ENTRÉE du handler, avant toute condition (audit-technique
+        # robustesse du 2026-09-13). Le `logger.exception` vivait plus bas, DANS
+        # le `if mission is not None and ...` : trois branches partaient donc
+        # sans une seule ligne de journal — `db.rollback()` qui lève, mission
+        # disparue, `global_synthesis` nul — et l'exception d'origine finissait
+        # dans le `except Exception: pass` ci-dessous, job échoué sans que rien
+        # ne permette de savoir pourquoi. Les deux tâches de fond sœurs au même
+        # contrat (`audio_file_jobs`, `interview_segment_jobs`) journalisent,
+        # elles, dès l'entrée : celle-ci était la seule des trois à ne pas le
+        # faire. `logger.exception` hors d'un `except` perdrait la trace, d'où
+        # sa place ici et non dans le `try` de secours.
+        logger.exception(
+            "Échec inattendu de la synthèse globale (mission %s)", mission_id
+        )
         try:
             # Si l'exception vient d'un commit() raté (ex. verrou SQLite), la
             # session reste en transaction cassée (PendingRollback) : le
@@ -97,14 +111,17 @@ def run_global_synthesis_job(mission_id: int) -> None:
                 # Le TYPE seul, jamais le texte : `generation_error` est rendu
                 # au navigateur (`routers/synthese.py`) et `str(exc)` porte
                 # volontiers un chemin du poste. Détail complet au journal.
-                logger.exception(
-                    "Échec inattendu de la synthèse globale (mission %s)", mission_id
-                )
                 mission.global_synthesis.generation_error = (
                     f"Échec inattendu ({type(exc).__name__})."
                 )
                 db.commit()
         except Exception:
-            pass
+            # Le secours lui-même a échoué (session cassée, base verrouillée) :
+            # l'échec d'origine est DÉJÀ au journal, ligne ci-dessus. C'est
+            # exactement ce que ce `pass` avalait avant.
+            logger.exception(
+                "Echec du secours apres un echec de synthese globale (mission %s)",
+                mission_id,
+            )
     finally:
         db.close()
