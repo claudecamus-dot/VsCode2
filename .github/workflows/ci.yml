@@ -10,6 +10,16 @@ on:
     branches: [main]
   pull_request:
 
+# Portée du GITHUB_TOKEN, réduite au strict nécessaire (finding audit-technique
+# sécurité du 2026-09-13). Sans ce bloc, le jeton hérite de la portée PAR DÉFAUT
+# du dépôt — potentiellement en écriture — alors que ce workflow se déclenche sur
+# `pull_request`, donc sur du code proposé de l'extérieur, et qu'il ne fait que
+# lire le dépôt : checkout, install, lint, tests. Rien n'y écrit ni ne publie.
+# Déclaré au niveau du workflow (et non du job) pour qu'un job ajouté demain
+# hérite du minimum et doive demander explicitement ce dont il a besoin.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
