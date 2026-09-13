@@ -57,6 +57,13 @@ def test_log_run_appends_valid_run_with_ts(tmp_path):
         "plan": [{"etape": "revue", "agent": "Explore", "mode": "parallele", "modele": "haiku"}],
         "resultat": "succes",
         "reprises": 0,
+        # Depuis le canon du 2026-09-11, un `succes` orchestré SANS trace de revue
+        # d'incrément est refusé (cf. test dédié plus bas). Ce test-ci porte sur
+        # l'append et l'horodatage, pas sur ce garde-fou : la dérogation motivée le
+        # neutralise sans toucher au reste du payload (même geste que le hub dans
+        # `tests/test_garde_fous_ecriture.py`). Une étape revue-increment au plan
+        # ferait mentir l'assertion « 1 etape(s) » juste en dessous.
+        "derogation_revue": "test d'append : ce run n'est pas un increment livre",
     }
     result = _log_run(tmp_path, payload)
     assert result.returncode == 0, result.stderr
@@ -85,7 +92,11 @@ def test_log_run_avertit_succes_sur_livrable_utilisateur_sans_validation(tmp_pat
     d'un livrable utilisateur (deck/slide/écran/export) sans mention « validé par
     l'utilisateur » imprime un AVERTISSEMENT — non bloquant, le run est journalisé."""
     base = {"demande": "refonte du deck de restitution", "qualification": "orchestre",
-            "resultat": "succes", "reprises": 0}
+            "resultat": "succes", "reprises": 0,
+            # Garde-fou revue-increment neutralisé : il est ORTHOGONAL à celui-ci et,
+            # depuis le canon du 2026-09-11, il refuse au lieu d'avertir — sans cette
+            # dérogation le run n'atteindrait même pas le contrôle de validation.
+            "derogation_revue": "test du garde-fou validation, pas de la revue"}
     r = _log_run(tmp_path, base)
     assert r.returncode == 0, r.stderr  # non bloquant
     assert "AVERTISSEMENT" in r.stdout and "en-attente-validation" in r.stdout
@@ -105,33 +116,71 @@ def test_log_run_avertit_succes_sur_livrable_utilisateur_sans_validation(tmp_pat
 
     # succes sans livrable utilisateur (outillage) -> silencieux côté validation.
     outil = {"demande": "refactor du journal d'orchestration", "qualification": "orchestre",
-             "resultat": "succes"}
+             "resultat": "succes",
+             "derogation_revue": "test du garde-fou validation, pas de la revue"}
     r4 = _log_run(tmp_path, outil)
     assert r4.returncode == 0 and "sans mention de validation" not in r4.stdout
 
 
-def test_log_run_avertit_succes_sans_etape_revue_increment(tmp_path):
-    """Garde-fou « revue-increment » (sync canon 2026-07-29, commit 5eb121b —
-    arrivé sans test et en cassant le test ci-dessus, d'où celui-ci) : un run
-    orchestré journalisé `succes` sans étape revue-increment au plan ni trace
-    dans les notes imprime un AVERTISSEMENT non bloquant."""
+def _lignes_journal(tmp_path):
+    p = tmp_path / "runs.jsonl"
+    if not p.exists():
+        return []
+    return [l for l in p.read_text(encoding="utf-8").splitlines() if l.strip()]
+
+
+def test_log_run_refuse_succes_sans_etape_revue_increment(tmp_path):
+    """Garde-fou « revue-increment », DURCI par le canon du 2026-09-11.
+
+    Il avertissait sans bloquer depuis le 2026-07-29 (ce que la version
+    précédente de ce test encodait). Le hub a mesuré le résultat de cet
+    avertissement sur 43 jours — 51 des 74 runs éligibles avertis, ZÉRO refusé
+    (finding `VScode5:revue-obligatoire-sautee-sept-runs-sur-dix`) — et a
+    converti le print en REFUS franchissable par motif explicite. Un
+    avertissement ignoré 51 fois de suite n'est plus un garde-fou.
+
+    Trois échappatoires, et trois seulement : étape revue-increment au plan,
+    trace dans les notes (revue de campagne couvrant plusieurs runs), ou champ
+    `derogation_revue` NON VIDE. Le point qui compte autant que le code de
+    retour : un run refusé n'écrit RIEN dans le journal."""
     base = {"demande": "refactor du journal d'orchestration", "qualification": "orchestre",
             "resultat": "succes", "plan": [{"etape": "implementation", "agent": "claude"}]}
     r = _log_run(tmp_path, base)
-    assert r.returncode == 0, r.stderr  # non bloquant
+    assert r.returncode == 1, r.stdout  # bloquant depuis le canon 2026-09-11
     assert "sans etape terminale" in r.stdout
+    assert _lignes_journal(tmp_path) == [], "un run refuse ne doit rien journaliser"
 
-    # Étape revue-increment au plan -> silencieux.
+    # Échappatoire 1 — étape revue-increment au plan.
     au_plan = dict(base, plan=base["plan"] + [{"etape": "revue-increment", "agent": "revue-increment"}])
-    assert "sans etape terminale" not in _log_run(tmp_path, au_plan).stdout
+    r = _log_run(tmp_path, au_plan)
+    assert r.returncode == 0 and "sans etape terminale" not in r.stdout
+    assert len(_lignes_journal(tmp_path)) == 1
 
-    # Trace dans les notes (revue de campagne en fin de séance) -> silencieux.
+    # Échappatoire 2 — trace dans les notes (revue de campagne en fin de séance).
     en_notes = dict(base, notes="couvert par la revue-increment de fin de seance")
-    assert "sans etape terminale" not in _log_run(tmp_path, en_notes).stdout
+    r = _log_run(tmp_path, en_notes)
+    assert r.returncode == 0 and "sans etape terminale" not in r.stdout
+    assert len(_lignes_journal(tmp_path)) == 2
 
-    # Pas un succes -> silencieux (on n'exige pas la revue d'un run avorté).
+    # Échappatoire 3 — dérogation motivée explicite.
+    derogation = dict(base, derogation_revue="correctif d'un commentaire, aucun code touche")
+    r = _log_run(tmp_path, derogation)
+    assert r.returncode == 0 and "sans etape terminale" not in r.stdout
+    assert len(_lignes_journal(tmp_path)) == 3
+
+    # …mais un champ PRÉSENT ET VIDE n'est pas un motif : ce serait rendre le refus
+    # franchissable par une clé vide, donc par accident.
+    vide = dict(base, derogation_revue="   ")
+    r = _log_run(tmp_path, vide)
+    assert r.returncode == 1 and "sans etape terminale" in r.stdout
+    assert len(_lignes_journal(tmp_path)) == 3, "rien de neuf apres un refus"
+
+    # Pas un succes -> passe (on n'exige pas la revue d'un run avorté), et R5
+    # l'exige : un run raté doit rester journalisable.
     partiel = dict(base, resultat="partiel")
-    assert "sans etape terminale" not in _log_run(tmp_path, partiel).stdout
+    r = _log_run(tmp_path, partiel)
+    assert r.returncode == 0 and "sans etape terminale" not in r.stdout
+    assert len(_lignes_journal(tmp_path)) == 4
 
 
 def test_log_run_stdin_tolere_le_bom_powershell(tmp_path):
@@ -140,7 +189,9 @@ def test_log_run_stdin_tolere_le_bom_powershell(tmp_path):
     (« JSON invalide : Unexpected UTF-8 BOM »). stdin est désormais utf-8-sig ;
     sans BOM le comportement est identique (utf-8-sig == utf-8)."""
     payload = {"demande": "run journalisé via pipe PowerShell — accents intacts",
-               "qualification": "orchestre", "resultat": "succes"}
+               "qualification": "orchestre", "resultat": "succes",
+               # Garde-fou revue-increment neutralisé : ce test porte sur le BOM.
+               "derogation_revue": "test d'encodage stdin, pas un increment livre"}
     r = _log_run(tmp_path, payload, via_stdin=True, bom=True)
     assert r.returncode == 0, r.stderr
     ligne = json.loads(
