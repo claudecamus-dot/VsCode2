@@ -2979,6 +2979,20 @@ async def transcribe_notes(
     except UploadTropVolumineux as exc:
         # 413 et `{"error": ...}` : capture.html n'affiche que ce champ.
         return JSONResponse({"error": str(exc)}, status_code=413)
+    except audio_transcribe.TranscriptionBusyError as exc:
+        # Avant `TranscriptionError` (dont elle hérite) : cette route partage
+        # `audio_transcribe.transcribe_audio()` avec `/audio/transcribe-segment`
+        # (interviews_audio.py) — même verrou `_MODEL_LOCK`, même contrat de
+        # refus « occupé » (revue adversariale 2026-09-15, code-review du lot 1
+        # atelier-dev : ce site était resté sur le 422 générique, faisant
+        # perdre une dictée le temps que le modèle se libère plutôt que de
+        # signaler un état rejouable).
+        retry_after = max(1, round(exc.retry_after_s))
+        return JSONResponse(
+            {"error": str(exc), "code": "busy", "retry_after_s": retry_after},
+            status_code=503,
+            headers={"Retry-After": str(retry_after)},
+        )
     except audio_transcribe.TranscriptionError as exc:
         return JSONResponse({"error": str(exc)}, status_code=422)
     except Exception:

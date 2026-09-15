@@ -103,6 +103,33 @@ MAX_PARALLEL_WORKERS = int(os.environ.get("WHISPER_MAX_WORKERS", str(min(8, os.c
 # certain nombre de threads par processus).
 CPU_THREADS_PER_WORKER = int(os.environ.get("WHISPER_CPU_THREADS", "1"))
 
+# Temps (secondes) qu'une transcription synchrone (direct : segment de
+# record.html, ou dictée de notes libres) attend `_MODEL_LOCK` avant de
+# recevoir un refus "occupé" plutôt que de bloquer le thread indéfiniment
+# (atelier-dev 2026-09-15). Calé sur `SEGMENT_MS` (record.html, 60s) et non
+# sur une valeur courte arbitraire : le module documente déjà l'invariant visé
+# (« chaque segment doit rester sensiblement plus rapide à transcrire qu'à
+# l'enregistrer ») — tant qu'il tient, au plus UN segment attend le
+# précédent, et cette attente reste sous ~60s. Un timeout plus court (ex. 8s)
+# déclencherait le refus "occupé" sur ce cas NORMAL (un seul onglet, une seule
+# transcription en avance) : côté client, `uploadSegment()` n'a que 2 relances
+# à délai court (`SEGMENT_RETRY_DELAYS_MS`, ~8s cumulées) avant d'abandonner
+# le segment — bien en-deçà des 900s de patience qu'il accordait avant ce
+# correctif (`TRANSCRIBE_TIMEOUT_MS`, le fetch attendait le déblocage du
+# verrou sans jamais échouer). Un timeout serveur trop court aurait donc fait
+# perdre des segments là où l'ancien blocage silencieux finissait par réussir
+# (revue adversariale du lot 1, 2026-09-15) — 60s ne se déclenche que quand
+# l'invariant ci-dessus est déjà rompu (CPU saturé, plusieurs onglets/
+# entretiens concurrents), le cas que ce correctif vise réellement.
+#
+# S'applique aux DEUX appelants de `transcribe_audio()` : la route segment
+# (`interviews_audio.py`) et la dictée de notes libres (`interviews.py`,
+# `/interviews/{id}/notes/transcribe`) — même verrou, même contrat de refus.
+# L'import de fichier (`iter_transcribe_blocks`) reste sur l'attente
+# bloquante existante, qui a déjà son propre mécanisme de reprise en tâche de
+# fond (reprise au bloc fautif, cf. docstring du module).
+SEGMENT_LOCK_TIMEOUT_S = float(os.environ.get("WHISPER_SEGMENT_LOCK_TIMEOUT_S", "60"))
+
 _model = None
 # Le singleton est partagé par plusieurs threads : `/audio/transcribe-segment`
 # (un `to_thread` par requête, plusieurs onglets possibles) et, depuis
@@ -126,6 +153,17 @@ class NoSpeechError(TranscriptionError):
     réel le 2026-07-30, mission 16 : ~100 min d'un entretien Google Meet
     capturées en quasi-silence — le micro physique n'entend pas le son du
     casque — sans aucune alerte visible, 90 segments perdus en silence)."""
+
+
+class TranscriptionBusyError(TranscriptionError):
+    """Le modèle Whisper est occupé par une autre transcription (verrou
+    `_MODEL_LOCK`) depuis plus de `SEGMENT_LOCK_TIMEOUT_S` — distinct d'un
+    échec : le segment n'a pas été tenté, il doit être REJOUÉ. `retry_after_s`
+    porte le délai suggéré, retranscrit par la route en en-tête `Retry-After`
+    (`code: "busy"`, HTTP 503) pour que le client sache attendre plutôt que
+    deviner via un timeout aveugle."""
+
+    retry_after_s: float = 0.0
 
 
 def _faster_whisper():
@@ -532,7 +570,22 @@ def transcribe_audio(content: bytes) -> str:
             # Verrou : le modèle singleton est partagé entre threads (cf.
             # `_MODEL_LOCK`). L'itération sur `segments` étant paresseuse, elle
             # doit rester DANS le verrou — c'est elle qui fait tourner le modèle.
-            with _MODEL_LOCK:
+            #
+            # Attente BORNÉE, pas indéfinie (atelier-dev 2026-09-15) : les deux
+            # appelants de `transcribe_audio()` (route segment du direct et
+            # dictée de notes libres, cf. `SEGMENT_LOCK_TIMEOUT_S` ci-dessus) —
+            # plusieurs onglets/entretiens concurrents se sérialisent derrière
+            # ce même verrou. Au-delà de `SEGMENT_LOCK_TIMEOUT_S`, mieux vaut
+            # renvoyer un refus "occupé" exploitable par le client (retry avec
+            # délai connu) que de le laisser espérer sur un thread bloqué
+            # jusqu'au timeout réseau.
+            if not _MODEL_LOCK.acquire(timeout=SEGMENT_LOCK_TIMEOUT_S):
+                exc = TranscriptionBusyError(
+                    "Transcription momentanément occupée, réessayez."
+                )
+                exc.retry_after_s = SEGMENT_LOCK_TIMEOUT_S
+                raise exc
+            try:
                 model = _get_model()
                 # beam_size piloté par BEAM_SIZE (défaut 2, relevé depuis 1 le
                 # 2026-07-15 : gain de précision net sur les noms propres/vocabulaire
@@ -542,6 +595,8 @@ def transcribe_audio(content: bytes) -> str:
                     io.BytesIO(content), language="fr", beam_size=BEAM_SIZE, vad_filter=True
                 )
                 text = " ".join(seg.text.strip() for seg in segments).strip()
+            finally:
+                _MODEL_LOCK.release()
     except TranscriptionError:
         raise
     except Exception as exc:  # garde-fou : ne jamais propager une 500 brute

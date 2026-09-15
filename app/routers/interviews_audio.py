@@ -65,6 +65,20 @@ async def transcribe_segment(file: UploadFile = File(...)):
         # à distance dont le micro n'entend pas le casque, mauvais périphérique)
         # — un matching sur le message français serait fragile.
         return JSONResponse({"error": str(exc), "code": "no_speech"}, status_code=422)
+    except audio_transcribe.TranscriptionBusyError as exc:
+        # Avant `TranscriptionError` (dont elle hérite) : le verrou du modèle
+        # Whisper était occupé par un autre segment/onglet plus de
+        # `SEGMENT_LOCK_TIMEOUT_S` (atelier-dev 2026-09-15) — le segment n'a
+        # PAS été tenté, il doit être REJOUÉ, pas traité comme un échec de
+        # contenu. 503 (`status >= 500` : le JS de record.html relance
+        # automatiquement) + `Retry-After` pour que le client attende le
+        # délai suggéré au lieu de deviner via son propre timeout.
+        retry_after = max(1, round(exc.retry_after_s))
+        return JSONResponse(
+            {"error": str(exc), "code": "busy", "retry_after_s": retry_after},
+            status_code=503,
+            headers={"Retry-After": str(retry_after)},
+        )
     except audio_transcribe.TranscriptionError as exc:
         return JSONResponse({"error": str(exc)}, status_code=422)
     except Exception:
