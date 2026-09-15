@@ -196,16 +196,38 @@ _TAILLE_MAX = 25 * 1024 * 1024   # 25 Mo : large pour une photo, borné pour la 
 # piège classique de l'IPv4 encapsulée dans une IPv6 (`::ffff:127.0.0.1`), qui
 # contournerait une garde n'inspectant que l'objet IPv6 tel quel.
 def _hote_interne(adresse_texte):
-    """True si `adresse_texte` (IPv4 ou IPv6) désigne une adresse non publique :
-    bouclage, privée, link-local, réservée, multicast ou non spécifiée (0.0.0.0) —
-    y compris quand elle encapsule une telle adresse IPv4 sous forme mappée IPv6."""
+    """True si `adresse_texte` (IPv4 ou IPv6) ne désigne PAS une adresse
+    publiquement routable — y compris quand elle encapsule une adresse IPv4 sous
+    forme mappée IPv6.
+
+    `is_global` D'ABORD, l'énumération ENSUITE (audit du hub 2026-09-13,
+    sécurité n°3). La garde n'énumérait que six prédicats (`is_loopback`,
+    `is_private`, `is_link_local`, `is_reserved`, `is_multicast`,
+    `is_unspecified`) : elle listait des CAS au lieu de tester la propriété
+    qu'elle vise, la routabilité publique. Le shared address space RFC 6598
+    (100.64.0.0/10 — CGNAT, et plage de pods de plusieurs offres cloud et
+    conteneurs) n'appartient à aucun des six et traversait donc les DEUX étages
+    de la garde. Mesuré et reproduit : `_hote_interne('100.64.1.1')` rendait
+    False, et `_verifier_hote_public('http://100.64.1.1:8080/x.png')` était
+    acceptée, alors qu'`ip_address('100.64.1.1').is_global` vaut False.
+    `is_global` ferme aussi TEST-NET, le benchmarking (198.18/15), 240/4, et
+    toute plage future qu'ajoutera CPython : une garde qui se met à jour avec la
+    stdlib au lieu d'être une liste à maintenir à la main.
+
+    Les six prédicats sont CONSERVÉS, en union, et ce n'est pas de la
+    redondance décorative : pour IPv6, `is_global` est défini comme
+    `not is_private`, donc les plages RÉSERVÉES (non allouées) d'IPv6 y
+    repasseraient pour globales. Les remplacer aurait desserré la garde là où
+    l'objet est de la resserrer. L'union n'accepte rien que l'ancienne version
+    refusait."""
     ip = ipaddress.ip_address(adresse_texte)
     candidats = [ip]
     mappee = getattr(ip, "ipv4_mapped", None)
     if mappee is not None:
         candidats.append(mappee)
     return any(
-        c.is_loopback or c.is_private or c.is_link_local
+        not c.is_global
+        or c.is_loopback or c.is_private or c.is_link_local
         or c.is_reserved or c.is_multicast or c.is_unspecified
         for c in candidats
     )
