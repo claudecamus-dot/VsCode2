@@ -605,6 +605,33 @@
       ],
       "source": "hub",
       "decision": "PARTIEL, cote VSCode2 uniquement. Le hub a precise le joker (arbitrage flotte du 2026-09-04) : `.claude/settings.local.json` (gitignore, 16 entrees dans permissions.allow) portait `Bash(node -e ' *)` -- execution Node arbitraire, le prefixe ne restreignant rien puisque `node -e` execute la chaine passee telle quelle. Utilisateur a lu le fichier en entier avec moi (feu vert explicite, requis par un hook projet qui bloque cette lecture sinon) et choisi de ne retirer QUE cette entree precise, via la skill update-config -- retrait via Edit, verifie par relecture JSON (15 entrees restantes, `node -e` absent). RESERVE, laissee EXPLICITEMENT en l'etat sur decision utilisateur : les 15 autres entrees (dont `Bash`/`PowerShell` nus, `Bash(./.venv/Scripts/python.exe -c ' *)`, `Bash(python -)`, et 9 entrees liees a un outil « opencode » sans rapport avec la structure de ce projet -- probable contamination d'un autre contexte de travail jamais nettoyee, invisible car le fichier est gitignore) n'ont pas ete jugees aujourd'hui. Rien a committer : fichier hors git par design."
+    },
+    {
+      "cible": "canon:vocabulaire-sans-pratique-securite",
+      "date": "2026-09-16",
+      "categories": [
+        "interaction"
+      ],
+      "source": "utilisateur",
+      "decision": "TRANSMIS AU HUB, non applique localement (arbitrage utilisateur du 2026-09-16, salle conseil-flotte + diagnostic frais agent-supervisor). `pratique-securite` absente des 2 vocabulaires miroirs de scan_transcripts.py/write_diagnostic.py (fichiers GENERES) -- l'arbitrage `VSCode1,VSCode2:permissions-hors-git-exec-arbitraire` du 2026-09-11 en est silencieusement inoperant. Message envoye a la session hub vscode5-supervision-projets-3f (msg_id 3cfe7db1) avec le correctif propose (ajouter la categorie aux 2 tuples canon). A re-verifier a la prochaine propagation du kit."
+    },
+    {
+      "cible": "scan_transcripts.py:mesure-non-fiable-faux-positif",
+      "date": "2026-09-16",
+      "categories": [
+        "verification-manquante"
+      ],
+      "source": "utilisateur",
+      "decision": "TRANSMIS AU HUB, non applique localement (arbitrage utilisateur du 2026-09-16). Le drapeau \"mesure non fiable\" (63/90 transcripts references disparus du disque) desactive a perpetuite le volet agent-mort sur une premisse fausse -- state.json est cumulatif, un transcript efface APRES son scan ne coute aucun evenement. Message envoye a la session hub vscode5-supervision-projets-3f (msg_id 3cfe7db1) avec le correctif propose (n'avertir que si un fichier absent n'a jamais ete lu). A re-verifier a la prochaine propagation du kit."
+    },
+    {
+      "cible": "flotte:succes-sans-marqueur-non-outille-sur-les-cibles",
+      "date": "2026-09-16",
+      "categories": [
+        "pratique-dev"
+      ],
+      "source": "utilisateur",
+      "decision": "TRANSMIS AU HUB, non applique localement (arbitrage utilisateur du 2026-09-16). La regle de veille adoptee le 2026-09-08 (faux succes auto-declares) n'est outillee qu'au hub (scripts/scan_projets.py, hub-only) -- mesure locale a la main sur runs.jsonl VSCode2 : 20/82 succes (24%) sans marqueur de verification, jamais affiche. Message envoye a la session hub vscode5-supervision-projets-3f (msg_id 3cfe7db1) avec le correctif propose (porter la mesure dans scan_transcripts.py, canon distribue). A re-verifier a la prochaine propagation du kit."
     }
   ]
 }

@@ -5,7 +5,7 @@
     "ne_pas_editer": "Fichier GENERE, en lecture seule : une correction faite ici sera ecrasee a la prochaine propagation. La veille s'ecrit AU HUB, ou elle est lue (section 3 du wiki) et arbitree. Une veille lancee depuis ce depot doit y etre remontee.",
     "date": "2026-09-11"
   },
-  "derniere_veille": "2026-09-08T00:00:00",
+  "derniere_veille": "2026-09-16T00:00:00",
   "entrees": [
     {
       "titre": "BMAD-METHOD — v7 ANNONCEE (uv standard) — PAS sortie : derniere release v6.10.0",
@@ -115,6 +115,31 @@
       "action_corrective": "Ajouter au scan_projets.py (ou a un script dedie) un compteur 'succes sans marqueur de verification dans les notes' sur runs.jsonl, affiche a cote des ratios de reprise deja publies dans CLAUDE.md (section R6) — donnee a discuter, pas un gate automatique.",
       "date": "2026-09-08",
       "statut": "adopte"
+    },
+    {
+      "titre": "Longueur du corps d'un SKILL.md bornée (guide « progressive disclosure ») — agent-orchestrator/SKILL.md mesuré à 800 lignes",
+      "url": "https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices",
+      "type": "pratique",
+      "source_referentiel": "Anthropic — Claude Platform docs / Agent Skills, Skill authoring best practices : « Keep SKILL.md body under 500 lines for optimal performance ; if your content exceeds this, split it into separate files using progressive disclosure patterns. »",
+      "projets_concernes": [
+        "VSCode2"
+      ],
+      "pertinence": "Mesuré ce cycle (PowerShell, wc -l equivalent) sur .claude/skills/*/SKILL.md de VSCode2 : agent-orchestrator/SKILL.md fait 800 lignes, 60% au-dessus du seuil recommandé — bmad-dev-story (397 l, deprecated shim), bmad-create-story (358 l, deprecated shim) et revue-increment (326 l) sont sous le seuil mais dans sa zone haute. Même famille de critère que « CLAUDE.md borné à 150 lignes » déjà adopté (2026-07-24) — non couvert : le scan mesure la taille des CLAUDE.md, jamais celle des SKILL.md. agent-orchestrator est un fichier canon synchronisé depuis le hub VScode5 (donc probablement le même écart sur toute la flotte, non vérifié ici — hors périmètre de ce dépôt cible), pas un problème propre à VSCode2.",
+      "regle_proposee": "Critère scan (dimension skills) : longueur du corps de chaque SKILL.md bornée (alerte au-delà de 500 lignes), mesurable à froid, même mécanique que le critère CLAUDE.md déjà outillé.",
+      "action_corrective": "Scinder agent-orchestrator/SKILL.md (800 l) en fichiers de progressive disclosure (contenu chargé à la demande plutôt qu'au démarrage) — correctif à porter AU HUB VScode5 puisque c'est un fichier canon, pas localement sur VSCode2.",
+      "date": "2026-09-16",
+      "statut": "nouveau"
+    },
+    {
+      "titre": "Plugin Playwright officiel Anthropic — alternative maintenue au harnais CDP maison (tests/navigateur_cdp.py)",
+      "url": "https://claude.com/plugins/playwright",
+      "type": "outil",
+      "projets_concernes": [
+        "VSCode2"
+      ],
+      "pertinence": "Le projet a un choix documenté explicite (« No Playwright/Selenium in this project's venv », run-dev-server/SKILL.md l.127) et un harnais CDP maison (tests/navigateur_cdp.py, 190+ lignes) qui porte 4 « leçons payées » en revues adversariales du 2026-09-08 et 2026-09-10 (processus orphelins Windows, clic hors-écran silencieux, drain de socket avant assertion, faux-positif keepalive) — cf. mémoire feedback_edge_headless_elevated_locked_session_and_launcher_exit.md. Anthropic propose désormais un plugin Playwright officiel et maintenu. PAS une recommandation d'adoption automatique : ce serait un revirement sur un choix déjà motivé et documenté, à instruire comme un arbitrage coût (dépendance ajoutée) / bénéfice (maintenance du harnais maison transférée à un plugin entretenu en amont) plutôt qu'une bascule silencieuse.",
+      "date": "2026-09-16",
+      "statut": "nouveau"
     }
   ]
 }

@@ -8,31 +8,32 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-09-16T17:10:23+02:00 · **89 sessions** (transcripts) · **292** invocations de skills · **252** lancements de sous-agents.
+Dernier scan : 2026-09-16T21:08:04+02:00 · **90 sessions** (transcripts) · **297** invocations de skills · **263** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `agent-orchestrator` | projet | 60 | 2026-07-17 | 2026-09-16 |
+| `agent-orchestrator` | projet | 61 | 2026-07-17 | 2026-09-16 |
 | `bmad-code-review` | BMAD | 48 | 2026-07-20 | 2026-09-16 |
 | `run-dev-server` | projet | 47 | 2026-07-03 | 2026-09-16 |
 | `bmad-review-edge-case-hunter` | BMAD | 26 | 2026-07-20 | 2026-09-07 |
-| `agent-supervisor` | projet | 22 | 2026-07-18 | 2026-09-10 |
+| `agent-supervisor` | projet | 22 | 2026-07-18 | 2026-09-16 |
 | `bmad-review-adversarial-general` | BMAD | 19 | 2026-07-20 | 2026-09-07 |
 | `revue-increment` | projet | 17 | 2026-07-18 | 2026-09-16 |
 | `pptx-verify` | projet | 11 | 2026-07-03 | 2026-09-07 |
+| `bmad-party-mode` | BMAD | 8 | 2026-07-31 | 2026-09-16 |
 | `update-config` | (builtin/session) | 7 | 2026-07-03 | 2026-09-11 |
-| `bmad-party-mode` | BMAD | 6 | 2026-07-31 | 2026-09-16 |
 | `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
 | `bmad-brainstorming` | BMAD | 2 | 2026-09-16 | 2026-09-16 |
+| `bmad-review` | BMAD | 2 | 2026-09-15 | 2026-09-16 |
 | `deck-design-review` | projet | 2 | 2026-07-22 | 2026-07-28 |
 | `pptx-deck` | projet | 2 | 2026-07-02 | 2026-07-03 |
 | `skill-creator` | global | 2 | 2026-07-03 | 2026-07-03 |
 | `slide-text-polish` | projet | 2 | 2026-07-22 | 2026-07-22 |
+| `veille-agentic` | projet | 2 | 2026-09-08 | 2026-09-16 |
 | `bmad-advanced-elicitation` | BMAD | 1 | 2026-09-16 | 2026-09-16 |
-| `bmad-review` | BMAD | 1 | 2026-09-15 | 2026-09-15 |
 | `bmad-sprint-status` | BMAD | 1 | 2026-07-22 | 2026-07-22 |
 | `claude-api` | (builtin/session) | 1 | 2026-06-29 | 2026-06-29 |
 | `code-review` | (builtin/session) | 1 | 2026-09-15 | 2026-09-15 |
@@ -42,23 +43,22 @@ Dernier scan : 2026-09-16T17:10:23+02:00 · **89 sessions** (transcripts) · **2
 | `restitution-deck-design` | projet | 1 | 2026-07-22 | 2026-07-22 |
 | `revue-ui-web` | projet | 1 | 2026-09-16 | 2026-09-16 |
 | `swot-matrix` | projet | 1 | 2026-07-28 | 2026-07-28 |
-| `veille-agentic` | projet | 1 | 2026-09-08 | 2026-09-08 |
 
 ## Sous-agents
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 145 | 2026-07-15 | 2026-09-16 |
+| `general-purpose` | 154 | 2026-07-15 | 2026-09-16 |
 | `Explore` | 47 | 2026-06-30 | 2026-09-15 |
 | `bmad-revue` | 40 | 2026-08-31 | 2026-09-16 |
 | `(defaut)` | 7 | 2026-07-21 | 2026-07-30 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
-| `agent-supervisor` | 2 | 2026-09-01 | 2026-09-10 |
+| `agent-supervisor` | 3 | 2026-09-01 | 2026-09-16 |
+| `veille-agentic` | 2 | 2026-09-08 | 2026-09-16 |
 | `a11y-auditor` | 1 | 2026-09-16 | 2026-09-16 |
 | `claude-code-guide` | 1 | 2026-07-03 | 2026-07-03 |
 | `design-reviewer` | 1 | 2026-09-16 | 2026-09-16 |
-| `veille-agentic` | 1 | 2026-09-08 | 2026-09-08 |
 
 ## Jamais utilisés
 
@@ -74,6 +74,10 @@ Dernier scan : 2026-09-16T17:10:23+02:00 · **89 sessions** (transcripts) · **2
 
 </details>
 
+**global** — 1/3 jamais invoqués :
+
+`synced`
+
 ## Skills hub-only
 
 _S'invoquent DEPUIS le hub de supervision, en ciblant ce projet — jamais depuis ce dépôt (leur `SKILL.md` le déclare). Leur `n=0` ici est le fonctionnement nominal, pas un défaut d'usage : aucun usage local ne le corrigera, il n'y a donc rien à en conclure ni rien à désinstaller._
@@ -88,9 +92,9 @@ _Consommés en lisant/exécutant leurs `scripts/`, ou via un sous-agent qui les 
 
 ## TODO agents (constats automatiques)
 
-⚠️ **Mesure incomplète** — 63 transcript(s) sur 89 absent(s) du disque. Un `n=0` ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.
+⚠️ **Mesure incomplète** — 63 transcript(s) sur 90 absent(s) du disque. Un `n=0` ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.
 
-⚠️ **Veille lancée le 2026-09-08, artefact plus ancien** — `.claude/veille/veille.json` date du 2026-09-08 : le dernier tour n'a rien déposé. Vérifier où sa sortie a atterri avant de relancer.
+⚠️ **Veille lancée le 2026-09-16, artefact plus ancien** — `.claude/veille/veille.json` date du 2026-09-16 : le dernier tour n'a rien déposé. Vérifier où sa sortie a atterri avant de relancer.
 
 1. **Désinstaller les shims BMAD dépréciés** (21) : `bmad-checkpoint-preview`, `bmad-create-architecture`, `bmad-create-prd`, `bmad-create-story`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-edit-prd`, `bmad-editorial-review`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-generate-project-context`, `bmad-market-research`, `bmad-quick-dev`, `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-review-verification-gap`, `bmad-sprint-status`, `bmad-technical-research`, `bmad-validate-prd` — dépréciés par BMAD dans leur propre `description`, chacun avec son remplaçant ; le seul élagage qui ne repose pas sur notre mesure d'usage.
 2. **Skills projet sans usage** : `agent-securite` — vérifier pertinence et déclencheurs.
@@ -171,19 +175,16 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic ⚠️ à relancer (> 14 j) — rien à signaler, tous les constats précédents ont été arbitrés._
+_Diagnostic à jour._
 
-_5 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un `re_challenge` avec des données nouvelles :_
-
-- ~~Une garde posee sur UN chemin, ses freres jamais enumeres : le motif commun des 3 bloquants et des 2 affirmations fausses du 2026-09-10 - et ces 2 routes audio restent ouvertes~~ (`VSCode2:audio-streaming-disque-sans-plafond`)
-- ~~L oracle de test n est fiable qu en suite complete (9 min) et cette suite n est pas reentrante : trois defauts du 2026-09-10 sont nes de la, pas du code~~ (`pytest`)
-- ~~Le hub audite un code qu il n a pas relu : 5 des 20 constats transmis etaient deja fermes, dont 2 par ses propres commits du matin - et la copie locale diverge de 157 lignes dans l autre sens~~ (`VSCode2:audit-local-orphelin-contredit-le-hub`)
-- ~~Performance : trois constats sur quatre traites, mais le quatrieme est une decision PRODUIT que personne n a posee a l utilisateur - et aucun arbitrage ne ferme la dimension~~ (`VSCode2:audit-performance-niveau-moyen`)
-- ~~Le hook qui liste ce qui attend une decision n'existe QUE au hub : les 5 cibles ne l'ont pas, et le kit ne le distribue pas~~ (`flotte:point-du-jour-absent-des-5-cibles`)
+1. **La securite n existe dans aucun des deux vocabulaires du dispositif : l arbitrage du 2026-09-11 ne ferme rien, et aucun constat de securite ne peut meme s ecrire** — A corriger au CANON du hub VScode5 (write_diagnostic.py et scan_transcripts.py portent la banniere GENERE - NE PAS EDITER LOCALEMENT), puis resynchroniser les 5 cibles. Rien a editer ici. · **Proposition** : Ajouter pratique-securite aux deux tuples (CATEGORIES de write_diagnostic.py et CATEGORIES_CONNUES de scan_transcripts.py) dans le canon du hub, et une ligne dans la table des categories de agent-supervisor/SKILL.md (question : la dimension securite de l audit est-elle rouge/orange sur un projet qui expose des routes non authentifiees ? preuve-type : niveau de la dimension securite + le site de code). Alternative si la flotte veut garder 13 categories : corriger l entree d arbitrages.json en pratique-dev - mais alors agent-securite n a aucun canal propre et ses constats se confondront avec le dev. Preuve de succes : le prochain scan n imprime plus hors vocabulaire, et l entree du 2026-09-11 ferme reellement un constat.
+2. **Le drapeau mesure non fiable desactive a perpetuite le volet agent-mort sur une premisse fausse : les compteurs d usage NE SONT PAS perdus quand un transcript disparait** — Canon du hub (fichier GENERE). Ne pas editer ici. · **Proposition** : Faire porter le drapeau sur ce qu il mesure vraiment : n avertir que si un fichier absent n a JAMAIS ete lu (offset absent ou 0), et sinon ne rien dire - un fichier entierement consomme puis efface est un cas nominal, pas une lacune. Si le hub tient a tracer l effacement, le passer en ligne informative (63 transcripts deja consommes puis effaces) SANS la phrase ne rien desinstaller, qui est le vrai cout. Preuve de succes : le prochain scan ne porte plus mesure non fiable et le TODO skills sans usage redevient exploitable pour un arbitrage de desinstallation.
+3. **11 commits pousses sur origin/main le 2026-09-16 sans le moindre verdict de CI : le garde-fou existe, il est structurellement muet, et 3 runs successifs ont cesse de le dire** — Trancher, plutot que laisser un hook cable qui ne peut rien mesurer - c est la forme la plus couteuse : elle donne l impression que la CI est surveillee. · **Proposition** : Deux voies, a arbitrer par l utilisateur. (A) Poser GH_TOKEN (portee repo) dans l environnement de la machine - le hook redevient operant tel quel, sans une ligne de code, et rattrape les runs rouges au push. (B) Si aucun jeton ne sera pose, assumer et le dire : degrader le hook en avertissement de fin de seance unique et retirer la CI des verifications reputees couvertes dans revue-increment, pour que la suite locale verte ne soit plus lue comme une preuve de CI verte. Dans les deux cas : verifier manuellement l etat des 11 commits du 2026-09-16 avant de considerer la seance close. Preuve de succes : chaque push a un verdict CI trace, ou la CI est explicitement hors du perimetre de preuve.
+4. **La regle de veille adoptee le 2026-09-08 sur les faux succes auto-declares n est outillee qu au hub : elle ne mesure rien la ou les runs se produisent** — Canon du hub : porter la mesure dans scan_transcripts.py (script distribue aux 5 cibles) plutot que dans le seul scan_projets.py du hub. · **Proposition** : Ajouter succes_sans_marqueur() et MARQUEURS_VERIFICATION a scan_transcripts.py (canon VScode5), et rendre la ligne dans le bloc de stats du wiki genere a cote des ratios de reprise, comme au hub - donnee a discuter, pas un gate bloquant (c est exactement ce que l action_corrective adoptee prescrit). Preuve de succes : le tableau de bord de chacune des 5 cibles affiche son propre ratio de succes sans marqueur au prochain scan.
 
 ## Seuil de qualification — la mesure
 
-Depuis le 2026-09-11 : **114** demande(s) vue(s) hors commande slash (+ 29 slash), **5** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **4 %** des demandes orchestrées.
+Depuis le 2026-09-11 : **130** demande(s) vue(s) hors commande slash (+ 30 slash), **6** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **5 %** des demandes orchestrées.
 _Ce chiffre ne dit pas ce qui AURAIT dû être orchestré : le hook compte, il ne juge pas. Il donne le dénominateur qui manquait pour arbitrer le seuil sur données plutôt que sur habitude._
 
 ---
