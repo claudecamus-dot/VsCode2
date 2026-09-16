@@ -260,7 +260,9 @@ def test_le_refus_occupe_ne_consomme_pas_le_budget_des_echecs_reels(ecran: Path)
 
     Test STRUCTUREL — même limite assumée que les autres tests de ce fichier
     sur `retryOrGiveUp`/`uploadSegment` (cf. F7) : il fige le CÂBLAGE, pas le
-    comportement bout-en-bout (harnais navigateur, lot 3 à venir)."""
+    comportement réel. Le minutage (délais bornés, fenêtre de patience
+    préservée à travers un détour transitoire) est prouvé par EXÉCUTION dans
+    `tests/test_transcription_occupee_execution.py` (lot 3, 2026-09-16)."""
     contenu = _sans_commentaires(ecran.read_text(encoding="utf-8"))
 
     corps = _corps_de_fonction(contenu, contenu.index("function uploadSegment"))
