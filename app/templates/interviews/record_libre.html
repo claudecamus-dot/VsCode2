@@ -326,6 +326,27 @@
   var sessionTokenHidden = document.getElementById('rec-session-token');
   var segmentTailHidden = document.getElementById('rec-segment-tail');
 
+  // Salles atelier-idées du 2026-09-16 (2e retour utilisateur, "quelque chose
+  // de plus visible") : `statusEl` reçoit ~35 messages de nature très
+  // différente (progression normale, retry, échec terminal) tous rendus en
+  // gris `.muted` — un échec réel a le même poids visuel qu'une confirmation
+  // anodine. Plutôt que de toucher chacun des ~35 points d'écriture (risque
+  // élevé sur ce fichier, historique de 7 bugs data-loss), UN SEUL point
+  // d'observation : un `MutationObserver` classe le texte à l'affichage,
+  // d'après une liste fermée de motifs d'ÉCHEC TERMINAL (pas les "nouvelle
+  // tentative…", qui restent neutres — encore en cours, pas encore un échec).
+  var STATUT_ECHEC_MOTIFS = [
+    'non supporté par ce navigateur', 'Relance impossible :',
+    'Échec de la transcription', 'Rattachement impossible', 'Micro inaccessible',
+    'Transcription interrompue au bloc'
+  ];
+  function statutEstEchec(texte) {
+    return STATUT_ECHEC_MOTIFS.some(function (motif) { return texte.indexOf(motif) !== -1; });
+  }
+  new MutationObserver(function () {
+    statusEl.classList.toggle('rec-status-danger', statutEstEchec(statusEl.textContent));
+  }).observe(statusEl, { childList: true, characterData: true, subtree: true });
+
   if (!navigator.mediaDevices || !window.MediaRecorder) {
     statusEl.textContent = "Enregistrement non supporté par ce navigateur.";
     startBtn.disabled = true;

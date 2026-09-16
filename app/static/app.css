@@ -596,6 +596,16 @@ input[type=text].turn-section-input:placeholder-shown {
 .rec-source-state { font-size: .85rem; }
 .rec-source-state.ok { color: var(--accent-dark); }
 .rec-source-state.ko { color: var(--danger); font-weight: 600; }
+/* `#rec-status` (record.html/record_libre.html) : posée par un `MutationObserver`
+   sur une liste fermée de motifs d'échec terminal (2e retour salle atelier-idées
+   2026-09-16), pas par ce fichier — voir le commentaire JS au point d'observation.
+   Un échec réel doit se voir, pas rester dans le même gris que la progression
+   normale. Pas de `!important` : `.muted` (ligne 92) et `.rec-status-danger`
+   partagent la spécificité (0,0,1,0), donc la règle la plus TARDIVE dans la
+   feuille l'emporte déjà — comme `.rec-source-state.ko` juste au-dessus, qui
+   n'en a pas besoin (revue bmad-code-review 2026-09-16 : le commentaire d'avant
+   affirmait l'inverse). */
+.rec-status-danger { color: var(--danger); font-weight: 600; }
 .rec-source-hint { font-size: .85rem; margin: 8px 0 0; }
 /* Dérogation : possible, mais il faut la vouloir — jamais un bouton de même
    poids que « Démarrer », sinon on retombe sur le clic distrait qui a coûté
