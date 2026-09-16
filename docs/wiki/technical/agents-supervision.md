@@ -8,19 +8,19 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-09-16T11:13:26+02:00 · **88 sessions** (transcripts) · **277** invocations de skills · **216** lancements de sous-agents.
+Dernier scan : 2026-09-16T14:08:22+02:00 · **89 sessions** (transcripts) · **283** invocations de skills · **224** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `agent-orchestrator` | projet | 59 | 2026-07-17 | 2026-09-16 |
-| `run-dev-server` | projet | 46 | 2026-07-03 | 2026-09-15 |
-| `bmad-code-review` | BMAD | 44 | 2026-07-20 | 2026-09-16 |
+| `agent-orchestrator` | projet | 60 | 2026-07-17 | 2026-09-16 |
+| `run-dev-server` | projet | 47 | 2026-07-03 | 2026-09-16 |
+| `bmad-code-review` | BMAD | 46 | 2026-07-20 | 2026-09-16 |
 | `bmad-review-edge-case-hunter` | BMAD | 26 | 2026-07-20 | 2026-09-07 |
 | `agent-supervisor` | projet | 22 | 2026-07-18 | 2026-09-10 |
 | `bmad-review-adversarial-general` | BMAD | 19 | 2026-07-20 | 2026-09-07 |
-| `revue-increment` | projet | 15 | 2026-07-18 | 2026-09-16 |
+| `revue-increment` | projet | 17 | 2026-07-18 | 2026-09-16 |
 | `pptx-verify` | projet | 11 | 2026-07-03 | 2026-09-07 |
 | `update-config` | (builtin/session) | 7 | 2026-07-03 | 2026-09-11 |
 | `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
@@ -45,9 +45,9 @@ Dernier scan : 2026-09-16T11:13:26+02:00 · **88 sessions** (transcripts) · **2
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 115 | 2026-07-15 | 2026-09-16 |
+| `general-purpose` | 121 | 2026-07-15 | 2026-09-16 |
 | `Explore` | 47 | 2026-06-30 | 2026-09-15 |
-| `bmad-revue` | 36 | 2026-08-31 | 2026-09-16 |
+| `bmad-revue` | 38 | 2026-08-31 | 2026-09-16 |
 | `(defaut)` | 7 | 2026-07-21 | 2026-07-30 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
@@ -83,7 +83,7 @@ _Consommés en lisant/exécutant leurs `scripts/`, ou via un sous-agent qui les 
 
 ## TODO agents (constats automatiques)
 
-⚠️ **Mesure incomplète** — 63 transcript(s) sur 88 absent(s) du disque. Un `n=0` ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.
+⚠️ **Mesure incomplète** — 63 transcript(s) sur 89 absent(s) du disque. Un `n=0` ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.
 
 ⚠️ **Veille lancée le 2026-09-08, artefact plus ancien** — `.claude/veille/veille.json` date du 2026-09-08 : le dernier tour n'a rien déposé. Vérifier où sa sortie a atterri avant de relancer.
 
@@ -178,7 +178,7 @@ _5 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir 
 
 ## Seuil de qualification — la mesure
 
-Depuis le 2026-09-11 : **58** demande(s) vue(s) hors commande slash (+ 24 slash), **1** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **2 %** des demandes orchestrées.
+Depuis le 2026-09-11 : **64** demande(s) vue(s) hors commande slash (+ 25 slash), **3** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **5 %** des demandes orchestrées.
 _Ce chiffre ne dit pas ce qui AURAIT dû être orchestré : le hook compte, il ne juge pas. Il donne le dénominateur qui manquait pour arbitrer le seuil sur données plutôt que sur habitude._
 
 ---

@@ -834,10 +834,10 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-09-16T11:13:26+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-09-16T14:08:22+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>88 sessions</strong> couvertes · <strong>277</strong> invocations de skills · <strong>216</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>89 sessions</strong> couvertes · <strong>283</strong> invocations de skills · <strong>224</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">scan_transcripts.py · 2026-09-16 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
@@ -847,13 +847,13 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Skill</th><th>Famille</th><th>Invocations</th><th>Première</th><th>Dernière</th></tr></thead>
           <tbody>
-            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>59</td><td>2026-07-17</td><td>2026-09-16</td></tr>
-            <tr><td><code>run-dev-server</code></td><td>projet</td><td>46</td><td>2026-07-03</td><td>2026-09-15</td></tr>
-            <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>44</td><td>2026-07-20</td><td>2026-09-16</td></tr>
+            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>60</td><td>2026-07-17</td><td>2026-09-16</td></tr>
+            <tr><td><code>run-dev-server</code></td><td>projet</td><td>47</td><td>2026-07-03</td><td>2026-09-16</td></tr>
+            <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>46</td><td>2026-07-20</td><td>2026-09-16</td></tr>
             <tr><td><code>bmad-review-edge-case-hunter</code></td><td>BMAD</td><td>26</td><td>2026-07-20</td><td>2026-09-07</td></tr>
             <tr><td><code>agent-supervisor</code></td><td>projet</td><td>22</td><td>2026-07-18</td><td>2026-09-10</td></tr>
             <tr><td><code>bmad-review-adversarial-general</code></td><td>BMAD</td><td>19</td><td>2026-07-20</td><td>2026-09-07</td></tr>
-            <tr><td><code>revue-increment</code></td><td>projet</td><td>15</td><td>2026-07-18</td><td>2026-09-16</td></tr>
+            <tr><td><code>revue-increment</code></td><td>projet</td><td>17</td><td>2026-07-18</td><td>2026-09-16</td></tr>
             <tr><td><code>pptx-verify</code></td><td>projet</td><td>11</td><td>2026-07-03</td><td>2026-09-07</td></tr>
             <tr><td><code>update-config</code></td><td>(builtin/session)</td><td>7</td><td>2026-07-03</td><td>2026-09-11</td></tr>
             <tr><td><code>roadmap-keeper</code></td><td>global</td><td>4</td><td>2026-06-29</td><td>2026-07-15</td></tr>
@@ -882,9 +882,9 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Sous-agent</th><th>Lancements</th><th>Premier</th><th>Dernier</th></tr></thead>
           <tbody>
-            <tr><td><code>general-purpose</code></td><td>115</td><td>2026-07-15</td><td>2026-09-16</td></tr>
+            <tr><td><code>general-purpose</code></td><td>121</td><td>2026-07-15</td><td>2026-09-16</td></tr>
             <tr><td><code>Explore</code></td><td>47</td><td>2026-06-30</td><td>2026-09-15</td></tr>
-            <tr><td><code>bmad-revue</code></td><td>36</td><td>2026-08-31</td><td>2026-09-16</td></tr>
+            <tr><td><code>bmad-revue</code></td><td>38</td><td>2026-08-31</td><td>2026-09-16</td></tr>
             <tr><td><code>(defaut)</code></td><td>7</td><td>2026-07-21</td><td>2026-07-30</td></tr>
             <tr><td><code>claude</code></td><td>4</td><td>2026-07-16</td><td>2026-07-16</td></tr>
             <tr><td><code>Plan</code></td><td>3</td><td>2026-07-06</td><td>2026-07-17</td></tr>
@@ -902,7 +902,7 @@ pytest -k "pptx or export"                                                     #
       <p><strong>bibliothèque / référence</strong> — usage via scripts/sous-agent, non capté par le compteur (n=0 ≠ mort, constat #2) : <code>pdf-quality</code>, <code>pptx-framed-image</code>, <code>revue-ui-web</code></p>
 
       <h3>TODO agents — chantiers à lancer (constats automatiques)</h3>
-      <p class="avertissement"><em>⚠️ <strong>Mesure incomplète</strong> — 63 transcript(s) sur 88 absent(s) du disque. Un <code>n=0</code> ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.</em></p>
+      <p class="avertissement"><em>⚠️ <strong>Mesure incomplète</strong> — 63 transcript(s) sur 89 absent(s) du disque. Un <code>n=0</code> ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.</em></p>
       <p class="avertissement"><em>⚠️ <strong>Veille lancée le 2026-09-08, artefact plus ancien</strong> — <code>.claude/veille/veille.json</code> date du 2026-09-08 : le dernier tour n'a rien déposé. Vérifier où sa sortie a atterri avant de relancer.</em></p>
       <div class="critical">
         <p><strong>Désinstaller les shims BMAD dépréciés</strong> (21) : <code>bmad-checkpoint-preview</code>, <code>bmad-create-architecture</code>, <code>bmad-create-prd</code>, <code>bmad-create-story</code>, <code>bmad-dev-auto</code>, <code>bmad-dev-story</code>, <code>bmad-document-project</code>, <code>bmad-domain-research</code>, <code>bmad-edit-prd</code>, <code>bmad-editorial-review</code>, <code>bmad-editorial-review-prose</code>, <code>bmad-editorial-review-structure</code>, <code>bmad-generate-project-context</code>, <code>bmad-market-research</code>, <code>bmad-quick-dev</code>, <code>bmad-review-adversarial-general</code>, <code>bmad-review-edge-case-hunter</code>, <code>bmad-review-verification-gap</code>, <code>bmad-sprint-status</code>, <code>bmad-technical-research</code>, <code>bmad-validate-prd</code> — dépréciés par BMAD dans leur propre <code>description</code>, chacun avec son remplaçant ; le seul élagage qui ne repose pas sur notre mesure d'usage.</p>
