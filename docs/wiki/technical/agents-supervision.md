@@ -8,14 +8,14 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-09-16T16:08:53+02:00 · **89 sessions** (transcripts) · **291** invocations de skills · **251** lancements de sous-agents.
+Dernier scan : 2026-09-16T17:10:23+02:00 · **89 sessions** (transcripts) · **292** invocations de skills · **252** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
 | `agent-orchestrator` | projet | 60 | 2026-07-17 | 2026-09-16 |
-| `bmad-code-review` | BMAD | 47 | 2026-07-20 | 2026-09-16 |
+| `bmad-code-review` | BMAD | 48 | 2026-07-20 | 2026-09-16 |
 | `run-dev-server` | projet | 47 | 2026-07-03 | 2026-09-16 |
 | `bmad-review-edge-case-hunter` | BMAD | 26 | 2026-07-20 | 2026-09-07 |
 | `agent-supervisor` | projet | 22 | 2026-07-18 | 2026-09-10 |
@@ -50,7 +50,7 @@ Dernier scan : 2026-09-16T16:08:53+02:00 · **89 sessions** (transcripts) · **2
 | --- | --- | --- | --- |
 | `general-purpose` | 145 | 2026-07-15 | 2026-09-16 |
 | `Explore` | 47 | 2026-06-30 | 2026-09-15 |
-| `bmad-revue` | 39 | 2026-08-31 | 2026-09-16 |
+| `bmad-revue` | 40 | 2026-08-31 | 2026-09-16 |
 | `(defaut)` | 7 | 2026-07-21 | 2026-07-30 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
@@ -183,7 +183,7 @@ _5 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir 
 
 ## Seuil de qualification — la mesure
 
-Depuis le 2026-09-11 : **109** demande(s) vue(s) hors commande slash (+ 28 slash), **4** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **4 %** des demandes orchestrées.
+Depuis le 2026-09-11 : **114** demande(s) vue(s) hors commande slash (+ 29 slash), **5** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **4 %** des demandes orchestrées.
 _Ce chiffre ne dit pas ce qui AURAIT dû être orchestré : le hook compte, il ne juge pas. Il donne le dénominateur qui manquait pour arbitrer le seuil sur données plutôt que sur habitude._
 
 ---
