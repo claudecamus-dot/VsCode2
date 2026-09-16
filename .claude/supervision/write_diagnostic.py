@@ -4,38 +4,58 @@ Utilisé par la skill `agent-supervisor` : elle compose les constats (LLM), ce s
 garantit le schéma que `scan_transcripts.py` consomme (fusion wiki + routing-hints).
 
 Usage : py .claude/supervision/write_diagnostic.py '<json>'   (ou JSON sur stdin)
+        py .claude/supervision/write_diagnostic.py --fusionner '<json>'
+  Mode par défaut — REGISTRE À ÉTAT (repris de VSCode2 le 2026-09-12, finding
+    `flotte:write-diagnostic-du-hub-ecrase-les-findings-non-arbitres`) : avant d'écrire,
+    les constats du diagnostic précédent que personne n'a tranchés sont REPORTÉS dans le
+    nouveau. Un constat ne disparaît que FERMÉ par un arbitrage, jamais parce qu'un
+    diagnostic plus récent a été écrit. Identité d'un constat : `_identite` (cible +
+    catégorie), fermeture : `_ferme`.
+  --fusionner : conserve tous les findings précédents sauf ceux dont (cible, titre) est
+    repris dans ce json (mis à jour sur place), et ajoute les findings vraiment nouveaux.
+    Pour écrire dans le diagnostic.json d'un AUTRE dépôt de la flotte
+    (AGENT_SUPERVISION_DIAGNOSTIC pointé dessus) sans détruire ses findings ouverts
+    propres (finding `flotte:23-items-cadres-sans-canal-arbitrable`, 2026-09-04). Ce mode
+    ne consulte AUCUN arbitrage : `ARBITRAGES_PATH` est dérivé de `__file__`, donc du
+    HUB — fermer un constat d'un autre dépôt avec les décisions du hub serait faux. Il ne
+    plafonne pas non plus le total conservé : la conservation y est l'objet même du mode.
 Schéma attendu : {"findings": [{"categorie", "titre", "preuve", ...}]}
   - categorie : ko-repete | inefficacite | agent-mort | interaction |
-    verification-manquante | autre. `ko-repete` et `inefficacite` avec une `cible`
-    alimentent la liste `prudence` de routing-hints.json (l'orchestrateur les évite).
+    verification-manquante | non-convergence | pratique-* | autre. `ko-repete` et
+    `inefficacite` avec une `cible` alimentent la liste `prudence` de routing-hints.json
+    (l'orchestrateur les évite).
   - titre (str, requis) : le constat en une phrase.
   - preuve (str, requis) : le signal objectif qui l'ancre (comptage, erreur, reprise,
     correction utilisateur) — garde-fou anti-auto-complaisance : jamais de constat
     sans donnée à l'appui.
-  - priorite (int 1-5, optionnel, défaut 1), cible (str, optionnel),
-    recommandation (str, optionnel).
-  - re_challenge (bool, optionnel — 2026-07-28) : ce constat re-challenge une décision
-    déjà arbitrée sur la même cible, avec des données NOUVELLES. Il échappe alors au
-    filtre `finding_arbitre` du scan et s'affiche au tableau de bord. Exige une `cible`
-    (sinon il ne conteste rien) ; à n'utiliser que si la `preuve` est postérieure à
-    l'arbitrage — sans quoi c'est une redite que l'humain a déjà tranchée.
+  - priorite (int 1-5, optionnel, défaut 1), recommandation (str, optionnel).
+  - cible (str, requis, non vide) : sans elle un constat reste invisible pour
+    point_du_jour.py (findings_non_arbitres saute les findings sans cible) — et aucun
+    arbitrage ne peut le fermer, donc il serait reporté à perpétuité.
+  - re_challenge (bool, optionnel — repris de VSCode2) : ce constat re-challenge une
+    décision déjà arbitrée sur la même cible, avec des données NOUVELLES. Il échappe
+    alors au filtre `finding_arbitre` du scan et s'affiche au tableau de bord. Typé
+    STRICTEMENT : la chaîne "false" est truthy en Python, elle ne doit pas ouvrir un
+    passe-droit sur une décision humaine. Il exige une `cible` — exigence que la `cible`
+    requise non vide ci-dessus couvre déjà pour tout finding : pas de second contrôle,
+    une branche qui ne peut pas s'atteindre n'est pas un garde-fou.
   - proposition (str, optionnel — incrément C « challenger ») : le changement concret
     proposé (nouveau déclencheur de skill, contrat de playbook amendé, désinstallation…),
     en une phrase ou un mini-diff inline. Rendue dans le wiki avec le constat ;
     JAMAIS appliquée par le superviseur — l'humain arbitre, l'orchestrateur applique
-    la version validée (gouvernance : agent-orchestrateur.md §6).
-  - vu_le (str « AAAA-MM-JJ », posé par CE script) : date de PREMIÈRE apparition du
-    constat. Un constat reconduit la conserve — c'est ce qui distingue « vu hier et
-    toujours pas tranché » de « trouvé aujourd'hui », et ce qui date la fenêtre
-    d'arbitrage (cf. `_ferme`).
+    la version validée (gouvernance : règle R4 de CLAUDE.md, et
+    .claude/skills/agent-orchestrator/SKILL.md § 2 bis).
+  - vu_le (str « AAAA-MM-JJ », posé par CE script, jamais par l'appelant) : date de
+    PREMIÈRE vue du constat. Un constat reconduit la conserve — c'est ce qui distingue
+    « vu hier et toujours pas tranché » de « trouvé aujourd'hui », et ce qui date la
+    fenêtre d'arbitrage (cf. `_ferme`).
 
-`generated` est posé par ce script (horodatage courant). Le fichier est un REGISTRE À
-ÉTAT et non un instantané (2026-09-02) : avant d'écrire, les constats du diagnostic
-précédent que personne n'a tranchés sont REPORTÉS. Un constat ne disparaît que fermé par
-un arbitrage, jamais parce qu'un diagnostic plus récent a été écrit. Gitignoré — donnée
-machine.
+`generated` est posé par ce script (horodatage courant). Gitignoré — donnée machine.
 Env (tests) : AGENT_SUPERVISION_DIAGNOSTIC, AGENT_SUPERVISION_ARBITRAGES.
-Conception : docs/reflexions/agent-superviseur.md.
+Conception : docs/reflexions/conception-agent-supervisor.md (le POURQUOI, repris de
+VSCode2 le 2026-09-02) ; le QUOI operationnel est dans .claude/skills/agent-supervisor/
+SKILL.md. Entre le 2026-08-31 et cette reprise, ce champ a pointe un docs/reflexions qui
+n'existait pas.
 """
 import datetime
 import json
@@ -49,17 +69,19 @@ ARBITRAGES_PATH = os.environ.get("AGENT_SUPERVISION_ARBITRAGES") or os.path.join
     os.path.dirname(os.path.abspath(__file__)), "arbitrages.json"
 )
 CATEGORIES = (
+    # Volet 1 — usage des agents
     "ko-repete", "inefficacite", "agent-mort", "interaction",
     "verification-manquante", "non-convergence",
-    # Volet 2 — pratiques d'ingénierie, que la skill agent-supervisor prescrit et que
-    # cette copie refusait (finding flotte:write_diagnostic-deploye-refuse-les-categories-
-    # pratique, 2026-09-08). Ajout minimal : cette lignée garde son registre à état.
+    # Volet 2 — pratiques d'ingénierie (test, dev, revue, design)
     "pratique-test", "pratique-dev", "pratique-revue", "pratique-design",
+    # Volet 2 — documentation et cadrage produit
     "pratique-doc", "pratique-produit",
     "autre",
 )
 # Plafond de la skill agent-supervisor (§ « 5 constats max, priorisés ») — appliqué ici
-# parce que le scan n'affiche que les 5 premiers : au-delà, un constat se perdait sans trace.
+# parce que le scan n'affiche que les 5 premiers : au-delà, un constat se perdait sans
+# trace. Repris de VSCode2 avec le registre à état : les deux vont ensemble, puisque
+# c'est le report des non-arbitrés qui fait monter le total.
 MAX_FINDINGS = 5
 
 
@@ -71,7 +93,9 @@ def _identite(finding: dict) -> tuple:
     reconduirait un doublon à chaque reformulation ; la seule cible confondrait deux
     constats de nature différente sur le même fichier.
     Un constat SANS cible ne peut être fermé par aucun arbitrage : on le distingue alors
-    par son titre, faute de mieux, pour ne pas fusionner deux constats indépendants."""
+    par son titre, faute de mieux, pour ne pas fusionner deux constats indépendants. Ce
+    repli n'est pas mort malgré la `cible` requise à l'écriture : les ANCIENS relus sur
+    disque n'ont jamais été validés par cette version du script."""
     cible = str(finding.get("cible") or "").strip()
     if not cible:
         cible = "~" + str(finding.get("titre") or "")
@@ -80,8 +104,9 @@ def _identite(finding: dict) -> tuple:
 
 def _charger_arbitrages() -> list:
     """Décisions humaines (fichier versionné, JAMAIS écrit ici). Même lecture tolérante
-    que le scan : un fichier absent ou illisible ne ferme aucun constat — la direction
-    sûre, l'erreur inverse perdant un constat en le croyant tranché."""
+    que le scan (`load_arbitrages`) : un fichier absent ou illisible ne ferme aucun
+    constat — la direction sûre, l'erreur inverse perdant un constat en le croyant
+    tranché."""
     try:
         with open(ARBITRAGES_PATH, encoding="utf-8") as fh:
             entries = json.load(fh).get("arbitrages", [])
@@ -92,7 +117,8 @@ def _charger_arbitrages() -> list:
 
 def _couvre(arbitrage: dict, categorie: str) -> bool:
     """Miroir de `_couvre` dans scan_transcripts.py : `categories` absent ferme tout, une
-    liste ferme exactement ces catégories, un champ mal formé ne ferme rien."""
+    liste ferme exactement ces catégories, un champ mal formé ne ferme rien (un `in` sur
+    une chaîne matcherait par sous-chaîne, silencieusement faux)."""
     cats = arbitrage.get("categories")
     if cats is None:
         return True
@@ -105,6 +131,12 @@ def _ferme(finding: dict, arbitrages: list) -> bool:
     La comparaison porte sur `vu_le`, pas sur la date du diagnostic courant : sans quoi un
     constat reconduit repousserait indéfiniment sa propre fenêtre d'arbitrage et ne serait
     jamais reconnu comme tranché.
+    Différence assumée avec `finding_arbitre` du scan, qui ferme dès qu'un arbitrage
+    couvrant existe, quelle que soit sa date : ici la décision de SUPPRIMER un constat du
+    registre se prend, donc on exige la preuve que l'humain a vu ce constat-là — un
+    arbitrage antérieur à sa première vue n'a pas pu le trancher. C'est aussi ce qui
+    protège un `re_challenge` sans avoir à le traiter à part : il naît avec un `vu_le` du
+    jour, donc l'arbitrage qu'il conteste lui est antérieur et ne le ferme pas.
     Sans `cible`, aucun arbitrage ne peut le viser ; sans `vu_le` exploitable, on ne peut
     pas PROUVER qu'un arbitrage lui est postérieur. Dans les deux cas on GARDE le constat :
     le coût d'un doublon visible est très inférieur à celui d'une perte silencieuse — c'est
@@ -124,17 +156,32 @@ def _ferme(finding: dict, arbitrages: list) -> bool:
 
 
 def _precedent() -> tuple:
-    """(constats du diagnostic précédent, sa date d'écriture) — ([], "") s'il n'y en a pas."""
+    """(constats du diagnostic précédent, sa date d'écriture, avertissement éventuel).
+
+    TROIS états et non deux (apport du hub conservé, correctif du 2026-08-31) : ABSENT
+    (premier diagnostic — muet, il n'y a rien à perdre), SAIN, et ILLISIBLE — bruyant,
+    car c'est exactement le cas où le report des non-arbitrés ne peut PAS jouer. Le
+    `except (OSError, ValueError): anciens = []` d'origine confondait les trois et
+    taisait l'alarme quand elle servait le plus."""
     try:
         with open(DIAGNOSTIC_PATH, encoding="utf-8") as fh:
             precedent = json.load(fh)
-        anciens = precedent.get("findings", [])
-    except (OSError, ValueError, AttributeError):
-        return [], ""
+    except FileNotFoundError:
+        return [], "", ""
+    except (OSError, ValueError) as exc:
+        return [], "", (
+            f"write_diagnostic AVERTISSEMENT : le diagnostic precedent est ILLISIBLE "
+            f"({exc}) — aucun constat non arbitre ne peut en etre REPORTE. Le fichier va "
+            "etre remplace : recuperer la version saine (git / sauvegarde) si des "
+            "constats ouverts doivent etre repris.")
+    anciens = precedent.get("findings") if isinstance(precedent, dict) else None
     if not isinstance(anciens, list):
-        return [], ""
+        return [], "", (
+            "write_diagnostic AVERTISSEMENT : le diagnostic precedent est ILLISIBLE "
+            "(structure inattendue, pas de liste 'findings') — meme consequence : aucun "
+            "constat non arbitre ne peut en etre REPORTE.")
     return ([f for f in anciens if isinstance(f, dict)],
-            str(precedent.get("generated") or "")[:10])
+            str(precedent.get("generated") or "")[:10], "")
 
 
 def main(argv) -> int:
@@ -142,7 +189,9 @@ def main(argv) -> int:
     for stream in (sys.stdin, sys.stdout):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8")
-    raw = argv[0] if argv else sys.stdin.read()
+    fusionner = "--fusionner" in argv
+    positionnels = [a for a in argv if a != "--fusionner"]
+    raw = positionnels[0] if positionnels else sys.stdin.read()
     try:
         diag = json.loads(raw)
     except ValueError as exc:
@@ -169,6 +218,11 @@ def main(argv) -> int:
             print(f"write_diagnostic : finding #{i} sans {', '.join(missing)} "
                   "(un constat sans preuve objective ne se journalise pas)")
             return 1
+        if not str(f.get("cible") or "").strip():
+            print(f"write_diagnostic : finding #{i} sans cible "
+                  "(un constat sans cible non vide reste invisible pour point_du_jour.py, "
+                  "et aucun arbitrage ne peut le fermer)")
+            return 1
         if f["categorie"] not in CATEGORIES:
             print(f"write_diagnostic : finding #{i} categorie invalide "
                   f"(attendu : {' | '.join(CATEGORIES)})")
@@ -183,18 +237,15 @@ def main(argv) -> int:
             print(f"write_diagnostic : finding #{i} re_challenge doit valoir true ou false "
                   f"(recu : {f['re_challenge']!r})")
             return 1
-        if f.get("re_challenge") and not f.get("cible"):
-            print(f"write_diagnostic : finding #{i} re_challenge sans cible "
-                  "(un re-challenge conteste un arbitrage, donc une cible precise)")
-            return 1
-    # --- Registre à état (2026-09-02) -------------------------------------------------
-    # Avant cette date : open(w) + dump du seul contenu neuf. Écrire un diagnostic
-    # EFFAÇAIT donc les constats précédents non arbitrés, sans trace ni avertissement.
-    # Mesuré : des 5 constats du 2026-09-01T23:00, un seul avait été arbitré quand
-    # l'écriture du 2026-09-02T12:12 les a tous remplacés. La boucle
-    # propose→arbitre→applique fuyait à son premier maillon.
-    anciens, date_precedente = _precedent()
-    arbitrages = _charger_arbitrages()
+    # --- Registre à état (repris de VSCode2, 2026-09-12) -------------------------------
+    # Avant : le hub AVERTISSAIT que des constats ouverts disparaissaient, puis les
+    # écrasait. Mesuré chez VSCode2 (commentaire d'origine) : des 5 constats du
+    # 2026-09-01T23:00, UN SEUL avait été arbitré quand l'écriture du 2026-09-02T12:12
+    # les a tous remplacés. La boucle propose→arbitre→applique fuyait à son premier
+    # maillon. Un avertissement que rien ne lit n'est pas un garde-fou.
+    anciens, date_precedente, avertissement = _precedent()
+    if avertissement:
+        print(avertissement)
     aujourdhui = datetime.date.today().isoformat()
     # Un diagnostic écrit avant l'existence de `vu_le` n'en porte pas : sa date d'écriture
     # fait foi. Sans ce repli, un `vu_le` vide rendrait `date >= ""` vrai pour n'importe
@@ -204,28 +255,66 @@ def main(argv) -> int:
     connus = {_identite(f): f for f in anciens}
     for f in findings:
         # Constat reconduit : il garde sa date de première vue — c'est elle qui dit depuis
-        # quand l'humain ne l'a pas tranché.
+        # quand l'humain ne l'a pas tranché. `vu_le` est posé ICI, jamais accepté de
+        # l'appelant : un superviseur qui se date lui-même pourrait repousser sa propre
+        # fenêtre d'arbitrage.
         ancien = connus.get(_identite(f))
         f["vu_le"] = (ancien or {}).get("vu_le") or aujourdhui
-    neufs = {_identite(f) for f in findings}
-    reportes = [f for f in anciens if _identite(f) not in neufs and not _ferme(f, arbitrages)]
-    if len(findings) + len(reportes) > MAX_FINDINGS:
-        # Le plafond force alors l'ARBITRAGE humain au lieu de provoquer un oubli : on
-        # refuse d'écrire plutôt que d'écraser des constats que personne n'a tranchés.
-        print(f"write_diagnostic : {len(findings)} constat(s) neuf(s) + {len(reportes)} "
-              f"reporte(s) = {len(findings) + len(reportes)}, maximum {MAX_FINDINGS}.")
-        print("  En attente d'arbitrage (les fermer dans arbitrages.json, "
-              "ou les reprendre dans ce diagnostic) :")
-        for f in reportes:
-            print(f"   - [{f.get('categorie')}] {f.get('cible') or '(sans cible)'} : "
-                  f"{str(f.get('titre'))[:90]} (vu le {f.get('vu_le')})")
-        return 1
+    if fusionner:
+        # Fusion : les findings precedents non repris sont CONSERVES tels quels, seuls
+        # ceux dont (cible, titre) correspond exactement a un finding de cette passe sont
+        # remplaces (mise a jour intentionnelle, pas une perte). Ni arbitrages ni plafond
+        # combine ici : cf. docstring du module.
+        nouvelles_cles = {(f.get("cible"), f.get("titre")) for f in findings}
+        conserves = [f for f in anciens
+                     if (f.get("cible"), f.get("titre")) not in nouvelles_cles]
+        remplaces = [f for f in anciens
+                     if (f.get("cible"), f.get("titre")) in nouvelles_cles]
+        if remplaces:
+            print(f"write_diagnostic (fusion) : {len(remplaces)} finding(s) existant(s) "
+                  "mis a jour (cible+titre identiques) :")
+            for f in remplaces:
+                print(f"  - {f.get('cible', '?')} : {f.get('titre', '?')}")
+        sortants = findings
+        findings = conserves + findings
+        print(f"write_diagnostic (fusion) : {len(conserves)} finding(s) precedent(s) "
+              f"conserve(s) tel(s) quel(s), {len(sortants)} ecrit(s) cette passe.")
+        reportes = []
+    else:
+        arbitrages = _charger_arbitrages()
+        neufs = {_identite(f) for f in findings}
+        restants = [f for f in anciens if _identite(f) not in neufs]
+        reportes = [f for f in restants if not _ferme(f, arbitrages)]
+        fermes = [f for f in restants if _ferme(f, arbitrages)]
+        if fermes:
+            print(f"write_diagnostic : {len(fermes)} constat(s) precedent(s) FERME(s) par "
+                  "un arbitrage posterieur a leur premiere vue, non reporte(s) :")
+            for f in fermes:
+                print(f"  - [{f.get('categorie')}] {f.get('cible')} : "
+                      f"{str(f.get('titre'))[:90]} (vu le {f.get('vu_le')})")
+        if len(findings) + len(reportes) > MAX_FINDINGS:
+            # Le plafond force alors l'ARBITRAGE humain au lieu de provoquer un oubli : on
+            # refuse d'écrire plutôt que d'écraser des constats que personne n'a tranchés.
+            print(f"write_diagnostic : {len(findings)} constat(s) neuf(s) + {len(reportes)} "
+                  f"reporte(s) = {len(findings) + len(reportes)}, maximum {MAX_FINDINGS}.")
+            print("  En attente d'arbitrage (les fermer dans arbitrages.json, "
+                  "ou les reprendre dans ce diagnostic) :")
+            for f in reportes:
+                print(f"   - [{f.get('categorie')}] {f.get('cible') or '(sans cible)'} : "
+                      f"{str(f.get('titre'))[:90]} (vu le {f.get('vu_le')})")
+            return 1
     out = {
         "generated": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
         "findings": findings + reportes,
     }
-    with open(DIAGNOSTIC_PATH, "w", encoding="utf-8") as fh:
+    # Ecriture atomique (meme motif que canon/log_run.solder) : un "w" direct laisse
+    # un diagnostic.json tronque si l'ecriture est interrompue — et un diagnostic
+    # tronque est precisement ce qui empeche de REPORTER quoi que ce soit au tour
+    # suivant (cf. _precedent : etat ILLISIBLE).
+    tmp = DIAGNOSTIC_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(out, fh, ensure_ascii=False, indent=1)
+    os.replace(tmp, DIAGNOSTIC_PATH)
     report = f", {len(reportes)} reporte(s) non arbitre(s)" if reportes else ""
     print(f"write_diagnostic : {len(findings)} constat(s){report} -> "
           f"{os.path.basename(DIAGNOSTIC_PATH)} "
