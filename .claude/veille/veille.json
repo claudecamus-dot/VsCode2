@@ -1,40 +1,120 @@
 {
-  "derniere_veille": "2026-09-08T12:00:00",
+  "_genere": {
+    "source": "hub de supervision VScode5, .claude/veille/veille.json",
+    "projection": "entrees dont projets_concernes nomme VSCode2",
+    "ne_pas_editer": "Fichier GENERE, en lecture seule : une correction faite ici sera ecrasee a la prochaine propagation. La veille s'ecrit AU HUB, ou elle est lue (section 3 du wiki) et arbitree. Une veille lancee depuis ce depot doit y etre remontee.",
+    "date": "2026-09-11"
+  },
+  "derniere_veille": "2026-09-08T00:00:00",
   "entrees": [
     {
-      "titre": "Ollama structured outputs : passer le schema JSON complet au champ format, pas la chaine litterale 'json'",
-      "url": "https://docs.ollama.com/capabilities/structured-outputs",
-      "type": "pratique",
-      "source_referentiel": "Ollama — docs.ollama.com / Structured outputs (le champ format de /api/chat accepte un JSON Schema complet en contrainte de decodage, pas seulement la chaine 'json')",
-      "projets_concernes": ["VSCode2"],
-      "pertinence": "app/services/ai_common.py::_call_ollama recoit deja un parametre schema: dict (signature ligne 455) mais n'envoie que \"format\": \"json\" a Ollama (ligne 462) — la contrainte de FORME du JSON n'est jamais appliquee cote modele, seule la validite JSON generique l'est. synthese_ai.py (commentaires lignes 254 et 537) et interview_libre_extract_ai.py (ligne 79) documentent explicitement cette limite (\"Ollama garantit du JSON valide, pas la forme du schema\") et compensent par de la coercion applicative post-hoc — exactement le bug deja rencontre et corrige une fois (memoire : 'Ollama JSON type coercion: flatten don't drop').",
-      "regle_proposee": "Un appel local Ollama qui dispose d'un schema JSON structure doit le transmettre via le champ 'format' (JSON Schema), pas seulement la chaine litterale 'json' — mesurable a froid par grep de '\"format\": \"json\"' dans les fichiers appelant /api/chat d'Ollama avec un parametre schema non vide disponible dans la meme fonction.",
-      "action_corrective": "app/services/ai_common.py::_call_ollama (lignes 455-469) : remplacer \"format\": \"json\" par \"format\": schema quand schema est fourni et non vide (fallback sur \"json\" sinon). Garder la coercion applicative existante en filet plutot que la retirer — la doc Ollama elle-meme previent que la contrainte de forme ne garantit pas le CONTENU (chaines vides, valeurs hallucinees), seulement la structure.",
-      "date": "2026-09-08",
-      "statut": "nouveau"
+      "titre": "BMAD-METHOD — v7 ANNONCEE (uv standard) — PAS sortie : derniere release v6.10.0",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/releases",
+      "type": "framework",
+      "projets_concernes": [
+        "VSCode",
+        "VSCode1",
+        "VSCode2",
+        "VSCode3",
+        "VSCode4",
+        "VScode5"
+      ],
+      "pertinence": "Suivi 2026-07-29 : la v7 est sortie — uv remplace python3 pour tous les scripts (l'installateur le vérifie), bmad-forge-idea nouvelle skill cœur, bmad-architecture réécrite en routage par intention (les shims DEPRECATED de la flotte — create-architecture, create-prd, edit-prd, validate-prd — sont RETIRÉS en v7). Les 6 projets sont en v6.10.0 avec statu quo « aucune customisation jusqu'à la v7 » (arbitrage skills-jamais-utilisees 2026-07-27) : la migration est désormais ARBITRABLE — décider quand migrer et si le tri des 46 skills se fait à cette occasion. [2026-07-30 : ENTREE CORRIGEE apres verification a la source (API GitHub releases/latest = v6.10.0 du 2026-07-03, aucun tag v7*, dist-tag npm latest = 6.10.0). La v7 N EST PAS SORTIE. Deux des trois arguments de cette entree etaient des faits de v6.9.0 DEJA installes (bmad-forge-idea, reecriture de bmad-architecture - le routage par intention est deja en production sur les 6 depots). Le troisieme (uv standard) est une annonce prospective publiee dans les notes de v6.9.0, sans date. Statut repasse de nouveau a etudie : il n y a rien a arbitrer tant que la version n existe pas. CE QUI EST REEL AUJOURD HUI : uv est absent du PATH de la machine alors que 22 fichiers du v6.10.0 installe invoquent deja uv run en forme primaire (repli python3 documente mais non garanti) - c est un manque actuel, pas un prerequis de migration future. Le volet uv est SOLDE le 2026-07-30 : uv 0.11.32 installe (winget), uv run verifie de bout en bout sur un vrai script du dispositif. Reste en veille uniquement la sortie eventuelle de la v7.] [2026-08-31 : SUIVI 32 jours apres. La v7 n'est toujours pas sortie, mais v6.11.0 EST sortie le 2026-08-09/10 (verifie double source : GitHub API releases/latest published_at=2026-08-10T17:49:41Z, et CHANGELOG.md brut du depot). Changements reels, avec breaking changes : bmad-quick-dev renomme bmad-build (ancien id conserve via shim de compatibilite), catalogue de skills core reduit de 14 a 8 (revue+editorial fusionnes dans bmad-review, trio recherche fusionne dans bmad-deep-recon, doc+contexte fusionnes dans bmad-project-context), config bascule en TOML en couches, et surtout : uv + Python 3.11+ devient une EXIGENCE DURE pour les skills rendus (plus un repli documente comme en v6.10.0) — les renderers s'arretent desormais sur config manquante. Ecart de mesure : seul le hub (VScode5) a confirme la presence d'uv (0.11.32, installe le 2026-07-30) ; le statut d'uv sur VSCode/VSCode1/VSCode2/VSCode3/VSCode4 n'est mesure nulle part (grep sur criteres-pratiques.md : aucune occurrence d'uv). Migrer vers v6.11.0 sans verifier uv sur les 5 autres depots casserait les skills rendues. Reste etudie : pas encore arbitre, mais l'arbitrage ne devrait plus attendre la v7 — v6.11.0 est deja un palier avec un prerequis dur non verifie sur 5/6 projets.] [ecarte le 2026-09-01 : Ecartee : le titre dit lui-meme ANNONCEE, PAS sortie, et la verification a la source du 2026-07-30 l'a confirme (API GitHub releases/latest = v6.10.0 du 2026-07-03, aucun tag v7*, dist-tag npm latest = 6.10.0). Deux des trois arguments de l'entree etaient des faits de v6.9.0 DEJA installes. Surtout : la seule decision qu'elle bloquait — le gel « aucune customisation jusqu'a la v7 » — a ete LEVEE le 2026-07-31 sans attendre la v7, au motif qu'un gel conditionne a un evenement qui ne vient pas est un gel definitif qui ne dit pas son nom. Il ne reste donc rien a arbitrer ici. La migration redeviendra une decision a part entiere quand la v7 sortira vraiment ; la cadence de veille la re-signalera.]",
+      "date": "2026-07-29",
+      "statut": "ecarte"
     },
     {
-      "titre": "Discipline de gestion de contexte/tokens (/clear, /compact, statusline) absente du CLAUDE.md de VSCode2",
+      "titre": "CLAUDE.md concis, entretenu comme du code (pruning régulier)",
+      "url": "https://code.claude.com/docs/en/best-practices",
+      "type": "pratique",
+      "source_referentiel": "Anthropic — Claude Code docs / best practices (« Write an effective CLAUDE.md », « The over-specified CLAUDE.md »)",
+      "projets_concernes": [
+        "VSCode",
+        "VSCode1",
+        "VSCode2",
+        "VSCode3",
+        "VSCode4",
+        "VScode5"
+      ],
+      "pertinence": "Un CLAUDE.md trop long fait ignorer les règles importantes (« bloated CLAUDE.md files cause Claude to ignore your actual instructions ») ; la flotte mesure la PRÉSENCE des CLAUDE.md, jamais leur taille ni leur entretien. [adopte — chantier 2 (2026-07-24) : seuil 150 l au scan (testé), VSCode1 149 l / VSCode3 107 l]",
+      "regle_proposee": "Critère scan (dimension pratiques + rules) : taille du CLAUDE.md bornée (alerte au-delà d'un seuil, ex. 150 lignes) — mesurable à froid, 0 token.",
+      "action_corrective": "Passe de pruning des CLAUDE.md de la flotte : chaque ligne justifiée par « sa suppression causerait-elle une erreur ? », convertir en hook ce qui doit être garanti.",
+      "date": "2026-07-24",
+      "statut": "adopte"
+    },
+    {
+      "titre": "Gestion du contexte outillée : statusline de suivi, /compact cadré, sous-agents d'exploration",
       "url": "https://code.claude.com/docs/en/costs",
       "type": "pratique",
-      "source_referentiel": "Anthropic — Claude Code docs / Manage costs effectively (gestion du contexte, /clear entre taches sans lien, /compact aux points de rupture naturels, statusline de suivi cout)",
-      "projets_concernes": ["VSCode2"],
-      "pertinence": "grep sur CLAUDE.md de VSCode2 pour 'token'/'/clear'/'/compact'/'cache' ne remonte aucune ligne, et .claude/settings.json + settings.local.json n'ont pas de statusLine configuree. La skill veille-agentic elle-meme signale que cette discipline est deja ecrite dans les CLAUDE.md de VSCode1 et VSCode3 (et un playbook OCTO) — VSCode2 est en ecart de coherence flotte sur ce point precis, alors que le projet delegue deja l'exploration a des sous-agents (bmad-recherche, veille-agentic) ce qui va dans le meme sens sans etre documente comme regle.",
-      "regle_proposee": "CLAUDE.md documente une discipline minimale de gestion de contexte (quand faire /clear entre deux taches sans lien logique, /compact aux points de rupture) et/ou une statusLine de suivi tokens/cout est configuree dans .claude/settings.json — mesurable a froid par le scan : presence d'une section idoine dans CLAUDE.md et/ou cle statusLine dans settings.json.",
-      "action_corrective": "Ajouter a CLAUDE.md de VSCode2 une note courte (3-5 lignes, pour rester sous la limite de 150 lignes deja fixee) sur le meme modele que VSCode1/VSCode3 : quand faire /clear (nouvelle tache sans lien avec la precedente) vs poursuivre la session, et evaluer une statusLine de suivi cout dans .claude/settings.json.",
-      "date": "2026-09-08",
-      "statut": "nouveau"
+      "source_referentiel": "Anthropic — Claude Code docs (reduce token usage, context window) + best practices (context is the fundamental constraint)",
+      "projets_concernes": [
+        "VSCode",
+        "VSCode2",
+        "VSCode4",
+        "VScode5"
+      ],
+      "pertinence": "La doc fait de la fenêtre de contexte LA ressource à gérer (statusline de suivi, /clear entre tâches, /compact ciblé, sous-agents pour l'exploration) ; la flotte a la discipline ÉCRITE sur VSCode1/VSCode3 seulement (sections optimisation tokens), rien de mesuré, et rtk (proxy token-optimisé) était déployé sans suivi de son gain réel [2026-07-29 : rtk retiré de toute la flotte sur décision utilisateur — le volet « mesurer le gain rtk » est caduc]. [2026-07-30 : ADOPTE. Regle entree au referentiel criteres-pratiques.md et OUTILLEE dans scan_projets.py (discipline_tokens : titre de section, pas occurrence du mot token - 5 tests). Mesure reelle a l adoption : 5/6 projets ont deja la section, le seul manque est le HUB lui-meme - la trouvaille annoncait VSCode1/VSCode3 seulement, c etait faux (R1). Action corrective restante, a arbitrer : ecrire la section dans le CLAUDE.md de VScode5.]",
+      "regle_proposee": "Critère scan (dimension pratiques + rules) : discipline tokens écrite dans le CLAUDE.md/conventions du projet (marqueurs /compact, sous-agent, lecture ciblée) — mesurable 0 token.",
+      "action_corrective": "Propager la section « optimisation tokens » (modèle VSCode1/VSCode3, adaptée au canal) aux CLAUDE.md de VSCode/VSCode2/VSCode4/VScode5.",
+      "date": "2026-07-24",
+      "statut": "adopte"
     },
     {
-      "titre": "claude-code-hooks-multi-agent-observability (disler) — dashboard temps reel des hooks et du cycle de vie des sous-agents",
-      "url": "https://github.com/disler/claude-code-hooks-multi-agent-observability",
-      "type": "outil",
-      "projets_concernes": ["VSCode2"],
-      "pertinence": "Meme finalite que le dispositif maison (.claude/supervision/scan_transcripts.py, log_usage.py, diagnostic.json, routing-hints.json) : tracer l'usage des agents/sous-agents et les evenements de hooks. Le dispositif local le fait en scan incremental sur fichiers JSON, 0 token, sans infra dediee. Cet outil public (verifie vivant : 1.5k stars, 385 forks, PRs/issues actifs) offre un temps reel via une infra dediee — serveur Bun (port 4000) + SQLite + client Vue (port 5173) — plus lourd que le choix deliberement fait par la flotte (rtk, outil de meme famille philosophique 'proxy/infra externe', a ete essaye puis retire le 2026-07-29). Signale pour comparaison si un besoin d'observabilite temps reel (vs scan par session) apparait un jour ; ne remplace rien aujourd'hui.",
-      "regle_proposee": "aucune",
-      "action_corrective": "aucune",
+      "titre": "Permission d'incertitude et relecture avant écriture — absentes d'audit-technique, qui force un niveau ok/moyen/critique par dimension sans option « non évalué », et n'a pas de passe de retrait des constats sans citation",
+      "url": "https://platform.claude.com/docs/en/test-and-evaluate/strengthen-guardrails/reduce-hallucinations",
+      "type": "pratique",
+      "source_referentiel": "Anthropic — Claude Platform docs / Reduce hallucinations : « Allow Claude to say I don't know... This simple technique can drastically reduce false information » ; « Verify with citations... If it can't find a quote, it must retract the claim. »",
+      "projets_concernes": [
+        "VScode5"
+      ],
+      "pertinence": "DÉJÀ EN PLACE, à ne pas re-proposer : la pratique de grounding par citation est déjà câblée — `audit-technique/SKILL.md` l.20 : « Pas de constat sans localisation : chaque point porte fichier:ligne ou une fonction nommée. Un ressenti n'est pas un finding. » C'est le sens « hallucination de contenu » demandé par ce cycle, distinct du sens « non-convergence » traité par les deux entrées précédentes (le run bloqué de cette session est de la seconde sorte : il n'a produit AUCUN contenu, inventé ou non). Ce qui manque réellement, par contraste avec la doc : (1) les 3 niveaux imposés par dimension (ok/moyen/critique, l.26) n'ont pas d'option « non évalué » — un audit pressé par le temps (ou sur un dépôt en contention, cf. entrée précédente) est structurellement poussé à choisir un niveau plutôt qu'admettre l'incertitude, contrairement à « allow Claude to say I don't know » ; (2) aucune étape de relecture qui retire, avant l'écriture du JSON, un constat resté sans `fichier:ligne` — la règle existe au moment de rédiger, pas en vérification a posteriori (« if it can't find a quote, it must retract the claim »). [ADOPTE 2026-09-03 : regle_proposee et action_corrective appliquees (voir arbitrages.json)] [ÉLARGI 2026-09-04, ordre direct utilisateur (« déploie en urgence le mécanisme anti-hallucination sur tous les projets ») : la « permission d'incertitude » ne vivait que dans audit-technique/SKILL.md (hub-only). R1 a trouvé le même principe sous forme dégradée dans les CLAUDE.md flotte — la règle de preuve « tout chiffre s'appuie sur la commande qui l'a produit » y existe partout mais SANS l'échappatoire « sinon marqué non mesuré » que porte déjà VSCode et le hub (R6), sur 4 des 5 projets (VSCode1/2/3/4). Ajoutée, mot pour mot, aux 4 — voir arbitrages.json cible veille:permission-incertitude-relecture.]",
+      "projets_concernes_regle_preuve": [
+        "VSCode",
+        "VSCode1",
+        "VSCode2",
+        "VSCode3",
+        "VSCode4",
+        "VScode5"
+      ],
+      "regle_proposee": "Étendre le format `.claude/audits/<projet>.json` avec un niveau `non_evalue` par dimension (distinct de `ok`, réservé à une dimension non couverte faute de temps/accès) — mesurable à froid par grep sur les audits existants une fois adopté.",
+      "action_corrective": "Proposer dans audit-technique/SKILL.md : ajouter `non_evalue` à la liste des niveaux (§ Règles) et une étape 3bis « relecture : tout finding sans fichier:ligne est retiré avant l'étape 4 » entre Qualifier et Écrire.",
+      "date": "2026-09-03",
+      "statut": "adopte"
+    },
+    {
+      "titre": "BMAD-METHOD v6.11.0 (2026-08-10) et v6.12.0 (2026-09-04) réellement sorties — hub toujours en v6.10.0, deux versions et plusieurs breaking changes non évalués",
+      "url": "https://github.com/bmad-code-org/BMAD-METHOD/releases",
+      "type": "framework",
+      "projets_concernes": [
+        "VSCode",
+        "VSCode1",
+        "VSCode2",
+        "VSCode3",
+        "VSCode4",
+        "VScode5"
+      ],
+      "pertinence": "Distinct de l'entrée déjà écartée le 2026-09-01 (qui portait sur une v7 ANNONCÉE mais jamais sortie, et sur un gel de customisation déjà levé le 2026-07-31) : ceci porte sur deux versions RÉELLEMENT publiées, vérifiées à la source (API GitHub releases : v6.11.0 tag présent, v6.12.0 = releases/latest, published_at=2026-09-04T02:31:25Z ; aucun tag v7* n'existe toujours). État réel du hub vérifié : _bmad/_config/manifest.yaml indique version 6.10.0, installDate ET lastUpdated au 2026-07-23T15:19:59Z — inchangé depuis 46 jours, donc deux versions en retard. Breaking changes cumulés non évalués sur la flotte : v6.11.0 (déjà instruite le 2026-08-31 — uv+Python 3.11 devient une exigence DURE pour les skills rendues, catalogue réduit de 14 à 8 skills core, config bascule en TOML) PLUS, nouveau ce cycle, v6.12.0 : persistent_facts ships empty (project-context.md à ré-ajouter à l'override si l'auto-chargement était utilisé — risque de régression silencieuse), {diff_output} renommé {diff_file} dans les overrides de revue custom, les shims dépréciés deviennent opt-in sur une install neuve (--shims pour les garder), bmad-checkpoint-preview renommé bmad-walkthrough (CK→WT, ancien id encore redirigé), Build ne se déclenche plus automatiquement sur simples édits interactifs/bookkeeping git/formatage. Non vérifié ce cycle : le statut d'installation des 5 autres projets de la flotte (hors périmètre du check ciblé, comme pour l'entrée v6.11.0 du 2026-08-31 qui avait le même trou de mesure). [adopte 2026-09-07, ordre direct utilisateur (« lance la migration vers BMAD v6.12 ») : pilote exécuté sur le HUB uniquement (cadrage réel préalable : pas une commande, un chantier — 11+ refs à la table de routage BMAD-ROUTAGE, tests, party-mode TOML). Commande réelle : `npx bmad-method install --action update --yes`. 6.10.0 -> 6.12.0, 46 -> 50 skills (29 canoniques + 21 shims conservés par défaut sur un `update`, contrairement à l'hypothèse « shims opt-in » qui ne vaut que pour une install neuve). Renommages/fusions réels, plus larges que prévu par la veille : bmad-review-*/bmad-editorial-review-* -> bmad-review ; trio recherche -> bmad-deep-recon ; bmad-document-project + bmad-generate-project-context -> bmad-project-context ; bmad-quick-dev/bmad-dev-story/bmad-create-story -> bmad-build ; bmad-dev-auto -> bmad-build-auto ; bmad-checkpoint-preview -> bmad-walkthrough ; bmad-sprint-status -> bmad-sprint-planning (ces 3 derniers non annoncés par la veille initiale). Table de routage, mandats bmad-revue/bmad-recherche, agent-supervisor, audit-technique, catalogue, générateur de playbook et les 12 salles (TOML skills_bmad) réconciliés. Deux forks maison (resolve_party.py, resolve_personas.py) écrasés par l'installateur puis réappliqués à la main (documentés dans .claude/patches/) — un `git checkout` les aurait perdus en silence. 4 fichiers _bmad/custom/*.toml préservés sans perte. Vérifié indépendamment par la session parente (pas seulement le rapport du sous-agent) : suite complète rejouée, 1155 passed/2 failed/2 xfailed — les 2 échecs sont le socle flotte pas encore migré (attendu, hors mandat de ce pilote), pas une régression. Fusionné sur `main` (commits cb345d6/5edeef7/e2f16e9) après validation utilisateur explicite (le merge --ff-only avait été bloqué par le classificateur auto-mode). PROPAGATION FLOTTE non faite ce tour : VSCode a fait sa propre migration indépendante et réussie (3 commits db80c5b/0ef6d7c/d673268, même commande, mêmes shims retenus) ; VSCode1/VSCode2/VSCode3 ont une session live notifiée par SendMessage (pas de propagation forcée) ; VSCode4 (au repos) a reçu une tentative de propagation du seul canon (table de routage) qui a été ANNULÉE en cours de route — VSCode4 est resté en BMAD 6.10.0, propager la table de routage seule y aurait créé des références à des skills inexistantes sur le disque local (incohérence détectée avant tout commit, rien n'a été perdu). VSCode4 doit d'abord recevoir sa propre migration BMAD (même commande) avant de recevoir le nouveau canon — pas fait ce tour, à arbitrer.]",
+      "date": "2026-09-07",
+      "statut": "adopte"
+    },
+    {
+      "titre": "From Confident Closing to Silent Failure — faux succes auto-declares par des agents LLM",
+      "url": "https://arxiv.org/abs/2606.09863",
+      "type": "pratique",
+      "source_referentiel": "arXiv:2606.09863 (juin 2026) — mesure sur tau2-bench (single-control et dual-control telecom) et AppWorld : 45-48% des echecs en domaines single-control tau2-bench sont des 'faux succes' (l'agent declare avoir reussi alors que l'etat de l'environnement dit le contraire), 3% en telecom dual-control, 75.8% des trajectoires d'agents de code AppWorld avec declaration de statut explicite. Les juges LLM utilises pour verifier echouent a leur tour, se fiant a des proxys de surface (langage de cloture confiant) plutot qu'a un changement d'etat verifie.",
+      "projets_concernes": [
+        "VScode5",
+        "VSCode",
+        "VSCode1",
+        "VSCode2",
+        "VSCode3",
+        "VSCode4"
+      ],
+      "pertinence": "PROUVE (chiffres mesures sur benchmarks publics, pas une extrapolation). Recoupe frontalement R5 du hub ('Verite du journal : ne jamais logger succes sur un livrable que l'utilisateur doit valider') et le motif R6 deja mesure localement (6 corrections en 48h, etude invalidee sur 3 faits pour un resolveur jamais lance). Constat local : runs.jsonl porte un champ 'resultat' (succes / en-attente-validation) mais rien n'y verifie AUTOMATIQUEMENT qu'un 'succes' s'accompagne d'une preuve de verification dans les notes — la discipline tient aujourd'hui sur la vigilance de revue-increment et la relecture humaine, pas sur un controle outille. Le papier chiffre exactement le risque que R5/R6 essaient de couvrir a la main. [adopte 2026-09-08, arbitrage utilisateur « applique tout » : succes_sans_marqueur() + MARQUEURS_VERIFICATION dans scripts/scan_projets.py, ligne rendue dans le bloc CHIFFRES-MESURES:REPRISES de CLAUDE.md (mesuré à l'adoption : 27 succès sans marqueur sur 129, 21 %) ; règle ✅ au référentiel ; tests/test_succes_sans_marqueur.py (vu rouge avant)]",
+      "regle_proposee": "Mesurable a froid par scan de .claude/orchestration/runs.jsonl : compter la proportion de runs 'resultat: succes' dont le champ 'notes' ne contient AUCUN marqueur de verification (ex. regex sur 'pytest', 'py -m', 'mesure', 'rendu regarde', 'ouvert', numero de commit) — un ratio eleve de succes sans marqueur est un signal de faux-succes potentiel, a l'image du 'confident closing sans etat verifie' du papier.",
+      "action_corrective": "Ajouter au scan_projets.py (ou a un script dedie) un compteur 'succes sans marqueur de verification dans les notes' sur runs.jsonl, affiche a cote des ratios de reprise deja publies dans CLAUDE.md (section R6) — donnee a discuter, pas un gate automatique.",
       "date": "2026-09-08",
-      "statut": "nouveau"
+      "statut": "adopte"
     }
   ]
 }

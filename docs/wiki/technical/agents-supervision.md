@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-11
+updated: 2026-09-16
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -8,41 +8,47 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-09-11T16:13:08+02:00 · **84 sessions** (transcripts) · **192** invocations de skills · **151** lancements de sous-agents.
+Dernier scan : 2026-09-16T09:40:53+02:00 · **87 sessions** (transcripts) · **274** invocations de skills · **214** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `agent-orchestrator` | projet | 56 | 2026-07-17 | 2026-09-10 |
-| `run-dev-server` | projet | 45 | 2026-07-03 | 2026-09-08 |
-| `agent-supervisor` | projet | 22 | 2026-07-18 | 2026-09-07 |
-| `bmad-code-review` | BMAD | 15 | 2026-07-20 | 2026-09-10 |
+| `agent-orchestrator` | projet | 58 | 2026-07-17 | 2026-09-15 |
+| `run-dev-server` | projet | 46 | 2026-07-03 | 2026-09-15 |
+| `bmad-code-review` | BMAD | 43 | 2026-07-20 | 2026-09-15 |
+| `bmad-review-edge-case-hunter` | BMAD | 26 | 2026-07-20 | 2026-09-07 |
+| `agent-supervisor` | projet | 22 | 2026-07-18 | 2026-09-10 |
+| `bmad-review-adversarial-general` | BMAD | 19 | 2026-07-20 | 2026-09-07 |
 | `revue-increment` | projet | 14 | 2026-07-18 | 2026-09-08 |
 | `pptx-verify` | projet | 11 | 2026-07-03 | 2026-09-07 |
-| `update-config` | (builtin/session) | 6 | 2026-07-03 | 2026-07-16 |
+| `update-config` | (builtin/session) | 7 | 2026-07-03 | 2026-09-11 |
 | `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
+| `bmad-party-mode` | BMAD | 3 | 2026-07-31 | 2026-09-15 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
 | `deck-design-review` | projet | 2 | 2026-07-22 | 2026-07-28 |
 | `pptx-deck` | projet | 2 | 2026-07-02 | 2026-07-03 |
 | `skill-creator` | global | 2 | 2026-07-03 | 2026-07-03 |
 | `slide-text-polish` | projet | 2 | 2026-07-22 | 2026-07-22 |
-| `bmad-party-mode` | BMAD | 1 | 2026-07-31 | 2026-07-31 |
+| `bmad-review` | BMAD | 1 | 2026-09-15 | 2026-09-15 |
 | `bmad-sprint-status` | BMAD | 1 | 2026-07-22 | 2026-07-22 |
 | `claude-api` | (builtin/session) | 1 | 2026-06-29 | 2026-06-29 |
+| `code-review` | (builtin/session) | 1 | 2026-09-15 | 2026-09-15 |
 | `deck-design-library` | projet | 1 | 2026-07-28 | 2026-07-28 |
 | `init` | (builtin/session) | 1 | 2026-07-03 | 2026-07-03 |
 | `priority-matrix` | projet | 1 | 2026-07-28 | 2026-07-28 |
 | `restitution-deck-design` | projet | 1 | 2026-07-22 | 2026-07-22 |
 | `swot-matrix` | projet | 1 | 2026-07-28 | 2026-07-28 |
+| `veille-agentic` | projet | 1 | 2026-09-08 | 2026-09-08 |
 
 ## Sous-agents
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 60 | 2026-07-15 | 2026-09-11 |
-| `Explore` | 46 | 2026-06-30 | 2026-09-09 |
-| `bmad-revue` | 34 | 2026-08-31 | 2026-09-10 |
+| `general-purpose` | 113 | 2026-07-15 | 2026-09-15 |
+| `Explore` | 47 | 2026-06-30 | 2026-09-15 |
+| `bmad-revue` | 36 | 2026-08-31 | 2026-09-15 |
+| `(defaut)` | 7 | 2026-07-21 | 2026-07-30 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `Plan` | 3 | 2026-07-06 | 2026-07-17 |
 | `agent-supervisor` | 2 | 2026-09-01 | 2026-09-10 |
@@ -51,17 +57,23 @@ Dernier scan : 2026-09-11T16:13:08+02:00 · **84 sessions** (transcripts) · **1
 
 ## Jamais utilisés
 
-**projet** — 2/17 jamais invoqués :
+**projet** — 1/18 jamais invoqués :
 
-`audit-technique`, `veille-agentic`
+`agent-securite`
 
-**BMAD** — 47/50 jamais invoqués :
+**BMAD** — 44/50 jamais invoqués :
 
 <details><summary>Voir la liste</summary>
 
-`bmad-advanced-elicitation`, `bmad-agent-analyst`, `bmad-agent-architect`, `bmad-agent-dev`, `bmad-agent-pm`, `bmad-agent-ux-designer`, `bmad-architecture`, `bmad-brainstorming`, `bmad-build`, `bmad-build-auto`, `bmad-checkpoint-preview`, `bmad-correct-course`, `bmad-create-architecture`, `bmad-create-epics-and-stories`, `bmad-create-prd`, `bmad-create-story`, `bmad-customize`, `bmad-deep-recon`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-edit-prd`, `bmad-editorial-review`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-forge-idea`, `bmad-generate-project-context`, `bmad-help`, `bmad-market-research`, `bmad-prd`, `bmad-prfaq`, `bmad-product-brief`, `bmad-project-context`, `bmad-qa-generate-e2e-tests`, `bmad-quick-dev`, `bmad-retrospective`, `bmad-review`, `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-review-verification-gap`, `bmad-spec`, `bmad-sprint-planning`, `bmad-technical-research`, `bmad-ux`, `bmad-validate-prd`, `bmad-walkthrough`
+`bmad-advanced-elicitation`, `bmad-agent-analyst`, `bmad-agent-architect`, `bmad-agent-dev`, `bmad-agent-pm`, `bmad-agent-ux-designer`, `bmad-architecture`, `bmad-brainstorming`, `bmad-build`, `bmad-build-auto`, `bmad-checkpoint-preview`, `bmad-correct-course`, `bmad-create-architecture`, `bmad-create-epics-and-stories`, `bmad-create-prd`, `bmad-create-story`, `bmad-customize`, `bmad-deep-recon`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-edit-prd`, `bmad-editorial-review`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-forge-idea`, `bmad-generate-project-context`, `bmad-help`, `bmad-market-research`, `bmad-prd`, `bmad-prfaq`, `bmad-product-brief`, `bmad-project-context`, `bmad-qa-generate-e2e-tests`, `bmad-quick-dev`, `bmad-retrospective`, `bmad-review-verification-gap`, `bmad-spec`, `bmad-sprint-planning`, `bmad-technical-research`, `bmad-ux`, `bmad-validate-prd`, `bmad-walkthrough`
 
 </details>
+
+## Skills hub-only
+
+_S'invoquent DEPUIS le hub de supervision, en ciblant ce projet — jamais depuis ce dépôt (leur `SKILL.md` le déclare). Leur `n=0` ici est le fonctionnement nominal, pas un défaut d'usage : aucun usage local ne le corrigera, il n'y a donc rien à en conclure ni rien à désinstaller._
+
+`audit-technique`
 
 ## Skills bibliothèque / référence
 
@@ -71,8 +83,13 @@ _Consommés en lisant/exécutant leurs `scripts/`, ou via un sous-agent qui les 
 
 ## TODO agents (constats automatiques)
 
-1. **Skills projet sans usage** : `audit-technique`, `veille-agentic` — vérifier pertinence et déclencheurs.
-2. **Skills en sommeil (>30 j sans usage)** : `Plan`, `bmad-party-mode`, `bmad-sprint-status`, `claude`, `claude-api`, `claude-code-guide`, `deck-design-library`, `deck-design-review`, `init`, `pptx-deck`, `priority-matrix`, `restitution-deck-design`, `roadmap-keeper`, `run`, `skill-creator`, `slide-text-polish`, `swot-matrix`, `update-config`.
+⚠️ **Mesure incomplète** — 63 transcript(s) sur 87 absent(s) du disque. Un `n=0` ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.
+
+⚠️ **Veille lancée le 2026-09-08, artefact plus ancien** — `.claude/veille/veille.json` date du 2026-09-08 : le dernier tour n'a rien déposé. Vérifier où sa sortie a atterri avant de relancer.
+
+1. **Désinstaller les shims BMAD dépréciés** (21) : `bmad-checkpoint-preview`, `bmad-create-architecture`, `bmad-create-prd`, `bmad-create-story`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-edit-prd`, `bmad-editorial-review`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-generate-project-context`, `bmad-market-research`, `bmad-quick-dev`, `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-review-verification-gap`, `bmad-sprint-status`, `bmad-technical-research`, `bmad-validate-prd` — dépréciés par BMAD dans leur propre `description`, chacun avec son remplaçant ; le seul élagage qui ne repose pas sur notre mesure d'usage.
+2. **Skills projet sans usage** : `agent-securite` — vérifier pertinence et déclencheurs.
+3. **Skills en sommeil (>30 j sans usage)** : `bmad-sprint-status`, `deck-design-library`, `deck-design-review`, `pptx-deck`, `priority-matrix`, `restitution-deck-design`, `roadmap-keeper`, `skill-creator`, `slide-text-polish`, `swot-matrix`.
 
 ## Arbitrages enregistrés
 
@@ -142,19 +159,27 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 - **`VSCode2:get-or-create-answer-lire-puis-ecrire`** (2026-09-10) : DIFFERE, explicitement et sans l'appliquer. Ce finding demande de porter la garde atomique sur _get_or_create_answer, sur la table la plus ecrite du produit (autosave 2 onglets). Le meme motif vient d'etre pose sur InterviewSegmentJob (7355e29) et a demande QUATRE rondes de revue adversariale, qui y ont trouve 3 bloquants et 13 majeurs -- dont deux qui auraient perdu de la parole d'entretien. Le porter sur le chemin d'autosave dans le meme lot, sans son propre cycle de revue et sans parcours navigateur dedie, serait le genre d'extension de perimetre que ces revues ont precisement sanctionne. A traiter comme un chantier a part entiere, avec son test de course deterministe et son clic rejoue en navigateur reel (P5).
 - **`VSCode2:audit-performance-niveau-moyen`** (2026-09-10) : ACCEPTE + APPLIQUE (mandat utilisateur du 2026-09-10 : « traite les 4 constats restants »). Commit 897e44c. (1) Bloc IA surdimensionne : redecoupe sur frontieres de lignes, chaque fragment reprenant l'en-tete de son bloc -- une premiere version deleguait a chunk_text_by_paragraph et detruisait l'attribution des propos (en-tete dans 1 fragment sur 5). (2) N+1 de la page d'accueil : comptage par EXISTS correles, mesure 15 requetes/36,2 ms -> 2/4,6 ms, resultat identique au predicat Python. Un selectinload d'abord pose (6 req/9,7 ms) a ete ECARTE : il materialisait tours et reponses de tout le corpus pour produire un entier -- requetes constantes mais memoire proportionnelle a la base. (3) Fetch photo en serie : coupe-circuit sur les echecs RESEAU uniquement, 40 -> 8 tentatives pour 10 scenes ; ce n'est pas la parallelisation suggeree et c'est assume (borner supprime la proportionnalite la ou paralleliser la divise). (4) all_theme_material : MESURE puis NON optimise -- les 6 sites d'appel vivent dans des routes distinctes, une requete HTTP en declenche 1 a 2, jamais 8 ; 26 requetes/8 ms sont negligeables devant l'appel IA. PAGINATION de list_missions : arbitree par l'utilisateur « toutes les missions, c'est voulu » -- les EXISTS rendent le cout constant, le constat se ferme sans pagination. Une revue adversariale a trouve 10 findings dans ces 4 correctifs avant commit, dont le prix cache du selectinload et trois defauts du coupe-circuit.
 - **`VSCode2:audio-streaming-disque-sans-plafond`** (2026-09-10) : ACCEPTE + APPLIQUE (arbitrage utilisateur explicite du 2026-09-10, apres que je l'aie classe a tort hors perimetre). Commit aee74f1 : `uploads.ecrire_audio_borne` compte les octets ecrits, s'arrete au plafond audio, rend un 413, et supprime le fichier PARTIEL -- y compris sur interruption de flux. Les deux routes non authentifiees (transcribe_file, save_record_backup) y deleguent ; plus aucun `shutil.copyfileobj` non borne dans app/routers/interviews.py. Le plafond est lu a l'appel depuis le module, meme contrat que lire_upload_audio_borne. Note de methode : j'avais reecrit ce fichier le matin meme sans fermer ces jambes-la -- c'est la revue de supervision qui l'a releve, et c'est le motif « appliquer la lecon aux chemins freres » deja en memoire.
+- **`pytest`** (2026-09-11) : ACCEPTE + APPLIQUE PARTIELLEMENT (mandat utilisateur du 2026-09-11, « traite tous les sujets remontes dans vscode5 »). Sur les 3 gestes proposes le 2026-09-07 (reverifies par le diagnostic du 2026-09-10), 2 etaient DEJA fermes par des commits anterieurs a cette session : (b) empreinte_code() hache deja le CONTENU (sha256), pas le mtime -- commits 2b0fd43 et 1fe60a4 ; (c, verrou) conftest.py porte deja un verrou de fichier qui refuse un second pytest concurrent -- commits 0ad0ad6 et b6efea1. Traite aujourd'hui : (a) tests/test_route_inventory.py cree -- instantane verse (methode, chemin) de 117 routes via `app.openapi()` (pas `app.routes`, dont la representation interne FastAPI >= 0.138 est un `_IncludedRouter` paresseux qui ne reflete plus les routes sans etre force), tourne en ~1 s. Preuve P1 tenue via scripts/preuve_p1.py (marqueur-fichier, contournant l'echappement shell) : decorateur de /interviews/segment-jobs/status decapite -> rouge ; restaure octet pour octet. (c, regle) CLAUDE.md complete : rejouer apres une edition d'app/X.py les tests qui CITENT le module/la route touchee (grep -rl), jamais le seul fichier neuf ; toute assertion d'ordre d'execution JS migre vers le harnais qui execute, jamais un `.index()` sur du texte de template. Suite complete rejouee : 1027 passed, 2 warnings preexistants sans rapport (SAWarning identity-key), 570 s, exit 0. PARTIEL et non SUCCES : aucun gate CI/hook n'impose encore mecaniquement le grep -rl (c'est une regle ecrite, pas outillee) -- laisse en l'etat, la mecanisation n'a pas ete demandee.
+- **`VSCode2:audit-local-orphelin-contredit-le-hub`** (2026-09-11) : CONFIRME, NON CORRIGIBLE ICI (mandat utilisateur du 2026-09-11, repete a deux reprises). Reverifie : .claude/audits/VSCode2.json est toujours date du 2026-09-03 (8 jours). Le constat du 2026-09-10 est exact et sa propre recommandation dit pourquoi je ne le corrige pas localement : c'est le protocole de transmission hub -> projet qui est en cause (audit non re-emis apres re-mesure, SHA de HEAD non trace, sync_dispositif.py qui laisse deriver sans rapport d'ecart), pas ce depot -- editer ce fichier a la main ici reproduirait exactement le defaut signale. SendMessage a ECHOUE deux fois (session vscode5-supervision-projets-ff injoignable), puis REUSSI une fois une session hub relancee (vscode5-supervision-projets-6e, message livre). Proposition du finding, sur le hub : SHA-stamping des audits emis, rapport de divergence dans sync_dispositif.py, ecriture de audits/<projet>.json par la synchro jamais orpheline.
+- **`flotte:point-du-jour-absent-des-5-cibles`** (2026-09-11) : PARTIEL : la part VSCode2 est DEJA FAITE, la part flotte reste au hub. `.claude/hooks/point_du_jour.py` existe et est cable en SessionStart ici (commit 7e61193, « rattrape les 4 autres cibles ») -- verifie par `test -f`. RESERVE, hors de portee de ce depot : les 4 AUTRES cibles (VSCode, VSCode1, VSCode3, VSCode4) et la decision A/B du finding (distribuer point_du_jour.py par le kit exporte, ou documenter explicitement que c'est une fonction hub-only) restent au hub. SendMessage a ECHOUE deux fois (session vscode5-supervision-projets-ff injoignable), puis REUSSI une fois une session hub relancee (vscode5-supervision-projets-6e, message livre le 2026-09-11).
+- **`VSCode1,VSCode2:permissions-hors-git-exec-arbitraire`** (2026-09-11) : PARTIEL, cote VSCode2 uniquement. Le hub a precise le joker (arbitrage flotte du 2026-09-04) : `.claude/settings.local.json` (gitignore, 16 entrees dans permissions.allow) portait `Bash(node -e ' *)` -- execution Node arbitraire, le prefixe ne restreignant rien puisque `node -e` execute la chaine passee telle quelle. Utilisateur a lu le fichier en entier avec moi (feu vert explicite, requis par un hook projet qui bloque cette lecture sinon) et choisi de ne retirer QUE cette entree precise, via la skill update-config -- retrait via Edit, verifie par relecture JSON (15 entrees restantes, `node -e` absent). RESERVE, laissee EXPLICITEMENT en l'etat sur decision utilisateur : les 15 autres entrees (dont `Bash`/`PowerShell` nus, `Bash(./.venv/Scripts/python.exe -c ' *)`, `Bash(python -)`, et 9 entrees liees a un outil « opencode » sans rapport avec la structure de ce projet -- probable contamination d'un autre contexte de travail jamais nettoyee, invisible car le fichier est gitignore) n'ont pas ete jugees aujourd'hui. Rien a committer : fichier hors git par design.
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic ⚠️ à relancer (> 14 j)._
+_Diagnostic ⚠️ à relancer (> 14 j) — rien à signaler, tous les constats précédents ont été arbitrés._
 
-1. **L oracle de test n est fiable qu en suite complete (9 min) et cette suite n est pas reentrante : trois defauts du 2026-09-10 sont nes de la, pas du code** — Rendre l oracle bon marche et reentrant au lieu de dependre d une suite de 9 minutes qu on ne peut jouer qu une a la fois. · **Proposition** : Trois gestes d effort S : (a) test d inventaire des routes - figer l ensemble des (methode, chemin) enregistres sur app dans un instantane versionne, asserte en moins d une seconde : une decapitation de decorateur devient rouge immediatement, sans la suite complete ; (b) empreinte_code() hache le CONTENU (sha256 des octets) au lieu du mtime - la preuve de fraicheur du serveur dev reste vraie et l edition concurrente cesse de fabriquer des faux rouges ; (c) regle de selection dans CLAUDE.md : apres une edition de app/X.py, rejouer les fichiers de test qui CITENT le module ou la route touchee (grep -l), jamais le seul fichier neuf ; toute assertion d ordre d execution JS migre vers le harnais qui execute, les .index() sur du texte de template etant interdites. Plus un verrou de fichier dans conftest.py refusant un second pytest concurrent (20 WinError 32 mesurees ce jour, motif deja en memoire). Preuve de succes : le prochain decorateur casse est detecte par le test d inventaire et non par la suite complete, et zero echec fantome a la prochaine seance d edition.
-2. **Le hub audite un code qu il n a pas relu : 5 des 20 constats transmis etaient deja fermes, dont 2 par ses propres commits du matin - et la copie locale diverge de 157 lignes dans l autre sens** — Corriger au canon VScode5, jamais ici : c est le protocole de transmission hub vers projet qui est en cause, pas ce depot. · **Proposition** : Canon VScode5 : (a) un audit ne s emet qu avec le SHA de HEAD du depot audite au moment de la lecture, et le kit refuse de transmettre un finding dont le SHA est anterieur au HEAD courant de la cible - le projet voit immediatement lesquels sont perimes au lieu de les verifier a la main ; (b) sync_dispositif.py publie un rapport de divergence par fichier (lignes d ecart) et echoue au-dela d un seuil, au lieu de laisser la copie deriver en silence ; (c) .claude/audits/<projet>.json est ecrit par la synchro, jamais laisse orphelin. Preuve de succes : a la prochaine transmission, le taux de constats deja fermes tombe de 25 pour cent (5 sur 20) a zero.
-3. **Le hook qui liste ce qui attend une decision n'existe QUE au hub : les 5 cibles ne l'ont pas, et le kit ne le distribue pas** — Le hub a construit ce hook pour lui-meme le 2026-09-09 (finding : les decisions n'etaient affichees nulle part). La flotte a exactement le meme besoin, et son mandat de garant l'oblige a propager ce qu'il se donne. Attention : sa fonction ligne_decisions_audit() lit .claude/audits/, repertoire qui n'existe QUE au hub — la version distribuee doit degrader proprement (repertoire absent = ligne vide, le fail-open est deja ecrit). · **Proposition** : (A) Ajouter point_du_jour.py au kit exporte et le cabler en SessionStart chez les 5 cibles, apres verification qu'il degrade bien sans repertoire d'audits. (B) Ou, si l'on juge que le point du jour est une fonction de pilotage propre au hub, le dire explicitement dans la doc du kit — pour que l'absence soit un choix trace et non un oubli.
-
-_2 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un `re_challenge` avec des données nouvelles :_
+_5 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un `re_challenge` avec des données nouvelles :_
 
 - ~~Une garde posee sur UN chemin, ses freres jamais enumeres : le motif commun des 3 bloquants et des 2 affirmations fausses du 2026-09-10 - et ces 2 routes audio restent ouvertes~~ (`VSCode2:audio-streaming-disque-sans-plafond`)
+- ~~L oracle de test n est fiable qu en suite complete (9 min) et cette suite n est pas reentrante : trois defauts du 2026-09-10 sont nes de la, pas du code~~ (`pytest`)
+- ~~Le hub audite un code qu il n a pas relu : 5 des 20 constats transmis etaient deja fermes, dont 2 par ses propres commits du matin - et la copie locale diverge de 157 lignes dans l autre sens~~ (`VSCode2:audit-local-orphelin-contredit-le-hub`)
 - ~~Performance : trois constats sur quatre traites, mais le quatrieme est une decision PRODUIT que personne n a posee a l utilisateur - et aucun arbitrage ne ferme la dimension~~ (`VSCode2:audit-performance-niveau-moyen`)
+- ~~Le hook qui liste ce qui attend une decision n'existe QUE au hub : les 5 cibles ne l'ont pas, et le kit ne le distribue pas~~ (`flotte:point-du-jour-absent-des-5-cibles`)
+
+## Seuil de qualification — la mesure
+
+Depuis le 2026-09-11 : **58** demande(s) vue(s) hors commande slash (+ 23 slash), **1** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **2 %** des demandes orchestrées.
+_Ce chiffre ne dit pas ce qui AURAIT dû être orchestré : le hook compte, il ne juge pas. Il donne le dénominateur qui manquait pour arbitrer le seuil sur données plutôt que sur habitude._
 
 ---
 
