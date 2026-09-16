@@ -305,6 +305,147 @@ def test_le_refus_occupe_ne_consomme_pas_le_budget_des_echecs_reels(ecran: Path)
     )
 
 
+@pytest.mark.parametrize(
+    "ecran",
+    [
+        RACINE / "app" / "templates" / "interviews" / "record_libre.html",
+        RACINE / "app" / "templates" / "interviews" / "record.html",
+    ],
+    ids=lambda p: p.name,
+)
+def test_recommencer_demande_confirmation_avant_de_tout_effacer(ecran: Path) -> None:
+    """Salles atelier-idées du 2026-09-16 (revue design/UX) : le bouton
+    « Recommencer » (`#rec-reset`) effaçait transcription ET sauvegarde audio
+    sans confirmation, alors que « Démarrer » — geste moins destructeur, sur
+    un texte déjà présent — en demandait une (`record.html:1910`). Trouvé de
+    façon indépendante par 3 voix de la salle, confirmé par lecture directe du
+    handler.
+
+    Revue bmad-code-review 2026-09-16 (2e passe) : un garde limité à
+    `transcriptSoFar.trim()` ratait le cas le plus destructeur — texte VIDE
+    (échec de transcription, no-speech) alors qu'une sauvegarde audio locale
+    non acquittée ou des segments perdus bloquants existent encore. La garde
+    doit reprendre le MÊME modèle de risque que `beforeunload` (déjà revu) :
+    ce test vérifie la présence de ce modèle, pas une chaîne figée, pour ne
+    pas se retrouver à interdire son propre élargissement futur.
+
+    Test STRUCTUREL, même limite que les autres tests de ce fichier."""
+    contenu = _sans_commentaires(ecran.read_text(encoding="utf-8"))
+    corps = _corps_de_fonction(contenu, contenu.index("resetBtn.addEventListener"))
+    beforeunload = _corps_de_fonction(contenu, contenu.index("window.addEventListener('beforeunload'"))
+
+    assert "confirm(" in corps, (
+        f"{ecran.name} : `resetBtn` ne demande plus confirmation — un clic "
+        "efface la transcription et révoque la sauvegarde audio sans filet"
+    )
+    # Le modèle de risque doit reprendre CHAQUE signal que `beforeunload`
+    # considère comme "quelque chose à perdre" — pas seulement le texte visible.
+    for signal in ("recordingActive", "pendingBackups", "pendingSegments",
+                   "lostRetryBlocking", "lostSegments.some"):
+        assert signal in corps, (
+            f"{ecran.name} : la garde de `resetBtn` ne reprend plus le signal "
+            f"`{signal}` du modèle de risque de `beforeunload` — un cas où "
+            "cette fenêtre-là avertirait avant de fermer l'onglet ne serait "
+            "plus couvert par la confirmation avant de tout effacer"
+        )
+        assert signal in beforeunload, (
+            f"{ecran.name} : `{signal}` a disparu de `beforeunload` lui-même "
+            "— le modèle de risque de référence a changé, ce test doit être "
+            "revu avec lui"
+        )
+    assert "transcriptSoFar.trim()" in corps, (
+        f"{ecran.name} : le texte déjà visible doit aussi compter, comme pour "
+        "la confirmation de « Démarrer »"
+    )
+    idx_confirm = corps.index("confirm(")
+    idx_destructif = corps.index("transcriptSoFar = ''")
+    assert idx_confirm < idx_destructif, (
+        f"{ecran.name} : la confirmation doit intervenir AVANT l'effacement "
+        "de `transcriptSoFar`, pas après"
+    )
+
+
+@pytest.mark.parametrize(
+    "ecran",
+    [
+        RACINE / "app" / "templates" / "interviews" / "record_libre.html",
+        RACINE / "app" / "templates" / "interviews" / "record.html",
+    ],
+    ids=lambda p: p.name,
+)
+def test_le_bandeau_de_reprise_de_fichier_est_un_avertissement_pas_une_erreur(ecran: Path) -> None:
+    """Salle atelier-idées du 2026-09-16 : les 3 bandeaux d'alerte de cet écran
+    partageaient tous `.ai-error` (danger) alors qu'ils n'ont pas la même
+    gravité — `rec-file-retry-banner` est RÉCUPÉRABLE (le fichier importé
+    reste en sécurité côté serveur tant que le job échoue, cf. commentaire
+    `record_libre.html:124-125`), contrairement à `rec-lost-banner` et
+    `rec-nospeech-banner` où l'onglet détient la SEULE copie. Rebaissé au
+    niveau `.notice` (avertissement, tokens déjà existants — aucune nouvelle
+    couleur)."""
+    contenu = ecran.read_text(encoding="utf-8")
+    assert 'class="notice rec-lost-banner" id="rec-file-retry-banner"' in contenu, (
+        f"{ecran.name} : le bandeau de reprise d'import doit être un "
+        "avertissement (.notice), pas une erreur (.ai-error) — récupérable, "
+        "il n'a pas le même poids qu'une perte de données réelle"
+    )
+    assert 'class="ai-error rec-lost-banner" id="rec-lost-banner"' in contenu, (
+        f"{ecran.name} : le bandeau de segments perdus doit rester une "
+        "erreur (.ai-error) — l'onglet en détient la seule copie"
+    )
+    assert 'class="ai-error rec-lost-banner" id="rec-nospeech-banner"' in contenu, (
+        f"{ecran.name} : le bandeau silence prolongé doit rester une erreur "
+        "(.ai-error) — risque de perte continue tant que la source n'est pas "
+        "corrigée"
+    )
+
+
+def test_recommencer_notes_demande_confirmation_si_transcription_en_vol() -> None:
+    """Même famille que ci-dessus, sur `capture.html` (dictée de notes) — moins
+    destructeur (le texte transcrit vit déjà dans `free-notes`, seul l'aperçu
+    audio local est perdu), donc confirmation conditionnée à une transcription
+    encore EN VOL, pas systématique.
+
+    Revue bmad-code-review 2026-09-16 (2e passe) : la 1re version gardait sur
+    `statusEl.textContent.indexOf('en cours')`, qui matchait aussi
+    « Enregistrement en cours… » (faux positif) et ne se réarmait jamais pour
+    une 2e prise (faux négatif, `startBtn` ne remasque jamais `resetBtn`).
+    Remplacé par un drapeau dédié posé/levé autour du seul fetch qu'il doit
+    couvrir — ce test vérifie le drapeau, pas le texte affiché.
+
+    Test STRUCTUREL, même limite que les autres tests de ce fichier."""
+    ecran = RACINE / "app" / "templates" / "interviews" / "capture.html"
+    contenu = _sans_commentaires(ecran.read_text(encoding="utf-8"))
+    corps = _corps_de_fonction(contenu, contenu.index("resetBtn.addEventListener"))
+    corps_demarrage = _corps_de_fonction(contenu, contenu.index("startBtn.addEventListener"))
+
+    assert "confirm(" in corps, (
+        "capture.html : `resetBtn` (notes-rec-reset) ne demande plus "
+        "confirmation quand une transcription est encore en vol"
+    )
+    assert "notesTranscriptionEnVol &&" in corps, (
+        "capture.html : la confirmation doit être gardée sur le drapeau "
+        "`notesTranscriptionEnVol`, pas sur le texte affiché — un texte "
+        "contenant \"en cours\" pour une autre raison (ex. \"Enregistrement "
+        "en cours…\") déclencherait la confirmation à tort"
+    )
+    assert "notesTranscriptionEnVol = true" in corps_demarrage, (
+        "capture.html : le drapeau doit être posé AVANT le fetch de "
+        "transcription — sinon la garde ne voit jamais de transcription en vol"
+    )
+    assert "notesGeneration++" in corps, (
+        "capture.html : `resetBtn` doit faire avancer `notesGeneration` — "
+        "sinon une réponse de transcription tardive écrase les notes de la "
+        "prise SUIVANTE après un « Recommencer », alors que le message promet "
+        "un abandon"
+    )
+    idx_confirm = corps.index("confirm(")
+    idx_destructif = corps.index("preview.hidden = true")
+    assert idx_confirm < idx_destructif, (
+        "capture.html : la confirmation doit intervenir AVANT de masquer "
+        "l'aperçu audio, pas après"
+    )
+
+
 def test_rec_fetch_charge_sans_defer() -> None:
     """Même règle que `rec_audio_source.js`. Avec `defer`, `window.recFetch`
     serait encore indéfini quand le `<script>` inline de l'écran l'appelle : la

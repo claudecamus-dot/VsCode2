@@ -107,6 +107,18 @@
     }
 
     var mediaRecorder, chunks, startTime, timerId, stream;
+    // Revue bmad-code-review 2026-09-16 (2e passe) : `statusEl.textContent.indexOf('en
+    // cours')` matchait aussi « Enregistrement en cours… » (faux positif) et ne
+    // se réarmait jamais pour une 2e prise (faux négatif) — un drapeau dédié,
+    // posé/levé autour du seul appel réseau qu'il doit couvrir, remplace le
+    // texte affiché comme signal.
+    var notesTranscriptionEnVol = false;
+    // Génération de la prise en cours : une réponse tardive après un
+    // « Recommencer » ne doit plus écraser les notes de la prise SUIVANTE
+    // (même défaut de fond que `recGeneration`/`backupGeneration` des écrans
+    // d'enregistrement, révélé ici par le nouveau message qui promet un abandon
+    // que rien ne garantissait avant).
+    var notesGeneration = 0;
 
     function formatElapsed(ms) {
       var s = Math.floor(ms / 1000);
@@ -131,6 +143,8 @@
           stream.getTracks().forEach(function (t) { t.stop(); });
 
           statusEl.textContent = 'Transcription en cours…';
+          notesTranscriptionEnVol = true;
+          var gen = notesGeneration;
           var formData = new FormData();
           formData.append('file', new File([blob], 'note.webm', { type: blob.type }));
           // Délai maximal via /static/rec_fetch.js (chemin frère du correctif
@@ -143,6 +157,8 @@
               return res.json().then(function (data) { return { ok: res.ok, data: data }; });
             })
             .then(function (result) {
+              notesTranscriptionEnVol = false;
+              if (gen !== notesGeneration) return;  // prise abandonnée entre-temps (Recommencer)
               if (!result.ok) {
                 console.error('notes/transcribe a échoué', result.data);
                 statusEl.textContent = '⚠ ' + (result.data.error || result.data.detail || 'Échec de la transcription.');
@@ -154,6 +170,8 @@
               statusEl.textContent = '✓ transcription ajoutée aux notes.';
             })
             .catch(function (err) {
+              notesTranscriptionEnVol = false;
+              if (gen !== notesGeneration) return;
               statusEl.textContent = '⚠ Échec de la transcription : ' + err.message;
             });
         });
@@ -178,6 +196,21 @@
     });
 
     resetBtn.addEventListener('click', function () {
+      // Moins destructeur que record.html/record_libre.html : le texte
+      // transcrit est déjà dans `free-notes`, seul l'aperçu audio local est
+      // perdu — mais si la transcription est encore en vol, la confirmer
+      // évite d'abandonner un enregistrement dont le texte n'est pas encore
+      // arrivé (revue bmad-code-review 2026-09-16, même famille que
+      // record.html/record_libre.html).
+      if (notesTranscriptionEnVol &&
+          !confirm("Une transcription est en cours — Recommencer effacera l'aperçu audio de cette prise. Continuer ?")) {
+        return;
+      }
+      // La prise abandonnée ne doit plus écrire ses notes en retard dans la
+      // prise suivante (2e passe de la même revue) : `gen` capturé au moment
+      // du fetch ne correspondra plus.
+      notesGeneration++;
+      notesTranscriptionEnVol = false;
       preview.hidden = true;
       preview.removeAttribute('src');
       resetBtn.hidden = true;

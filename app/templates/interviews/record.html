@@ -167,7 +167,13 @@
        serveur tant que le job est en échec, la reprise repart du bloc fautif
        (cf. /audio/transcribe-file/retry) sans refaire les blocs déjà obtenus.
        Même dispositif que record_libre.html — parité libre/structuré. -->
-  <div class="ai-error rec-lost-banner" id="rec-file-retry-banner" hidden>
+  {# .notice (warning), pas .ai-error (danger) : le fichier importe est
+     conserve cote serveur tant que le job est en echec, la reprise ne perd
+     rien -- contrairement a rec-lost-banner/rec-nospeech-banner ou l'onglet
+     detient la seule copie (revue bmad-code-review 2026-09-16, salle
+     atelier-idees du 2026-09-16 : "un incident grave a le meme poids visuel
+     qu'une simple confirmation"). #}
+  <div class="notice rec-lost-banner" id="rec-file-retry-banner" hidden>
     <span id="rec-file-retry-text"></span>
     <button class="btn btn-sm" type="button" id="rec-file-retry"
             title="Reprend la transcription au bloc qui a échoué, sans refaire les blocs déjà transcrits">↻ Relancer la transcription</button>
@@ -2030,6 +2036,23 @@
   });
 
   resetBtn.addEventListener('click', function () {
+    // Confirmation alignée sur celle de « Démarrer » ci-dessus (ligne ~1910) :
+    // « Recommencer » efface transcription ET sauvegarde audio (révoquées par
+    // `oublierBackupLocal()` plus bas) sans filet — un geste moins destructeur
+    // (« Démarrer » sur un texte déjà présent) demandait déjà confirmation,
+    // celui-ci n'en demandait aucune (revue bmad-code-review 2026-09-16).
+    // Garde élargie au-delà de `transcriptSoFar.trim()` (2e passe de la même
+    // revue) : le cas le plus destructeur est justement celui où le texte est
+    // VIDE (échecs de transcription, no-speech) alors qu'une sauvegarde audio
+    // locale non acquittée ou des segments perdus bloquants existent encore —
+    // même modèle de risque que `beforeunload` ci-dessus, réutilisé tel quel.
+    var enJeu = transcriptSoFar.trim() || recordingActive || pendingBackups || pendingSegments
+      || (urlBackupLocal && !backupLocalAcquitte)
+      || lostSegments.some(function (s) { return s.blocking; }) || lostRetryBlocking;
+    if (enJeu &&
+        !confirm('Recommencer effacera la transcription et la sauvegarde audio de cet entretien. Continuer ?')) {
+      return;
+    }
     finalizing = false;
     finalizingRecorders = 0;
     recGeneration++;  // une requête encore en vol ne repeuplera pas l'écran remis à zéro

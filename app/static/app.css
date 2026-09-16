@@ -572,21 +572,31 @@ input[type=text].turn-section-input:placeholder-shown {
    les deux sources vivent : le blocage du démarrage, lui, repose sur la
    présence réelle de la piste audio d'onglet, pas sur un niveau — au moment du
    réglage personne n'a encore parlé dans la réunion. */
-.rec-source { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+/* Écran d'enregistrement (revue bmad-code-review + salle atelier-idées du
+   2026-09-16) : redessiné sur les tokens EXISTANTS, pas de nouvelle couleur.
+   PÉRIMÈTRE RÉEL de ce lot, corrigé en 2e passe de revue (le commentaire
+   précédent surclamait) : les rayons de CE bloc (`.rec-source`,
+   `#rec-repartition`) passent à `var(--radius)`, `.rec-meter` reste à 5px
+   délibérément (barre plus fine qu'une carte) — `.ai-error`/`.notice`
+   gardent leur propre 8px, hors périmètre (18 templates partagés, R2). Les
+   tailles de texte fin de CE bloc passent à .85rem (au lieu de .88/.9/.92rem
+   à un cheveu d'écart, sans hiérarchie perceptible) — le texte des bandeaux
+   `.ai-error`/`.notice` (.9rem/1rem) n'est PAS touché, même raison. */
+.rec-source { border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-bottom: 12px; }
 .rec-source-panel { margin-top: 10px; }
 .rec-source-actions { margin-bottom: 0; }
-.rec-meter-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; font-size: .92rem; }
+.rec-meter-row { display: flex; align-items: center; gap: 10px; padding: 3px 0; font-size: .85rem; }
 .rec-meter-row > span:first-child { min-width: 116px; }
 .rec-meter { flex: 1; max-width: 220px; height: 9px; border-radius: 5px;
   background: rgba(0, 0, 0, .1); overflow: hidden; }
 .rec-meter > i { display: block; height: 100%; width: 0; border-radius: 5px;
   background: var(--accent); transition: width .1s linear; }
-.rec-meter-row.ko > span:first-child { color: var(--danger, #b3261e); font-weight: 600; }
-.rec-meter-row.ko .rec-meter > i { background: var(--danger, #b3261e); }
-.rec-source-state { font-size: .88rem; }
+.rec-meter-row.ko > span:first-child { color: var(--danger); font-weight: 600; }
+.rec-meter-row.ko .rec-meter > i { background: var(--danger); }
+.rec-source-state { font-size: .85rem; }
 .rec-source-state.ok { color: var(--accent-dark); }
-.rec-source-state.ko { color: var(--danger, #b3261e); font-weight: 600; }
-.rec-source-hint { font-size: .88rem; margin: 8px 0 0; }
+.rec-source-state.ko { color: var(--danger); font-weight: 600; }
+.rec-source-hint { font-size: .85rem; margin: 8px 0 0; }
 /* Dérogation : possible, mais il faut la vouloir — jamais un bouton de même
    poids que « Démarrer », sinon on retombe sur le clic distrait qui a coûté
    1h40 muettes (mission 16). */
@@ -606,7 +616,7 @@ input[type=text].turn-section-input:placeholder-shown {
 .rec-lost-list { list-style: none; margin: 8px 0 0; padding: 0; }
 .rec-lost-list li {
   display: flex; align-items: center; justify-content: space-between;
-  flex-wrap: wrap; gap: 8px; padding: 4px 0; font-size: .9rem;
+  flex-wrap: wrap; gap: 8px; padding: 4px 0; font-size: .85rem;
 }
 .rec-lost-list li + li { border-top: 1px solid rgba(0, 0, 0, .08); }
 
@@ -627,7 +637,7 @@ input[type=text].turn-section-input:placeholder-shown {
 /* Aperçu répartition en lecture seule, calé sur le document PDF exporté
    (build_turns_only_pdf) : cadre « page » clair, dialogue par section, préfixe
    interlocuteur teal (tour portant une question) / navy (remarque). */
-#rec-repartition { background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; }
+#rec-repartition { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
 #rec-repartition:empty { display: none; }
 .rec-rep-section { margin: 16px 0 8px; font-size: .95rem; font-weight: 700; color: var(--text); border-bottom: 1.5px solid #0f766e; padding-bottom: 3px; }
 .rec-rep-section:first-child { margin-top: 0; }
@@ -716,10 +726,24 @@ input[type=text].turn-section-input:placeholder-shown {
 .synth-actions { display: flex; align-items: center; gap: 12px; margin-top: 6px; }
 .ai-error { background: var(--danger-bg); color: #c0392b; border: 1px solid var(--danger-border);
   border-radius: 8px; padding: 8px 12px; font-size: .9rem; }
+/* `#c0392b` volontairement distinct de `--danger` (#d8413a, revue
+   bmad-code-review 2026-09-16, 2e passe) : sur `--danger-bg`, `--danger`
+   tombe à 3.88:1 (sous le seuil AA 4.5:1 pour du texte .9rem), `#c0392b` à
+   4.76:1. Unifier les deux aurait été une régression d'accessibilité ET hors
+   périmètre de cet écran — `.ai-error` sert 18 templates, pas seulement
+   l'enregistrement. Non touché. */
 .notice { background: var(--warning-bg); color: var(--warning-text); border: 1px solid var(--warning-border);
   border-radius: 8px; padding: 10px 14px; margin-bottom: 18px; }
 .notice p { margin: 0; }
 .notice a { color: inherit; text-decoration: underline; }
+/* `rec-file-retry-banner` (record.html/record_libre.html) est passé de
+   `.ai-error` à `.notice` pour la COULEUR (récupérable, pas de perte de
+   données — revue bmad-code-review 2026-09-16) mais empilé entre deux
+   bandeaux `.ai-error` (`rec-lost-banner`, `rec-nospeech-banner`) : sans
+   cette override, il héritait aussi la géométrie de `.notice`
+   (padding/margin/taille de texte différents), un décalage que le seul
+   changement de couleur ne justifie pas — trouvé par la même revue. */
+.notice.rec-lost-banner { padding: 8px 12px; margin-bottom: 0; font-size: .9rem; }
 /* Variante neutre/informative (rappel de portée plutôt qu'avertissement) —
    même gabarit que .notice, tokens "info" au lieu de "warning". */
 .notice-info { background: var(--info-bg); color: var(--accent-dark); border-color: var(--border); }
