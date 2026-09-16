@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
-from sqlalchemy import delete, update
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from ..db import RECORDINGS_DIR, get_session
@@ -27,6 +27,7 @@ from ..services import audio_transcribe, mission_backups
 from ..services.audio_file_jobs import (
     is_audio_file_job_stale,
     purge_stale_audio_file_jobs,
+    reprendre_job_echoue_ou_perime,
     run_audio_file_job,
 )
 from ..uploads import UploadTropVolumineux, ecrire_audio_borne, lire_upload_audio_borne
@@ -301,35 +302,14 @@ def transcribe_file_retry(
     # tâches ouvrent alors leur propre session et font
     # `job.blocks = list(job.blocks or []) + [text]` : blocs dupliqués et mises à
     # jour perdues DANS LA TRANSCRIPTION, plus un `total_blocks` incohérent avec
-    # le curseur `since` du client. Ce n'est pas un risque théorique importé
-    # d'ailleurs : le chemin frère `retranscrire` le dit déjà de lui-même, et le
-    # patron correct est posé deux fois dans le dépôt (synthese.py:272,
-    # interviews.py:1108) — il manquait ici.
+    # le curseur `since` du client.
     #
-    # Comparaison-et-échange sur (status, created_at) et non sur `status` seul :
-    # un job PÉRIMÉ est relançable en étant resté `pending`/`running` en base
-    # (serveur redémarré), donc `status` seul laisserait passer les deux
-    # concurrents. Le gagnant re-date `created_at` ; le perdant, qui a lu
-    # l'ancienne date, ne matche plus rien.
-    pris = db.execute(
-        update(AudioFileJob)
-        .where(
-            AudioFileJob.id == job.id,
-            AudioFileJob.status == job.status,
-            AudioFileJob.created_at == job.created_at,
-        )
-        .values(
-            status="pending",
-            error=None,
-            # `created_at` sert d'horloge à `is_audio_file_job_stale` (et à la
-            # purge des 7 jours) : sans ce réarmement, un job relancé plus de
-            # 3 h après l'import initial serait déclaré « ne répond plus » au
-            # premier poll, alors que la reprise vient de démarrer.
-            created_at=datetime.now(UTC).replace(tzinfo=None),
-        )
-    ).rowcount
-    db.commit()
-    if pris != 1:
+    # Factorisé dans `reprendre_job_echoue_ou_perime` (2026-09-16) : ce même
+    # comparer-et-échanger était posté à l'identique dans `interviews.py`
+    # (reprise de retranscription) — les deux copies portaient le même défaut
+    # avant le correctif du 2026-09-13, corrigées séparément. Un seul endroit
+    # à toucher désormais pour ce patron.
+    if not reprendre_job_echoue_ou_perime(db, job):
         # Un concurrent a déjà repris ce job : on ne programme PAS une seconde
         # tâche. Même code que la garde « pas en échec » au-dessus — de la place
         # de l'appelant, c'est la même situation : il n'y a rien à relancer.

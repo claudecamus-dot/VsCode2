@@ -474,6 +474,11 @@ def test_deux_relances_concurrentes_ne_lancent_qu_une_seule_tache(client, monkey
     temps qu'une requête 2 complète parte, prenne le job et le re-date. La
     requête 1 reprend alors sur sa lecture périmée.
 
+    Depuis la factorisation du comparer-et-échanger dans
+    `audio_file_jobs.reprendre_job_echoue_ou_perime` (2026-09-16), ce
+    `datetime.now()` vit dans `audio_file_jobs`, plus dans `interviews_audio` —
+    c'est CE module qu'il faut patcher pour forcer l'entrelacement.
+
     Rouge sur le code d'avant : DEUX `run_audio_file_job` programmés.
     """
     def _iter(content: bytes, block_s: int | None = None, start_index: int = 0):
@@ -488,7 +493,7 @@ def test_deux_relances_concurrentes_ne_lancent_qu_une_seule_tache(client, monkey
         interviews_audio, "run_audio_file_job", lambda jid: lancements.append(jid)
     )
 
-    vrai_datetime = interviews_audio.datetime
+    vrai_datetime = audio_file_jobs.datetime
     imbriquee: list[object] = []
     secondes: list[int] = []
 
@@ -501,7 +506,7 @@ def test_deux_relances_concurrentes_ne_lancent_qu_une_seule_tache(client, monkey
                 secondes.append(_retry(client, job_id).status_code)
             return vrai_datetime.now(tz)
 
-    monkeypatch.setattr(interviews_audio, "datetime", _DatetimeQuiEntrelace)
+    monkeypatch.setattr(audio_file_jobs, "datetime", _DatetimeQuiEntrelace)
 
     premiere = _retry(client, job_id)
     assert imbriquee, "l'entrelacement n'a pas eu lieu : le test ne prouve rien"

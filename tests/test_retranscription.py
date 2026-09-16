@@ -24,6 +24,7 @@ from app.models import (
     InterviewTurn,
     Mission,
 )
+from app.routers import interviews
 from app.services import audio_file_jobs, audio_transcribe, interview_segment_jobs
 
 
@@ -420,6 +421,78 @@ def test_relance_apres_echec_reprend_au_bloc_interrompu(client, monkeypatch):
     assert job.id == job_id, "le job doit être REPRIS, pas recréé"
     assert job.blocks == ["Bloc un.", "Bloc deux."]
     assert job.status == "done"
+
+
+def test_deux_relances_de_retranscription_concurrentes_ne_lancent_qu_une_tache(
+    client, monkeypatch
+):
+    """Course sur la relance de retranscription — même défaut, même correctif
+    que `transcribe_file_retry` (`test_audio_file_import.py`) : finding
+    audit-technique robustesse du 2026-09-13, factorisé dans
+    `audio_file_jobs.reprendre_job_echoue_ou_perime` le 2026-09-16. Ce test
+    prouve que la factorisation protège bien CE chemin (retranscription),
+    exactement comme l'autre — les deux copies partageaient le même défaut
+    avant d'être corrigées séparément puis unifiées.
+
+    Entrelacement forcé, aucun thread ni sleep, même mécanique que le test
+    frère : le `datetime.now()` de `reprendre_job_echoue_ou_perime` (dernier
+    appel après toutes les gardes, avant l'écriture) déclenche une seconde
+    requête complète pendant que la première est suspendue dessus."""
+    ctx = _entretien_avec_tranches(nb_tranches=1)
+    monkeypatch.setattr(
+        audio_transcribe, "iter_transcribe_blocks", _fake_blocks("Bloc.")
+    )
+    _patch_extract(monkeypatch)
+    client.post(f"/interviews/{ctx['interview_id']}/retranscrire", follow_redirects=False)
+
+    db = SessionLocal()
+    try:
+        job = db.scalars(
+            select(AudioFileJob).where(
+                AudioFileJob.interview_id == ctx["interview_id"]
+            )
+        ).first()
+        job_id = job.id
+        job.status = "failed"
+        job.error = "worker mort"
+        db.commit()
+    finally:
+        db.close()
+
+    lancements: list[int] = []
+    monkeypatch.setattr(
+        interviews, "run_audio_file_job", lambda jid: lancements.append(jid)
+    )
+
+    vrai_datetime = audio_file_jobs.datetime
+    imbriquee: list[object] = []
+    statuts: list[int] = []
+
+    class _DatetimeQuiEntrelace:
+        @staticmethod
+        def now(tz=None):
+            if not imbriquee:
+                imbriquee.append(True)
+                # Requête 2 : complète, session distincte — elle gagne la course.
+                statuts.append(
+                    client.post(
+                        f"/interviews/{ctx['interview_id']}/retranscrire",
+                        follow_redirects=False,
+                    ).status_code
+                )
+            return vrai_datetime.now(tz)
+
+    monkeypatch.setattr(audio_file_jobs, "datetime", _DatetimeQuiEntrelace)
+
+    premiere = client.post(
+        f"/interviews/{ctx['interview_id']}/retranscrire", follow_redirects=False
+    )
+    assert imbriquee, "l'entrelacement n'a pas eu lieu : le test ne prouve rien"
+    assert statuts == [303], f"la requete gagnante aurait du rediriger : {statuts}"
+    assert premiere.status_code == 303, premiere.text
+    assert lancements == [job_id], (
+        f"une seule tache de fond doit etre programmee (course), vu {lancements}"
+    )
 
 
 def test_relance_pendant_un_traitement_en_cours_ne_lance_pas_un_second_passage(

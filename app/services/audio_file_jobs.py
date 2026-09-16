@@ -20,7 +20,7 @@ import logging
 import os
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from ..db import RECORDINGS_DIR, SessionLocal
@@ -148,6 +148,48 @@ def _extraire_tours(db, job: AudioFileJob) -> None:
         # sera récupéré tranche par tranche à l'application du résultat.
         run_segment_job(segment.id)
         _battement(db, job)
+
+
+def reprendre_job_echoue_ou_perime(db: Session, job: AudioFileJob) -> bool:
+    """Reprend un `AudioFileJob` en échec ou périmé en le repositionnant à
+    `pending`. Rend `True` si CET appel a gagné la course et doit donc
+    programmer `run_audio_file_job`, `False` si un concurrent l'a déjà pris
+    (rien à programmer de plus).
+
+    UPDATE CONDITIONNEL et non lire-puis-écrire (audit-technique robustesse du
+    2026-09-13) : deux POST concurrents — double-clic, onglet dupliqué, rejeu
+    réseau — lisent tous deux le même job `failed`/périmé et, sans ce
+    comparer-et-échanger, programment chacun leur `run_audio_file_job` sur le
+    MÊME job : blocs dupliqués, mises à jour perdues DANS la transcription,
+    `total_blocks` incohérent avec le curseur `since` du client.
+
+    Comparaison-et-échange sur (status, created_at) et non sur `status` seul :
+    un job PÉRIMÉ est repris en étant resté `pending`/`running` en base
+    (serveur redémarré), donc `status` seul laisserait passer deux
+    concurrents. Le gagnant re-date `created_at` (sert d'horloge à
+    `is_audio_file_job_stale` et à la purge des 7 j) ; le perdant, qui a lu
+    l'ancienne valeur, ne matche plus rien.
+
+    Cette logique était postée deux fois À L'IDENTIQUE dans le dépôt
+    (`interviews_audio.transcribe_file_retry` et la reprise de retranscription
+    de `interviews.py`) — les deux copies portaient le même défaut avant le
+    correctif du 2026-09-13, qui les avait corrigées séparément. Factorisée
+    ici (2026-09-16) pour qu'un futur correctif sur ce patron n'ait plus qu'un
+    seul endroit à toucher."""
+    pris = db.execute(
+        update(AudioFileJob)
+        .where(
+            AudioFileJob.id == job.id,
+            AudioFileJob.status == job.status,
+            AudioFileJob.created_at == job.created_at,
+        )
+        .values(
+            status="pending", error=None,
+            created_at=datetime.now(UTC).replace(tzinfo=None),
+        )
+    ).rowcount
+    db.commit()
+    return pris == 1
 
 
 def run_audio_file_job(job_id: int) -> None:

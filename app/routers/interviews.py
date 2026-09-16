@@ -47,6 +47,7 @@ from ..services import audio_transcribe, mission_backups
 from ..services.audio_file_jobs import (
     is_audio_file_job_stale,
     purge_stale_audio_file_jobs,
+    reprendre_job_echoue_ou_perime,
     run_audio_file_job,
     tranches_extraction,
 )
@@ -2388,33 +2389,15 @@ def retranscrire_start(
             # tranches déjà structurées. Recréer un job neuf ici jetterait tout
             # ce travail et repaierait les dizaines de minutes déjà passées —
             # exactement ce que la reprise de l'import évite depuis le
-            # 2026-07-29. `created_at` est re-daté, sinon la reprise serait
-            # déclarée « ne répond plus » dès le premier appel du statut.
+            # 2026-07-29.
             #
             # UPDATE CONDITIONNEL et non lire-puis-écrire (audit-technique
             # robustesse du 2026-09-13, même finding que
             # `interviews_audio.transcribe_file_retry` — les deux copies de
-            # cette logique portaient le même défaut). La branche « déjà en
-            # cours » juste au-dessus commente elle-même le double-clic, mais
-            # la traite par un simple test : deux POST concurrents lisent tous
-            # deux `failed`/périmé et programment chacun leur
-            # `run_audio_file_job` sur le même job. Comparaison-et-échange sur
-            # (status, created_at) : un job périmé est repris en étant resté
-            # `pending`/`running`, donc `status` seul ne discrimine pas.
-            pris = db.execute(
-                update(AudioFileJob)
-                .where(
-                    AudioFileJob.id == precedent.id,
-                    AudioFileJob.status == precedent.status,
-                    AudioFileJob.created_at == precedent.created_at,
-                )
-                .values(
-                    status="pending", error=None,
-                    created_at=datetime.now(UTC).replace(tzinfo=None),
-                )
-            ).rowcount
-            db.commit()
-            if pris == 1:
+            # cette logique portaient le même défaut). Factorisé dans
+            # `reprendre_job_echoue_ou_perime` (2026-09-16) : un seul endroit à
+            # toucher désormais pour ce patron.
+            if reprendre_job_echoue_ou_perime(db, precedent):
                 background_tasks.add_task(run_audio_file_job, precedent.id)
             # Perdant de la course : la reprise EST lancée, par l'autre requête.
             # Même écran que le gagnant — de la place de l'utilisateur qui a
