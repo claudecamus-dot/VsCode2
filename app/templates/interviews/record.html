@@ -1052,14 +1052,19 @@
     // `pendingBackups` est retombe a 0 et plus rien n'armait cette
     // confirmation — fermer l'onglet detruisait en silence la seule copie de
     // l'entretien, celle que le message venait de dire de telecharger.
+    // `pendingSegments` (revue bmad-code-review 2026-09-16, lot 2 atelier-dev
+    // "occupé") : un refus "occupé" peut désormais garder un segment en vol
+    // plusieurs minutes après l'arrêt de l'enregistrement — sans ce garde, le
+    // blob (qui n'existe que dans la closure de `uploadSegment`) était détruit
+    // en silence par une fermeture d'onglet pendant cette fenêtre.
     if (!lostSegments.some(function (s) { return s.blocking; }) && !lostRetryBlocking
-        && !recordingActive && !pendingBackups
+        && !recordingActive && !pendingBackups && !pendingSegments
         && !(urlBackupLocal && !backupLocalAcquitte)) return;
     e.preventDefault();
     e.returnValue = '';
   });
 
-  function uploadSegment(blob, attempt, lostId, genArg, onSettle) {
+  function uploadSegment(blob, attempt, lostId, genArg, onSettle, busyUntilArg) {
     // Garde de génération : un segment de transcription encore en vol au moment
     // d'un « Recommencer » ne doit pas ressusciter le texte d'une session
     // abandonnée dans la nouvelle (même correctif que record_libre.html).
@@ -1071,10 +1076,23 @@
     // adversariale 2026-07-29).
     var gen = (genArg !== undefined) ? genArg : recGeneration;
     attempt = attempt || 0;
+    // Fenêtre de patience pour un refus "occupé" (503, verrou Whisper
+    // saturé côté serveur — atelier-dev lot 2, 2026-09-15) : DISTINCTE du
+    // budget `SEGMENT_RETRY_DELAYS_MS` réservé aux échecs réels. Un serveur
+    // "occupé" n'est pas un échec, c'est la file d'attente normale du
+    // verrou `_MODEL_LOCK` — le pénaliser sur le même budget (2 relances de
+    // quelques secondes) ferait perdre le segment plus vite qu'avant
+    // l'introduction du refus explicite, alors que le client attendait déjà
+    // patiemment (`TRANSCRIBE_TIMEOUT_MS`) un serveur qui bloquait en
+    // silence. Bornée sur la même valeur pour ne pas régresser cette
+    // patience.
+    var busyUntil = busyUntilArg || (Date.now() + TRANSCRIBE_TIMEOUT_MS);
     // Le gate de soumission couvre TOUTE la chaîne de reprise, pas la seule
     // tentative en cours : sans ça, « Extraire » se rouvrirait entre deux
     // tentatives et partirait sans le texte que la reprise va rendre.
-    if (!attempt) { pendingSegments++; updateSubmitState(); }
+    // `busyUntilArg` distingue une RELANCE "occupé" (même `attempt`, ne doit
+    // pas re-compter un segment déjà en vol) d'un premier appel.
+    if (!attempt && !busyUntilArg) { pendingSegments++; updateSubmitState(); }
 
     function settle() {
       pendingSegments--;
@@ -1119,7 +1137,12 @@
           // `pendingSegments` restait bloqué et « Envoyer » gelé pour de bon
           // (trouvé en triage 2026-07-31, avant tout commit).
           if (gen !== recGeneration) { settle(); return; }
-          uploadSegment(blob, attempt + 1, lostId, gen, onSettle);
+          // `busyUntil` propagé (revue bmad-code-review 2026-09-16) : sans lui,
+          // une alternance "occupé" -> échec transitoire -> "occupé" repartait
+          // sur une fenêtre de patience FRAÎCHE à chaque retour côté "occupé"
+          // (Date.now() + TRANSCRIBE_TIMEOUT_MS, cf. plus haut), cumulant
+          // plusieurs fenêtres au lieu d'une seule bornée.
+          uploadSegment(blob, attempt + 1, lostId, gen, onSettle, busyUntil);
         }, SEGMENT_RETRY_DELAYS_MS[attempt]);
         return;  // pendingSegments reste tenu par la tentative initiale
       }
@@ -1127,9 +1150,54 @@
       settle();
     }
 
+    // Refus "occupé" (503, `code: "busy"`) : le verrou `_MODEL_LOCK` est pris
+    // par un autre segment/onglet plus longtemps que le serveur ne patiente
+    // (atelier-dev lot 2, 2026-09-15). PAS un échec — ne consomme donc PAS le
+    // budget `SEGMENT_RETRY_DELAYS_MS` (réservé aux échecs réels, cf.
+    // `retryOrGiveUp` ci-dessus) : `attempt` reste inchangé d'une relance
+    // "occupé" à l'autre, seule `busyUntil` borne la patience totale.
+    function retryBusyOrGiveUp(reason, retryAfterS) {
+      if (gen !== recGeneration) { settle(); return; }
+      if (Date.now() >= busyUntil) {
+        // Fenêtre de patience épuisée : même traitement qu'un délai maximal
+        // atteint (timedOut) — le blob part dans le bandeau, relance manuelle
+        // possible.
+        keepLostSegment(blob, reason, lostId, true);
+        settle();
+        return;
+      }
+      // `retry_after_s` vient du serveur (délai qu'il a lui-même attendu
+      // avant de refuser) ; repli à 2 s si absent/invalide. Borné à la fois à
+      // 60 s (un `WHISPER_SEGMENT_LOCK_TIMEOUT_S` mal réglé ne doit pas faire
+      // dormir le client des minutes) et au reliquat de `busyUntil` (revue
+      // bmad-code-review 2026-09-16 : sans ce second plafond, `delayMs` seul
+      // pouvait dépasser une fenêtre de patience déjà quasi épuisée).
+      var reliquat = busyUntil - Date.now();
+      if (reliquat <= 0) {
+        keepLostSegment(blob, reason, lostId, true);
+        settle();
+        return;
+      }
+      var delayMs = Math.min(reliquat, 60000, Math.max(1000, (Number(retryAfterS) || 2) * 1000));
+      statusEl.textContent = 'Transcription momentanément occupée — nouvelle tentative dans '
+        + Math.round(delayMs / 1000) + ' s…';
+      setTimeout(function () {
+        if (gen !== recGeneration) { settle(); return; }
+        uploadSegment(blob, attempt, lostId, gen, onSettle, busyUntil);
+      }, delayMs);
+    }
+
     var formData = new FormData();
     formData.append('file', new File([blob], 'segment.webm', { type: blob.type }));
-    recFetch('/audio/transcribe-segment', { method: 'POST', body: formData }, TRANSCRIBE_TIMEOUT_MS)
+    // Le délai de CETTE requête est plafonné au reliquat de `busyUntil` sur
+    // une relance "occupé" (revue bmad-code-review 2026-09-16) : sans ce
+    // plafond, chaque relance repartait pour un `TRANSCRIBE_TIMEOUT_MS`
+    // complet, portant la patience totale à ~2× la fenêtre annoncée par le
+    // commentaire de `busyUntil` ci-dessus.
+    var delaiRequete = busyUntilArg
+      ? Math.max(1000, Math.min(TRANSCRIBE_TIMEOUT_MS, busyUntil - Date.now()))
+      : TRANSCRIBE_TIMEOUT_MS;
+    recFetch('/audio/transcribe-segment', { method: 'POST', body: formData }, delaiRequete)
       .then(function (res) {
         return res.json().then(function (data) { return { ok: res.ok, status: res.status, data: data }; });
       })
@@ -1143,6 +1211,15 @@
           return;
         }
         var detail = result.data.error || result.data.detail || 'erreur inconnue';
+        // AVANT le `>= 500` générique : "occupé" (503) n'est pas un échec du
+        // même ordre, il a son propre budget de patience (cf.
+        // `retryBusyOrGiveUp` ci-dessus) — le laisser tomber dans
+        // `retryOrGiveUp` lui ferait consommer les 2 relances courtes
+        // réservées aux échecs réels.
+        if (result.status === 503 && result.data.code === 'busy') {
+          retryBusyOrGiveUp(detail, result.data.retry_after_s);
+          return;
+        }
         if (result.status >= 500) { retryOrGiveUp(detail); return; }
         // 422 : le serveur a reçu l'audio mais n'a rendu aucun texte. DEUX
         // natures (le serveur répond 422 pour TOUT `TranscriptionError`, cf. le

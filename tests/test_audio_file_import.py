@@ -897,7 +897,10 @@ def test_les_deux_ecrans_importent_par_blocs(client, chemin, monkeypatch):
     #    (sinon un « Recommencer » pendant la fenêtre de retry ressuscitait le
     #    texte de la session abandonnée) ;
     assert "genArg" in html
-    assert "uploadSegment(blob, attempt + 1, lostId, gen, onSettle)" in html
+    # `busyUntil` propagé depuis lot 2 atelier-dev (2026-09-15, revue
+    # bmad-code-review 2026-09-16) : la relance transitoire porte désormais un
+    # 6e argument, la fenêtre de patience "occupé" en cours.
+    assert "uploadSegment(blob, attempt + 1, lostId, gen, onSettle, busyUntil)" in html
     # 2. les segments perdus se relancent EN SÉQUENCE, pas en rafale — et depuis
     #    le 2026-07-30 en héritant de la génération FIGÉE sur l'entrée conservée
     #    (`seg.gen`, non plus `undefined` qui relisait la génération courante :

@@ -239,6 +239,70 @@ def test_la_parole_recuperee_dans_la_tranche_en_vol_part_en_job(ecran: Path) -> 
     )
 
 
+@pytest.mark.parametrize(
+    "ecran",
+    [
+        RACINE / "app" / "templates" / "interviews" / "record_libre.html",
+        RACINE / "app" / "templates" / "interviews" / "record.html",
+    ],
+    ids=lambda p: p.name,
+)
+def test_le_refus_occupe_ne_consomme_pas_le_budget_des_echecs_reels(ecran: Path) -> None:
+    """Lot 2 atelier-dev (2026-09-15) : un 503 `code: "busy"` (verrou
+    `_MODEL_LOCK` occupé, cf. `audio_transcribe.TranscriptionBusyError`) n'est
+    PAS un échec — il ne doit jamais tomber dans `retryOrGiveUp`, qui ne
+    dispose que de 2 relances courtes (`SEGMENT_RETRY_DELAYS_MS`) réservées
+    aux échecs réels. Sans la branche dédiée AVANT le `>= 500` générique, un
+    refus "occupé" répété (contention normale, un segment derrière un autre)
+    ferait perdre le segment en quelques secondes au lieu d'attendre la
+    patience `TRANSCRIBE_TIMEOUT_MS` que le client accordait déjà avant ce
+    correctif.
+
+    Test STRUCTUREL — même limite assumée que les autres tests de ce fichier
+    sur `retryOrGiveUp`/`uploadSegment` (cf. F7) : il fige le CÂBLAGE, pas le
+    comportement bout-en-bout (harnais navigateur, lot 3 à venir)."""
+    contenu = _sans_commentaires(ecran.read_text(encoding="utf-8"))
+
+    corps = _corps_de_fonction(contenu, contenu.index("function uploadSegment"))
+    resultat = corps.split(".then(function (result)", 1)[-1]
+
+    assert "result.data.code === 'busy'" in resultat, (
+        f"{ecran.name} : `uploadSegment` ne distingue plus le refus \"occupé\" "
+        "(503, code busy) — il retombe dans le traitement générique"
+    )
+    idx_busy = resultat.index("code === 'busy'")
+    idx_generique = resultat.index("result.status >= 500")
+    assert idx_busy < idx_generique, (
+        f"{ecran.name} : la branche \"occupé\" doit être testée AVANT le "
+        "`>= 500` générique (503 >= 500) — sinon elle n'est jamais atteinte"
+    )
+
+    busy = _corps_de_fonction(contenu, contenu.index("function retryBusyOrGiveUp"))
+    assert "Date.now() >= busyUntil" in busy, (
+        f"{ecran.name} : `retryBusyOrGiveUp` ne borne plus sa patience sur "
+        "`busyUntil` — un serveur durablement occupé bloquerait indéfiniment"
+    )
+    assert "uploadSegment(blob, attempt," in busy and "attempt + 1" not in busy, (
+        f"{ecran.name} : la relance \"occupé\" incrémente `attempt` — elle "
+        "consommerait alors le budget des 2 relances réservées aux échecs "
+        "réels (`SEGMENT_RETRY_DELAYS_MS`), régressant la patience d'avant "
+        "ce correctif"
+    )
+    # Revue bmad-code-review 2026-09-16 (finding 6) : les deux assertions
+    # ci-dessus laissaient passer deux mutations graves sans le voir.
+    assert "uploadSegment(blob, attempt, lostId, gen, onSettle, busyUntil)" in busy, (
+        f"{ecran.name} : la relance \"occupé\" ne propage plus `busyUntil` en "
+        "6e argument — sans lui, `uploadSegment` recalcule une fenêtre de "
+        "patience FRAÎCHE à chaque relance (boucle sans fin possible)"
+    )
+    assert "!attempt && !busyUntilArg" in contenu, (
+        f"{ecran.name} : la garde de comptage de `pendingSegments` ne "
+        "distingue plus une relance \"occupé\" (`busyUntilArg`) d'un premier "
+        "appel — une relance \"occupé\" re-compterait un segment déjà en vol, "
+        "gelant le gate de soumission"
+    )
+
+
 def test_rec_fetch_charge_sans_defer() -> None:
     """Même règle que `rec_audio_source.js`. Avec `defer`, `window.recFetch`
     serait encore indéfini quand le `<script>` inline de l'écran l'appelle : la
