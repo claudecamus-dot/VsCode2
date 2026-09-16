@@ -40,6 +40,7 @@ glance at the render (dark photo content hides thin lines) both miss these.
 import copy
 import os
 import tempfile
+import warnings
 
 from pptx.oxml.ns import qn
 from pptx.oxml import parse_xml
@@ -124,6 +125,54 @@ def place_image_in_frame(slide, image_path, left, top, width, height, geom=None)
     return pic
 
 
+# Decompression bomb: the byte ceiling is not the memory ceiling.
+#
+# ``stock_images`` caps the DOWNLOAD at 25 MB, with care (partial file cleaned up
+# on ``BaseException``). Its counterpart on the DECODE side was missing: a PNG
+# well under 25 MB compressed can expand to hundreds of MB of pixels, and Pillow
+# only *warns* (``DecompressionBombWarning``) between ``MAX_IMAGE_PIXELS`` and
+# twice that -- a warning nothing turns into an error here. The bytes were
+# bounded by a server we do not control; the RAM was not (audit 2026-09-03,
+# re-raised 2026-09-13, OWASP ASI02).
+#
+# 40 Mpx is ~10x the largest frame this skill fills (900 px wide) and still two
+# orders of magnitude below Pillow's own default of 89.5 Mpx. Refusing here makes
+# the candidate fall into the caller's crop ``try``, so it surfaces as "candidate
+# refused" rather than as a network outage or an out-of-memory kill.
+PIXELS_MAX = 40_000_000
+
+
+def open_image_bounded(src):
+    """``Image.open(src)`` with the decompression-bomb guard ARMED.
+
+    Two things Pillow does not do on its own here: the pixel ceiling is lowered
+    to :data:`PIXELS_MAX`, and ``DecompressionBombWarning`` is turned into an
+    exception for the duration of the open -- otherwise the whole band between
+    ``PIXELS_MAX`` and ``2 * PIXELS_MAX`` decodes silently, which is exactly the
+    band an attacker aims for.
+
+    The check happens on the HEADER, inside ``Image.open``: nothing is decoded
+    before the refusal. Both the global and the warning filter are restored on
+    the way out, so importing this module does not change how any other code in
+    the process reads images.
+
+    Raises ``PIL.Image.DecompressionBombError`` (>= 2x the ceiling) or
+    ``DecompressionBombWarning`` (>= 1x). Both derive from ``Exception`` --
+    ``DecompressionBombWarning`` through ``RuntimeWarning`` -- so a caller that
+    already wraps the crop in a broad ``except`` keeps working unchanged.
+    """
+    from PIL import Image
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", Image.DecompressionBombWarning)
+        precedent = Image.MAX_IMAGE_PIXELS
+        Image.MAX_IMAGE_PIXELS = PIXELS_MAX
+        try:
+            return Image.open(src)
+        finally:
+            Image.MAX_IMAGE_PIXELS = precedent
+
+
 def cover_crop_to_aspect(src, dst, aspect):
     """Center-crop ``src`` to ``aspect`` (= width/height) and write it to ``dst``.
 
@@ -140,9 +189,7 @@ def cover_crop_to_aspect(src, dst, aspect):
     reason as ``stock_images._ecrire_manifest``, fixed on 2026-09-08 three lines
     away: either the previous image stays intact, or the new one is complete.
     """
-    from PIL import Image
-
-    im = Image.open(src)
+    im = open_image_bounded(src)
     w, h = im.size
     cur = w / h
     if abs(cur - aspect) > 1e-4:
