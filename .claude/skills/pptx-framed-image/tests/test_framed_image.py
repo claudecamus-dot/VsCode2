@@ -166,6 +166,28 @@ def test_frame_obstructions_ignores_covered_inner_shape():
     print("ok  frame_obstructions ignores a shape fully covered by the frame")
 
 
+def test_open_image_bounded_rejects_decompression_bomb():
+    # 9000x5000 = 45 Mpx: over PIXELS_MAX (40M) but under Pillow's own default
+    # ceiling (~89.5 Mpx) -- the old `Image.open(src)` opened it without a
+    # murmur, which is exactly the gap `open_image_bounded` closes.
+    from PIL import Image
+    p = os.path.join(tempfile.gettempdir(), "_bomb_45mpx.png")
+    Image.new("L", (9000, 5000)).save(p)
+    try:
+        FI.open_image_bounded(p)
+    except Exception as exc:
+        assert "DecompressionBomb" in type(exc).__name__, (type(exc), exc)
+    else:
+        raise AssertionError("open_image_bounded opened a 45 Mpx image without refusing it")
+    print("ok  open_image_bounded refuses an image over the pixel ceiling")
+
+
+def test_open_image_bounded_leaves_normal_images_alone():
+    im = FI.open_image_bounded(_tmp_img())
+    assert im.size == (180, 257)
+    print("ok  open_image_bounded still opens a normal-size image")
+
+
 def main():
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:
