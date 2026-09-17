@@ -52,6 +52,19 @@ source vivante. Deux fichiers portent la bannière « GÉNÉRÉ — NE PAS ÉDIT
 (`.claude/supervision/scan_transcripts.py`, `.claude/orchestration/log_run.py`) : une
 correction utile chez eux se signale au hub, elle ne s'écrit pas ici.
 
+## Discipline de gestion des tokens
+
+Le contexte est un cache actif facturé à chaque tour, pas une mémoire gratuite.
+
+- **Ne pas parcourir** `.venv/`, `_bmad/`, `_bmad-output/`, `.claude/skills/bmad-*`
+  (skills BMAD installées) sauf demande explicite.
+- **Lire avant d'écrire**, grep les appelants avant de modifier une route/service partagé
+  (cf. la règle de rejeu des tests ci-dessus, même logique côté lecture).
+- **Sous-agent pour toute sortie volumineuse** (suite complète ~7 min, logs longs).
+- **`/compact` dès ~40 %** de fenêtre utilisée si la session doit continuer longtemps.
+- **`/clear` (pas une 3e rustine) après deux corrections ratées consécutives** sur le
+  même problème — repartir à froid avec un meilleur prompt bat l'insistance.
+
 ## Règles de travail
 
 Deux familles, **numérotées distinctement** parce qu'elles étaient toutes deux citées
