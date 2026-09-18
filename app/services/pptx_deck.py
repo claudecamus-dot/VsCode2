@@ -692,6 +692,15 @@ def verifier_geometrie(prs, marge_in=0.02):
             if None in (l, t, w, h):
                 continue
             nom = shp.name or "shape"
+            if w <= 0 or h <= 0:
+                # Pas de tolerance ici, contrairement aux bords : une dimension
+                # nulle ou negative n'est jamais un arrondi acceptable, c'est
+                # un calcul de layout qui a decroche.
+                problemes.append(
+                    f"slide {si}: '{nom}' dimension non positive "
+                    f"(w={Emu(w).inches:.2f} h={Emu(h).inches:.2f} ; boite "
+                    f"inversee ou nulle, la forme est invisible au rendu)")
+                continue
             if l < -tol or t < -tol or (l + w) > W + tol or (t + h) > H + tol:
                 problemes.append(
                     f"slide {si}: '{nom}' hors cadre "
