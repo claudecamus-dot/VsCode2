@@ -3,7 +3,7 @@
     "source": "hub de supervision VScode5, .claude/veille/veille.json",
     "projection": "entrees dont projets_concernes nomme VSCode2",
     "ne_pas_editer": "Fichier GENERE, en lecture seule : une correction faite ici sera ecrasee a la prochaine propagation. La veille s'ecrit AU HUB, ou elle est lue (section 3 du wiki) et arbitree. Une veille lancee depuis ce depot doit y etre remontee.",
-    "date": "2026-09-11"
+    "date": "2026-09-18"
   },
   "derniere_veille": "2026-09-16T00:00:00",
   "entrees": [
@@ -117,29 +117,58 @@
       "statut": "adopte"
     },
     {
-      "titre": "Longueur du corps d'un SKILL.md bornée (guide « progressive disclosure ») — agent-orchestrator/SKILL.md mesuré à 800 lignes",
-      "url": "https://platform.claude.com/docs/en/agents-and-tools/agent-skills/best-practices",
+      "titre": "Doc officielle « Security » de Claude Code — modèle de permissions, sandboxing bash, stockage des credentials",
+      "url": "https://code.claude.com/docs/en/security",
       "type": "pratique",
-      "source_referentiel": "Anthropic — Claude Platform docs / Agent Skills, Skill authoring best practices : « Keep SKILL.md body under 500 lines for optimal performance ; if your content exceeds this, split it into separate files using progressive disclosure patterns. »",
+      "source_referentiel": "Anthropic — Claude Code docs / Security (mode manuel en lecture seule par défaut, commandes bash suspectes toujours soumises à approbation même si allowlistées, clés API stockées dans le Keychain macOS / permissions fichier sur Windows-Linux, mise en garde explicite contre WebDAV sur Windows).",
       "projets_concernes": [
-        "VSCode2"
+        "VSCode",
+        "VSCode1",
+        "VSCode2",
+        "VSCode3",
+        "VSCode4",
+        "VScode5"
       ],
-      "pertinence": "Mesuré ce cycle (PowerShell, wc -l equivalent) sur .claude/skills/*/SKILL.md de VSCode2 : agent-orchestrator/SKILL.md fait 800 lignes, 60% au-dessus du seuil recommandé — bmad-dev-story (397 l, deprecated shim), bmad-create-story (358 l, deprecated shim) et revue-increment (326 l) sont sous le seuil mais dans sa zone haute. Même famille de critère que « CLAUDE.md borné à 150 lignes » déjà adopté (2026-07-24) — non couvert : le scan mesure la taille des CLAUDE.md, jamais celle des SKILL.md. agent-orchestrator est un fichier canon synchronisé depuis le hub VScode5 (donc probablement le même écart sur toute la flotte, non vérifié ici — hors périmètre de ce dépôt cible), pas un problème propre à VSCode2.",
-      "regle_proposee": "Critère scan (dimension skills) : longueur du corps de chaque SKILL.md bornée (alerte au-delà de 500 lignes), mesurable à froid, même mécanique que le critère CLAUDE.md déjà outillé.",
-      "action_corrective": "Scinder agent-orchestrator/SKILL.md (800 l) en fichiers de progressive disclosure (contenu chargé à la demande plutôt qu'au démarrage) — correctif à porter AU HUB VScode5 puisque c'est un fichier canon, pas localement sur VSCode2.",
-      "date": "2026-09-16",
-      "statut": "nouveau"
+      "pertinence": "Veille demandée par l'utilisateur (réflexion sur un futur agent sécurité/cyber). Le hub a déjà des deny rules alignées sur une pratique OpenAI (guardrails en couches, adoptée 2026-07-24) mais aucune entrée ne confronte la flotte à la checklist OFFICIELLE Claude Code elle-même — mode de permission par défaut, restrictions bash/sandbox, stockage des credentials. Constat local : grep sur criteres-pratiques.md ne montre que deny rules + .env gitigné mesurés, rien sur le mode de permission (manuel/auto/bypass) ni sur le sandboxing bash par projet. Écart de MESURE, pas forcément de pratique : peut déjà être satisfait sans être vérifié.",
+      "regle_proposee": "Critère scan (dimension sécurité) : par projet, mode de permission déclaré (`defaultMode`) et présence des restrictions bash/sandbox de la checklist officielle, en complément des deny rules déjà mesurées — mesurable à froid par lecture de `.claude/settings.json`.",
+      "action_corrective": "ADOPTE ET APPLIQUE 2026-09-13 : sous-agent `agent-securite` créé (arbitrage utilisateur « Créer tel que proposé »), sa méthode (.claude/skills/agent-securite/SKILL.md, étape 4) comprend explicitement la confrontation de `.claude/settings.json` à cette checklist officielle (mode de permission, sandbox bash, deny rules) comme première étape. Propagé aux 5 dépôts (commits scopés).",
+      "date": "2026-09-12",
+      "statut": "adopte"
     },
     {
-      "titre": "Plugin Playwright officiel Anthropic — alternative maintenue au harnais CDP maison (tests/navigateur_cdp.py)",
-      "url": "https://claude.com/plugins/playwright",
+      "titre": "/security-review (anthropics/claude-code-security-review) — déjà référencé dans audit-technique, jamais utilisé en balayage systématique flotte",
+      "url": "https://github.com/anthropics/claude-code-security-review",
       "type": "outil",
       "projets_concernes": [
-        "VSCode2"
+        "VSCode",
+        "VSCode1",
+        "VSCode2",
+        "VSCode3",
+        "VSCode4",
+        "VScode5"
       ],
-      "pertinence": "Le projet a un choix documenté explicite (« No Playwright/Selenium in this project's venv », run-dev-server/SKILL.md l.127) et un harnais CDP maison (tests/navigateur_cdp.py, 190+ lignes) qui porte 4 « leçons payées » en revues adversariales du 2026-09-08 et 2026-09-10 (processus orphelins Windows, clic hors-écran silencieux, drain de socket avant assertion, faux-positif keepalive) — cf. mémoire feedback_edge_headless_elevated_locked_session_and_launcher_exit.md. Anthropic propose désormais un plugin Playwright officiel et maintenu. PAS une recommandation d'adoption automatique : ce serait un revirement sur un choix déjà motivé et documenté, à instruire comme un arbitrage coût (dépendance ajoutée) / bénéfice (maintenance du harnais maison transférée à un plugin entretenu en amont) plutôt qu'une bascule silencieuse.",
-      "date": "2026-09-16",
-      "statut": "nouveau"
+      "pertinence": "DÉJÀ EN PLACE PARTIELLEMENT, à ne pas re-proposer en l'état : `audit-technique/SKILL.md` référence déjà `/security-review` deux fois (l.45-46 « réutiliser l'existant avant de ré-analyser à la main », l.84 « lancer `/security-review` sur le diff courant si pertinent »). Ce qui manque réellement, et que cette veille rend visible par contraste : (1) c'est une commande NATIVE Claude Code (livrée avec le CLI lui-même, indépendante de la fraîcheur du dépôt GitHub qui n'héberge que l'action CI associée — vérifié à la source : 6208 étoiles, dépôt GitHub dernier push 2026-02-11, mais la commande slash fait partie du produit) — pas un outil tiers à installer ; (2) elle n'est mobilisée qu'AU MOMENT d'un audit-technique complet (facturé, sur demande), jamais comme étape systématique d'un playbook `evolution-flotte` qui modifie du code applicatif sans déclencher d'audit complet ; (3) aucune trace de son usage hors du hub (grep limité à 2 fichiers du hub) — rien ne dit si elle est mobilisée sur les 5 autres projets qui ont leur propre pratique de revue.",
+      "regle_proposee": "Non mesurable à froid par le scan (commande interactive, pas un fichier de configuration) — qualifiable en revue : un playbook qui commit du code applicatif modifié (`evolution-flotte`, `dev-verifie`) pourrait mentionner `/security-review` comme étape optionnelle avant la revue en contexte frais déjà adoptée, quand le diff touche des entrées utilisateur, des secrets ou des permissions.",
+      "action_corrective": "ADOPTE PARTIELLEMENT 2026-09-13 : `agent-securite` en fait l'un de ses outils de base (skill § Méthode, réutilisation avant analyse manuelle). L'ajout d'une étape optionnelle aux playbooks `evolution-flotte`/`dev-verifie` reste à étudier séparément — écarté de ce cycle, pas refusé.",
+      "date": "2026-09-12",
+      "statut": "adopte"
+    },
+    {
+      "titre": "trailofbits/skills — patterns réels d'audit à la demande (dépendances, historique git, workflows CI) publiés par un cabinet de sécurité reconnu",
+      "url": "https://github.com/trailofbits/skills",
+      "type": "framework",
+      "projets_concernes": [
+        "VSCode",
+        "VSCode1",
+        "VSCode2",
+        "VSCode4",
+        "VScode5"
+      ],
+      "pertinence": "Source crédible et vivante, vérifiée à l'API GitHub : 7052 étoiles, dernier push 2026-09-09 (3 jours avant ce cycle de veille), publiée par Trail of Bits (cabinet d'audit de sécurité reconnu, pas un auteur anonyme). Fournit des patterns RÉELS et PUBLICS de ce qu'un sous-agent Claude Code peut audit à la demande : `supply-chain-risk-auditor` (dépendances npm/PyPI/Go : avisories, upstreams abandonnés, scripts d'installation) ; `differential-review` (revue de sécurité d'un diff avec analyse de l'HISTORIQUE GIT, pas seulement l'état courant) ; `agentic-actions-auditor` (audit des workflows GitHub Actions pour les vulnérabilités spécifiques aux agents IA). Constat local : 5 des 6 projets de la flotte ont un `.github/workflows/ci.yml` (VSCode, VSCode1, VSCode2, VSCode4, VScode5 — vérifié par recherche de fichiers ; VSCode3 n'en a pas) et aucun n'a jamais été audité pour ce registre de risque (grep sans résultat sur ces patterns dans le dispositif). Ces trois rôles délimitent PRÉCISÉMENT le périmètre réaliste d'un sous-agent sécurité invoqué ponctuellement — lecture de code/config/historique git, PAS de surveillance réseau ou process temps réel.",
+      "regle_proposee": "aucune règle de scan à froid — pattern à ÉTUDIER pour inspirer la conception d'un futur sous-agent maison, jamais à cloner ni exécuter (mandat de la veille : observer, ne jamais exécuter de code téléchargé).",
+      "action_corrective": "ADOPTE ET APPLIQUE 2026-09-13 : les 3 rôles (audit dépendances/supply chain, revue avec historique git, audit workflows CI) sont repris comme squelette des étapes 2-4 de la skill `agent-securite`, réécrits maison par canal — jamais d'import du dépôt tiers.",
+      "date": "2026-09-12",
+      "statut": "adopte"
     }
   ]
 }

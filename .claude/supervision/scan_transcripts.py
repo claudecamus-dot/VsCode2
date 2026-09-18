@@ -4,7 +4,7 @@
 # | garder : la signaler au hub, qui corrige le canon et re-synchronise.
 # | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
 # |  n'est pas déployé, il n'existe pas dans ce dépôt.)
-# | Provenance canon : 13d7355 du 2026-09-11 — permet, au prochain sync, de dire si
+# | Provenance canon : bb61f24 du 2026-09-18 — permet, au prochain sync, de dire si
 # | une différence vient d'une édition locale ou d'une avance du canon (voir
 # | `determiner_cause` dans sync_dispositif.py au hub).
 # +---------------------------------------------------------------------------
@@ -88,6 +88,12 @@ DIAGNOSTIC_PATH = os.environ.get("AGENT_SUPERVISION_DIAGNOSTIC") or os.path.join
 )
 ARBITRAGES_PATH = os.environ.get("AGENT_SUPERVISION_ARBITRAGES") or os.path.join(
     SUP_DIR, "arbitrages.json"
+)
+# Optionnel, jamais regenere par ce scan (capture a la demande via
+# skill_doctor_snapshot.py) : croise dans jamais_utilises (finding
+# verification-manquante:jamais-utilises-vs-skill-doctor, 2026-09-15).
+SKILL_DOCTOR_PATH = os.environ.get("AGENT_SUPERVISION_SKILL_DOCTOR") or os.path.join(
+    SUP_DIR, "skill_doctor_last.txt"
 )
 DORMANT_DAYS = 30
 # Version de la LOGIQUE DE DÉTECTION (préfiltre + parsing des invocations dans
@@ -881,6 +887,24 @@ def _couvre(arbitrage: dict, categorie: str) -> bool:
     return isinstance(cats, list) and categorie in cats
 
 
+def _vise_ce_constat(arbitrage: dict, finding: dict) -> bool:
+    """Un arbitrage qui NOMME son constat (champ `titre`) ne ferme que celui-là ;
+    un arbitrage sans titre garde sa portée large (cible + catégorie).
+
+    Rétro-compatibilité totale par construction : mesuré le 2026-09-18, AUCUN des
+    241 arbitrages du hub ne porte de `titre` — tous conservent donc exactement le
+    comportement d'avant. La précision n'arrive que sur les arbitrages à venir.
+
+    Le défaut corrigé (F5, arbitré le 2026-09-18) : avec 241 décisions accumulées,
+    presque toute paire (cible, catégorie) est déjà « couverte ». Un constat neuf
+    naissait masqué par une décision rendue sur un tout autre sujet — mesuré sur
+    2 constats du 18/09, fermés par des arbitrages des 15 et 17."""
+    titre_arb = str(arbitrage.get("titre") or "").strip().lower()
+    if not titre_arb:
+        return True
+    return titre_arb == str(finding.get("titre") or "").strip().lower()
+
+
 def finding_arbitre(finding: dict, arbitrages: list = None, respecter_re_challenge: bool = True,
                     posterieur_a: str = "") -> bool:
     """Vrai si un arbitrage ferme ce constat : même `cible` ET catégorie couverte
@@ -909,7 +933,8 @@ def finding_arbitre(finding: dict, arbitrages: list = None, respecter_re_challen
     if not cible:
         return False
     cat = finding.get("categorie")
-    couvrants = [a for a in arbitrages or [] if a.get("cible") == cible and _couvre(a, cat)]
+    couvrants = [a for a in arbitrages or [] if a.get("cible") == cible and _couvre(a, cat)
+                 and _vise_ce_constat(a, finding)]
     if not couvrants:
         return False
     if not (respecter_re_challenge and finding.get("re_challenge") is True):
@@ -1275,6 +1300,47 @@ def dormants(state):
     return [nom for nom in endormis if nom not in hors]
 
 
+# Colonnes fixes de `/skill-doctor` (skill_doctor_snapshot.py) : 2 espaces de marge,
+# puis skill/source/context/tokens en un seul mot chacun, "N×" pour les usages (jamais
+# d'espace entre le nombre et le ×), et "last used" en fin de ligne qui peut porter
+# plusieurs mots ("92 days", "today") — d'où le groupe final non-greedy plutôt qu'un
+# split() par espaces, qui casserait sur "last used".
+_RE_SKILL_DOCTOR_LIGNE = re.compile(
+    r"^\s{2}(?P<skill>\S+)\s+\S+\s+\S+\s+\S+\s+(?P<uses>\d+)×\s+.+?\s*$"
+)
+_RE_SKILL_DOCTOR_DATE = re.compile(r"^# Instantane /skill-doctor -- (?P<date>\S+)", re.MULTILINE)
+
+
+def _lire_skill_doctor(chemin: str = None) -> tuple[dict, str]:
+    """(usages, date_rapport) depuis le dernier instantané `/skill-doctor`
+    (`skill_doctor_snapshot.py`, capturé à la demande, jamais par ce scan).
+
+    Fail-open total — fichier absent, illisible, ou d'un format inattendu rendent
+    ({}, "") : ce croisement AMÉLIORE la mesure de `jamais_utilises`, il n'a jamais
+    à faire échouer le scan qui tourne à chaque session (finding
+    verification-manquante:jamais-utilises-vs-skill-doctor, 2026-09-15 — 7 des 21
+    noms de `jamais_utilises` étaient contredits par cet instantané, jamais croisés).
+    """
+    chemin = chemin or SKILL_DOCTOR_PATH
+    try:
+        with open(chemin, encoding="utf-8") as fh:
+            texte = fh.read()
+    except OSError:
+        return {}, ""
+    m_date = _RE_SKILL_DOCTOR_DATE.search(texte)
+    date_rapport = m_date.group("date") if m_date else ""
+    usages: dict = {}
+    for ligne in texte.splitlines():
+        m = _RE_SKILL_DOCTOR_LIGNE.match(ligne)
+        if not m:
+            continue
+        try:
+            usages[m.group("skill")] = int(m.group("uses"))
+        except ValueError:
+            continue
+    return usages, date_rapport
+
+
 def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: dict, diagnostic,
                         runs: list = None, arbitrages: list = None) -> dict:
     """Sens superviseur → orchestrateur (conception §6) : ce que le scan mesure, appliqué
@@ -1293,8 +1359,19 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
     # et 5 skills invoquees le jour meme etaient publiees « jamais utilisees ».
     vus = set(skills) | set(derniers_usages(state))
     hub_only = skills_hub_only(fam)
-    jamais = sorted(k for k, v in fam.items()
-                    if k not in vus and k not in libref and k not in hub_only)
+    jamais_bruts = [k for k, v in fam.items()
+                    if k not in vus and k not in libref and k not in hub_only]
+    # Second instrument, independant des transcripts : un nom que /skill-doctor
+    # rapporte reellement invoque (uses > 0) sort de jamais_utilises et va dans
+    # contredit_par_skill_doctor plutot que d etre presente comme mort a l arbitrage
+    # (finding verification-manquante:jamais-utilises-vs-skill-doctor, 2026-09-15).
+    usages_sd, date_sd = _lire_skill_doctor()
+    contredit_par_skill_doctor = [
+        {"skill": k, "uses_skill_doctor": usages_sd[k], "rapport_date": date_sd}
+        for k in sorted(jamais_bruts) if usages_sd.get(k, 0) > 0
+    ]
+    _contredits = {c["skill"] for c in contredit_par_skill_doctor}
+    jamais = sorted(k for k in jamais_bruts if k not in _contredits)
     bibliotheque = sorted(k for k in libref if k not in vus)
     en_sommeil = dormants(state)
     verifs_oubliees = []
@@ -1348,6 +1425,10 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
         "generated": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         "eprouves": eprouves,
         "jamais_utilises": jamais,
+        # Noms sortis de jamais_utilises parce qu'un instantané /skill-doctor
+        # (indépendant des transcripts) les rapporte réellement invoqués — vide si
+        # skill_doctor_last.txt est absent ou périmé au point de ne rien contredire.
+        "contredit_par_skill_doctor": contredit_par_skill_doctor,
         # Skills-bibliothèque/référence : usage réel non capté par le compteur
         # d'invocations (constat #2) — sortis de jamais_utilises pour que
         # l'orchestrateur ne les traite pas comme morts.
