@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : e11c0a7 du 2026-09-13 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`e11c0a7`, 2026-09-13) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 46eed0a du 2026-09-18 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`46eed0a`, 2026-09-18) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -766,7 +766,7 @@ un jour aurait été ne pas leur laisser leur chance.
 | « un nouveau projet arrive, personne ne le connaît » | `accueil-projet` | Salle open-cast : elle génère les voix du cadrage, sans relais écrit d'avance |
 | « ce code me paraît risqué sans que je sache dire pourquoi » | `code-review-crew` | Cinq angles distincts (sécurité, contradiction, cas limites, artisanat, livrer) qui se disputent |
 | « j'ai une intuition, pas encore une question », refonte, organisation de l'information, navigation, simplification | `atelier-idees` | Le Cadreur pose le problème avant les solutions, Portevoix parle pour l'usager absent, Wildcard ouvre les options, Splinter casse l'accord facile |
-| « il faudrait relire tout ça à froid », inspection périodique, chasse aux fonctionnalités que plus personne n'utilise | `inspection-critique` | Quatre axes tenus séparés — bugs latents, design, expérience de celui qui s'en sert, et ce qui n'est jamais utilisé ; part d'un périmètre et de mesures d'usage, pas d'un diff |
+| « il faudrait relire tout ça à froid », inspection périodique, chasse aux fonctionnalités que plus personne n'utilise, **revue approfondie d'un texte long publié (cohérence, redondance, formulation)** | `inspection-critique` | Quatre axes tenus séparés — bugs latents, design (un texte long y entre au même titre qu'un écran), expérience de celui qui s'en sert, et ce qui n'est jamais utilisé ; part d'un périmètre et de mesures d'usage, pas d'un diff. « Sonner IA » n'est pas un critère qu'elle instruit — arbitré non mesurable le 2026-09-18, aucune détection fiable et non contournable n'existe |
 | « où tournent nos environnements et combien ça coûte ? », **choix de l'environnement de production**, infrastructure, secrets, reprise après incident | `socle-technique` | Le parc décrit avant d'être corrigé, les risques triés par risque et non par facilité ; tient l'infrastructure dans la durée là où la mise en service est un guichet par release |
 | « qu'est-ce qui se fait ailleurs ? », état de l'art agentic, pratiques des fournisseurs IA, littérature scientifique et publications | `observatoire-agentic` | Elle CLASSE ce qu'elle lit — prouvé, sorti, annoncé, hype — et exige la source primaire ; elle ne décide pas d'adopter, elle dit ce que la chose vaut et ce qu'elle coûte à vérifier |
 | « tout le monde est d'accord trop vite et ça me met mal à l'aise » | `anti-consensus-club` | Elle casse le faux consensus, ouvre des options, arrête les boucles à vide |
