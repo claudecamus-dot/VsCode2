@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-16
+updated: 2026-09-18
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -8,7 +8,7 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-09-16T21:08:04+02:00 · **90 sessions** (transcripts) · **297** invocations de skills · **263** lancements de sous-agents.
+Dernier scan : 2026-09-18T12:11:38+02:00 · **90 sessions** (transcripts) · **299** invocations de skills · **268** lancements de sous-agents.
 
 ## Skills — usage réel
 
@@ -22,7 +22,7 @@ Dernier scan : 2026-09-16T21:08:04+02:00 · **90 sessions** (transcripts) · **2
 | `bmad-review-adversarial-general` | BMAD | 19 | 2026-07-20 | 2026-09-07 |
 | `revue-increment` | projet | 17 | 2026-07-18 | 2026-09-16 |
 | `pptx-verify` | projet | 11 | 2026-07-03 | 2026-09-07 |
-| `bmad-party-mode` | BMAD | 8 | 2026-07-31 | 2026-09-16 |
+| `bmad-party-mode` | BMAD | 9 | 2026-07-31 | 2026-09-16 |
 | `update-config` | (builtin/session) | 7 | 2026-07-03 | 2026-09-11 |
 | `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
@@ -35,6 +35,7 @@ Dernier scan : 2026-09-16T21:08:04+02:00 · **90 sessions** (transcripts) · **2
 | `veille-agentic` | projet | 2 | 2026-09-08 | 2026-09-16 |
 | `bmad-advanced-elicitation` | BMAD | 1 | 2026-09-16 | 2026-09-16 |
 | `bmad-sprint-status` | BMAD | 1 | 2026-07-22 | 2026-07-22 |
+| `bmad-walkthrough` | BMAD | 1 | 2026-09-16 | 2026-09-16 |
 | `claude-api` | (builtin/session) | 1 | 2026-06-29 | 2026-06-29 |
 | `code-review` | (builtin/session) | 1 | 2026-09-15 | 2026-09-15 |
 | `deck-design-library` | projet | 1 | 2026-07-28 | 2026-07-28 |
@@ -48,7 +49,7 @@ Dernier scan : 2026-09-16T21:08:04+02:00 · **90 sessions** (transcripts) · **2
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 154 | 2026-07-15 | 2026-09-16 |
+| `general-purpose` | 159 | 2026-07-15 | 2026-09-16 |
 | `Explore` | 47 | 2026-06-30 | 2026-09-15 |
 | `bmad-revue` | 40 | 2026-08-31 | 2026-09-16 |
 | `(defaut)` | 7 | 2026-07-21 | 2026-07-30 |
@@ -66,11 +67,11 @@ Dernier scan : 2026-09-16T21:08:04+02:00 · **90 sessions** (transcripts) · **2
 
 `agent-securite`
 
-**BMAD** — 42/50 jamais invoqués :
+**BMAD** — 41/50 jamais invoqués :
 
 <details><summary>Voir la liste</summary>
 
-`bmad-agent-analyst`, `bmad-agent-architect`, `bmad-agent-dev`, `bmad-agent-pm`, `bmad-agent-ux-designer`, `bmad-architecture`, `bmad-build`, `bmad-build-auto`, `bmad-checkpoint-preview`, `bmad-correct-course`, `bmad-create-architecture`, `bmad-create-epics-and-stories`, `bmad-create-prd`, `bmad-create-story`, `bmad-customize`, `bmad-deep-recon`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-edit-prd`, `bmad-editorial-review`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-forge-idea`, `bmad-generate-project-context`, `bmad-help`, `bmad-market-research`, `bmad-prd`, `bmad-prfaq`, `bmad-product-brief`, `bmad-project-context`, `bmad-qa-generate-e2e-tests`, `bmad-quick-dev`, `bmad-retrospective`, `bmad-review-verification-gap`, `bmad-spec`, `bmad-sprint-planning`, `bmad-technical-research`, `bmad-ux`, `bmad-validate-prd`, `bmad-walkthrough`
+`bmad-agent-analyst`, `bmad-agent-architect`, `bmad-agent-dev`, `bmad-agent-pm`, `bmad-agent-ux-designer`, `bmad-architecture`, `bmad-build`, `bmad-build-auto`, `bmad-checkpoint-preview`, `bmad-correct-course`, `bmad-create-architecture`, `bmad-create-epics-and-stories`, `bmad-create-prd`, `bmad-create-story`, `bmad-customize`, `bmad-deep-recon`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-edit-prd`, `bmad-editorial-review`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-forge-idea`, `bmad-generate-project-context`, `bmad-help`, `bmad-market-research`, `bmad-prd`, `bmad-prfaq`, `bmad-product-brief`, `bmad-project-context`, `bmad-qa-generate-e2e-tests`, `bmad-quick-dev`, `bmad-retrospective`, `bmad-review-verification-gap`, `bmad-spec`, `bmad-sprint-planning`, `bmad-technical-research`, `bmad-ux`, `bmad-validate-prd`
 
 </details>
 
@@ -172,19 +173,25 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 - **`VSCode2:audit-local-orphelin-contredit-le-hub`** (2026-09-11) : CONFIRME, NON CORRIGIBLE ICI (mandat utilisateur du 2026-09-11, repete a deux reprises). Reverifie : .claude/audits/VSCode2.json est toujours date du 2026-09-03 (8 jours). Le constat du 2026-09-10 est exact et sa propre recommandation dit pourquoi je ne le corrige pas localement : c'est le protocole de transmission hub -> projet qui est en cause (audit non re-emis apres re-mesure, SHA de HEAD non trace, sync_dispositif.py qui laisse deriver sans rapport d'ecart), pas ce depot -- editer ce fichier a la main ici reproduirait exactement le defaut signale. SendMessage a ECHOUE deux fois (session vscode5-supervision-projets-ff injoignable), puis REUSSI une fois une session hub relancee (vscode5-supervision-projets-6e, message livre). Proposition du finding, sur le hub : SHA-stamping des audits emis, rapport de divergence dans sync_dispositif.py, ecriture de audits/<projet>.json par la synchro jamais orpheline.
 - **`flotte:point-du-jour-absent-des-5-cibles`** (2026-09-11) : PARTIEL : la part VSCode2 est DEJA FAITE, la part flotte reste au hub. `.claude/hooks/point_du_jour.py` existe et est cable en SessionStart ici (commit 7e61193, « rattrape les 4 autres cibles ») -- verifie par `test -f`. RESERVE, hors de portee de ce depot : les 4 AUTRES cibles (VSCode, VSCode1, VSCode3, VSCode4) et la decision A/B du finding (distribuer point_du_jour.py par le kit exporte, ou documenter explicitement que c'est une fonction hub-only) restent au hub. SendMessage a ECHOUE deux fois (session vscode5-supervision-projets-ff injoignable), puis REUSSI une fois une session hub relancee (vscode5-supervision-projets-6e, message livre le 2026-09-11).
 - **`VSCode1,VSCode2:permissions-hors-git-exec-arbitraire`** (2026-09-11) : PARTIEL, cote VSCode2 uniquement. Le hub a precise le joker (arbitrage flotte du 2026-09-04) : `.claude/settings.local.json` (gitignore, 16 entrees dans permissions.allow) portait `Bash(node -e ' *)` -- execution Node arbitraire, le prefixe ne restreignant rien puisque `node -e` execute la chaine passee telle quelle. Utilisateur a lu le fichier en entier avec moi (feu vert explicite, requis par un hook projet qui bloque cette lecture sinon) et choisi de ne retirer QUE cette entree precise, via la skill update-config -- retrait via Edit, verifie par relecture JSON (15 entrees restantes, `node -e` absent). RESERVE, laissee EXPLICITEMENT en l'etat sur decision utilisateur : les 15 autres entrees (dont `Bash`/`PowerShell` nus, `Bash(./.venv/Scripts/python.exe -c ' *)`, `Bash(python -)`, et 9 entrees liees a un outil « opencode » sans rapport avec la structure de ce projet -- probable contamination d'un autre contexte de travail jamais nettoyee, invisible car le fichier est gitignore) n'ont pas ete jugees aujourd'hui. Rien a committer : fichier hors git par design.
+- **`canon:vocabulaire-sans-pratique-securite`** (2026-09-16) : TRANSMIS AU HUB, non applique localement (arbitrage utilisateur du 2026-09-16, salle conseil-flotte + diagnostic frais agent-supervisor). `pratique-securite` absente des 2 vocabulaires miroirs de scan_transcripts.py/write_diagnostic.py (fichiers GENERES) -- l'arbitrage `VSCode1,VSCode2:permissions-hors-git-exec-arbitraire` du 2026-09-11 en est silencieusement inoperant. Message envoye a la session hub vscode5-supervision-projets-3f (msg_id 3cfe7db1) avec le correctif propose (ajouter la categorie aux 2 tuples canon). A re-verifier a la prochaine propagation du kit.
+- **`scan_transcripts.py:mesure-non-fiable-faux-positif`** (2026-09-16) : TRANSMIS AU HUB, non applique localement (arbitrage utilisateur du 2026-09-16). Le drapeau "mesure non fiable" (63/90 transcripts references disparus du disque) desactive a perpetuite le volet agent-mort sur une premisse fausse -- state.json est cumulatif, un transcript efface APRES son scan ne coute aucun evenement. Message envoye a la session hub vscode5-supervision-projets-3f (msg_id 3cfe7db1) avec le correctif propose (n'avertir que si un fichier absent n'a jamais ete lu). A re-verifier a la prochaine propagation du kit.
+- **`flotte:succes-sans-marqueur-non-outille-sur-les-cibles`** (2026-09-16) : TRANSMIS AU HUB, non applique localement (arbitrage utilisateur du 2026-09-16). La regle de veille adoptee le 2026-09-08 (faux succes auto-declares) n'est outillee qu'au hub (scripts/scan_projets.py, hub-only) -- mesure locale a la main sur runs.jsonl VSCode2 : 20/82 succes (24%) sans marqueur de verification, jamais affiche. Message envoye a la session hub vscode5-supervision-projets-3f (msg_id 3cfe7db1) avec le correctif propose (porter la mesure dans scan_transcripts.py, canon distribue). A re-verifier a la prochaine propagation du kit.
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
 _Diagnostic à jour._
 
-1. **La securite n existe dans aucun des deux vocabulaires du dispositif : l arbitrage du 2026-09-11 ne ferme rien, et aucun constat de securite ne peut meme s ecrire** — A corriger au CANON du hub VScode5 (write_diagnostic.py et scan_transcripts.py portent la banniere GENERE - NE PAS EDITER LOCALEMENT), puis resynchroniser les 5 cibles. Rien a editer ici. · **Proposition** : Ajouter pratique-securite aux deux tuples (CATEGORIES de write_diagnostic.py et CATEGORIES_CONNUES de scan_transcripts.py) dans le canon du hub, et une ligne dans la table des categories de agent-supervisor/SKILL.md (question : la dimension securite de l audit est-elle rouge/orange sur un projet qui expose des routes non authentifiees ? preuve-type : niveau de la dimension securite + le site de code). Alternative si la flotte veut garder 13 categories : corriger l entree d arbitrages.json en pratique-dev - mais alors agent-securite n a aucun canal propre et ses constats se confondront avec le dev. Preuve de succes : le prochain scan n imprime plus hors vocabulaire, et l entree du 2026-09-11 ferme reellement un constat.
-2. **Le drapeau mesure non fiable desactive a perpetuite le volet agent-mort sur une premisse fausse : les compteurs d usage NE SONT PAS perdus quand un transcript disparait** — Canon du hub (fichier GENERE). Ne pas editer ici. · **Proposition** : Faire porter le drapeau sur ce qu il mesure vraiment : n avertir que si un fichier absent n a JAMAIS ete lu (offset absent ou 0), et sinon ne rien dire - un fichier entierement consomme puis efface est un cas nominal, pas une lacune. Si le hub tient a tracer l effacement, le passer en ligne informative (63 transcripts deja consommes puis effaces) SANS la phrase ne rien desinstaller, qui est le vrai cout. Preuve de succes : le prochain scan ne porte plus mesure non fiable et le TODO skills sans usage redevient exploitable pour un arbitrage de desinstallation.
-3. **11 commits pousses sur origin/main le 2026-09-16 sans le moindre verdict de CI : le garde-fou existe, il est structurellement muet, et 3 runs successifs ont cesse de le dire** — Trancher, plutot que laisser un hook cable qui ne peut rien mesurer - c est la forme la plus couteuse : elle donne l impression que la CI est surveillee. · **Proposition** : Deux voies, a arbitrer par l utilisateur. (A) Poser GH_TOKEN (portee repo) dans l environnement de la machine - le hook redevient operant tel quel, sans une ligne de code, et rattrape les runs rouges au push. (B) Si aucun jeton ne sera pose, assumer et le dire : degrader le hook en avertissement de fin de seance unique et retirer la CI des verifications reputees couvertes dans revue-increment, pour que la suite locale verte ne soit plus lue comme une preuve de CI verte. Dans les deux cas : verifier manuellement l etat des 11 commits du 2026-09-16 avant de considerer la seance close. Preuve de succes : chaque push a un verdict CI trace, ou la CI est explicitement hors du perimetre de preuve.
-4. **La regle de veille adoptee le 2026-09-08 sur les faux succes auto-declares n est outillee qu au hub : elle ne mesure rien la ou les runs se produisent** — Canon du hub : porter la mesure dans scan_transcripts.py (script distribue aux 5 cibles) plutot que dans le seul scan_projets.py du hub. · **Proposition** : Ajouter succes_sans_marqueur() et MARQUEURS_VERIFICATION a scan_transcripts.py (canon VScode5), et rendre la ligne dans le bloc de stats du wiki genere a cote des ratios de reprise, comme au hub - donnee a discuter, pas un gate bloquant (c est exactement ce que l action_corrective adoptee prescrit). Preuve de succes : le tableau de bord de chacune des 5 cibles affiche son propre ratio de succes sans marqueur au prochain scan.
+1. **11 commits pousses sur origin/main le 2026-09-16 sans le moindre verdict de CI : le garde-fou existe, il est structurellement muet, et 3 runs successifs ont cesse de le dire** — Trancher, plutot que laisser un hook cable qui ne peut rien mesurer - c est la forme la plus couteuse : elle donne l impression que la CI est surveillee. · **Proposition** : Deux voies, a arbitrer par l utilisateur. (A) Poser GH_TOKEN (portee repo) dans l environnement de la machine - le hook redevient operant tel quel, sans une ligne de code, et rattrape les runs rouges au push. (B) Si aucun jeton ne sera pose, assumer et le dire : degrader le hook en avertissement de fin de seance unique et retirer la CI des verifications reputees couvertes dans revue-increment, pour que la suite locale verte ne soit plus lue comme une preuve de CI verte. Dans les deux cas : verifier manuellement l etat des 11 commits du 2026-09-16 avant de considerer la seance close. Preuve de succes : chaque push a un verdict CI trace, ou la CI est explicitement hors du perimetre de preuve.
+
+_3 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un `re_challenge` avec des données nouvelles :_
+
+- ~~La securite n existe dans aucun des deux vocabulaires du dispositif : l arbitrage du 2026-09-11 ne ferme rien, et aucun constat de securite ne peut meme s ecrire~~ (`canon:vocabulaire-sans-pratique-securite`)
+- ~~Le drapeau mesure non fiable desactive a perpetuite le volet agent-mort sur une premisse fausse : les compteurs d usage NE SONT PAS perdus quand un transcript disparait~~ (`scan_transcripts.py:mesure-non-fiable-faux-positif`)
+- ~~La regle de veille adoptee le 2026-09-08 sur les faux succes auto-declares n est outillee qu au hub : elle ne mesure rien la ou les runs se produisent~~ (`flotte:succes-sans-marqueur-non-outille-sur-les-cibles`)
 
 ## Seuil de qualification — la mesure
 
-Depuis le 2026-09-11 : **130** demande(s) vue(s) hors commande slash (+ 30 slash), **6** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **5 %** des demandes orchestrées.
+Depuis le 2026-09-11 : **148** demande(s) vue(s) hors commande slash (+ 31 slash), **6** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **4 %** des demandes orchestrées.
 _Ce chiffre ne dit pas ce qui AURAIT dû être orchestré : le hook compte, il ne juge pas. Il donne le dénominateur qui manquait pour arbitrer le seuil sur données plutôt que sur habitude._
 
 ---
