@@ -4,9 +4,12 @@ Un playbook = un fichier `*.md` de ce dossier décrivant un workflow récurrent 
 déclarative. La partie machine est un bloc ` ```json ` unique (parsé par la skill
 `agent-orchestrator`) ; le reste du fichier est de la prose libre (contexte, précédents,
 limites). Référence : `.claude/skills/agent-orchestrator/SKILL.md` § 2 (composition du
-plan). **Aucun test de ce hub ne verrouille ce format** — vérifié le 2026-08-31 : le
-`tests/test_agent_orchestration.py` que cette page citait vit dans VSCode2 et VSCode3,
-pas ici. Le bloc JSON n'est donc protégé que par la relecture.
+plan). **Le hub qui publie ce document n'a lui-même aucun test qui verrouille ce
+format** — vérifié le 2026-08-31. Un dépôt qui l'importe peut avoir le sien (ex.
+`tests/test_agent_orchestration.py` chez VSCode2 et VSCode3) : vérifier dans CE dépôt
+avant de supposer que le bloc JSON n'est protégé que par la relecture (finding
+`flotte:formulations-du-hub-publiees-telles-quelles-aux-cibles`, 2026-09-11 — un texte
+écrit du point de vue du hub devient faux une fois lu ailleurs).
 
 ## Champs du bloc JSON
 
@@ -56,8 +59,8 @@ contrat, et journalise le run dans `runs.jsonl` avec `"playbook": "<nom>"` dans 
 ou le plan — c'est ce qui permettra au superviseur (étage 2 / incrément O-C) de mesurer
 le taux de réussite par playbook et de remonter les playbooks jamais joués.
 
-<!-- SOCLE-PROVENANCE: socle : 0ad0fed du 2026-09-11 -->
-> **Socle généré** — tout ce qui PRÉCÈDE ce bandeau vient du hub de supervision (`0ad0fed`, 2026-09-11) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : ecd8852 du 2026-09-19 -->
+> **Socle généré** — tout ce qui PRÉCÈDE ce bandeau vient du hub de supervision (`ecd8852`, 2026-09-19) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » placé après ce bandeau, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet

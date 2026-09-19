@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : 46eed0a du 2026-09-18 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`46eed0a`, 2026-09-18) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : ecd8852 du 2026-09-19 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`ecd8852`, 2026-09-19) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -198,6 +198,43 @@ description d'intention. Les gestes exacts :
   Le contrat de sortie précise aussi un **budget de longueur** (viser 1000-2000
   tokens condensés, pas une prose qui recopie tout ce qui a été lu) — sauf quand la
   tâche exige explicitement le détail complet (revue de sécurité, audit).
+  **Gabarit « faits transmis » et « cible énumérée »** (veille adoptée 2026-09-19,
+  arXiv:2605.05957 *Knowing but Not Correcting* et arXiv:2607.02294 *UnderSpecBench*).
+  Quatre clauses de plus, obligatoires dans TOUT brief de sous-agent :
+
+  1. **Section `FAITS TRANSMIS`** — chaque chiffre ou affirmation factuelle du brief
+     porte **la commande qui l'a produit**, ou l'étiquette explicite **« non vérifié »**.
+     Un chiffre nu est un écart. Mesuré : un fait faux glissé dans une CONSIGNE de
+     travail n'est plus corrigé dans **19,3 % à 89,6 %** des cas selon le modèle
+     (300 prémisses fausses, 8 modèles, 4 au-dessus de 80 %) — le déclencheur mesuré
+     est la *scope instruction* (prohibitions, injonctions de confiance), c'est-à-dire
+     la forme même de nos briefs cadrants. Fait du hub, 2026-09-19 : quatre faits faux
+     transmis dans la même journée (« 5 dépôts sans CI » pour 3 ; « 17 commits depuis
+     le 13/09 » qui étaient de la configuration propagée, code inchangé ; une cause
+     racine inversée — garde-fou dit muet alors qu'il était indésarmable ; une prémisse
+     de salle à zéro occurrence dans le dépôt), tous rattrapés par le zèle des
+     sous-agents sur pièces, aucun par le cadrage.
+  2. **Ligne obligatoire du contrat de sortie** : `FAITS DU BRIEF INFIRMÉS : <lesquels,
+     avec la preuve> — ou aucun`. C'est elle qui fait le travail, pas la section 1 :
+     elle rend la correction **structurellement exigée en sortie** au lieu de dépendre
+     du zèle de l'exécutant. **Ne JAMAIS la remplacer par une ligne d'entrée du type
+     « vérifie mes faits »** : cette mitigation naïve est mesurée à **20,5 %** de
+     correction, contre **58,2 %** pour la méthode structurelle des auteurs — c'est un
+     placebo, et cette phrase est écrite ici pour que personne ne « simplifie » la
+     clause en une politesse d'entrée dans six mois.
+  3. **CIBLE ÉNUMÉRÉE, jamais décrite** : les chemins, fichiers, commits ou dépôts
+     exacts (ou la commande qui les énumère), et explicitement ce qui est **hors
+     périmètre**. Une cible nommée par une propriété à déduire est un écart. Quand
+     l'ambiguïté de cible passe de B0 à B3, le succès sûr tombe de **67,9 % à 8,6 %**
+     et le mauvais objectif monte à **75,1 %** (2 208 variantes, 69 familles).
+  4. **Affordance d'interruption explicite**, avec son moyen concret, écrite au
+     sous-agent : « si un point de ce brief est ambigu ou si un de ses faits est faux
+     au point de changer le travail, tu peux me joindre : `SendMessage` vers `main` —
+     demander coûte moins cher que partir dans la mauvaise direction ». Le refus
+     explicite est négligeable (≤ 2,5 %) : ce que produit l'ambiguïté, c'est le
+     **deferral silencieux (4,2 à 25,7 %)**, et il monte précisément quand l'affordance
+     « demander » est absente. Les sous-agents du hub *peuvent* joindre l'orchestrateur
+     — deux salles s'en sont servies le 2026-09-19 — mais aucun brief ne le leur disait.
 - **Arrière-plan** : `run_in_background: true` (défaut) rend la main immédiatement,
   la notification arrive à la fin — ne jamais écrire le résultat à sa place ; s'il
   faut le résultat pour continuer, `run_in_background: false` (synchrone).
@@ -882,8 +919,34 @@ l'oscillation ; l'oracle, c'est l'utilisateur sur SON artefact.
 À la fin du run (succès **ou** échec), une ligne dans `.claude/orchestration/runs.jsonl` :
 
 ```bash
-py .claude/orchestration/log_run.py '{"demande": "résumé court", "qualification": "orchestre", "playbook": "dev-verifie", "plan": [{"etape": "revue design", "agent": "Explore", "mode": "parallele", "modele": "haiku", "etat": "ok"}], "resultat": "succes", "reprises": 0, "notes": ""}'
+py .claude/orchestration/log_run.py '{"demande": "résumé court", "qualification": "orchestre", "playbook": "dev-verifie", "plan": [{"etape": "revue design", "agent": "Explore", "mode": "parallele", "modele": "haiku", "etat": "ok"}], "resultat": "succes", "reprises": 0, "notes": "", "livrable_utilisateur": false, "livrable_utilisateur_motif": "chantier interne, aucun artefact ouvert par un humain"}'
 ```
+
+**`livrable_utilisateur` est OBLIGATOIRE** (booléen) depuis le 2026-09-19 — absent, le run
+est **refusé** (rien n'est écrit). Il déclare, dès la composition du plan, si ce run produit
+un artefact qu'un humain va ouvrir. Typer cela automatiquement est impossible à 0 token ;
+une **déclaration**, elle, se vérifie à coût nul. Deux formes valides :
+
+- `"livrable_utilisateur": false` **+ `"livrable_utilisateur_motif": "<pourquoi>"`** — le
+  motif est exigé, sinon `false` devient la case à cocher qui désarme la garde ;
+- `"livrable_utilisateur": true` **+ un bloc `validation`** — la *quittance nommée* :
+
+```json
+"validation": {"par": "Claude Camus", "artefact_ouvert": "C:/tmp/deck-restitution.pptx", "quand": "2026-09-19T14:00:00+02:00", "rapport": "deck ouvert dans PowerPoint, 14 slides lisibles"}
+```
+
+`par` = un sous-agent **réellement présent** comme `agent` dans une étape du plan, ou un nom
+d'humain ; `artefact_ouvert` = chemin, URL servie ou capture, **non nullable dès que
+`resultat: succes`** (un `par` rempli ne suffit pas) ; `quand` = horodatage. Quatre refus
+mécaniques de `succes` : champ absent ; `true` sans `validation` ; `artefact_ouvert` vide ;
+et — le plus important — `par: utilisateur-produit` dont le rapport porte un signal d'échec
+produit (« PRODUIT NON OPERATIONNEL »…), auquel cas `en-attente-validation` est le mieux
+atteignable : `utilisateur-produit` est un utilisateur **simulé**, il répond à « qui a été
+simulé en train d'ouvrir la page », pas à « qui a ouvert la page » — sans ce refus, la garde
+se signerait elle-même. Ce que la garde **ne ferme pas** : rien ne prouve que l'artefact cité
+a été réellement ouvert (une déclaration suffit à passer), et les exécutions directes, hors
+`log_run.py`, y échappent structurellement. **Non rétroactif** : au `--solde`, un run qui ne
+porte pas le champ (les 194 d'avant le déploiement) n'est pas contrôlé.
 
 (JSON aussi accepté sur stdin. Chaque étape du `plan` accepte un champ optionnel `etat`
 (`ok` | `echec` | `non-rendu`) : `log_run.py` refuse un `resultat: succes` si une étape
