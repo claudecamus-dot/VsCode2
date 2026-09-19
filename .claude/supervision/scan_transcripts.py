@@ -4,7 +4,7 @@
 # | garder : la signaler au hub, qui corrige le canon et re-synchronise.
 # | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
 # |  n'est pas déployé, il n'existe pas dans ce dépôt.)
-# | Provenance canon : bb61f24 du 2026-09-18 — permet, au prochain sync, de dire si
+# | Provenance canon : 51dfa0f du 2026-09-19 — permet, au prochain sync, de dire si
 # | une différence vient d'une édition locale ou d'une avance du canon (voir
 # | `determiner_cause` dans sync_dispositif.py au hub).
 # +---------------------------------------------------------------------------
@@ -874,6 +874,12 @@ def categories_inconnues(arbitrages: list) -> list:
     return sorted(vues)
 
 
+# Bascule de l'amnistie de l'heritage (cf. `_couvre`) : avant cette date, un
+# arbitrage sans `categories` ne ferme rien ; apres, `log_arbitrage.py` garantit
+# qu'il y en a toujours un.
+AMNISTIE_HERITAGE = "2026-09-19"
+
+
 def _couvre(arbitrage: dict, categorie: str) -> bool:
     """Cet arbitrage ferme-t-il cette CATÉGORIE de constat ?
 
@@ -883,7 +889,18 @@ def _couvre(arbitrage: dict, categorie: str) -> bool:
     sous-chaîne (`"interaction" in "interactions-multiples"`), silencieusement faux."""
     cats = arbitrage.get("categories")
     if cats is None:
-        return True
+        # AMNISTIE DE L'HERITAGE (arbitre par l'utilisateur le 2026-09-19).
+        # `refuser_arbitrage.py` n'a jamais ecrit `categories` : 137 des 258
+        # arbitrages reels n'en ont pas, et « ferme tout » les faisait masquer a
+        # perpetuite TOUT constat futur de leur cible, toutes categories
+        # confondues. Plus l'utilisateur arbitrait, plus le dispositif devenait
+        # aveugle. Les entrees ANTERIEURES a la bascule ne ferment donc plus rien ;
+        # au-dela, `log_arbitrage.py` exige `categories`, donc le cas ne se
+        # represente pas. Une entree SANS date garde l'ancien comportement : on ne
+        # peut pas la situer par rapport a la bascule, et la trancher au hasard
+        # effacerait une decision humaine.
+        date = str(arbitrage.get("date") or "")
+        return not (date and date < AMNISTIE_HERITAGE)
     return isinstance(cats, list) and categorie in cats
 
 

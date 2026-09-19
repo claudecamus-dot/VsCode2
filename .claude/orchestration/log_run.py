@@ -4,7 +4,7 @@
 # | garder : la signaler au hub, qui corrige le canon et re-synchronise.
 # | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
 # |  n'est pas déployé, il n'existe pas dans ce dépôt.)
-# | Provenance canon : bb61f24 du 2026-09-18 — permet, au prochain sync, de dire si
+# | Provenance canon : 51dfa0f du 2026-09-19 — permet, au prochain sync, de dire si
 # | une différence vient d'une édition locale ou d'une avance du canon (voir
 # | `determiner_cause` dans sync_dispositif.py au hub).
 # +---------------------------------------------------------------------------
@@ -42,6 +42,19 @@ revient à ne rien journaliser dès que le run est interrompu, or c'est précis�
 là que le signal vaut le plus). L'orchestrateur écrit donc la ligne à l'étape 2 avec
 `"resultat": "en-cours"`, puis la solde à la remise. Un `en-cours` qui traîne est un
 run abandonné : le scan le compte à part et ne le mêle pas aux taux de réussite.
+
+VALIDATION UTILISATEUR — deux pieces indissociables (salle `inspection-critique`
+du 2026-09-19, arbitree). Tout run porte un champ OBLIGATOIRE
+`livrable_utilisateur` (booleen) + une justification courte
+(`livrable_utilisateur_motif`, exigee quand il vaut `false`). A `true`, le run
+`succes` doit porter une quittance NOMMEE
+`validation: {par, artefact_ouvert, quand}` : `par` = un sous-agent reellement
+present au plan ou un nom d'humain, `artefact_ouvert` = un chemin/URL/capture NON
+NULLABLE, `quand` = horodatage. Quatre refus mecaniques (cf.
+`verifier_validation_utilisateur`) : champ absent ; `true` sans `validation` ;
+`artefact_ouvert` vide meme si `par` est rempli ; `par: utilisateur-produit` dont
+le rapport porte un signal d'echec produit. NON RETROACTIF : au `--solde`, un run
+qui ne porte pas le champ (les 194 d'avant le deploiement) n'est pas controle.
 
 Solde d'un run ouvert ou en attente (constat superviseur 2026-07-23 : la boucle
 en-attente-validation ne se refermait jamais sans édition manuelle du journal) :
@@ -241,6 +254,17 @@ def solder(argv) -> int:
     if refus_etapes:
         print(refus_etapes)
         return 1
+    # NON RETROACTIF : `au_solde=True` fait sortir sans rien controler tout run
+    # qui ne PORTE PAS `livrable_utilisateur` — c'est-a-dire les 194 runs ecrits
+    # avant le deploiement du champ. Un run qui le porte a ete ecrit apres, et
+    # reste controle : sans cela, `--solde` serait la porte de derriere du
+    # garde-fou, exactement comme `verifier_etapes_du_plan` l'a ete jusqu'au
+    # 2026-09-09.
+    refus_validation = verifier_validation_utilisateur(
+        {**run, "resultat": resultat}, au_solde=True)
+    if refus_validation:
+        print(refus_validation)
+        return 1
     avant = run.get("resultat")
     run["resultat"] = resultat
     date = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
@@ -312,6 +336,156 @@ def verifier_etapes_du_plan(run: dict) -> str | None:
     return None
 
 
+# --- Piece 1 : le declencheur DECLARE ; piece 2 : la quittance NOMMEE --------
+# Salle `inspection-critique` du 2026-09-19, sur pieces : l'appel au role
+# utilisateur/QA n'etait obligatoire NULLE PART en fin d'increment (ni dans la
+# skill `agent-orchestrator`, ou la validation utilisateur est conditionnelle au
+# type de livrable, ni dans `revue-increment`, ou le role utilisateur n'est pas
+# une etape, ni dans aucun des 4 playbooks). Mesure : 1 run
+# `en-attente-validation` sur 194, contre 165 `succes`. R5 dit quoi ECRIRE,
+# jamais ce qu'il faut FAIRE pour que le statut change.
+#
+# Pourquoi un champ DECLARE et non une detection : typer automatiquement « ce run
+# porte-t-il un livrable consomme par un humain ? » est impossible a 0 token
+# depuis l'etage deterministe (l'heuristique textuelle `LIVRABLE_UTILISATEUR`
+# plus bas, un simple avertissement, le montre : elle ne voit que des mots). Le
+# champ deplace le point dur de la DETECTION vers la DECLARATION au moment du
+# plan, qui est verifiable a cout nul : absence = refus.
+#
+# CE QUE CETTE GARDE NE FERME PAS (concede par la salle ; le taire serait
+# malhonnete) :
+#   - rien ne prouve que l'artefact cite a ete REELLEMENT ouvert : une
+#     declaration suffit a passer. Il faudrait un hash du fichier ou un log
+#     d'acces pour que `artefact_ouvert` soit une preuve et non une affirmation ;
+#   - les executions DIRECTES, hors `log_run.py`, echappent structurellement a
+#     toute garde qui vit dedans. Elle protege le journal, pas le travail.
+CHAMP_LIVRABLE = "livrable_utilisateur"
+CHAMP_LIVRABLE_MOTIF = "livrable_utilisateur_motif"
+CHAMPS_QUITTANCE = ("par", "artefact_ouvert", "quand")
+# `utilisateur-produit` est un utilisateur SIMULE. Il repond a « qui a ete simule
+# en train d'ouvrir la page », pas a « qui a ouvert la page ». Sans le refus (d)
+# ci-dessous, la garde SE SIGNERAIT ELLE-MEME : le meme dispositif produirait le
+# livrable, simulerait son utilisateur, et signerait la quittance.
+AGENT_UTILISATEUR_SIMULE = "utilisateur-produit"
+# Signaux d'echec PRODUIT dans le rapport de l'utilisateur simule. Liste courte et
+# explicite : une detection large ferait refuser des quittances honnetes (« non
+# operationnel avant correction »), et le refus pousserait alors a mentir — ce que
+# R5 interdit plus surement qu'il n'interdit un faux succes.
+SIGNAUX_ECHEC_PRODUIT = ("non operationnel", "non operationnels", "non-operationnel",
+                         "inutilisable", "ne fonctionne pas", "echec produit",
+                         "bloquant pour l'utilisateur")
+
+
+def _texte_quittance(validation: dict) -> str:
+    """Tout ce que la quittance dit en prose (rapport, note, commentaire)."""
+    return " ".join(str(validation.get(k) or "")
+                    for k in ("rapport", "note", "notes", "commentaire")).lower()
+
+
+def verifier_validation_utilisateur(run: dict, au_solde: bool = False) -> str | None:
+    """Les 4 refus mecaniques sur `resultat: succes` - sinon None.
+
+    (a) `livrable_utilisateur` absent du run ;
+    (b) `livrable_utilisateur: true` et bloc `validation` absent ;
+    (c) `artefact_ouvert` vide ou absent, MEME si `par` est rempli ;
+    (d) `par: utilisateur-produit` avec un signal d'echec produit dans son
+        rapport (ou dans les notes du run) : `succes` interdit, au mieux
+        `en-attente-validation`.
+
+    NON RETROACTIF : au `--solde`, un run qui ne PORTE PAS le champ a ete ecrit
+    avant le deploiement - il sort sans aucun controle. Les 194 runs deja
+    journalises restent lisibles et soldables. A l'APPEND, le champ est exige :
+    tout run ecrit desormais nait avec.
+
+    Meme style que `verifier_etapes_du_plan` : rien n'est ecrit sur refus, et le
+    message NOMME le champ fautif plutot que de dire "quittance incomplete"."""
+    if run.get("resultat") != "succes":
+        return None
+    if au_solde and CHAMP_LIVRABLE not in run:
+        return None
+    if CHAMP_LIVRABLE not in run:                                       # (a)
+        return (
+            f"log_run REFUS : champ '{CHAMP_LIVRABLE}' (booleen) absent - tout run "
+            "orchestre doit DECLARER s'il porte un livrable consomme par un "
+            "humain, avec une justification courte.\n"
+            f"  Rejouer avec '{CHAMP_LIVRABLE}': true + un bloc 'validation' "
+            f"{{{', '.join(CHAMPS_QUITTANCE)}}}, ou '{CHAMP_LIVRABLE}': false + "
+            f"'{CHAMP_LIVRABLE_MOTIF}': '<pourquoi aucun humain ne consomme "
+            "d'artefact ici>'."
+        )
+    declare = run.get(CHAMP_LIVRABLE)
+    if not isinstance(declare, bool):
+        return (f"log_run REFUS : '{CHAMP_LIVRABLE}' doit etre un booleen "
+                f"(recu : {declare!r}).")
+    if declare is False:
+        # Un `false` nu serait la case a cocher qui desarme la garde sans rien
+        # dire ; le motif rend la declaration relisible par le superviseur.
+        if not str(run.get(CHAMP_LIVRABLE_MOTIF) or "").strip():
+            return (
+                f"log_run REFUS : '{CHAMP_LIVRABLE}': false sans "
+                f"'{CHAMP_LIVRABLE_MOTIF}' - une declaration d'absence de livrable "
+                "se justifie, sinon 'false' devient la case a cocher qui desarme "
+                "la garde. Ex. : 'run interne, aucun artefact ouvert par un humain'."
+            )
+        return None
+    validation = run.get("validation")
+    if not isinstance(validation, dict) or not validation:              # (b)
+        return (
+            f"log_run REFUS : '{CHAMP_LIVRABLE}': true sans bloc 'validation' - un "
+            "livrable consomme par un humain ne se journalise 'succes' qu'avec une "
+            "quittance NOMMEE.\n"
+            f"  Attendu : 'validation': {{'par': '<sous-agent du plan ou nom "
+            "d'humain>', 'artefact_ouvert': '<chemin, URL ou capture>', 'quand': "
+            "'<horodatage>'}}. Sans quittance : 'en-attente-validation'."
+        )
+    par = str(validation.get("par") or "").strip()
+    if not par:
+        return ("log_run REFUS : 'validation.par' vide - la quittance doit NOMMER "
+                "une identite verifiable : soit un sous-agent reellement present "
+                "comme 'agent' dans une etape du plan, soit un nom d'humain.")
+    agents_du_plan = {str(e.get("agent") or "").strip().lower()
+                      for e in (run.get("plan") or []) if isinstance(e, dict)}
+    # Un `par` qui se presente comme un sous-agent doit exister AU PLAN. Un nom
+    # d'humain, lui, n'est pas verifiable ici et passe : la garde verifie que la
+    # quittance est SIGNEE, pas que le signataire existe a l'etat civil.
+    if (par.lower() in (AGENT_UTILISATEUR_SIMULE, "agent") or par.lower().startswith(
+            ("agent-", "sous-agent"))) and par.lower() not in agents_du_plan:
+        return (
+            f"log_run REFUS : 'validation.par' nomme le sous-agent '{par}', absent "
+            "des etapes du plan - une quittance signee par un agent jamais "
+            "convoque ne vaut rien. Mettre l'etape au plan, ou signer d'un nom "
+            "d'humain."
+        )
+    if not str(validation.get("artefact_ouvert") or "").strip():        # (c)
+        return (
+            "log_run REFUS : 'validation.artefact_ouvert' vide ou absent - MEME "
+            f"avec 'par': '{par}' rempli. Un 'succes' sur livrable utilisateur "
+            "exige de dire QUEL artefact a ete ouvert : chemin de fichier, URL "
+            "servie, ou capture.\n"
+            "  (Cette garde ne prouve PAS l'ouverture reelle : elle exige qu'elle "
+            "soit nommee, donc verifiable a la main.)"
+        )
+    if not str(validation.get("quand") or "").strip():
+        return ("log_run REFUS : 'validation.quand' vide ou absent - une quittance "
+                "sans horodatage ne se rattache a aucune version de l'artefact.")
+    if par.lower() == AGENT_UTILISATEUR_SIMULE:                         # (d)
+        texte = _texte_quittance(validation) + " " + str(run.get("notes") or "").lower()
+        touches = [s for s in SIGNAUX_ECHEC_PRODUIT if s in texte]
+        if touches:
+            return (
+                "log_run REFUS : la quittance est signee par "
+                f"'{AGENT_UTILISATEUR_SIMULE}' et son rapport porte un signal "
+                f"d'echec produit ({', '.join(touches)}) - 'succes' est interdit, "
+                "au mieux 'en-attente-validation'.\n"
+                f"  '{AGENT_UTILISATEUR_SIMULE}' est un utilisateur SIMULE : il "
+                "repond a : qui a ete simule en train d'ouvrir la page, pas "
+                "a : qui a ouvert la page. Sans ce refus, la garde se signerait "
+                "elle-meme."
+            )
+    return None
+
+
+
 def main(argv) -> int:
     if argv and argv[0] == "--solde":
         return solder(argv[1:])
@@ -343,6 +517,10 @@ def main(argv) -> int:
     refus_etapes = verifier_etapes_du_plan(run)
     if refus_etapes:
         print(refus_etapes)
+        return 1
+    refus_validation = verifier_validation_utilisateur(run, au_solde=False)
+    if refus_validation:
+        print(refus_validation)
         return 1
     refus_revue = verifier_revue_increment(run)
     if refus_revue:
