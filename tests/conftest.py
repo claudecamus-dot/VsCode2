@@ -23,6 +23,43 @@ os.environ.setdefault("APP_DB_PATH", _TEST_DB)
 # déterministe, rapide) — génération procédurale locale. cf. pptx_export.
 os.environ.setdefault("PPTX_NO_PHOTO_FETCH", "1")
 
+# --------------------------------------------------------------------------- #
+# Authentification (app/auth.py, 2026-09-19) : l'app refuse desormais TOUTE
+# route non publique sans credentials, et refuse aussi (503) si aucun mot de
+# passe n'est configure. Les ~80 fichiers de test existants exercent le produit
+# via TestClient sans rien savoir de cette garde : plutot que de les modifier un
+# par un, on pose ici UN mot de passe de test et on injecte l'en-tete Bearer par
+# defaut dans tout TestClient.
+#
+# C'est un point unique, assume et documente : tests/test_auth.py retire
+# explicitement cet en-tete (`client.headers.pop("Authorization")`) pour prouver
+# le 401 reel — sans quoi la garde serait verte par construction, jamais exercee.
+# --------------------------------------------------------------------------- #
+os.environ.setdefault("APP_AUTH_PASSWORD", "mot-de-passe-de-test")
+
+
+def _patcher_testclient() -> None:
+    from starlette.testclient import TestClient
+
+    if getattr(TestClient, "_auth_par_defaut", False):
+        return
+    originel = TestClient.__init__
+
+    def __init__(self, *args, **kwargs):  # noqa: N807
+        originel(self, *args, **kwargs)
+        # `.get` et non `[...]` : un test peut RETIRER la variable pour
+        # exercer le cas « non configure » (tests/test_auth.py) — le client ne
+        # doit pas exploser sur un KeyError a sa construction.
+        secret = os.environ.get("APP_AUTH_PASSWORD")
+        if secret:
+            self.headers.setdefault("Authorization", "Bearer " + secret)
+
+    TestClient.__init__ = __init__
+    TestClient._auth_par_defaut = True
+
+
+_patcher_testclient()
+
 
 # --------------------------------------------------------------------------- #
 # Verrou : UNE SEULE suite pytest à la fois sur cette base (2026-09-10)

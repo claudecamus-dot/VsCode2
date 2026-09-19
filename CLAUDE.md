@@ -15,6 +15,12 @@ Le venv du projet porte les dépendances — `py -m pytest` échoue en collecte
 .venv/Scripts/python.exe -m pytest -q -k "nom_du_test"     # un test unique
 ```
 
+L'app exige une **authentification** depuis le 2026-09-19 (`app/auth.py`, middleware
+à défaut FERMÉ) : poser `APP_AUTH_PASSWORD` dans `.env`, sinon toute route non
+publique rend 503. Publiques : `/connexion` et `/static/**`, rien d'autre. Les tests
+reçoivent des credentials par défaut via `tests/conftest.py` ; `tests/test_auth.py`
+les retire explicitement pour prouver le 401.
+
 Sur Windows, ajouter `--basetemp` sur un dossier neuf si le teardown se plaint. Lancer
 l'app et regarder un écran : skill `run-dev-server` (un port vierge — un serveur sans
 `--reload` sert du code périmé).

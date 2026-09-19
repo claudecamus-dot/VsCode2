@@ -13,6 +13,10 @@
   ],
   [
     "GET",
+    "/connexion"
+  ],
+  [
+    "GET",
     "/demarrer"
   ],
   [
@@ -166,6 +170,14 @@
   [
     "POST",
     "/audio/transcribe-segment"
+  ],
+  [
+    "POST",
+    "/connexion"
+  ],
+  [
+    "POST",
+    "/deconnexion"
   ],
   [
     "POST",

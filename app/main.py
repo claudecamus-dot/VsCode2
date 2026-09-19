@@ -24,6 +24,7 @@ try:
 except ModuleNotFoundError:
     pass
 
+from .auth import exiger_authentification, router as auth_router  # noqa: E402
 from .csrf import verifier_origine  # noqa: E402
 from .db import init_db  # noqa: E402
 from .entetes_securite import entetes_securite  # noqa: E402
@@ -146,6 +147,11 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(title="Interview-to-Deck", lifespan=lifespan)
 app.middleware("http")(verifier_origine)
+# Authentification (arbitrage du 2026-09-19 : cible d'usage = clients externes).
+# Empilee APRES la garde CSRF et AVANT les en-tetes : a l'execution, on a donc
+# entetes_securite -> exiger_authentification -> verifier_origine. Le 401 porte
+# ainsi les en-tetes de securite, et POST /connexion reste controle en origine.
+app.middleware("http")(exiger_authentification)
 # Ajouté APRÈS la garde CSRF, donc exécuté AVANT elle (Starlette empile à
 # l'envers) : les en-têtes couvrent aussi la réponse 403 qu'elle renvoie.
 app.middleware("http")(entetes_securite)
@@ -181,6 +187,7 @@ app.mount(
     name="static",
 )
 
+app.include_router(auth_router)
 app.include_router(entretiens.router)
 app.include_router(missions.router)
 app.include_router(trames.router)

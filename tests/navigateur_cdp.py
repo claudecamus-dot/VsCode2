@@ -301,6 +301,17 @@ class Navigateur:
                 websockets.connect(self._cible_page(port), **_OPTIONS_WS)
             )
             self._run(self._cmd("Network.enable"))
+            # Credentials de l'app (app/auth.py, defaut ferme depuis le
+            # 2026-09-19) : sans en-tete, chaque navigation du parcours e2e
+            # tomberait sur la page de connexion en 401. On passe par le meme
+            # Bearer que les TestClient plutot que de rejouer le formulaire de
+            # connexion a chaque scenario.
+            _secret = os.environ.get("APP_AUTH_PASSWORD")
+            if _secret:
+                self._run(self._cmd(
+                    "Network.setExtraHTTPHeaders",
+                    headers={"Authorization": "Bearer " + _secret},
+                ))
             self._run(self._cmd("Page.enable"))
             self._run(self._cmd("Runtime.enable"))
         except BaseException:

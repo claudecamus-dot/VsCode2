@@ -56,7 +56,19 @@ def serveur_uvicorn(dossier: Path, **env_supplementaire: str):
         limite = time.monotonic() + _DELAI_DEMARRAGE_S
         while time.monotonic() < limite and proc.poll() is None:
             try:
-                with urllib.request.urlopen(base + "/missions", timeout=2) as r:
+                # L'app exige une authentification depuis le 2026-09-19
+                # (app/auth.py, defaut ferme) : la sonde de demarrage doit se
+                # presenter, sinon elle lit le 401 de la garde et conclut a tort
+                # que le serveur n'a pas demarre. Le mot de passe est celui que
+                # tests/conftest.py a pose dans l'environnement, herite par le
+                # processus uvicorn via `dict(os.environ)`.
+                requete = urllib.request.Request(
+                    base + "/missions",
+                    headers={
+                        "Authorization": "Bearer " + os.environ["APP_AUTH_PASSWORD"]
+                    },
+                )
+                with urllib.request.urlopen(requete, timeout=2) as r:
                     statut = r.status
                 break
             except urllib.error.HTTPError as e:
