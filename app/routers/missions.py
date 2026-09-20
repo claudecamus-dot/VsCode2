@@ -7,7 +7,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 from sqlalchemy import and_, func, or_, select, update
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only, selectinload
 
 from ..db import RECORDINGS_DIR, get_session
 from ..models import Answer, Interview, InterviewTurn, Mission, Theme, Trame
@@ -407,6 +407,40 @@ def mission_detail(
     db: Session = Depends(get_session),
 ):
     mission = _get_mission(db, mission_id)
+    # N+1 de la page la plus frequentee (constat audit-technique performance,
+    # 2026-09-13 puis 2026-09-20). La mission etait passee NUE au gabarit, qui
+    # evalue `iv.answers | selectattr(...) | length` et `iv.turns | length`
+    # DANS sa boucle : une requete paresseuse par entretien, materialisant tous
+    # les `Answer.text` et toutes les questions de tours pour n'afficher que
+    # deux entiers. `lister_backups` re-parcourait la meme relation en entites
+    # completes pour trois colonnes seulement.
+    #
+    # Une seule requete par relation (selectinload), restreinte aux colonnes
+    # que la page lit reellement (load_only) : `raw_transcript`, `free_notes`
+    # et `resume` d'un entretien ne remontent plus du tout. Meme patron que
+    # mission_backups.lister_orphelins_globaux, deja en place dans le depot.
+    # tests/test_mission_detail_requetes.py retient la derive par un COMPTE de
+    # requetes, et tests/test_mission_detail_colonnes.py par les colonnes lues.
+    db.query(Mission).filter(Mission.id == mission.id).options(
+        selectinload(Mission.interviews).options(
+            load_only(
+                Interview.id,
+                Interview.interviewee_name,
+                Interview.interviewee_role,
+                Interview.interview_date,
+                Interview.status,
+                Interview.mode,
+                Interview.audio_segments,
+                Interview.audio_backup_path,
+            ),
+            selectinload(Interview.answers).load_only(
+                Answer.id, Answer.interview_id, Answer.status
+            ),
+            selectinload(Interview.turns).load_only(
+                InterviewTurn.id, InterviewTurn.interview_id
+            ),
+        )
+    ).one()
     resp = templates.TemplateResponse(
         request,
         "missions/detail.html",
