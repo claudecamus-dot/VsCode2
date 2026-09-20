@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : ecd8852 du 2026-09-19 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`ecd8852`, 2026-09-19) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 8bbbead du 2026-09-20 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`8bbbead`, 2026-09-20) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -297,7 +297,15 @@ description d'intention. Les gestes exacts :
   vérifier l'état (`TaskOutput` non bloquant) plutôt qu'attendre indéfiniment ;
   si non convergent, `TaskStop` et relancer proprement — jamais fabriquer un
   résultat à la place d'un sous-agent qui n'a rien rendu (même règle que le
-  mode asynchrone ci-dessus, étendue au silence total). Avant de dispatcher un
+  mode asynchrone ci-dessus, étendue au silence total). **Cette règle est
+  OUTILLÉE, ne te fie pas à ta vigilance** : elle ne l'était pas le 2026-09-19/20
+  et trois salles ont tourné 8 à 10 h (14 à 18× le p95) pendant que cinq autres
+  étaient lancées. `py .claude/supervision/convergence.py` rend le p95 mesuré et
+  l'état des salles en vol (`dans les clous` / `a verifier` / `non convergent`),
+  et le hook PreToolUse `guard_convergence_salles.py` REFUSE une salle de plus
+  tant qu'une salle dépasse 5× le p95 — vérifier le disque avant tout `TaskStop`
+  (une salle calée tient souvent un travail fini non rendu), et n'user de la
+  dérogation `--salle … --deroger "<motif>"` que sur un chantier long assumé. Avant de dispatcher un
   sous-agent de lecture/audit sur un dépôt distant de la flotte, vérifier qu'il
   est au repos (deux relevés `git status --porcelain` espacés qui diffèrent =
   session tierce active, cause probable de non-convergence par contention)
