@@ -64,6 +64,14 @@ def test_log_run_appends_valid_run_with_ts(tmp_path):
         # `tests/test_garde_fous_ecriture.py`). Une étape revue-increment au plan
         # ferait mentir l'assertion « 1 etape(s) » juste en dessous.
         "derogation_revue": "test d'append : ce run n'est pas un increment livre",
+        # Canon du 2026-09-19 (`verifier_validation_utilisateur`) : `livrable_utilisateur`
+        # est devenu OBLIGATOIRE a l'append sur tout `succes`. Motif du durcissement :
+        # 194 runs journalises `succes` sans jamais declarer si un humain consommait un
+        # artefact — la regle R5 disait quoi ECRIRE sans qu'aucun controle ne l'exige.
+        # Un `false` nu etant la case a cocher qui desarme la garde, le motif est exige
+        # avec lui. Ce run de test n'ouvre aucun artefact : `false` + motif.
+        "livrable_utilisateur": False,
+        "livrable_utilisateur_motif": "test d'append : aucun artefact ouvert par un humain",
     }
     result = _log_run(tmp_path, payload)
     assert result.returncode == 0, result.stderr
@@ -96,7 +104,14 @@ def test_log_run_avertit_succes_sur_livrable_utilisateur_sans_validation(tmp_pat
             # Garde-fou revue-increment neutralisé : il est ORTHOGONAL à celui-ci et,
             # depuis le canon du 2026-09-11, il refuse au lieu d'avertir — sans cette
             # dérogation le run n'atteindrait même pas le contrôle de validation.
-            "derogation_revue": "test du garde-fou validation, pas de la revue"}
+            "derogation_revue": "test du garde-fou validation, pas de la revue",
+            # Canon du 2026-09-19 : la DECLARATION `livrable_utilisateur` est un refus
+            # mecanique, l'AVERTISSEMENT heuristique teste ici en reste distinct et non
+            # bloquant. On declare donc `false` + motif pour franchir le refus et prouver
+            # que l'heuristique (« deck » dans la demande) continue d'avertir par
+            # elle-meme : les deux gardes ne se sont pas fondues l'une dans l'autre.
+            "livrable_utilisateur": False,
+            "livrable_utilisateur_motif": "run de test, aucun artefact ouvert"}
     r = _log_run(tmp_path, base)
     assert r.returncode == 0, r.stderr  # non bloquant
     assert "AVERTISSEMENT" in r.stdout and "en-attente-validation" in r.stdout
@@ -117,7 +132,9 @@ def test_log_run_avertit_succes_sur_livrable_utilisateur_sans_validation(tmp_pat
     # succes sans livrable utilisateur (outillage) -> silencieux côté validation.
     outil = {"demande": "refactor du journal d'orchestration", "qualification": "orchestre",
              "resultat": "succes",
-             "derogation_revue": "test du garde-fou validation, pas de la revue"}
+             "derogation_revue": "test du garde-fou validation, pas de la revue",
+             "livrable_utilisateur": False,
+             "livrable_utilisateur_motif": "outillage interne, aucun artefact humain"}
     r4 = _log_run(tmp_path, outil)
     assert r4.returncode == 0 and "sans mention de validation" not in r4.stdout
 
@@ -142,9 +159,17 @@ def test_log_run_refuse_succes_sans_etape_revue_increment(tmp_path):
     Trois échappatoires, et trois seulement : étape revue-increment au plan,
     trace dans les notes (revue de campagne couvrant plusieurs runs), ou champ
     `derogation_revue` NON VIDE. Le point qui compte autant que le code de
-    retour : un run refusé n'écrit RIEN dans le journal."""
+    retour : un run refusé n'écrit RIEN dans le journal.
+
+    Le canon du 2026-09-19 a ajouté un refus EN AMONT de celui-ci
+    (`verifier_validation_utilisateur` : `livrable_utilisateur` obligatoire, contrôlé
+    avant `verifier_revue_increment` pour qu'un run muet sur son livrable soit nommé
+    pour ce qu'il est plutôt que renvoyé vers la boucle de revue). Le payload déclare
+    donc `false` + motif : sans cela on ne testerait plus la revue mais la quittance."""
     base = {"demande": "refactor du journal d'orchestration", "qualification": "orchestre",
-            "resultat": "succes", "plan": [{"etape": "implementation", "agent": "claude"}]}
+            "resultat": "succes", "plan": [{"etape": "implementation", "agent": "claude"}],
+            "livrable_utilisateur": False,
+            "livrable_utilisateur_motif": "outillage interne, aucun artefact humain"}
     r = _log_run(tmp_path, base)
     assert r.returncode == 1, r.stdout  # bloquant depuis le canon 2026-09-11
     assert "sans etape terminale" in r.stdout
@@ -191,7 +216,12 @@ def test_log_run_stdin_tolere_le_bom_powershell(tmp_path):
     payload = {"demande": "run journalisé via pipe PowerShell — accents intacts",
                "qualification": "orchestre", "resultat": "succes",
                # Garde-fou revue-increment neutralisé : ce test porte sur le BOM.
-               "derogation_revue": "test d'encodage stdin, pas un increment livre"}
+               "derogation_revue": "test d'encodage stdin, pas un increment livre",
+               # Canon du 2026-09-19 : `livrable_utilisateur` obligatoire sur tout
+               # `succes` a l'append (194 runs ecrits sans cette declaration). Neutralise
+               # ici par `false` + motif : ce test porte sur le BOM, pas sur la quittance.
+               "livrable_utilisateur": False,
+               "livrable_utilisateur_motif": "test d'encodage, aucun artefact humain"}
     r = _log_run(tmp_path, payload, via_stdin=True, bom=True)
     assert r.returncode == 0, r.stderr
     ligne = json.loads(
