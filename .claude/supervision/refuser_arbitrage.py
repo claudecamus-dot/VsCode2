@@ -7,7 +7,26 @@ tâche qui a besoin de raisonnement. Ce script écrit l'entrée dans arbitrages.
 (jamais écrasé — append) puis régénère le wiki pour que le refus apparaisse aussitôt
 et que la proposition cesse d'être reproposée (même contrat que `finding_arbitre`).
 
+SYMETRIE AVEC L'ACCEPTATION (2026-09-19). Ce script n'ecrivait que
+`cible`/`date`/`decision` — jamais `titre` ni `categories`. Or `_couvre()` traite
+`categories is None` comme « ferme TOUT » : 137 arbitrages sur 258 masquaient ainsi
+a perpetuite tout constat futur de leur cible. L'amnistie de l'heritage ne couvre
+que les entrees ANTERIEURES au 2026-09-19 : un refus ecrit desormais sans
+categories serait « sans categories ET posterieur a la bascule », donc il fermerait
+tout — on aurait durci l'acceptation (`log_arbitrage.py`) en laissant le refus dans
+l'etat qui causait le probleme. `categories` est donc EXIGE ici aussi.
+
+Echappatoire deterministe (0 token) pour ne pas tuer le bouton « Invalider » du
+wiki, qui n'a parfois que la CIBLE sous la main : a defaut de `--categories`, le
+script les DERIVE des constats de cette cible dans `diagnostic.json` (union de
+leurs categories, titres repris). Si la derivation ne donne rien, il REFUSE en
+nommant `--categories` plutot que d'ecrire une entree aveuglante.
+
 Usage : py .claude/supervision/refuser_arbitrage.py "<cible>" ["<raison>"]
+            [--categories <c1[,c2]>] [--titre "<titre du constat>"]
+
+Env (tests) : AGENT_SUPERVISION_ARBITRAGES, AGENT_SUPERVISION_DIAGNOSTIC,
+AGENT_SUPERVISION_SKIP_SCAN.
 """
 
 from __future__ import annotations
@@ -21,6 +40,52 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 ARBITRAGES_PATH = os.environ.get("AGENT_SUPERVISION_ARBITRAGES") or os.path.join(
     ROOT, ".claude", "supervision", "arbitrages.json")
+DIAGNOSTIC_PATH = os.environ.get("AGENT_SUPERVISION_DIAGNOSTIC") or os.path.join(
+    ROOT, ".claude", "supervision", "diagnostic.json")
+
+# Duplique depuis scan_transcripts.CATEGORIES_CONNUES, pour la meme raison que dans
+# log_arbitrage.py : ce fichier part dans le kit chez des cibles qui n'ont pas le
+# scanner du hub, et un import optionnel qui echoue en silence rendrait la garde
+# inoperante justement la ou personne ne regarde. Un test verrouille l'egalite.
+CATEGORIES_CONNUES = (
+    "ko-repete", "inefficacite", "agent-mort", "interaction",
+    "verification-manquante", "non-convergence",
+    "pratique-test", "pratique-dev", "pratique-revue", "pratique-design",
+    "pratique-doc", "pratique-produit",
+    "autre",
+)
+
+
+def _constats_de(cible: str):
+    """Constats de `diagnostic.json` portant cette cible — lecture tolerante : le
+    diagnostic peut etre absent (cible du kit), illisible, ou reecrit entre la
+    lecture du wiki et le clic."""
+    try:
+        with open(DIAGNOSTIC_PATH, encoding="utf-8") as fh:
+            diag = json.load(fh)
+    except (OSError, ValueError):
+        return []
+    findings = diag.get("findings") or diag.get("constats") or []
+    if not isinstance(findings, list):
+        return []
+    return [f for f in findings if isinstance(f, dict) and f.get("cible") == cible]
+
+
+def _args(argv):
+    """Parseur minimal : positionnels `<cible> [raison]` (contrat historique, garde
+    pour tous les appelants existants) + options `--cle valeur`."""
+    positionnels, options, i = [], {}, 0
+    while i < len(argv):
+        a = argv[i]
+        if a.startswith("--"):
+            options[a[2:]] = argv[i + 1] if i + 1 < len(argv) else ""
+            i += 2
+        else:
+            positionnels.append(a)
+            i += 1
+    return positionnels, options
+
+
 def _scan_script() -> str:
     """Le scanner de CE dépôt — le hub et une cible n'ont pas le même.
 
@@ -40,17 +105,61 @@ def _scan_script() -> str:
 SCAN_SCRIPT = _scan_script()
 
 
+USAGE = ('refuser_arbitrage : usage : <cible> ["raison"] '
+         '[--categories <c1[,c2]>] [--titre "<titre du constat>"]')
+
+
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
-    if not argv:
-        print("refuser_arbitrage : usage : <cible> [\"raison\"]")
+    positionnels, options = _args(argv)
+    if not positionnels:
+        print(USAGE)
         return 1
-    cible = argv[0].strip()
+    cible = positionnels[0].strip()
     if not cible:
         print("refuser_arbitrage : cible vide")
         return 1
-    raison = argv[1].strip() if len(argv) > 1 and argv[1].strip() else \
-        "refusé via le bouton du wiki, sans raison précisée"
+    raison = (positionnels[1].strip() if len(positionnels) > 1 and positionnels[1].strip()
+              else (options.get("raison") or "").strip()
+              or "refusé via le bouton du wiki, sans raison précisée")
+
+    # --- `categories` EXIGE, derive a defaut -------------------------------------
+    brut = (options.get("categories") or "").strip()
+    titre = (options.get("titre") or "").strip()
+    constats = _constats_de(cible)
+    if brut:
+        categories = [c.strip() for c in brut.split(",") if c.strip()]
+        explicite = True
+    else:
+        categories = sorted({str(f.get("categorie") or "").strip()
+                             for f in constats
+                             if str(f.get("categorie") or "").strip()})
+        explicite = False
+    if not categories:
+        print("refuser_arbitrage : REFUS — `categories` manquant et INDERIVABLE : "
+              f"aucun constat de « {cible} » dans {DIAGNOSTIC_PATH}. Un refus sans "
+              "categories ferme TOUT constat futur de sa cible (137 entrees sur 258 "
+              "au 2026-09-19 faisaient exactement cela) et l'amnistie de l'heritage "
+              "ne couvre pas les entrees ecrites aujourd'hui. Relancer avec "
+              "--categories <c1[,c2]>." + chr(10) + USAGE, file=sys.stderr)
+        return 1
+    inconnues = [c for c in categories if c not in CATEGORIES_CONNUES]
+    if inconnues:
+        origine = "passée en --categories" if explicite else "lue dans le diagnostic"
+        print(f"refuser_arbitrage : REFUS — categorie(s) hors vocabulaire "
+              f"{inconnues} ({origine}). Connues : {list(CATEGORIES_CONNUES)}. Une "
+              "faute de frappe donnerait un refus qui ne ferme rien, sans un mot.",
+              file=sys.stderr)
+        return 1
+    if not titre:
+        titres = [t for t in (str(f.get("titre") or "").strip() for f in constats) if t]
+        if len(titres) == 1:
+            titre = titres[0]
+        elif titres:
+            titre = (f"refus portant sur les {len(titres)} constats de « {cible} » : "
+                     + " | ".join(titres))
+        else:
+            titre = f"refus sur « {cible} » (aucun titre de constat sous la main)"
 
     # « Corrompu » n'est PAS « absent ». Confondre les deux remplaçait 94 arbitrages
     # (~108 Ko) par un fichier à une entrée, exit 0, sans un mot — la mémoire
@@ -79,6 +188,8 @@ def main(argv=None) -> int:
     data["arbitrages"].append({
         "cible": cible,
         "date": date,
+        "titre": titre,
+        "categories": categories,
         "decision": f"REFUSÉ : {raison}",
     })
     # Écriture atomique (même motif que canon/log_run.solder) : un "w" direct sur les
@@ -89,7 +200,9 @@ def main(argv=None) -> int:
     with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(data, fh, ensure_ascii=False, indent=2)
     os.replace(tmp, ARBITRAGES_PATH)
-    print(f"refuser_arbitrage : « {cible} » marqué REFUSÉ ({date}) — {raison}")
+    print(f"refuser_arbitrage : « {cible} » marqué REFUSÉ ({date}) — categories "
+          f"{categories}"
+          + ("" if explicite else " (dérivées du diagnostic)") + f" — {raison}")
 
     if os.environ.get("AGENT_SUPERVISION_SKIP_SCAN"):
         return 0   # tests : la régénération du wiki n'est pas leur objet

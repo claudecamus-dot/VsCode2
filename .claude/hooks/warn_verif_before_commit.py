@@ -152,6 +152,23 @@ def _as_str_tuple(value, default):
     return cleaned or default
 
 
+def _as_lower_str_tuple(value, default):
+    """Comme `_as_str_tuple`, mais MINUSCULE chaque motif.
+
+    Les motifs de PREUVE (`verif_bash`, `verif_skill`, `dispositif_tests`) sont
+    compares a une commande / un nom de skill deja passes en `.lower()`. Sans
+    cette normalisation, un depot declarant `"verif_bash": ["Pytest"]` obtenait
+    un garde-fou INDESARMABLE : la verification reellement lancee n'etait jamais
+    reconnue et le rappel tombait a chaque commit (audit VScode5 du 2026-09-19).
+    NE PAS appliquer a `watched_prefixes` ni `dispositif_prefixes` : ce sont des
+    chemins de fichiers, compares tels quels par `startswith`.
+    """
+    cleaned = _as_str_tuple(value, None)
+    if cleaned is None:
+        return default
+    return tuple(v.lower() for v in cleaned)
+
+
 def _read_config_dict():
     """Le dict JSON de configuration du dépôt cible, ou None si absent,
     illisible ou malformé — jamais d'exception propagée."""
@@ -180,8 +197,8 @@ def _load_config():
     cfg = _read_config_dict()
     if cfg is not None:
         watched = _as_str_tuple(cfg.get("watched_prefixes"), watched)
-        verif_bash = _as_str_tuple(cfg.get("verif_bash"), verif_bash)
-        verif_skill = _as_str_tuple(cfg.get("verif_skill"), verif_skill)
+        verif_bash = _as_lower_str_tuple(cfg.get("verif_bash"), verif_bash)
+        verif_skill = _as_lower_str_tuple(cfg.get("verif_skill"), verif_skill)
     return watched, verif_bash, verif_skill
 
 
@@ -197,7 +214,7 @@ def _load_extra_config():
         if isinstance(cfg.get("dod_enabled"), bool):
             dod_enabled = cfg["dod_enabled"]
         disp_prefixes = _as_str_tuple(cfg.get("dispositif_prefixes"), disp_prefixes)
-        disp_tests = _as_str_tuple(cfg.get("dispositif_tests"), ())
+        disp_tests = _as_lower_str_tuple(cfg.get("dispositif_tests"), ())
     return dod_enabled, disp_prefixes, disp_tests
 
 
@@ -766,7 +783,10 @@ def main() -> None:
         return
     cmd = (data.get("tool_input") or {}).get("command") or ""
     strip = _strip_heredocs or (lambda s: s)
-    segs = _segments(cmd) if _segments else [cmd]
+    # `_segments` n'est appele QUE dans le try : un premier appel place au-dessus
+    # jetait son resultat (recalcule juste en dessous) tout en exposant le hook a
+    # une exception HORS fail-open — sur un PreToolUse, cela sortait en erreur sur
+    # CHAQUE commande du depot (audit VScode5 du 2026-09-19).
     try:
         cmd = strip(cmd)
         segs = _segments(cmd) if _segments else [cmd]

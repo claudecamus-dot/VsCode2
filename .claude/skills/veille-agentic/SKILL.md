@@ -1,6 +1,6 @@
 ---
 name: veille-agentic
-description: Agent de veille agentic à deux volets — (1) explore la partie publique de GitHub (et sources associées) pour repérer agents, sous-agents, skills, rules, playbooks ou frameworks pertinents pour les projets supervisés ; (2) surveille les référentiels documentaires des providers IA (Anthropic/Claude Code, OpenAI, Mistral, GitHub…) pour repérer les PRATIQUES agentic recommandées, en dériver des règles d'analyse (référentiel criteres-pratiques.md) et des actions correctives arbitrables sur la flotte. Trouvailles dans .claude/veille/veille.json (rendues dans la section 3 du wiki). Cadence : tous les 3 jours (hook SessionStart) ou manuel. À charger quand l'utilisateur demande une veille, quand le hook la signale périmée, ou avant de créer un agent/skill maison.
+description: Agent de veille agentic à trois volets — (1) explore la partie publique de GitHub (et sources associées) pour repérer agents, sous-agents, skills, rules, playbooks ou frameworks pertinents pour les projets supervisés ; (2) surveille les référentiels documentaires des providers IA (Anthropic/Claude Code, OpenAI, Mistral, GitHub…) pour repérer les PRATIQUES agentic recommandées, en dériver des règles d'analyse (référentiel criteres-pratiques.md) et des actions correctives arbitrables sur la flotte ; (3) suit la littérature scientifique (préprints arXiv/OpenReview, actes relus par les pairs ACL/PMLR/NeurIPS/ICLR/ICML, journaux JMLR/Nature MI, labos), en qualifiant TOUJOURS le niveau de revue par les pairs et en n'adoptant un chiffre publié qu'une fois reproduit sur la flotte. Trouvailles dans .claude/veille/veille.json (rendues dans la section 3 du wiki). Cadence : tous les 3 jours (hook SessionStart) ou manuel. À charger quand l'utilisateur demande une veille, quand le hook la signale périmée, ou avant de créer un agent/skill maison.
 ---
 
 # veille-agentic — veille écosystème + pratiques providers
@@ -159,6 +159,65 @@ pratique déjà généralisée sur la flotte ne mérite pas d'entrée.
    cibles, arbitrage tracé dans `arbitrages.json`.
 3. Les transitions de statut restent des **décisions utilisateur** — la veille
    propose, n'applique jamais.
+
+## Volet 3 — littérature scientifique (préprints, actes, journaux, labos)
+
+Demandé par l'utilisateur le 2026-09-20. Ce volet **ne crée pas un usage, il documente
+celui qui tournait à l'aveugle** : au moment où la liste a été fournie, **17 papiers
+arXiv distincts étaient déjà cités** dans `agent-orchestrator/SKILL.md`,
+`criteres-pratiques.md`, `agents-supervision.md` et `veille.json` — et la skill de veille
+n'en nommait aucune source. Une pratique réelle non écrite se transmet par imitation et
+se perd au premier contexte vierge.
+
+### Les sources, par nature — parce que la nature décide de ce qu'on peut en conclure
+
+**Préprints, non relus par les pairs** — une revendication, pas un résultat établi :
+`arxiv.org` · `openreview.net` (les revues y sont lisibles : s'en servir, elles disent
+souvent mieux que le papier ce qui ne tient pas) · `semanticscholar.org` (recherche
+transverse et graphe de citations) · `paperswithcode.com` (le code existe-t-il ?).
+
+**Actes de conférence relus par les pairs** — accepté par un comité :
+`aclanthology.org` (ACL/EMNLP/NAACL) · `proceedings.mlr.press` (PMLR — ICML, AISTATS) ·
+`proceedings.neurips.cc` · `iclr.cc` · `icml.cc`.
+
+**Journaux relus par les pairs** : `jmlr.org` · `nature.com/natmachintell`.
+
+**Laboratoires et industriels** — publications et blogs de recherche, souvent en avance
+sur les actes mais **juge et partie** sur leurs propres produits :
+`anthropic.com/research` · `openai.com/research` · `deepmind.google/research` ·
+`research.google` · `microsoft.com/en-us/research` · `bair.berkeley.edu/blog` ·
+`csail.mit.edu/research` · `hai.stanford.edu`.
+
+### Rotation — 19 sources ne tiennent pas dans un cycle
+
+L'étape 2 fixe **3 à 6 recherches ciblées par session, pas une rafale exhaustive**, et
+cette règle ne saute pas ici : parcourir 19 sources par cycle, c'est soit les survoler
+toutes, soit faire exploser le budget. Chaque cycle en couvre **2 à 4**, choisies par
+le besoin du moment (un finding à prouver oriente vers les actes ; une pratique
+d'outillage vers les labos), et la ligne `RIEN DE NEUF SUR :` du rendu nomme celles qui
+ont été parcourues sans trouvaille — c'est elle qui permet de ne pas re-parcourir les
+mêmes au cycle suivant. Une source jamais visitée depuis plusieurs cycles passe devant.
+
+### Qualifier un papier — le piège propre à ce volet
+
+Les volets 1 et 2 observent ce qui est *déployé* ; celui-ci observe ce qui est *publié*.
+La confusion coûte cher, et le hub y est déjà exposé : il cite des identifiants arXiv
+comme s'ils faisaient autorité. Trois exigences **en plus** de celles de l'étape 3 :
+
+- `revue_par_pairs` : `oui` (actes, journal) | `non` (préprint, blog de labo) |
+  `inconnu`. Un préprint reste citable — il n'est pas une autorité. Le dire dans la
+  trouvaille, pas le laisser deviner au lecteur.
+- `mesure_chez_nous` : ce que le papier annonce est un résultat **obtenu ailleurs, sur
+  un autre corpus**. Une trouvaille scientifique ne devient une pratique de la flotte
+  que si son effet est reproduit ici, avec la commande qui l'a produit (R6). Sinon elle
+  reste `nouveau` et l'annonce chiffrée du papier est recopiée **comme une citation,
+  jamais comme une mesure**.
+- **Juge et partie** : une publication de laboratoire qui évalue le produit de ce même
+  laboratoire se qualifie comme telle. Ça ne la disqualifie pas, ça interdit de la
+  présenter comme une évaluation indépendante.
+
+Le reste ne change pas : sources publiques, aucune exécution de code téléchargé, aucune
+installation, et l'adoption reste un arbitrage utilisateur.
 
 ## Cadence
 

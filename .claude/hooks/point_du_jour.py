@@ -131,8 +131,55 @@ def findings_ouverts():
         if not canon.finding_arbitre(f, arbitrages, posterieur_a=genere):
             ouverts.append({"cible": cible,
                             "titre": (f.get("titre") or "").strip(),
-                            "categorie": (f.get("categorie") or "").strip()})
+                            "categorie": (f.get("categorie") or "").strip(),
+                            "owner": (f.get("owner") or "").strip(),
+                            "echeance": str(f.get("echeance") or "").strip()})
     return ouverts
+
+
+def findings_echus(ouverts=None, aujourdhui=None):
+    """[(cible, titre, owner, jours de depassement)] des findings OUVERTS dont
+    l'echeance posee par `write_diagnostic.py` est PASSEE, du plus en retard au moins.
+
+    Pourquoi ici : un constat non arbitre est deja annonce par la ligne precedente, mais
+    en TAS (« 11 finding(s) sans arbitrage »). Rien ne distinguait celui qui attend
+    depuis deux jours de celui que plus personne ne traitera. L'echeance est la
+    difference, et elle ne sert a rien si personne ne la lit — d'ou cette ligne, qui
+    NOMME les depasses.
+
+    Une echeance absente ou illisible ne compte PAS comme depassee : le fail-open du
+    hook vaut aussi pour son contenu, et crier sur un champ qu'on n'a pas su lire
+    apprend a ignorer la ligne. Un constat ecrit avant ce champ en recevra un a la
+    prochaine ecriture du diagnostic.
+    """
+    aujourdhui = aujourdhui or dt.date.today()
+    echus = []
+    for f in (ouverts if ouverts is not None else findings_ouverts()):
+        try:
+            echeance = dt.date.fromisoformat(str(f.get("echeance") or "")[:10])
+        except ValueError:
+            continue
+        retard = (aujourdhui - echeance).days
+        if retard > 0:
+            echus.append((f.get("cible") or "", f.get("titre") or "",
+                          f.get("owner") or "", retard))
+    echus.sort(key=lambda t: (-t[3], t[0]))
+    return echus
+
+
+def ligne_findings_echus(ouverts=None, aujourdhui=None):
+    """La ligne du point du jour : NOMME le constat le plus en retard, son proprietaire
+    et son retard, avec le verbe qui le traite — meme forme que les autres lignes.
+    Vide s'il n'y a rien : une ligne « 0 echu » serait du bruit quotidien."""
+    echus = findings_echus(ouverts, aujourdhui)
+    if not echus:
+        return ""
+    cible, titre, owner, retard = echus[0]
+    reste = f" (+{len(echus) - 1} autre(s))" if len(echus) > 1 else ""
+    return _ascii(
+        f"{len(echus)} finding(s) ECHU(s) : {cible} - {titre[:70]} (owner {owner},"
+        f" {retard} j de retard){reste}"
+        f" -- taper : applique {cible} | refuse {cible}")
 
 
 def findings_non_arbitres():
@@ -335,6 +382,242 @@ def _constat_en_arbitrage(c):
     return "ARBITRAGE" in str(c.get("titre") or "").upper()
 
 
+# --- Derive du kit : le seuil BLOQUANT (arbitre le 2026-09-19) ---------------------
+# Cause racine « vehicule sans cadence » : le kit est corrige au hub, les cibles restent
+# en arriere. Mesure du 2026-09-19 : une garde posee a 12h48 etait presente sur 2 depots
+# sur 8 ; le mot « kit » apparait dans 11 arbitrages — la derive n'est pas arbitree une
+# fois, elle est RE-arbitree chaque semaine. Le manque n'etait pas la mesure (affichee a
+# chaque SessionStart depuis le 2026-09-08) : c'est qu'elle ne declenchait rien et se
+# noyait dans la liste. Au-dela de ce seuil, elle passe EN TETE avec la commande exacte.
+SEUIL_DERIVE_BLOQUANTE_JOURS = 3
+
+# CRITERE D'ECHEC DE CE RAPPEL, pose par le superviseur le 2026-09-19, a relire tel quel :
+# « dans 7 jours, point_du_jour annonce encore 7 cibles qui derivent ». Le chiffre est
+# publie quotidiennement par `kit_installe.ligne_point_du_jour` — il suffit de le relire
+# le 2026-09-26. Conclusion a appliquer sans discuter : UN RAPPEL QUI NE FAIT PAS BAISSER
+# CE CHIFFRE EST UN RAPPEL MORT, A RETIRER PLUTOT QU'A RENFORCER — supprimer alors ce
+# bloc et son seuil, ne pas les rendre plus bruyants.
+
+
+# --- Plans de fond ecrits hors du canal de decision -------------------------------
+# Mesure du 2026-09-20 : `docs/wiki/technical/plan-solde-des-ecarts.md` (6 381 octets,
+# date du 2026-09-09) portait le remede de fond a la plainte « fais en sorte que je
+# n'aie pas a redemander » -- et AUCUN des 273 arbitrages ne cite un `plan-*.md`. Onze
+# jours, aucun arbitrage, aucune application ; la meme plainte a ete reformulee les
+# 09/09, 11/09 et 20/09. Un remede ecrit hors de diagnostic.json n'est jamais arbitre,
+# donc jamais applique : ce rappel ramene le plan dans le canal.
+PLANS_TECHNIQUES = os.path.join(RACINE, "docs", "wiki", "technical")
+# Au-dela, un plan que personne n'a tranche n'attend plus : il dort.
+SEUIL_PLAN_NON_ARBITRE_JOURS = 7
+
+
+def _age_plan(chemin):
+    """Age du plan, en jours. La date de reference est le `updated:` du front-matter
+    — c'est la date que l'auteur pose et que le wiki affiche ; le `mtime` ne sert que
+    de repli, un checkout ou une regeneration le remet a zero et ferait taire le
+    rappel sur le cas meme qu'il doit attraper."""
+    try:
+        with open(chemin, encoding="utf-8") as fh:
+            tete = fh.read(400)
+    except OSError:
+        return None
+    m = re.search(r"^updated:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})", tete, re.M)
+    if m:
+        age = _age_jours(m.group(1))
+        if age is not None:
+            return age
+    try:
+        return _age_jours(dt.datetime.fromtimestamp(os.path.getmtime(chemin)).isoformat())
+    except OSError:
+        return None
+
+
+def plans_non_arbitres(repertoire=None):
+    """[(nom de fichier, age en jours)] des `plan-*.md` de plus de
+    SEUIL_PLAN_NON_ARBITRE_JOURS qu'AUCUN arbitrage ne cite par son nom.
+
+    « Sans arbitrage » se decide ici par le MEME mecanisme que pour une trouvaille de
+    veille (`_veille_arbitree`) : un plan ne porte pas de `cible` que
+    `finding_arbitre()` pourrait comparer, sa seule identite stable est son nom de
+    fichier. On le cherche donc, normalise par `_normalise`, dans le texte de
+    l'arbitrage (cible + decision) — exactement la regle « slug contenu dans le texte »
+    deja en service plus haut, pas une seconde definition de la meme question.
+
+    Un plan CITE sort definitivement du rappel : c'est la sortie du dispositif. Sans
+    elle, le rappel crierait a perpetuite et on apprendrait a l'ignorer — le defaut
+    qu'il est cense corriger.
+    """
+    repertoire = repertoire or PLANS_TECHNIQUES
+    try:
+        noms = sorted(n for n in os.listdir(repertoire)
+                      if n.startswith("plan-") and n.endswith(".md"))
+    except OSError:
+        return []
+    if not noms:
+        return []
+    arb = _charge(ARBITRAGES) or {}
+    arbitrages = arb.get("arbitrages")
+    if not isinstance(arbitrages, list):
+        arbitrages = []
+    textes = [_normalise((a.get("cible") or "") + " " + (a.get("decision") or ""))
+              for a in arbitrages if isinstance(a, dict)]
+    orphelins = []
+    for nom in noms:
+        cle = _normalise(nom)
+        if any(cle in t for t in textes):
+            continue
+        age = _age_plan(os.path.join(repertoire, nom))
+        if age is not None and age > SEUIL_PLAN_NON_ARBITRE_JOURS:
+            orphelins.append((nom, age))
+    orphelins.sort(key=lambda t: (-t[1], t[0]))
+    return orphelins
+
+
+def ligne_plans_non_arbitres(repertoire=None):
+    """La ligne du point du jour : nomme le fichier, son age, et le geste qui le sort
+    du purgatoire (le reverser en findings arbitrables). Vide s'il n'y a rien."""
+    orphelins = plans_non_arbitres(repertoire)
+    if not orphelins:
+        return ""
+    nom, age = orphelins[0]
+    reste = f" (+{len(orphelins) - 1} autre(s))" if len(orphelins) > 1 else ""
+    return _ascii(
+        f"{len(orphelins)} plan(s) de docs/wiki/technical attendent un arbitrage : {nom}, {age} j{reste}"
+        " -- hors du canal de decision, un plan n'est jamais applique. Le reverser"
+        " en finding(s) : py .claude/supervision/write_diagnostic.py --fusionner"
+        )
+
+
+def _blob_git(chemin):
+    """Empreinte git (sha1 de `blob <taille>\\0<contenu>`) d'un fichier sur disque — la
+    meme que celle que `git log --raw` imprime, donc comparable sans `git show`."""
+    import hashlib
+    try:
+        with open(chemin, "rb") as fh:
+            data = fh.read()
+    except OSError:
+        return None
+    h = hashlib.sha1()
+    h.update(b"blob %d\0" % len(data))
+    h.update(data)
+    return h.hexdigest()
+
+
+def _date_plus_ancien_non_propage(source_rel, blob_copie):
+    """Date ISO du PLUS ANCIEN commit du hub que la copie installee ne porte pas encore.
+
+    QUELLE DATE DE REFERENCE, ET POURQUOI. Trois candidates etaient disponibles :
+    - le `mtime` du fichier : detruit par tout checkout ou toute regeneration, il date
+      le dernier passage du disque, pas le dernier changement reel — inexploitable ;
+    - une date de derniere propagation : elle n'existe NULLE PART par fichier (ni dans
+      `export/MANIFESTE.json`, ni dans `runs.jsonl`) — il aurait fallu l'inventer, donc
+      partir de zero pour toute la flotte ;
+    - l'historique git de la SOURCE dans le hub : il existe pour chaque source, il est
+      stable (un checkout ne le change pas), et il mesure exactement ce dont on parle —
+      « ce correctif attend d'etre propage depuis N jours ». C'est celui-la.
+
+    Pas le DERNIER commit de la source, cependant : une source re-corrigee aujourd'hui
+    remettrait le compteur a zero alors que la cible accumule du retard depuis huit
+    jours — le rappel se tairait precisement sur le cas qu'il existe pour attraper. On
+    remonte donc l'historique du plus recent au plus ancien jusqu'au commit dont
+    l'empreinte de blob EGALE celle de la copie installee (c'est la version que la cible
+    porte) : le commit juste apres est le plus ancien changement non propage.
+
+    Un seul `git log --raw` par (source, copie) : les empreintes de blob sont dans sa
+    sortie, aucun `git show` par commit, le hook reste sous sa seconde.
+
+    REPLI CONSERVATEUR : si aucune empreinte ne correspond (cas reel : une copie en CRLF
+    face a un depot en LF n'aura jamais le meme blob), on retombe sur la date du DERNIER
+    commit. Cela SOUS-estime l'age au lieu de le surestimer — un rappel qui se tait a
+    tort coute une journee, un rappel qui crie a tort se fait ignorer pour toujours.
+    """
+    try:
+        import subprocess
+        out = subprocess.run(
+            ["git", "log", "-n", "40", "--format=C %cI", "--raw", "--abbrev=40",
+             "--no-renames", "--", source_rel],
+            cwd=RACINE, capture_output=True, text=True, encoding="utf-8", timeout=15)
+    except Exception:  # pragma: no cover - fail-open
+        return None
+    if out.returncode != 0:
+        return None
+    commits = []  # [(date_iso, blob_apres)], du plus recent au plus ancien
+    date = None
+    for ligne in out.stdout.splitlines():
+        if ligne.startswith("C "):
+            date = ligne[2:].strip()
+        elif ligne.startswith(":") and date:
+            champs = ligne.split()
+            if len(champs) >= 4:
+                commits.append((date, champs[3]))
+                date = None
+    if not commits:
+        return None
+    if blob_copie:
+        for i, (_d, blob) in enumerate(commits):
+            if blob == blob_copie:
+                return commits[i - 1][0] if i > 0 else None
+    return commits[0][0]
+
+
+def retards_ages(derives, kit_installe, carte, chemins=None):
+    """[(projet, destination, age_jours)] des RETARDS dont le plus ancien correctif non
+    propage date d'au moins `SEUIL_DERIVE_BLOQUANTE_JOURS` jours, du plus ancien au plus
+    recent.
+
+    L'age n'est calcule QUE sur les destinations qualifiees `retard` par
+    `kit_installe.qualifier()` : sur une specialisation ou un structurellement local, la
+    divergence n'est pas un retard du hub et son « age » ne voudrait rien dire. Source
+    inconnue de la carte, ou date illisible -> destination ignoree (fail-open).
+    """
+    dest_source = (carte or {}).get("destinations_cibles", {})
+    chemins = chemins or {}
+    ages = {}
+    resultat = []
+    for projet, etat in (derives or {}).items():
+        for destination in etat.get("derive", []):
+            qualif = etat.get("qualif", {}).get(destination) or {}
+            if qualif.get("nature") != "retard":
+                continue
+            source = dest_source.get(destination)
+            if not source:
+                continue
+            racine = chemins.get(projet)
+            blob = _blob_git(os.path.join(racine, destination)) if racine else None
+            cle = (source, blob)
+            if cle not in ages:
+                ages[cle] = _age_jours(_date_plus_ancien_non_propage(source, blob))
+            age = ages[cle]
+            if age is not None and age >= SEUIL_DERIVE_BLOQUANTE_JOURS:
+                resultat.append((projet, destination, age))
+    resultat.sort(key=lambda t: (-t[2], t[0], t[1]))
+    return resultat
+
+
+def ligne_derive_bloquante(derives, kit_installe, carte, projets=None):
+    """La ligne placee EN TETE du point du jour quand un correctif du hub attend depuis
+    plus de trois jours — avec la commande exacte de propagation, a copier-coller."""
+    retards = retards_ages(derives, kit_installe, carte, projets)
+    if not retards:
+        return None
+    projet, destination, age = retards[0]
+    chemin = (projets or {}).get(projet, "<chemin du projet>")
+    cibles = sorted({p for p, _d, _a in retards})
+    return _ascii(
+        "BLOQUANT -- {} correctif(s) du kit attendent depuis plus de {} j sur {} cible(s)"
+        " ({} ; le plus ancien : {} chez {}, {} j). Propager MAINTENANT :"
+        " py export/install_agentic.py --dry-run \"{}\" puis sans --dry-run"
+        .format(len(retards), SEUIL_DERIVE_BLOQUANTE_JOURS, len(cibles), ", ".join(cibles),
+                destination, projet, age, chemin))
+
+
+def _chemins_projets(kit_installe):
+    """{nom: chemin} depuis projets.json — pour que la commande soit copiable telle quelle."""
+    data = _charge(kit_installe.PROJETS) or {}
+    return {p.get("nom"): p.get("chemin") for p in data.get("projets", [])
+            if p.get("nom") and p.get("chemin")}
+
+
 def main():
     # « Vous prevenir ailleurs » (salle atelier-idees, arbitre le 2026-08-31) : la
     # ligne ne DENOMBRE plus, elle donne la commande prete a taper — l'information
@@ -349,6 +632,25 @@ def main():
         lignes.append(
             f"{len(ouverts)} finding(s) du diagnostic sans arbitrage : {apercu}"
             f" -- taper : applique {premier} | refuse {premier}")
+
+    # Parmi eux, ceux dont l'ECHEANCE est passee (2026-09-20) : la ligne precedente les
+    # compte, celle-ci les nomme. Fail-open comme les autres mesures du hook.
+    try:
+        ligne_echus = ligne_findings_echus(ouverts)
+        if ligne_echus:
+            lignes.append(ligne_echus)
+    except Exception as exc:  # fail-open : un hook ne bloque jamais la session
+        lignes.append(f"findings echus : mesure impossible ({_ascii(str(exc))})")
+
+    # Un plan de fond ecrit hors de diagnostic.json (2026-09-20) : meme nature que la
+    # ligne precedente -- quelque chose qui attend un arbitrage -- donc place juste
+    # apres elle, dans la fenetre de 3 lignes reellement affichee.
+    try:
+        ligne_plans = ligne_plans_non_arbitres()
+        if ligne_plans:
+            lignes.append(ligne_plans)
+    except Exception as exc:  # fail-open : un hook ne bloque jamais la session
+        lignes.append(f"plans non arbitres : mesure impossible ({_ascii(str(exc))})")
 
     entrees = trouvailles_ouvertes()
     n, age = trouvailles_en_attente()
@@ -378,6 +680,17 @@ def main():
         derives = kit_installe.derives_par_projet()
         if derives:
             lignes.append(kit_installe.ligne_point_du_jour(derives))
+            # Seuil bloquant : la derive agee passe EN TETE (SEUIL_DERIVE_BLOQUANTE_JOURS).
+            try:
+                import carte_generes
+                bloquante = ligne_derive_bloquante(
+                    derives, kit_installe, carte_generes.construire(),
+                    _chemins_projets(kit_installe))
+                if bloquante:
+                    lignes.insert(0, bloquante)
+            except Exception as exc:  # fail-open : le point du jour reste affiche
+                lignes.append(
+                    f"derive bloquante : mesure impossible ({_ascii(str(exc))})")
     except Exception as exc:
         lignes.append(f"kit installe : mesure impossible ({_ascii(str(exc))})")
 

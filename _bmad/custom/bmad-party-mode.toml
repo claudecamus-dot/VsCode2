@@ -815,7 +815,7 @@ id = "inspection-critique"
 skills_bmad = ["bmad-review"]
 name = '''Inspection critique'''
 members = ["edge-hunter", "bmad-agent-ux-designer", "usager", "supervision", "intendance"]
-scene = '''Passer l'existant au crible SANS qu'un incident l'ait demandé — c'est une revue de routine, pas une enquête. Quatre axes, et aucun ne doit manger les autres : (1) les bugs latents, ce qui casserait sur une entrée qu'on n'a jamais essayée ; (2) le design, ce qui est incohérent d'un écran ou d'un module à l'autre ; (3) l'expérience de celui qui s'en sert, y compris quand il se trompe ; (4) ce qui n'est JAMAIS utilisé — code mort, écran jamais ouvert, option jamais choisie, skill jamais invoquée. Le quatrième axe est le plus rentable et le plus oublié : ce hub a mesuré 46 skills à 0 invocation sur 113 sessions, et neuf salles que personne ne convoquait. À DISTINGUER de code-review-crew, qui part d'un diff et attaque un changement précis : ici il n'y a pas de diff, il y a un périmètre et des mesures d'usage. Inviter le relais du projet visé.'''
+scene = '''Passer l'existant au crible SANS qu'un incident l'ait demandé — c'est une revue de routine, pas une enquête. Quatre axes, et aucun ne doit manger les autres : (1) les bugs latents, ce qui casserait sur une entrée qu'on n'a jamais essayée ; (2) le design, ce qui est incohérent d'un écran ou d'un module à l'autre — UN TEXTE LONG AUTONOME (documentation, page publiée, communication) entre dans cet axe au même titre qu'un écran : la revue y porte la redondance, le hors-sujet, un désaveu interne (le texte se contredit lui-même), l'opacité ; (3) l'expérience de celui qui s'en sert, y compris quand il se trompe ; (4) ce qui n'est JAMAIS utilisé — code mort, écran jamais ouvert, option jamais choisie, skill jamais invoquée. Le quatrième axe est le plus rentable et le plus oublié : ce hub a mesuré 46 skills à 0 invocation sur 113 sessions, et neuf salles que personne ne convoquait. À DISTINGUER de code-review-crew, qui part d'un diff et attaque un changement précis : ici il n'y a pas de diff, il y a un périmètre et des mesures d'usage. Inviter le relais du projet visé. Sur un texte : arbitrage du 2026-09-18 (salle conseil-flotte) — « sonner IA » n'est PAS un critère opposable, aucune détection fiable et non contournable n'existe (arXiv:2303.11156, paraphrase récursive) ; le critère d'acceptation reste « le texte tient » (lentilles prose/structure de bmad-review réellement chargées), jamais « passe un détecteur ».'''
 memory = true
 
 redevabilites = [
@@ -826,7 +826,7 @@ redevabilites = [
 ]
 qualite_requise = '''Aucun axe n'est déclaré « rien à signaler » sans dire ce qui a été regardé pour le conclure ; et rien n'est proposé au retrait sans une fenêtre d'observation déclarée — un zéro d'usage sur une période non observée ne prouve pas l'inutilité, il prouve qu'on ne regardait pas.'''
 entrants = [
-  '''Le périmètre exact à inspecter — un projet, un module, un écran ; pas « le code ».''',
+  '''Le périmètre exact à inspecter — un projet, un module, un écran, UN TEXTE précis (un document, pas « la doc ») ; jamais « le code ».''',
   '''Les mesures d'usage de la période, avec leur fenêtre d'observation déclarée.''',
   '''La spec ou l'ADR d'origine des fonctionnalités suspectes : ce qui semble mort peut être une exigence dormante.''',
   '''L'inventaire de ce qui existe (écrans, options, skills, endpoints), pas seulement le code.''',

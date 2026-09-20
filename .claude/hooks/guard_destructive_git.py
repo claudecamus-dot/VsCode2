@@ -23,9 +23,31 @@ l'operateur d'appel PowerShell `&` et `.`, mais aussi `iex` /
 CE QUE CE HOOK N'EST PAS. Un garde-fou contre l'accident et le contournement
 de confort, pas une frontiere de securite. Il `fail open` sur tout ce qu'il ne
 sait pas analyser, par choix : un bug ici ne doit jamais bloquer un usage shell
-sans rapport. Une indirection construite dynamiquement (`$g = 'git'; & $g push
---force`) lui echappe encore. Ne pas s'en servir pour justifier de baisser la
-garde ailleurs.
+sans rapport. Ne pas s'en servir pour justifier de baisser la garde ailleurs.
+
+LIMITE CONNUE : L'INDIRECTION D'EXECUTION — une CLASSE, pas un cas isole. Ce
+docstring n'en declarait qu'UN (`$g = 'git'; & $g push --force`), ce qui laissait
+croire a un trou a colmater. La sonde adversariale du 2026-09-19, rejouee par le
+chemin de PRODUCTION (payload `PreToolUse` reel sur stdin, 16 commandes), a mesure
+12 bloquees / 4 passees, et les 4 passees sont quatre visages du MEME defaut :
+variable PowerShell, alias PowerShell (`Set-Alias`), `Invoke-Expression` sur une
+chaine CONCATENEE, `xargs` qui reinjecte l'option depuis stdin, et `py -c` +
+`subprocess`. Le point commun : le nom de la commande dangereuse n'existe PAS dans
+le texte analyse — il est calcule a l'execution. AUCUNE analyse lexicale de la
+ligne de commande ne rattrape cette classe, quel que soit le nombre de motifs
+ajoutes ; la colmater cas par cas produirait une fausse assurance, qui est pire
+que la limite declaree. `tests/test_guard_destructive_git_indirection.py` en
+garde la trace en `xfail` : un futur durcissement s'y signalera en XPASS.
+
+CE QUI TIENT, mesure le meme jour et a conserver : `cmd /c`, `sh -c`, prefixe de
+variable d'environnement, chemin absolu, enchainement `;` / `&&` / retour a la
+ligne, espaces multiples, casse, et `git -C ../VSCode2 reset --hard` (une cible
+hors du depot courant).
+
+LA GARDE ROBUSTE EST AILLEURS. Contre un `push --force`, ce qui protege vraiment
+est cote depot DISTANT — protection de branche GitHub — et non cote prompt : le
+serveur refuse l'operation quelle que soit la facon dont le client l'a formulee.
+Ce hook reste utile comme friction sur l'accident ; il ne remplace pas ce reglage.
 
 Analyse (tokenizer `shlex` du 2026-07-16, repris d'un projet frere : il gerait
 deja les `VAR=value` de tete, la ou la version regex precedente

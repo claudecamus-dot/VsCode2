@@ -29,6 +29,13 @@ USAGE_PATH = os.environ.get("AGENT_SUPERVISION_USAGE") or os.path.join(
 )
 
 
+# Statuts que le `tool_response` d'un Agent donne a une salle DEJA finie. En premier
+# plan, le PostToolUse de l'outil Agent arrive APRES le SubagentStop du meme agent :
+# sa ligne n'est donc pas un lancement en attente de fin, et la compter comme telle
+# decalerait le FIFO d'un cran a chaque salle.
+STATUTS_TERMINAUX = ("completed", "error", "failed", "cancelled", "aborted")
+
+
 def main() -> int:
     # Ne bloque jamais (exit 0), mais ne perd plus rien en SILENCE : une invocation
     # non journalisée est un sous-comptage de l'étage 1, elle doit se voir.
@@ -63,11 +70,16 @@ def main() -> int:
     # complet — exactement le genre de non-convergence que le superviseur cherche.
     if data.get("hook_event_name") == "SubagentStop":
         session_id = data.get("session_id")
+        agent_id = data.get("agent_id")
         entry = {"ts": horodate, "session_id": session_id,
-                 "event": "subagent-stop"}
-        duree = _duree_appariee(session_id, horodate)
+                 "event": "subagent-stop",
+                 "agent_id": agent_id if isinstance(agent_id, str) else None,
+                 "agent_type": data.get("agent_type")}
+        duree, appariement = _apparier(session_id, horodate, entry["agent_id"])
+        entry["appariement"] = appariement
         if duree is not None:
             entry["duree_s"] = duree
+        entry.update(_jetons_du_transcript(data.get("agent_transcript_path")))
         _ecrire(entry)
         return 0
 
@@ -84,6 +96,17 @@ def main() -> int:
         or (None if tool == "Skill" else "(defaut)"),
         "description": tool_input.get("description"),
     }
+    # Le `tool_response` d'un Agent porte la comptabilite reelle, mesuree sur payload
+    # reel le 2026-09-20 (sonde jetable). DEUX formes, selon le mode :
+    #  - premier plan  : status 'completed'      + totalTokens / totalToolUseCount /
+    #                    totalDurationMs — le PostToolUse est alors la FIN, et il
+    #                    arrive APRES le SubagentStop du meme agent ;
+    #  - arriere-plan  : status 'async_launched' + agentId/resolvedModel seulement —
+    #                    le PostToolUse est alors le LANCEMENT, jetons inconnus.
+    # Une invocation `Skill` n'a ni modele ni sous-agent : lui coller ces champs a None
+    # changerait la FORME des lignes deja ecrites et casserait leurs relecteurs.
+    if tool in ("Agent", "Task"):
+        entry.update(_annotation_agent(tool_input, data.get("tool_response")))
     # L'échec n'est marqué que s'il est POSITIVEMENT détecté. Les formes de réponse
     # varient d'un outil à l'autre : deviner « pas de succès donc échec » fabriquerait
     # des KO qui n'ont pas eu lieu, et le superviseur compte les `ko-repete`. Absence
@@ -94,26 +117,141 @@ def main() -> int:
     return 0
 
 
-def _duree_appariee(session_id, fin_iso: str):
-    """`duree_s` d'un sous-agent (lancement Agent -> ce SubagentStop), UNIQUEMENT quand
-    non ambigu — veille adoptée 2026-09-03 (finding : aucune durée n'était calculable,
-    donc aucun seuil de non-convergence mesurable ; incident source : un sous-agent
-    resté `running` 4h+ contre 8-17 min pour des tâches comparables).
+def _annotation_agent(tool_input: dict, reponse) -> dict:
+    """Ce que le payload DIT du modele et de la consommation d'un sous-agent.
 
-    Aucun identifiant ne relie un lancement `Agent` à SA propre fin dans les payloads
-    de hook captés ici : deux lancements concurrents (fan-out, le cas courant de ce
-    dispatcher) sont donc indiscernables entre eux. Plutôt que deviner lequel vient de
-    finir (une durée fausse est pire qu'aucune durée — c'est le même principe que
-    `_echec_avere`, qui ne marque un échec que positivement détecté), cette fonction
-    ne rend une durée QUE si un seul lancement `Agent` de cette session reste "ouvert"
-    (sans SubagentStop déjà apparié) au moment de cet arrêt : le cas d'un sous-agent à
-    la fois, ou du dernier restant d'un fan-out. Fail-open total : tout journal
-    illisible, ligne corrompue ou horodatage non parsable rend None, jamais une
-    exception — ce hook ne doit jamais bloquer l'outil qu'il journalise.
+    `modele` est le modele DEMANDE par l'appelant (haiku/sonnet/opus, ou None quand il
+    herite) : c'est ce champ, et lui seul, qui rend la politique de routage de
+    agent-orchestrator MESURABLE au lieu d'etre une croyance. Les autres viennent de la
+    reponse de l'outil.
+
+    Tolerant par construction : une reponse non-dict, un champ manquant ou d'un type
+    inattendu laisse la cle a None. Aucun calcul, aucune inference — on n'ecrit que ce
+    que le payload porte (meme principe que `_echec_avere`).
+    """
+    champs = {"modele": tool_input.get("model") if isinstance(tool_input, dict) else None,
+              "agent_id": None, "modele_resolu": None, "statut": None,
+              "jetons": None, "appels_outils": None, "duree_ms": None}
+    if isinstance(reponse, dict):
+        for cle, source, types in (
+            ("agent_id", "agentId", str),
+            ("modele_resolu", "resolvedModel", str),
+            ("statut", "status", str),
+            ("jetons", "totalTokens", int),
+            ("appels_outils", "totalToolUseCount", int),
+            ("duree_ms", "totalDurationMs", int),
+        ):
+            valeur = reponse.get(source)
+            if isinstance(valeur, types) and not isinstance(valeur, bool):
+                champs[cle] = valeur
+    # La PROVENANCE du chiffre fait partie du chiffre : `tool_response` (premier plan,
+    # compteur de l'outil) et `transcript` (arriere-plan, somme des messages assistant)
+    # ne se comparent pas naivement. Annoncer une source qu'on n'a pas est pire que
+    # n'annoncer rien : la cle reste absente quand aucun jeton n'a ete releve.
+    if champs["jetons"] is not None:
+        champs["source_jetons"] = "tool_response"
+    return champs
+
+
+CLES_USAGE = (("input", "input_tokens"),
+              ("output", "output_tokens"),
+              ("cache_creation", "cache_creation_input_tokens"),
+              ("cache_read", "cache_read_input_tokens"))
+
+
+def _jetons_du_transcript(chemin) -> dict:
+    """Jetons d'une salle d'ARRIERE-PLAN, sommes sur son propre transcript.
+
+    Pourquoi : le `tool_response` d'un Agent lance en arriere-plan (`async_launched`)
+    ne porte AUCUN compteur — `jetons` valait None sur 100 % des salles d'arriere-plan,
+    c'est-a-dire sur le mode par DEFAUT de l'orchestrateur. Le payload SubagentStop
+    porte en revanche `agent_transcript_path` : le transcript DU SOUS-AGENT (a ne pas
+    confondre avec `transcript_path`, celui de la session PARENTE).
+
+    Forme etablie sur transcript reel (2026-09-20) : les lignes `type: assistant`
+    portent `message.usage` avec input_tokens / output_tokens /
+    cache_creation_input_tokens / cache_read_input_tokens. Ces compteurs sont PAR
+    MESSAGE d'API, ils ne se cumulent pas — mais UNE MEME reponse d'API est ecrite sur
+    PLUSIEURS lignes (une par bloc : thinking, text, tool_use), chacune repetant le
+    meme `usage`. Sommer les lignes triple-compte : mesure sur une salle du jour,
+    2 617 771 jetons ligne a ligne contre 1 471 730 apres dedoublonnage par
+    `message.id`. On garde donc, par identifiant de message, le bloc au plus grand
+    `output_tokens` (les blocs intermediaires portent un compte partiel).
+
+    Lecture SEQUENTIELLE : un transcript fait 400-600 Ko et il y en a un par salle ;
+    `read()` entier les chargerait tous en memoire. Fail-open absolu — chemin absent,
+    illisible, ligne cassee, JSON invalide : les champs restent a None, jamais une
+    exception, jamais un hook qui bloque la session.
+    """
+    vide = {"jetons": None, "jetons_detail": None, "source_jetons": None}
+    if not isinstance(chemin, str) or not chemin:
+        return vide
+    par_message = {}
+    try:
+        with open(chemin, encoding="utf-8", errors="strict") as fh:
+            for ligne in fh:
+                ligne = ligne.strip()
+                if not ligne:
+                    continue
+                try:
+                    evt = json.loads(ligne)
+                except ValueError:
+                    continue  # une ligne cassee ne doit pas perdre tout le reste
+                if not isinstance(evt, dict) or evt.get("type") != "assistant":
+                    continue
+                msg = evt.get("message")
+                if not isinstance(msg, dict):
+                    continue
+                usage = msg.get("usage")
+                if not isinstance(usage, dict):
+                    continue
+                bloc = {}
+                for court, brut in CLES_USAGE:
+                    valeur = usage.get(brut)
+                    bloc[court] = (valeur if isinstance(valeur, int)
+                                   and not isinstance(valeur, bool) else 0)
+                cle = msg.get("id") or evt.get("uuid")
+                if not isinstance(cle, str):
+                    cle = f"__anonyme_{len(par_message)}"
+                ancien = par_message.get(cle)
+                if ancien is None or bloc["output"] > ancien["output"]:
+                    par_message[cle] = bloc
+    except (OSError, UnicodeDecodeError, ValueError, TypeError):
+        return vide
+    if not par_message:
+        # Aucun message assistant : on ne SAIT pas, et 0 dirait qu'on a mesure zero.
+        return vide
+    detail = {court: sum(b[court] for b in par_message.values())
+              for court, _ in CLES_USAGE}
+    return {"jetons": sum(detail.values()), "jetons_detail": detail,
+            "source_jetons": "transcript"}
+
+
+def _apparier(session_id, fin_iso: str, agent_id=None):
+    """(duree_s, appariement) d'un sous-agent — lancement `Agent` -> ce SubagentStop.
+
+    `appariement` vaut "agent_id" quand la fin a pu etre reliee a SON propre lancement
+    par identifiant, "fifo" quand il a fallu retomber sur l'heuristique, et None quand
+    aucune duree n'est calculable.
+
+    Historique : jusqu'au 2026-09-20 AUCUN identifiant n'etait journalise cote
+    lancement, et le seul appariement possible etait FIFO — prouve faux le meme jour
+    (une salle de 2 h 46 declaree terminee par le `subagent-stop` d'une AUTRE salle).
+    La sonde sur payload reel a montre que `tool_response.agentId` (PostToolUse Agent)
+    et `agent_id` (SubagentStop) sont le MEME identifiant : l'appariement exact existe
+    des lors que le lancement a ete journalise avec son agentId.
+
+    Repli FIFO conserve, et EXPLICITE : les lignes ecrites avant ce changement n'ont
+    pas d'agent_id, et un Agent de premier plan voit son PostToolUse arriver APRES le
+    SubagentStop — son identifiant n'est donc pas encore au journal. Le repli ne rend
+    une duree que si UN SEUL lancement reste ouvert : une duree fausse est pire
+    qu'aucune duree. Fail-open total : toute anomalie rend (None, None).
     """
     try:
         fin = datetime.datetime.fromisoformat(fin_iso)
-        ouverts = []  # ts (datetime) des lancements Agent de cette session pas encore apparies
+        par_id = {}   # agent_id -> ts (datetime) du lancement
+        fermes = set()  # agent_id deja apparies par un subagent-stop anterieur
+        ouverts = []  # ts des lancements Agent pas encore apparies (repli FIFO)
         with open(USAGE_PATH, encoding="utf-8") as fh:
             for ligne in fh:
                 ligne = ligne.strip()
@@ -126,20 +264,37 @@ def _duree_appariee(session_id, fin_iso: str):
                 if not isinstance(e, dict) or e.get("session_id") != session_id:
                     continue
                 if e.get("event") == "subagent-stop":
+                    deja = e.get("agent_id")
+                    if isinstance(deja, str):
+                        fermes.add(deja)
                     if ouverts:
                         ouverts.pop(0)  # FIFO : le plus ancien lancement ouvert se ferme en premier
                 elif e.get("tool") == "Agent":
+                    if e.get("statut") in STATUTS_TERMINAUX:
+                        continue  # la ligne DIT que cette salle est finie : pas un "ouvert"
                     ts = e.get("ts")
-                    if isinstance(ts, str):
-                        try:
-                            ouverts.append(datetime.datetime.fromisoformat(ts))
-                        except ValueError:
-                            pass
+                    if not isinstance(ts, str):
+                        continue
+                    try:
+                        debut = datetime.datetime.fromisoformat(ts)
+                    except ValueError:
+                        continue
+                    ouverts.append(debut)
+                    aid = e.get("agent_id")
+                    if isinstance(aid, str):
+                        par_id[aid] = debut
+        if isinstance(agent_id, str) and agent_id in par_id and agent_id not in fermes:
+            return round((fin - par_id[agent_id]).total_seconds(), 1), "agent_id"
         if len(ouverts) != 1:
-            return None  # aucun lancement ouvert, ou plusieurs (fan-out) : ambigu, on ne devine pas
-        return round((fin - ouverts[0]).total_seconds(), 1)
+            return None, None  # aucun lancement ouvert, ou plusieurs (fan-out) : ambigu
+        return round((fin - ouverts[0]).total_seconds(), 1), "fifo"
     except (OSError, ValueError, TypeError):
-        return None
+        return None, None
+
+
+def _duree_appariee(session_id, fin_iso: str, agent_id=None):
+    """Duree seule — contrat historique, conserve parce que des tests l'encodent."""
+    return _apparier(session_id, fin_iso, agent_id)[0]
 
 
 def _echec_avere(reponse) -> bool:

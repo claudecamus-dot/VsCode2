@@ -123,6 +123,20 @@ _SUFFIXES_POIDS = (" SemiBold", " Semibold", " Semi Bold", " ExtraBold",
                    " Extra Bold", " Bold", " Medium", " Light", " Regular",
                    " Black", " Thin", " ExtraLight", " Extra Light")
 
+# LU DU PLUS LONG AU PLUS COURT, et pas dans l'ordre d'ecriture de la table
+# ci-dessus (remonte depuis VSCode4, audit du 2026-09-09 risque technique n.3 ;
+# constate sur le socle du hub le 2026-09-20, finding
+# hub:pptx-deck/_famille_police). `_famille_police` rend au PREMIER suffixe qui
+# colle : dans l'ordre d'ecriture, " Light" attrape « Outfit Extra Light » avant
+# que " Extra Light" ne soit essaye, et rend « Outfit Extra » -- une famille qui
+# n'existe pas. Le cout reel est sur `police_marque`, qui COMPTE les familles
+# pour prendre la dominante : le meme Outfit s'y separait en deux entrees, dont
+# une au nom faux.
+#
+# La table reste ecrite pour etre LUE (poids groupes par famille) ; c'est
+# l'ordre de LECTURE qui est corrige, ici, une fois pour toutes.
+_SUFFIXES_POIDS_DECROISSANTS = tuple(sorted(_SUFFIXES_POIDS, key=len, reverse=True))
+
 
 def set_police(nom):
     global POLICE
@@ -130,7 +144,7 @@ def set_police(nom):
 
 
 def _famille_police(typeface):
-    for suf in _SUFFIXES_POIDS:
+    for suf in _SUFFIXES_POIDS_DECROISSANTS:
         if typeface.endswith(suf):
             return typeface[: -len(suf)].strip()
     return typeface
@@ -516,15 +530,23 @@ def add_card(slide, l, t, w, h, accent=None):
         add_rect(slide, l, t, 0.07, h, fill=accent, rounded=True, radius=0.5)
 
 
+# Hauteur totale consommee par add_card_header (libelle + filet + respiration)
+# avant que l'appelant ne puisse poser son propre contenu. Finding
+# hub:pptx-deck/add_card_header (2026-09-18) : cette valeur etait muette, la
+# derniere puce d'une carte a en-tete pouvait deborder faute de la connaitre.
+H_CARD_HEADER = 0.36 + 0.045 + 0.14
+
+
 def add_card_header(slide, l, t, w, label, color, size=None):
     """En-tête de carte façon OCTO (VSCode4) : libellé en petites capitales couleur
-    `color` + court filet d'accent dessous. Retourne le y où le contenu peut démarrer."""
+    `color` + court filet d'accent dessous. Retourne le y où le contenu peut démarrer
+    (t + H_CARD_HEADER) : a utiliser pour dimensionner ce qui suit sans deborder."""
     size = TYPE["h3"] if size is None else size
     pad = 0.0
     add_text(slide, l, t, w, 0.34,
              [(label.upper(), dict(size=size, bold=True, color=color))])
     add_rect(slide, l + pad, t + 0.36, 0.5, 0.045, fill=color)
-    return t + 0.36 + 0.045 + 0.14  # y de départ du contenu sous le filet
+    return t + H_CARD_HEADER
 
 
 def add_dot(slide, x, y, d, color):
@@ -532,21 +554,32 @@ def add_dot(slide, x, y, d, color):
     return add_rect(slide, x, y, d, d, fill=color, rounded=True, radius=0.5)
 
 
-def add_chip(slide, x, y, w, h, label, color, text_color="#ffffff", size=None,
+def add_chip(slide, x, y, w, h, label, color, text_color=None, size=None,
              outline=False):
     """Pastille etiquette (pill) a coins pleins arrondis — tag de categorisation
     (« Quick win », « Court terme », un numero de rang…), motif repere sur les
     decks OCTO reels (VSCode4). `outline=True` : fond blanc, bordure + texte de
-    la couleur (variante sobre pour un tag discret, charte « cards nets ») ;
-    sinon fond plein `color`, texte `text_color`. Texte centre, sans ombre."""
+    la couleur par defaut (variante sobre pour un tag discret, charte « cards
+    nets ») ; sinon fond plein `color`, texte blanc par defaut.
+
+    `text_color=None` (defaut) : le texte suit `color` en mode outline (comme
+    la bordure — VScode6/generer_deck.py en depend explicitement, cf. son
+    commentaire a l'appel, teste au rendu le 2026-09-17), blanc en mode plein.
+    Un appelant qui passe `text_color` explicitement l'obtient dans les deux
+    modes — c'etait impossible avant (finding hub:pptx-deck/add_chip, corrige
+    le 2026-09-18 : l'ancien defaut `"#ffffff"` etait une chaine, donc TOUJOURS
+    vraie — `text_color or color` avec cet ancien defaut aurait rendu TOUT
+    chip outline blanc-sur-blanc par defaut, une regression pire que le defaut
+    signale ; `None` comme sentinelle est ce qui rend le correctif sur).
+    Texte centre, sans ombre."""
     size = TYPE["tiny"] if size is None else size
     if outline:
         add_rect(slide, x, y, w, h, fill="#ffffff", line=color, line_w=1.0,
                  rounded=True, radius=0.5)
-        txt = color
+        txt = text_color or color
     else:
         add_rect(slide, x, y, w, h, fill=color, rounded=True, radius=0.5)
-        txt = text_color
+        txt = text_color or "#ffffff"
     add_text(slide, x, y, w, h,
              [(label, dict(size=size, bold=True, color=txt, align=PP_ALIGN.CENTER))],
              anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER)
@@ -612,21 +645,29 @@ def add_encart(slide, l, t, w, h, text, accent=None, label=None, size=None,
 
 
 def add_quote_banner(slide, l, t, w, h, text, fill=None, accent=None,
-                     text_color="#ffffff", size=15.5):
+                     text_color="#ffffff", size=15.5, retrait=0.62):
     """Bandeau de clôture « la phrase qu'on retient » : fond plein (SEUL aplat
     plein assumé d'une slide navy/cyan) + guillemet décoratif surdimensionné en
     coin + point isolé après le dernier mot. Réservé à 1-3 phrases de synthèse
     en fin de slide, jamais un titre (leçon VSCode3, exploration
     check_slide_synthese 2026-09-04). `fill`/`accent` défaut sur INK/couleur
     d'accent si non fournis — passer explicitement pour coller à la charte du
-    deck cible."""
+    deck cible.
+
+    `retrait` (finding hub:pptx-deck/add_quote_banner, 2026-09-18) : le
+    guillemet occupe une boite jusqu'a l+0.54in (l+0.14 de decalage + 0.4 de
+    largeur) ; l'ancien retrait du texte (0.20) laissait la premiere ligne
+    chevaucher le guillemet des qu'une phrase remplissait la largeur -- constat
+    sur 5 slides reelles le 2026-09-17. 0.62 degage le guillemet avec une
+    marge ; augmenter si `size` grossit le guillemet au-dela de 24pt par
+    defaut."""
     fill = fill or INK
     accent = accent or "#00D2DD"
     add_rect(slide, l, t, w, h, fill=fill, rounded=True, radius=0.10)
     add_text(slide, l + 0.14, t + 0.02, 0.4, min(0.4, h - 0.04), [
         ("“", dict(size=24, bold=True, color=accent)),
     ], anchor=MSO_ANCHOR.TOP)
-    add_text_runs(slide, l + 0.20, t, w - 0.40, h, [
+    add_text_runs(slide, l + retrait, t, w - 2 * retrait, h, [
         ([(text, dict(size=size, bold=True, color=text_color)),
           ("  •", dict(size=size, bold=True, color=accent))],
          dict(align=PP_ALIGN.CENTER)),
@@ -830,6 +871,15 @@ def verifier_geometrie(prs, marge_in=0.02):
             if None in (l, t, w, h):
                 continue
             nom = shp.name or "shape"
+            if w <= 0 or h <= 0:
+                # Pas de tolerance ici, contrairement aux bords : une dimension
+                # nulle ou negative n'est jamais un arrondi acceptable, c'est
+                # un calcul de layout qui a decroche.
+                problemes.append(
+                    f"slide {si}: '{nom}' dimension non positive "
+                    f"(w={Emu(w).inches:.2f} h={Emu(h).inches:.2f} ; boite "
+                    f"inversee ou nulle, la forme est invisible au rendu)")
+                continue
             if l < -tol or t < -tol or (l + w) > W + tol or (t + h) > H + tol:
                 problemes.append(
                     f"slide {si}: '{nom}' hors cadre "
@@ -837,6 +887,22 @@ def verifier_geometrie(prs, marge_in=0.02):
                     f"r={Emu(l + w).inches:.2f} b={Emu(t + h).inches:.2f} ; "
                     f"slide {Emu(W).inches:.2f}x{Emu(H).inches:.2f})")
     return problemes
+
+
+def shapes_overlap(bbox1, bbox2):
+    """Deux boites (l, t, w, h) EN POUCES se recouvrent-elles ? Angle mort
+    documente des filets ci-dessus (finding hub:pptx-deck/add_quote_banner,
+    2026-09-18) : verifier_geometrie ne voit que les sorties de slide,
+    verifier_debordements_texte ne voit que le texte hors de SA PROPRE boite
+    -- aucun filet n'attrapait une collision entre DEUX formes distinctes
+    (texte sous un guillemet decoratif, libelle sous un biseau de chevron).
+
+    Bbox pures, sans rendu ni police : ne detecte PAS un debordement de texte
+    a l'INTERIEUR d'une boite qui ne se recouvre pas (ca reste le role de
+    verifier_debordements_texte)."""
+    l1, t1, w1, h1 = bbox1
+    l2, t2, w2, h2 = bbox2
+    return l1 < l2 + w2 and l2 < l1 + w1 and t1 < t2 + h2 and t2 < t1 + h1
 
 
 def _noter(compte, cle):

@@ -59,7 +59,18 @@ navy/cyan de type proposition commerciale :
 3. **Chevron = marqueur de séquence/flux.** `MSO_SHAPE.CHEVRON` (seul preset natif
    python-pptx rendant la silhouette encoche-gauche/pointe-droite SANS rotation — une
    rotation fausserait `verifier_geometrie`, qui mesure le cadre non pivoté) comme
-   étiquette de titre d'étape ou petite flèche de connexion.
+   étiquette de titre d'étape ou petite flèche de connexion. `shp.adjustments[0]`
+   (`adj`, défaut 0.5, vérifié par python-pptx) règle la profondeur de l'encoche en
+   fraction du PLUS PETIT côté (`adj × min(largeur, hauteur)`) — un chevron large et
+   bas garde une encoche proportionnée à sa hauteur, pas à sa largeur.
+   **Piège mesuré (constat VScode6, 2026-09-17) : un libellé centré sur le cadre
+   EXTÉRIEUR du chevron chevauche les biseaux.** L'encoche mord `adj × min(w, h)`
+   à GAUCHE et le même écart à DROITE — poser le texte avec un retrait symétrique
+   d'au moins cette valeur (`add_text(..., l + retrait, ..., w - 2*retrait, ...)`,
+   même logique que `add_quote_banner`) avant de le centrer. `verifier_geometrie`
+   et `verifier_debordements_texte` ne voient ni l'un ni l'autre cette collision
+   entre deux formes (`shapes_overlap()` du hub, ajoutée pour ce cas, le permet en
+   test) : c'est à l'appelant de retirer le texte, aucun filet ne le fera pour lui.
 4. **Badge à cheval sur un bord.** Pastille ronde (pleine = acté, contour pointillé =
    optionnel) centrée SUR le bord d'une forme voisine plutôt que posée à côté reliée
    par une flèche. `verifier_geometrie` ne détecte QUE les sorties de slide, jamais les
