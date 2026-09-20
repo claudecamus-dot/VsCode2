@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import shutil
 import subprocess
@@ -10,6 +11,8 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from ..models import AgentResult, Mission
+
+logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parents[2]
 AGENTS_DIR = ROOT / ".opencode" / "agents"
@@ -187,20 +190,29 @@ def _run_opencode_agent(agent_id: str, prompt: str) -> str:
             timeout=90,
             shell=False,
         )
-    except subprocess.TimeoutExpired as exc:
-        return (
-            f"Échec : délai d'exécution dépassé après {exc.timeout} secondes."
-            f"\nCommande : {' '.join(cmd)}"
-        )
-    except OSError as exc:
-        return f"Échec : impossible de lancer opencode : {exc}"
+    except subprocess.TimeoutExpired:
+        # Message FIXE, jamais `' '.join(cmd)` : l'argv porte le chemin absolu
+        # de l'executable resolu ET le prompt complet, qui contient les donnees
+        # de mission. Meme regle que app/routers/interviews_audio.py:85-90.
+        logger.warning("Delai depasse a l'invocation OpenCode", exc_info=True)
+        return "Échec : délai d'exécution dépassé."
+    except OSError:
+        # Message FIXE, jamais le texte de l'exception : il porte les chemins
+        # absolus du poste.
+        logger.warning("Impossible de lancer opencode", exc_info=True)
+        return "Échec : impossible de lancer opencode."
 
     if result.returncode != 0:
-        stderr = result.stderr.strip()
+        # `result.stderr` est la sortie brute d'un sous-processus : elle porte
+        # traces et chemins absolus du poste. Elle reste au journal serveur.
+        logger.warning(
+            "Invocation OpenCode en echec, code %s : %s",
+            result.returncode,
+            result.stderr.strip(),
+        )
         return (
             "Échec de l'invocation de l'agent OpenCode.\n"
-            f"Code de retour : {result.returncode}\n"
-            f"{stderr or "Aucune sortie d'erreur."}"
+            f"Code de retour : {result.returncode}"
         )
 
     output = result.stdout.strip()
@@ -265,20 +277,29 @@ def _run_opencode_skill(skill_id: str, prompt: str) -> str:
             timeout=90,
             shell=False,
         )
-    except subprocess.TimeoutExpired as exc:
-        return (
-            f"Échec : délai d'exécution dépassé après {exc.timeout} secondes."
-            f"\nCommande : {' '.join(cmd)}"
-        )
-    except OSError as exc:
-        return f"Échec : impossible de lancer opencode : {exc}"
+    except subprocess.TimeoutExpired:
+        # Message FIXE, jamais `' '.join(cmd)` : l'argv porte le chemin absolu
+        # de l'executable resolu ET le prompt complet, qui contient les donnees
+        # de mission. Meme regle que app/routers/interviews_audio.py:85-90.
+        logger.warning("Delai depasse a l'invocation OpenCode", exc_info=True)
+        return "Échec : délai d'exécution dépassé."
+    except OSError:
+        # Message FIXE, jamais le texte de l'exception : il porte les chemins
+        # absolus du poste.
+        logger.warning("Impossible de lancer opencode", exc_info=True)
+        return "Échec : impossible de lancer opencode."
 
     if result.returncode != 0:
-        stderr = result.stderr.strip()
+        # `result.stderr` est la sortie brute d'un sous-processus : elle porte
+        # traces et chemins absolus du poste. Elle reste au journal serveur.
+        logger.warning(
+            "Invocation OpenCode en echec, code %s : %s",
+            result.returncode,
+            result.stderr.strip(),
+        )
         return (
             "Échec de l'invocation du skill OpenCode.\n"
-            f"Code de retour : {result.returncode}\n"
-            f"{stderr or 'Aucune sortie d\'erreur.'}"
+            f"Code de retour : {result.returncode}"
         )
 
     output = result.stdout.strip()
