@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : 8bbbead du 2026-09-20 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`8bbbead`, 2026-09-20) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : eb91b5f du 2026-09-20 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`eb91b5f`, 2026-09-20) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -235,6 +235,43 @@ description d'intention. Les gestes exacts :
      **deferral silencieux (4,2 à 25,7 %)**, et il monte précisément quand l'affordance
      « demander » est absente. Les sous-agents du hub *peuvent* joindre l'orchestrateur
      — deux salles s'en sont servies le 2026-09-19 — mais aucun brief ne le leur disait.
+  5. **`UNCERTAINTY`** — « si un fait ne peut pas être établi, écrire
+     `Information insuffisante` et le porter en sortie, jamais le supposer ni
+     l'interpoler ». À ne pas confondre avec la clause anti-ambiguïté ci-dessus, qui
+     couvre ce que le brief n'a **pas dit** (→ l'inspecter dans le code réel) : celle-ci
+     couvre ce qui n'est **pas connaissable** même en inspectant. Ce sont deux cas
+     distincts, et c'est le second qui a produit le 2026-09-20 trois faits faux
+     transmis d'un brief à une salle — le rédacteur a comblé un trou au lieu de le
+     déclarer. Un brief qui n'ouvre pas ce droit oblige l'exécutant à inventer.
+  6. **`QUALITY CRITERIA`** — à côté de la condition d'arrêt (qui dit *quand* la tâche
+     est finie), écrire **à quoi l'orchestrateur reconnaîtra un bon rendu** : critères
+     **nommés et vérifiables** (« chaque chiffre porte sa commande », « les mutants
+     posés sont listés avec leur test tueur », « `export --check` à 0 dérive »), pas un
+     adjectif de qualité. Condition d'arrêt et critères de qualité ne se remplacent pas :
+     un rendu peut satisfaire la première et être inexploitable.
+
+  **Bloc de fin de salle, obligatoire et STRUCTURÉ** (2026-09-20). La frontière
+  sous-agent → orchestrateur était la dernière encore en prose libre : tout le reste du
+  brief est slotté, mais le rendu revenait en récit, où une prétention de commit ne se
+  distinguait pas d'un fait établi. Tout brief de salle de travail exige désormais, en
+  **dernières lignes du rendu**, un slot par ligne, littéralement :
+
+  ```
+  STATUT : fini | partiel | bloque
+  COMMIT : <sha> | aucun
+  FAITS INFIRMÉS : <lesquels, avec la preuve> | aucun
+  INFORMATION INSUFFISANTE : <quoi, et pourquoi non établissable> | aucune
+  NON FERMÉ : <ce qui reste> | rien
+  ```
+
+  Le slot `COMMIT :` est **outillé** par le hook `SubagentStop`
+  `guard_terminaison_etayee.py` : absent, il vaut refus nommant le slot ; renseigné, le
+  sha est vérifié par `git cat-file -e <sha>^{commit}` — citer n'est pas prouver. Le
+  gate n'exige ce bloc que des sous-agents `general-purpose` (les salles de travail) :
+  `Explore`, `claude-code-guide`, `utilisateur-produit` et les porteurs de lecture
+  rendent un rapport, pas un commit, et restent jugés comme avant (sur la seule
+  prétention de commit). C'est le `agent_type` du payload qui tranche, pas une
+  heuristique sur le texte.
 - **Arrière-plan** : `run_in_background: true` (défaut) rend la main immédiatement,
   la notification arrive à la fin — ne jamais écrire le résultat à sa place ; s'il
   faut le résultat pour continuer, `run_in_background: false` (synchrone).
