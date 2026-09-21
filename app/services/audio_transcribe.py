@@ -26,11 +26,16 @@ entretien pré-enregistré de 1h30-3h ne peut pas passer par le chemin
 séquentiel ci-dessus dans un temps raisonnable (mesuré ~0,84-0,88x la durée
 réelle en RTF sur du contenu réel, CPU seul, soit ~80-160 min de calcul) —
 voir le cadrage `_bmad-output/cadrage-transcription-perf.md`. Au-delà de
-`PARALLEL_THRESHOLD_S`, `transcribe_audio()` découpe l'audio en tronçons
-d'environ 30s et les transcrit en parallèle sur plusieurs cœurs CPU
-(`ProcessPoolExecutor` — chaque processus charge son propre modèle, pas de
-partage possible entre processus), avant de concaténer les textes dans
-l'ordre. Mesuré ~1,8x plus rapide que le séquentiel sur un extrait réel de
+`PARALLEL_THRESHOLD_S`, `transcribe_audio()` découpe l'audio en `n_workers`
+tronçons de taille ÉGALE (`len(pcm) // n_workers`, chevauchant légèrement
+leurs voisins — cf. `OVERLAP_S` — pour ne pas couper un mot en deux) et les
+transcrit en parallèle sur plusieurs cœurs CPU (`ProcessPoolExecutor` —
+chaque processus charge son propre modèle, pas de partage possible entre
+processus), avant de recoller les textes dans l'ordre en dédupliquant les
+recouvrements (`_merge_overlapping_texts`). `duration_s // 30` ne sert qu'à
+BORNER `n_workers` (voir `MAX_PARALLEL_WORKERS`), pas à fixer une taille de
+tronçon fixe de 30s : sur un fichier de 3h avec 8 workers, chaque tronçon
+fait ~22 minutes, pas 30s. Mesuré ~1,8x plus rapide que le séquentiel sur un extrait réel de
 5 min (RTF 0,84 → 0,45-0,49 selon le nombre de workers, 2026-07-16) — un
 entretien de 1h30 tient alors tout juste dans un budget de 45 min avec le
 reste du pipeline (traitement IA inclus) ; un entretien de 3h reste
@@ -102,6 +107,35 @@ MAX_PARALLEL_WORKERS = int(os.environ.get("WHISPER_MAX_WORKERS", str(min(8, os.c
 # threads, sur ce CPU hybride P/E-cores (contention mémoire au-delà d'un
 # certain nombre de threads par processus).
 CPU_THREADS_PER_WORKER = int(os.environ.get("WHISPER_CPU_THREADS", "1"))
+
+# Marge de recouvrement (secondes) entre tronçons VOISINS de
+# `_transcribe_parallel`, de part et d'autre de chaque frontière de découpage
+# interne (pas aux deux bords du fichier). Un slicing contigu sans marge
+# coupe un mot ou une phrase pile sur la frontière calculée : la moitié
+# atterrit dans un tronçon, l'autre moitié dans le suivant, et chacun la
+# transcrit (ou non) indépendamment — mot dupliqué ou perdu selon les VAD de
+# chaque côté. 2s suffit à couvrir un mot/une courte phrase à cheval sans
+# gonfler notablement le volume total transcrit (~n_workers-1 fois 2×2s sur
+# tout l'audio). Voir `_merge_overlapping_texts` pour la déduplication au
+# recollement.
+OVERLAP_S = float(os.environ.get("WHISPER_PARALLEL_OVERLAP_S", "2"))
+
+# Plafond GLOBAL de workers de transcription actifs simultanément, tous
+# appels confondus (chemin parallèle ET séquentiel) — chaque worker parallèle
+# charge son propre modèle Whisper (~1,5 Go en `medium` int8, cf. « Repli
+# quand le pool casse » dans la docstring du module) : `MAX_PARALLEL_WORKERS`
+# ne borne qu'UN appel, pas la somme de plusieurs transcriptions parallèles
+# concurrentes (plusieurs imports de fichiers longs lancés en même temps),
+# qui pouvait donc dépasser la mémoire disponible sans qu'aucun garde-fou ne
+# s'en aperçoive avant coup — `_paliers_workers` ne réagit qu'APRÈS un
+# `BrokenProcessPool`, pas avant, et un `MemoryError` levé DANS un worker
+# (au lieu de le tuer proprement) y échappe entièrement. Le chemin séquentiel
+# a lui `_MODEL_LOCK` (un seul modèle en mémoire pour toute l'appli) ; ce
+# sémaphore lui donne l'équivalent côté parallèle.
+GLOBAL_MAX_PARALLEL_WORKERS = int(
+    os.environ.get("WHISPER_GLOBAL_MAX_WORKERS", str(MAX_PARALLEL_WORKERS))
+)
+_GLOBAL_WORKERS_SEMAPHORE = threading.Semaphore(max(1, GLOBAL_MAX_PARALLEL_WORKERS))
 
 # Temps (secondes) qu'une transcription synchrone (direct : segment de
 # record.html, ou dictée de notes libres) attend `_MODEL_LOCK` avant de
@@ -304,9 +338,21 @@ def _transcribe_pcm_chunk(args: tuple) -> str:
 
 
 def _transcribe_parallel(content: bytes, duration_s: float) -> str:
-    """Découpe l'audio en tronçons d'environ 30s (map), les transcrit en
-    parallèle sur plusieurs cœurs CPU, puis concatène les textes dans
-    l'ordre (reduce) — voir docstring du module pour la mesure de gain.
+    """Découpe l'audio en `n_workers` tronçons de taille égale (`len(pcm) //
+    n_workers`, PAS des tronçons fixes de 30s : `duration_s // 30` ne sert
+    qu'à BORNER `n_workers` ci-dessous, cf. `MAX_PARALLEL_WORKERS` — sur un
+    fichier de 3h avec 8 workers, chaque tronçon fait ~22 min, pas 30s),
+    les transcrit en parallèle sur plusieurs cœurs CPU, puis recolle les
+    textes dans l'ordre (reduce) — voir docstring du module pour la mesure
+    de gain.
+
+    Tronçons voisins se chevauchent de `OVERLAP_S` de part et d'autre de la
+    frontière calculée (sauf aux deux bords du fichier) : un slicing contigu
+    sans marge coupait un mot ou une phrase pile sur la frontière, le
+    dupliquant à moitié dans un tronçon et le perdant dans l'autre. Avec la
+    marge, le mot à cheval est entendu EN ENTIER des deux côtés ;
+    `_merge_overlapping_texts` déduplique ensuite la redite au recollement
+    plutôt qu'un `' '.join` naïf qui la laisserait telle quelle.
 
     Repli séquentiel si le pool de processus casse (cf. `_pool_casse`)."""
     pcm = _decode_to_pcm16k(content)
@@ -315,10 +361,12 @@ def _transcribe_parallel(content: bytes, duration_s: float) -> str:
 
     n_workers = max(1, min(MAX_PARALLEL_WORKERS, int(duration_s // 30) or 1))
     chunk_len = len(pcm) // n_workers
-    chunks = [
-        pcm[i * chunk_len:] if i == n_workers - 1 else pcm[i * chunk_len:(i + 1) * chunk_len]
-        for i in range(n_workers)
-    ]
+    overlap = int(OVERLAP_S * 16000)
+    chunks = []
+    for i in range(n_workers):
+        start = 0 if i == 0 else i * chunk_len - overlap
+        end = len(pcm) if i == n_workers - 1 else (i + 1) * chunk_len + overlap
+        chunks.append(pcm[max(0, start):min(len(pcm), end)])
     # Même mécanique de reprise que `iter_transcribe_blocks` (revue
     # adversariale 2026-07-29) : l'ancien repli `except BrokenProcessPool:
     # return _transcribe_pcm_sequential(pcm)` jetait les tronçons DÉJÀ
@@ -346,7 +394,7 @@ def _transcribe_parallel(content: bytes, duration_s: float) -> str:
     while index < total:
         parts[index] = _transcribe_pcm_sequential(chunks[index])
         index += 1
-    return " ".join(p for p in (parts[i] for i in range(total)) if p).strip()
+    return _merge_overlapping_texts([parts[i] for i in range(total)])
 
 
 def _transcribe_pcm_sequential(pcm) -> str:
@@ -359,6 +407,46 @@ def _transcribe_pcm_sequential(pcm) -> str:
             pcm, language="fr", beam_size=BEAM_SIZE, vad_filter=True
         )
         return " ".join(seg.text.strip() for seg in segments).strip()
+
+
+def _norm_word(word: str) -> str:
+    """Normalise un mot pour la comparaison de recouvrement : casse et
+    ponctuation simple ignorées, car les DEUX côtés d'un même son peuvent
+    être transcrits avec une ponctuation légèrement différente (VAD/beam
+    search indépendants dans chaque tronçon)."""
+    return word.strip(".,;:!?\"'…»«").lower()
+
+
+def _find_word_overlap(prev_words: list, next_words: list, max_check: int = 12) -> int:
+    """Longueur (en mots) du plus long suffixe de `prev_words` égal au préfixe
+    de `next_words`, recherchée parmi les `max_check` derniers/premiers mots.
+    `OVERLAP_S` (quelques secondes) ne peut produire qu'une poignée de mots
+    communs, jamais une phrase entière : borner la recherche évite un faux
+    positif sur une répétition fortuite plus loin dans le texte."""
+    limit = min(max_check, len(prev_words), len(next_words))
+    for size in range(limit, 0, -1):
+        a = [_norm_word(w) for w in prev_words[-size:]]
+        b = [_norm_word(w) for w in next_words[:size]]
+        if a == b:
+            return size
+    return 0
+
+
+def _merge_overlapping_texts(texts: list) -> str:
+    """Recolle les textes de tronçons VOISINS transcrits avec un recouvrement
+    audio (`OVERLAP_S`) en dédupliquant les mots communs à la jonction, au
+    lieu d'un `' '.join` naïf qui laisserait la redite telle quelle (un mot
+    ou une courte phrase à cheval sur la frontière calculée serait alors
+    dupliqué dans le texte final)."""
+    non_vides = [t for t in texts if t]
+    if not non_vides:
+        return ""
+    mots = non_vides[0].split()
+    for texte in non_vides[1:]:
+        suivants = texte.split()
+        chevauchement = _find_word_overlap(mots, suivants)
+        mots.extend(suivants[chevauchement:])
+    return " ".join(mots).strip()
 
 
 def split_pcm_blocks(pcm, block_s: int) -> list:
@@ -394,25 +482,38 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int):
 
     Laisse remonter `BrokenProcessPool` : c'est l'appelant qui décide du repli
     (palier suivant, puis séquentiel). Ne touche jamais aux blocs déjà rendus,
-    donc une reprise à `start` ne re-transcrit rien."""
+    donc une reprise à `start` ne re-transcrit rien.
+
+    Acquiert `n_workers` permis sur `_GLOBAL_WORKERS_SEMAPHORE` avant de
+    démarrer le pool, et les relâche à la sortie (y compris sur
+    `BrokenProcessPool` ou toute autre exception) — plafond mémoire GLOBAL
+    partagé entre tous les appels concurrents, cf. `GLOBAL_MAX_PARALLEL_WORKERS`."""
     window = n_workers * 2  # assez pour ne jamais affamer les workers
     futures: dict[int, object] = {}
-    with ProcessPoolExecutor(max_workers=n_workers) as executor:
-        def _submit(i: int) -> None:
-            futures[i] = executor.submit(
-                _transcribe_pcm_chunk, (blocks[i], CPU_THREADS_PER_WORKER)
-            )
+    acquis = 0
+    try:
+        for _ in range(n_workers):
+            _GLOBAL_WORKERS_SEMAPHORE.acquire()
+            acquis += 1
+        with ProcessPoolExecutor(max_workers=n_workers) as executor:
+            def _submit(i: int) -> None:
+                futures[i] = executor.submit(
+                    _transcribe_pcm_chunk, (blocks[i], CPU_THREADS_PER_WORKER)
+                )
 
-        submitted = start
-        while submitted < min(start + window, total):
-            _submit(submitted)
-            submitted += 1
-        for index in range(start, total):
-            text = futures.pop(index).result()
-            if submitted < total:
+            submitted = start
+            while submitted < min(start + window, total):
                 _submit(submitted)
                 submitted += 1
-            yield index, text
+            for index in range(start, total):
+                text = futures.pop(index).result()
+                if submitted < total:
+                    _submit(submitted)
+                    submitted += 1
+                yield index, text
+    finally:
+        for _ in range(acquis):
+            _GLOBAL_WORKERS_SEMAPHORE.release()
 
 
 def iter_transcribe_blocks(
