@@ -80,6 +80,7 @@ from ..services.interview_segment_jobs import (
     recover_stalled_or_failed_jobs,
     run_segment_job,
     segment_jobs_status,
+    segment_jobs_status_light,
 )
 from ..services.mission_axes import axes_of
 from ..templating import templates
@@ -1150,21 +1151,33 @@ def segment_jobs_status_json(
 
 @router.get("/interviews/segment-jobs/turns")
 def segment_jobs_turns_json(
-    session_token: str, db: Session = Depends(get_session)
+    session_token: str, since: int = 0, db: Session = Depends(get_session)
 ):
     """Tours de parole DÉJÀ extraits (jobs terminés) d'une session — alimente
     l'aperçu live en lecture seule de l'onglet « Répartition » de
     `record_libre.html` (Palier A). Lecture seule stricte, AUCUN appel IA : ne
     fait que fusionner (par `position`) les `turns_result` déjà calculés en
     tâche de fond. Les tours du reliquat final (< 5 min) et de la synthèse
-    n'apparaissent qu'à l'enregistrement, par le flux existant."""
-    status = segment_jobs_status(db, session_token)
+    n'apparaissent qu'à l'enregistrement, par le flux existant.
+
+    `since` (curseur de POSITION de tranche, optionnel, même esprit que le
+    `since` de `transcribe_file_status`) : ne recharge/refusionne que les
+    tranches terminées à partir de cette position — les tours étant produits
+    dans l'ordre chronologique des tranches, ils s'ACCUMULENT, jamais réécrits.
+    Un client qui ne le fournit pas (`since=0`, ancien frontend en cache) reçoit
+    la fusion complète comme avant : compat inchangée. `record_libre.html`
+    fournit désormais ce curseur et accumule les tours reçus."""
+    status = segment_jobs_status_light(db, session_token, since_position=since)
     merged = merge_segment_turns(status["jobs"], None)
+    next_since = max(
+        [since] + [j.position + 1 for j in status["jobs"]]
+    )
     return JSONResponse(
         {
             "turns": merged["turns"],
             "done": status["done"],
             "total": status["total"],
+            "next_since": next_since,
         }
     )
 
@@ -1178,8 +1191,15 @@ def segment_jobs_answers_json(
     « Répartition (Q/R) » de `record.html`. Lecture seule stricte, AUCUN appel
     IA : ne fait que fusionner (première réponse non vide par question, ordre
     des tranches) les résultats déjà calculés en tâche de fond. Le reliquat
-    final (< 5 min) n'apparaît qu'à la soumission, par le flux existant."""
-    status = segment_jobs_status(db, session_token)
+    final (< 5 min) n'apparaît qu'à la soumission, par le flux existant.
+
+    Contrairement à `segment_jobs_turns_json`, pas de curseur de position ici :
+    une réponse commencée dans une tranche peut être COMPLÉTÉE par une tranche
+    ultérieure (`_merge_answer_into`, continuations) — ignorer les tranches
+    déjà vues perdrait ces compléments. `segment_jobs_status_light` évite
+    quand même le coût dominant mesuré (chargement de la colonne `text`, tout
+    le texte source, à chaque sondage 5s)."""
+    status = segment_jobs_status_light(db, session_token)
     merged = merge_segment_answers(status["jobs"], None)
     return JSONResponse(
         {

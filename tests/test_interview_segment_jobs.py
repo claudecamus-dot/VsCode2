@@ -41,6 +41,14 @@ from app.services import interview_segment_jobs
 
 
 def setup_module() -> None:
+    # Le pool de `engine` est PARTAGE par toute la suite : sans ce dispose,
+    # le fichier de test precedent tient encore la base et l'unlink leve
+    # WinError 32 sur Windows (vert en isolation, rouge en ordre de
+    # collecte). Motif canonique de la suite, cf. test_deck_qualite.py.
+    try:
+        engine.dispose()
+    except Exception:
+        pass
     if DB_PATH.exists():
         DB_PATH.unlink()
     init_db()
@@ -420,7 +428,71 @@ def test_turns_endpoint_merges_done_jobs_in_position_order(client: TestClient) -
 
 def test_turns_endpoint_unknown_token_is_empty(client: TestClient) -> None:
     resp = client.get("/interviews/segment-jobs/turns", params={"session_token": "nope"})
-    assert resp.json() == {"turns": [], "done": 0, "total": 0}
+    assert resp.json() == {"turns": [], "done": 0, "total": 0, "next_since": 0}
+
+
+def test_turns_endpoint_since_cursor_only_returns_new_turns(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Le curseur `since` (position) ne redemande/refusionne QUE les tranches
+    `done` à partir de cette position — sondé toutes les 5s pendant tout un
+    entretien, c'est ce qui évite de recharger et refusionner l'intégralité de
+    la session à chaque appel (correctif du 2026-09-21). Sans `since`, le
+    comportement complet d'avant est inchangé (compat frontend en cache)."""
+    db = SessionLocal()
+    db.add(InterviewSegmentJob(session_token="cursor-tok", position=0, status="done",
+                               text="texte tranche 0 " * 500,
+                               turns_result=_turns_payload("Alice", "Q0")))
+    db.add(InterviewSegmentJob(session_token="cursor-tok", position=1, status="done",
+                               text="texte tranche 1 " * 500,
+                               turns_result=_turns_payload("Bob", "Q1")))
+    db.commit()
+    db.close()
+
+    # Sans curseur : comportement historique, fusion complète.
+    resp = client.get("/interviews/segment-jobs/turns", params={"session_token": "cursor-tok"})
+    body = resp.json()
+    assert [t["question"] for t in body["turns"]] == ["Q0", "Q1"]
+    next_since = body["next_since"]
+    assert next_since == 2  # position du dernier job vu (1) + 1
+
+    # AVANT le correctif, un second appel rechargeait et refusionnait les DEUX
+    # tranches (dont leur colonne `text`, ici volontairement volumineuse) —
+    # preuve que la requête sous-jacente ne recharge plus les entités déjà
+    # vues : on instrumente `segment_jobs_status_light` pour compter les jobs
+    # RÉELLEMENT relus par la fusion.
+    jobs_lus = []
+    original = interview_segment_jobs.segment_jobs_status_light
+
+    def _espion(db_arg, session_token, since_position=0):
+        result = original(db_arg, session_token, since_position=since_position)
+        jobs_lus.append(list(result["jobs"]))
+        return result
+
+    monkeypatch.setattr(interviews_router, "segment_jobs_status_light", _espion)
+
+    # Une 3e tranche termine ENTRE les deux polls du client.
+    db = SessionLocal()
+    db.add(InterviewSegmentJob(session_token="cursor-tok", position=2, status="done",
+                               text="texte tranche 2 " * 500,
+                               turns_result=_turns_payload("Carla", "Q2")))
+    db.commit()
+    db.close()
+
+    resp2 = client.get(
+        "/interviews/segment-jobs/turns",
+        params={"session_token": "cursor-tok", "since": next_since},
+    )
+    body2 = resp2.json()
+
+    # Preuve rouge->vert : seule la tranche NOUVELLE (position 2) a été
+    # rechargée/refusionnée — pas les deux déjà vues.
+    assert len(jobs_lus) == 1
+    assert [j.position for j in jobs_lus[0]] == [2]
+    assert [t["question"] for t in body2["turns"]] == ["Q2"]
+    assert body2["total"] == 3
+    assert body2["done"] == 3
+    assert body2["next_since"] == 3
 
 
 # --------------------------------------------------------------------------- #

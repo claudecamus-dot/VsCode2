@@ -31,8 +31,8 @@ import logging
 import os
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, update
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select, update
+from sqlalchemy.orm import Session, load_only
 
 from ..db import SessionLocal
 from ..models import InterviewSegmentJob, Mission
@@ -340,6 +340,102 @@ def segment_jobs_status(db: Session, session_token: str) -> dict:
         # any_failed déclenche la fin de l'attente (écran de statut) : un job
         # explicitement `failed`, OU bloqué depuis trop longtemps (stale) —
         # dans les deux cas la finalisation sait le re-traiter individuellement.
+        "any_failed": failed > 0 or stale > 0,
+    }
+
+
+# Colonnes chargées pour la fusion des tranches déjà terminées (jamais `text` :
+# jusqu'à 5min de transcription par tranche, inutile ici, `turns_result`
+# suffit — voir `segment_jobs_status_light`).
+_MERGE_LIGHT_COLUMNS = (
+    InterviewSegmentJob.id,
+    InterviewSegmentJob.session_token,
+    InterviewSegmentJob.position,
+    InterviewSegmentJob.kind,
+    InterviewSegmentJob.status,
+    InterviewSegmentJob.turns_result,
+    InterviewSegmentJob.created_at,
+)
+
+
+def segment_jobs_status_light(
+    db: Session, session_token: str, since_position: int = 0
+) -> dict:
+    """Version allégée de `segment_jobs_status`, pour les endpoints de LECTURE
+    SEULE `/segment-jobs/turns` et `/segment-jobs/answers` — sondés toutes les
+    5s pendant tout un entretien (jusqu'à 3h) par `pollRepartition`. Jamais
+    utilisée par la finalisation ni `recover_stalled_or_failed_jobs`, qui ont
+    besoin de la ligne ENTIÈRE (dont `text`, pour retraiter une tranche) et
+    restent sur `segment_jobs_status`.
+
+    Deux économies, sur le modèle du curseur `since` de `transcribe_file_status`
+    (`interviews_audio.py`) :
+    - les colonnes lourdes (`text`, potentiellement plusieurs minutes de
+      transcription par tranche) ne sont JAMAIS chargées ici — seul
+      `turns_result`, déjà extrait, sert à la fusion. C'est le chargement de
+      `text` à chaque poll qui rendait le sondage quadratique sur un entretien
+      long.
+    - `since_position` (curseur de position, optionnel) ne charge en entités
+      complètes que les tranches `done` à partir de cette position — sur un
+      client qui ne le fournit pas (compat, `since_position=0`), le
+      comportement est inchangé : toutes les tranches terminées depuis le
+      début (les positions démarrent à 0).
+    `total`/`done`/`failed`/`stale` restent calculés sur TOUTES les lignes de
+    la session, par agrégats SQL (`func.count`), jamais faussés par le
+    curseur — seule la fusion des tours/réponses en profite."""
+    if not session_token:
+        return {"jobs": [], "total": 0, "done": 0, "failed": 0, "stale": 0,
+                "all_done": False, "any_failed": False}
+    now = datetime.now(UTC).replace(tzinfo=None)
+    total = db.scalar(
+        select(func.count(InterviewSegmentJob.id)).where(
+            InterviewSegmentJob.session_token == session_token
+        )
+    ) or 0
+    done = db.scalar(
+        select(func.count(InterviewSegmentJob.id)).where(
+            InterviewSegmentJob.session_token == session_token,
+            InterviewSegmentJob.status == "done",
+        )
+    ) or 0
+    failed = db.scalar(
+        select(func.count(InterviewSegmentJob.id)).where(
+            InterviewSegmentJob.session_token == session_token,
+            InterviewSegmentJob.status == "failed",
+        )
+    ) or 0
+    # `_is_stale` a besoin de `created_at` par ligne (pending/running) : pas
+    # d'agrégat SQL possible, mais colonnes réduites (jamais `text`).
+    pending_or_running = list(
+        db.scalars(
+            select(InterviewSegmentJob)
+            .options(load_only(InterviewSegmentJob.id, InterviewSegmentJob.status, InterviewSegmentJob.created_at))
+            .where(
+                InterviewSegmentJob.session_token == session_token,
+                InterviewSegmentJob.status.in_(("pending", "running")),
+            )
+        )
+    )
+    stale = sum(1 for j in pending_or_running if _is_stale(j, now))
+    jobs = list(
+        db.scalars(
+            select(InterviewSegmentJob)
+            .options(load_only(*_MERGE_LIGHT_COLUMNS))
+            .where(
+                InterviewSegmentJob.session_token == session_token,
+                InterviewSegmentJob.status == "done",
+                InterviewSegmentJob.position >= since_position,
+            )
+            .order_by(InterviewSegmentJob.position)
+        )
+    )
+    return {
+        "jobs": jobs,
+        "total": total,
+        "done": done,
+        "failed": failed,
+        "stale": stale,
+        "all_done": total > 0 and done == total,
         "any_failed": failed > 0 or stale > 0,
     }
 

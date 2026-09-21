@@ -2318,6 +2318,7 @@
       // chemin frère (revue adversariale du 2026-09-02). Ne pas compter sur le
       // prochain poll pour le faire : s'il échoue (réseau, serveur), la garde de
       // jeton REJETTE le rendu sans rien vider, et l'état périmé reste affiché.
+      repartitionSincePosition = 0;
       renderRepartition([]);
       segmentJobPosition = 0;
       coveredLen = 0;
@@ -2491,6 +2492,7 @@
     // du 2026-08-31, encore vrais au 2026-09-02). `renderRepartition([])` remet
     // les trois états d'un coup : le conteneur, `latestRepartitionTurns` (source
     // de l'export PDF) et le bouton d'export.
+    repartitionSincePosition = 0;
     renderRepartition([]);
     resetBtn.hidden = true;
     statusEl.textContent = '';
@@ -2501,17 +2503,28 @@
 
   // ---- Onglets + aperçu live de la répartition (Palier A, lecture seule) ----
   var latestRepartitionTurns = [];  // derniers tours affichés (pour l'export PDF de l'onglet)
+  // Curseur de position envoyé à `/segment-jobs/turns` (`since`) : les tours
+  // sont produits dans l'ordre chronologique des tranches, donc accumulables
+  // — sondé toutes les 5s pendant tout un entretien, ne redemander QUE les
+  // tranches terminées depuis le dernier appel évite de refaire fusionner et
+  // resérialiser côté serveur ce qui a déjà été vu (perf, 2026-09-21). Remis à
+  // zéro partout où `latestRepartitionTurns` l'est (nouvelle session/reset).
+  var repartitionSincePosition = 0;
   function escHtml(s) {
     return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
       return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
     });
   }
 
-  function renderRepartition(turns) {
+  function renderRepartition(turns, append) {
     var container = document.getElementById('rec-repartition');
     var statusRep = document.getElementById('rec-repartition-status');
     var repPdfBtn = document.getElementById('rep-pdf');
-    latestRepartitionTurns = Array.isArray(turns) ? turns : [];
+    var nouveaux = Array.isArray(turns) ? turns : [];
+    // `append` : accumule les tours NOUVEAUX renvoyés par le curseur `since`
+    // sur ceux déjà affichés, au lieu de les remplacer — `pollRepartition` ne
+    // reçoit plus jamais l'historique complet une fois le curseur avancé.
+    latestRepartitionTurns = append ? latestRepartitionTurns.concat(nouveaux) : nouveaux;
     if (repPdfBtn) repPdfBtn.disabled = !latestRepartitionTurns.length;
     if (!latestRepartitionTurns.length) {
       container.innerHTML = '';
@@ -2543,10 +2556,17 @@
     // l'onglet sur « Recommencer » ne suffit pas si une réponse partie avant le
     // clic arrive après, car elle réafficherait les tours de la session jetée.
     var tokenAuDepart = sessionToken;
-    recFetch('/interviews/segment-jobs/turns?session_token=' + encodeURIComponent(tokenAuDepart), null, NET_TIMEOUT_MS)
+    var sinceAuDepart = repartitionSincePosition;
+    recFetch('/interviews/segment-jobs/turns?session_token=' + encodeURIComponent(tokenAuDepart)
+        + '&since=' + sinceAuDepart, null, NET_TIMEOUT_MS)
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
-        if (data && sessionToken === tokenAuDepart) renderRepartition(data.turns);
+        if (!data || sessionToken !== tokenAuDepart) return;
+        // Accumule (append) seulement si le curseur envoyé est bien celui
+        // encore courant : un « Recommencer » pendant le vol de la requête
+        // a pu remettre `repartitionSincePosition` à 0 entretemps.
+        renderRepartition(data.turns, sinceAuDepart === repartitionSincePosition && sinceAuDepart > 0);
+        if (typeof data.next_since === 'number') repartitionSincePosition = data.next_since;
       })
       .catch(function () { /* aperçu best-effort : un échec réseau ne casse rien */ });
   }
