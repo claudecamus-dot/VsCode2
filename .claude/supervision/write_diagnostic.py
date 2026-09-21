@@ -45,6 +45,15 @@ Schéma attendu : {"findings": [{"categorie", "titre", "preuve", ...}]}
     JAMAIS appliquée par le superviseur — l'humain arbitre, l'orchestrateur applique
     la version validée (gouvernance : règle R4 de CLAUDE.md, et
     .claude/skills/agent-orchestrator/SKILL.md § 2 bis).
+  - owner (str, posé par CE script s'il manque — défaut : la `cible`) : QUI doit traiter
+    ce constat. Il n'y a qu'un opérateur humain sur la flotte, donc le défaut ne nomme
+    personne de nouveau ; le champ existe pour être CHANGÉ (grille d'audit fournie le
+    2026-09-20 : « pour chaque écart : preuve, risque, impact, recommandation,
+    propriétaire, échéance »). Un constat sans propriétaire ni date n'expire jamais :
+    11 des 19 constats attendaient dans cet état.
+  - echeance (str « AAAA-MM-JJ », posée par CE script s'il manque) : `vu_le` +
+    SEUIL_ECHEANCE_FINDING_JOURS. Dépassée, `point_du_jour.py` la NOMME au démarrage.
+    L'appelant peut fournir la sienne (plus courte ou plus longue) : elle est respectée.
   - vu_le (str « AAAA-MM-JJ », posé par CE script, jamais par l'appelant) : date de
     PREMIÈRE vue du constat. Un constat reconduit la conserve — c'est ce qui distingue
     « vu hier et toujours pas tranché » de « trouvé aujourd'hui », et ce qui date la
@@ -76,6 +85,17 @@ CATEGORIES = (
     "pratique-test", "pratique-dev", "pratique-revue", "pratique-design",
     # Volet 2 — documentation et cadrage produit
     "pratique-doc", "pratique-produit",
+    # Volet 3 - dimensions de l'audit technique (miroir de DIM_AUDIT dans
+    # scan_projets.py). Absentes jusqu'au 2026-09-21 : un constat d'audit
+    # corrige, teste et commite ne pouvait PAS etre ferme, log_arbitrage le
+    # refusant « hors vocabulaire ». Mesure du 2026-09-20 : 7 constats des lots
+    # VSCode et VScode6 dans ce cas, et le hook de session signalait deja
+    # « categorie(s) hors vocabulaire, sans effet ». Meme raison que le
+    # rattrapage du volet 2 : un garde-fou qui hurle a tort finit ignore.
+    "robustesse", "performance", "risque_technique", "securite",
+    # Orthographe heritee, presente dans arbitrages.json : la refuser ferait
+    # crier le controle sur des entrees reelles deja ecrites.
+    "risque-technique",
     "autre",
 )
 # Plafond de la skill agent-supervisor (§ « 5 constats max, priorisés ») — appliqué ici
@@ -83,6 +103,17 @@ CATEGORIES = (
 # trace. Repris de VSCode2 avec le registre à état : les deux vont ensemble, puisque
 # c'est le report des non-arbitrés qui fait monter le total.
 MAX_FINDINGS = 5
+
+# ECHEANCE D'UN CONSTAT (volet gouvernance, 2026-09-20). Mesure qui fixe la valeur, faite
+# par script sur arbitrages.json + diagnostic.json (jamais en ouvrant les fichiers) : sur
+# les 13 constats du registre courant qu'un arbitrage a fermes APRES leur premiere vue, le
+# delai median de decision est de 0 jour, le maximum de 3 jours ; le plus ancien constat
+# encore ouvert a 8 jours. Un seuil de 14 jours est donc ~4,7 fois le pire delai
+# d'arbitrage reellement observe : il ne crie pas sur le rythme normal, il n'attrape que
+# l'abandon. Le raccourcir a 3 j (le maximum mesure) ferait sonner la moitie du registre
+# chaque semaine — un rappel qu'on apprend a ignorer, motif deja paye
+# (SEUIL_DERIVE_BLOQUANTE_JOURS dans point_du_jour.py).
+SEUIL_ECHEANCE_FINDING_JOURS = 14
 
 
 def _identite(finding: dict) -> tuple:
@@ -102,6 +133,33 @@ def _identite(finding: dict) -> tuple:
     return (cible, str(finding.get("categorie") or ""))
 
 
+def _gouvernance(finding: dict, seuil: int = SEUIL_ECHEANCE_FINDING_JOURS) -> dict:
+    """Pose `owner` et `echeance` sur un constat qui n'en porte pas — et JAMAIS sur un
+    constat qui en porte deja.
+
+    Retro-compatibilite : les 19 constats ecrits avant ce champ les recoivent a la
+    prochaine ecriture, sans qu'aucun autre champ ne bouge. Le defaut d'`owner` est la
+    `cible` : il n'y a qu'un operateur humain, le champ n'est pas la pour repartir une
+    charge mais pour etre MODIFIE sans toucher au reste du constat.
+
+    L'echeance se calcule sur `vu_le` (premiere vue), pas sur la date d'ecriture : sinon
+    un constat reconduit repousserait sa propre echeance a chaque diagnostic et
+    n'expirerait jamais — exactement le defaut que `_ferme` evite deja pour la fenetre
+    d'arbitrage. Une valeur fournie par l'appelant est respectee (une echeance plus
+    courte est une decision, pas une erreur) ; une valeur vide ou illisible est
+    REMPLACEE par le defaut, parce qu'une echeance illisible n'expire jamais non plus.
+    """
+    if not str(finding.get("owner") or "").strip():
+        finding["owner"] = str(finding.get("cible") or "").strip() or "(sans cible)"
+    if not str(finding.get("echeance") or "").strip():
+        try:
+            base = datetime.date.fromisoformat(str(finding.get("vu_le") or "")[:10])
+        except ValueError:
+            base = datetime.date.today()
+        finding["echeance"] = (base + datetime.timedelta(days=seuil)).isoformat()
+    return finding
+
+
 def _charger_arbitrages() -> list:
     """Décisions humaines (fichier versionné, JAMAIS écrit ici). Même lecture tolérante
     que le scan (`load_arbitrages`) : un fichier absent ou illisible ne ferme aucun
@@ -115,13 +173,30 @@ def _charger_arbitrages() -> list:
     return [e for e in entries if isinstance(e, dict) and e.get("cible") and e.get("decision")]
 
 
+# Bascule de l'amnistie de l'heritage (cf. `_couvre`) : avant cette date, un
+# arbitrage sans `categories` ne ferme rien ; apres, `log_arbitrage.py` garantit
+# qu'il y en a toujours un.
+AMNISTIE_HERITAGE = "2026-09-19"
+
+
 def _couvre(arbitrage: dict, categorie: str) -> bool:
     """Miroir de `_couvre` dans scan_transcripts.py : `categories` absent ferme tout, une
     liste ferme exactement ces catégories, un champ mal formé ne ferme rien (un `in` sur
     une chaîne matcherait par sous-chaîne, silencieusement faux)."""
     cats = arbitrage.get("categories")
     if cats is None:
-        return True
+        # AMNISTIE DE L'HERITAGE (arbitre par l'utilisateur le 2026-09-19).
+        # `refuser_arbitrage.py` n'a jamais ecrit `categories` : 137 des 258
+        # arbitrages reels n'en ont pas, et « ferme tout » les faisait masquer a
+        # perpetuite TOUT constat futur de leur cible, toutes categories
+        # confondues. Plus l'utilisateur arbitrait, plus le dispositif devenait
+        # aveugle. Les entrees ANTERIEURES a la bascule ne ferment donc plus rien ;
+        # au-dela, `log_arbitrage.py` exige `categories`, donc le cas ne se
+        # represente pas. Une entree SANS date garde l'ancien comportement : on ne
+        # peut pas la situer par rapport a la bascule, et la trancher au hasard
+        # effacerait une decision humaine.
+        date = str(arbitrage.get("date") or "")
+        return not (date and date < AMNISTIE_HERITAGE)
     return isinstance(cats, list) and categorie in cats
 
 
@@ -260,6 +335,22 @@ def main(argv) -> int:
         # fenêtre d'arbitrage.
         ancien = connus.get(_identite(f))
         f["vu_le"] = (ancien or {}).get("vu_le") or aujourdhui
+    # UN CONSTAT NEUF NAÎT VISIBLE (finding `VScode5:constat-neuf-masque-par-arbitrage-
+    # anterieur`, arbitré le 2026-09-19). Côté scan, `finding_arbitre()` masque dès qu'un
+    # arbitrage partage (cible, catégorie) : avec 250 décisions accumulées au hub, presque
+    # toute paire est déjà couverte, si bien que 14 des 15 constats du diagnostic du 18/09
+    # — y compris ceux écrits le jour même — naissaient masqués par des décisions rendues
+    # sur un tout autre sujet. Le canon prévoit déjà l'échappatoire (`re_challenge: true`
+    # ne cède qu'à un arbitrage du jour du diagnostic ou postérieur), mais RIEN ne la
+    # posait : ni ce script, ni la skill `agent-supervisor`. On la pose ici, et seulement
+    # pour une paire (cible, titre) JAMAIS VUE — un constat reconduit garde exactement le
+    # sort que l'humain lui a donné, et un `re_challenge` explicite de l'appelant prime.
+    # C'est l'option (b) du finding ; l'option (a) (masquer par titre strict) a été
+    # écartée le 2026-09-18 (commit bb61f24) : aucun des 250 arbitrages ne porte de titre.
+    paires_connues = {(f.get("cible"), f.get("titre")) for f in anciens}
+    for f in findings:
+        if "re_challenge" not in f and (f.get("cible"), f.get("titre")) not in paires_connues:
+            f["re_challenge"] = True
     if fusionner:
         # Fusion : les findings precedents non repris sont CONSERVES tels quels, seuls
         # ceux dont (cible, titre) correspond exactement a un finding de cette passe sont
@@ -303,6 +394,11 @@ def main(argv) -> int:
                 print(f"   - [{f.get('categorie')}] {f.get('cible') or '(sans cible)'} : "
                       f"{str(f.get('titre'))[:90]} (vu le {f.get('vu_le')})")
             return 1
+    # Gouvernance (2026-09-20) : tout constat ECRIT ou RECONDUIT porte un proprietaire et
+    # une echeance. Pose ici, au dernier moment, pour couvrir d'un seul geste les trois
+    # provenances — constats neufs, reportes non arbitres, et conserves du mode fusion.
+    for f in findings + reportes:
+        _gouvernance(f)
     out = {
         "generated": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
         "findings": findings + reportes,

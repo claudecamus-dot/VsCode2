@@ -52,6 +52,17 @@ CATEGORIES_CONNUES = (
     "verification-manquante", "non-convergence",
     "pratique-test", "pratique-dev", "pratique-revue", "pratique-design",
     "pratique-doc", "pratique-produit",
+    # Volet 3 - dimensions de l'audit technique (miroir de DIM_AUDIT dans
+    # scan_projets.py). Absentes jusqu'au 2026-09-21 : un constat d'audit
+    # corrige, teste et commite ne pouvait PAS etre ferme, log_arbitrage le
+    # refusant « hors vocabulaire ». Mesure du 2026-09-20 : 7 constats des lots
+    # VSCode et VScode6 dans ce cas, et le hook de session signalait deja
+    # « categorie(s) hors vocabulaire, sans effet ». Meme raison que le
+    # rattrapage du volet 2 : un garde-fou qui hurle a tort finit ignore.
+    "robustesse", "performance", "risque_technique", "securite",
+    # Orthographe heritee, presente dans arbitrages.json : la refuser ferait
+    # crier le controle sur des entrees reelles deja ecrites.
+    "risque-technique",
     "autre",
 )
 
