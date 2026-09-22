@@ -85,6 +85,15 @@ CATEGORIES = (
     "pratique-test", "pratique-dev", "pratique-revue", "pratique-design",
     # Volet 2 — documentation et cadrage produit
     "pratique-doc", "pratique-produit",
+    # Volet 2 — securite (agent-securite installe le 2026-09-13, commit d9b838e).
+    # Absente jusqu'au 2026-09-21 : un arbitrage du 2026-09-11 portant cette
+    # categorie (VSCode1,VSCode2:permissions-hors-git-exec-arbitraire) etait
+    # inoperant depuis son ecriture -- _couvre() ne peut jamais matcher une
+    # categorie hors vocabulaire, et write_diagnostic refusait meme d'ECRIRE un
+    # finding qui la porterait. Distincte de "securite" (volet 3, dimension
+    # d'audit) : celle-ci couvre les PRATIQUES d'ingenierie securite, pas le
+    # niveau mesure par audit-technique sur un projet donne.
+    "pratique-securite",
     # Volet 3 - dimensions de l'audit technique (miroir de DIM_AUDIT dans
     # scan_projets.py). Absentes jusqu'au 2026-09-21 : un constat d'audit
     # corrige, teste et commite ne pouvait PAS etre ferme, log_arbitrage le
