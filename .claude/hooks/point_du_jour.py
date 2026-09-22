@@ -361,6 +361,13 @@ def ligne_decisions_audit(repertoire=None):
             " -- taper : tranche <projet>:<sujet> | montre les decisions")
 
 
+# Copie du vocabulaire de `scan_projets.ALIAS_STATUT_CONSTAT` (hub) : le hook est
+# deploye chez les cibles et ne peut importer le script du hub, donc la troisieme
+# copie est le prix du deploiement, pas un oubli. C'est celle qui avait ete tenue a
+# la main SANS l'alias (2026-09-22, propagation du correctif du hub 2026-09-21).
+ALIAS_STATUT_CONSTAT = {"a-arbitrer": "arbitrage"}
+
+
 def _constat_en_arbitrage(c):
     """Meme regle que `statut_constat` du scan, tenue ici a la main.
 
@@ -370,12 +377,17 @@ def _constat_en_arbitrage(c):
     volontairement minimale — le champ explicite, sinon le seul marqueur
     « arbitrage » dans le titre — et le test du hub verifie qu'elles s'accordent
     sur les titres reels des audits.
+
+    L'ALIAS est la moitie qui manquait (correctif du hub 2026-09-21, propage ici
+    2026-09-22). `statut_constat` traduit « a-arbitrer » en « arbitrage » ; ici la
+    comparaison etait directe, donc fausse des que le champ explicite portait
+    « a-arbitrer » — le seul vocabulaire que les audits reels ecrivent.
     """
     if not isinstance(c, dict):
         return False
     explicite = str(c.get("statut") or "").strip().lower()
     if explicite:
-        return explicite == "arbitrage"
+        return ALIAS_STATUT_CONSTAT.get(explicite, explicite) == "arbitrage"
     # `.upper()` des DEUX cotes : chercher « arbitrage » en minuscules dans une
     # chaine passee en majuscules ne matche jamais -- garde-fou qui compare autre
     # chose, attrape par le test avant tout commit (motif deja paye 3 fois).
