@@ -169,15 +169,33 @@ def _as_lower_str_tuple(value, default):
     return tuple(v.lower() for v in cleaned)
 
 
+_CONFIG_DICT_CACHE = {}  # {chemin: dict|None} — voir docstring ci-dessous
+
+
 def _read_config_dict():
     """Le dict JSON de configuration du dépôt cible, ou None si absent,
-    illisible ou malformé — jamais d'exception propagée."""
+    illisible ou malformé — jamais d'exception propagée.
+
+    Mémoïsé PAR CHEMIN (pas un simple flag process-level) : `_load_config`,
+    `_load_extra_config` et `_load_gardes_config` appelaient chacune cette
+    fonction, donc le fichier était rouvert trois fois à l'import pour un
+    contenu identique (audit VScode5 du 2026-09-19). La clé est le chemin
+    rendu par `_config_path()` plutôt qu'un simple booléen "déjà lu" : ça
+    laisse les appelants (et les tests, qui monkeypatchent `_config_path`
+    d'un cas à l'autre dans le même process) changer de cible sans lire un
+    résultat périmé — seul le cas réel (même chemin, même hook) profite du
+    cache."""
+    chemin = _config_path()
+    if chemin in _CONFIG_DICT_CACHE:
+        return _CONFIG_DICT_CACHE[chemin]
     try:
-        with open(_config_path(), encoding="utf-8") as fh:
+        with open(chemin, encoding="utf-8") as fh:
             cfg = json.load(fh)
-        return cfg if isinstance(cfg, dict) else None
+        resultat = cfg if isinstance(cfg, dict) else None
     except Exception:
-        return None
+        resultat = None
+    _CONFIG_DICT_CACHE[chemin] = resultat
+    return resultat
 
 
 def _load_config():

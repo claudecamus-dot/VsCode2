@@ -300,9 +300,18 @@ def trouvailles_en_attente():
 def _ascii(texte):
     """Plie un texte en ASCII strict (accents decomposes puis ignores) — la
     console cp1252 leve UnicodeDecodeError sur tout caractere hors table, et un
-    titre de veille porte accents et tirets cadratins."""
-    return unicodedata.normalize("NFKD", texte or "").encode(
+    titre de veille porte accents et tirets cadratins.
+
+    Neutralise aussi les caracteres de controle (retour a la ligne compris) :
+    un titre de veille ou de finding est un texte tiers reinjecte tel quel en
+    contexte au SessionStart (audit securite VScode5, finding ASI01/ASI04,
+    2026-09-20) — sans ce filtre, un retour a la ligne suffit a faire sortir
+    une charge en colonne 0, hors du prefixe qui identifie une ligne du hook.
+    La troncature (60-70 car.) qui suit cet appel n'est plus la seule garde.
+    """
+    plie = unicodedata.normalize("NFKD", texte or "").encode(
         "ascii", "ignore").decode("ascii")
+    return "".join(c if c.isprintable() and c not in "\r\n\t" else " " for c in plie)
 
 
 def ligne_decisions_audit(repertoire=None):
@@ -361,10 +370,10 @@ def ligne_decisions_audit(repertoire=None):
             " -- taper : tranche <projet>:<sujet> | montre les decisions")
 
 
-# Copie du vocabulaire de `scan_projets.ALIAS_STATUT_CONSTAT` (hub) : le hook est
-# deploye chez les cibles et ne peut importer le script du hub, donc la troisieme
-# copie est le prix du deploiement, pas un oubli. C'est celle qui avait ete tenue a
-# la main SANS l'alias (2026-09-22, propagation du correctif du hub 2026-09-21).
+# Copie du vocabulaire de `scan_projets.ALIAS_STATUT_CONSTAT` (:1929) et de
+# `lot.ALIAS_STATUT_CONSTAT` (:78). Le hook est deploye chez les cibles et ne peut
+# importer ni l'un ni l'autre : la troisieme copie est le prix du deploiement, pas
+# un oubli. C'est celle qui avait ete tenue a la main SANS l'alias.
 ALIAS_STATUT_CONSTAT = {"a-arbitrer": "arbitrage"}
 
 
@@ -378,10 +387,14 @@ def _constat_en_arbitrage(c):
     « arbitrage » dans le titre — et le test du hub verifie qu'elles s'accordent
     sur les titres reels des audits.
 
-    L'ALIAS est la moitie qui manquait (correctif du hub 2026-09-21, propage ici
-    2026-09-22). `statut_constat` traduit « a-arbitrer » en « arbitrage » ; ici la
-    comparaison etait directe, donc fausse des que le champ explicite portait
-    « a-arbitrer » — le seul vocabulaire que les audits reels ecrivent.
+    L'ALIAS est la moitie qui manquait (2026-09-21). `statut_constat` traduit
+    « a-arbitrer » en « arbitrage » (scan_projets.py:1951, lot.py:197) ; ici la
+    comparaison etait directe, donc fausse des que le champ explicite etait
+    renseigne — et le branchement `if explicite:` court-circuitait aussi le repli
+    sur le titre. Or les audits reels n'ecrivent QUE « a-arbitrer » : le hook
+    annoncait 0 decision en attente quand il y en avait 15 (VSCode3 11, VSCode 1,
+    Vscode7-CAT 3). Le test existant ne l'attrapait pas, ses fixtures ecrivant
+    deja « arbitrage » — un vocabulaire que la production n'emploie pas.
     """
     if not isinstance(c, dict):
         return False
@@ -681,39 +694,57 @@ def main():
         lignes.append(
             f"{n} trouvaille(s) de veille attendent votre decision{suffixe}{verbes}")
 
-    # Kit agentic installe chez les cibles vs kit publie (finding
-    # flotte:write_diagnostic-deploye-refuse-les-categories-pratique, 2026-09-08) :
-    # deux cibles refusaient ce que leur skill prescrivait sans qu'aucun etage le dise.
-    # Fail-open : une mesure impossible se DIT, elle ne casse pas le point du jour.
-    try:
-        sys.path.insert(0, os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dispositif"))
-        import kit_installe
-        derives = kit_installe.derives_par_projet()
-        if derives:
-            lignes.append(kit_installe.ligne_point_du_jour(derives))
-            # Seuil bloquant : la derive agee passe EN TETE (SEUIL_DERIVE_BLOQUANTE_JOURS).
-            try:
-                import carte_generes
-                bloquante = ligne_derive_bloquante(
-                    derives, kit_installe, carte_generes.construire(),
-                    _chemins_projets(kit_installe))
-                if bloquante:
-                    lignes.insert(0, bloquante)
-            except Exception as exc:  # fail-open : le point du jour reste affiche
-                lignes.append(
-                    f"derive bloquante : mesure impossible ({_ascii(str(exc))})")
-    except Exception as exc:
-        lignes.append(f"kit installe : mesure impossible ({_ascii(str(exc))})")
-
     # Les constats d'audit qui attendent une decision humaine (2026-09-09) : ils
     # ne se ferment pas tout seuls et n'etaient affiches nulle part.
+    #
+    # Ce bloc etait le DERNIER de la fonction jusqu'au 2026-09-21, donc
+    # systematiquement coupe par la troncature d'affichage (`lignes[:3]`) : la seule
+    # ligne qui nomme une decision non delegable etait celle qu'on sacrifiait en
+    # premier. Remonte ici, AVANT la derive de kit, qui est une mesure d'etat et non
+    # une decision de l'utilisateur.
     try:
         ligne_audit = ligne_decisions_audit()
         if ligne_audit:
             lignes.append(ligne_audit)
     except Exception as exc:
         lignes.append(f"decisions d'audit : mesure impossible ({_ascii(str(exc))})")
+
+    # Kit agentic installe chez les cibles vs kit publie (finding
+    # flotte:write_diagnostic-deploye-refuse-les-categories-pratique, 2026-09-08) :
+    # deux cibles refusaient ce que leur skill prescrivait sans qu'aucun etage le dise.
+    # Fail-open : une mesure impossible se DIT, elle ne casse pas le point du jour.
+    #
+    # HUB-ONLY, silencieusement (finding VScode5:point_du_jour-kit_installe-jamais-expedie,
+    # 2026-09-21) : kit_installe.py et carte_generes.py ne sont PAS expedies dans export/ --
+    # ils comparent une source du hub a sa copie installee via l'historique GIT DU HUB
+    # (_date_plus_ancien_non_propage), ce qu'un depot cible ne peut structurellement pas
+    # faire (il n'a pas l'historique du hub). Ce n'est donc pas un oubli d'expedition a
+    # corriger, mais une fonctionnalite HUB-ONLY par nature : sur les 6 cibles, l'import
+    # echoue a CHAQUE session, pour toujours, et la ligne "mesure impossible" qui en
+    # resultait etait du bruit permanent plutot qu'un signal. On ne tente le bloc que
+    # si scripts/scan_projets.py est present (marqueur fiable du hub, deja utilise
+    # ailleurs dans ce fichier) ; ailleurs, silence.
+    if os.path.isfile(os.path.join(RACINE, "scripts", "scan_projets.py")):
+        try:
+            sys.path.insert(0, os.path.join(
+                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dispositif"))
+            import kit_installe
+            derives = kit_installe.derives_par_projet()
+            if derives:
+                lignes.append(kit_installe.ligne_point_du_jour(derives))
+                # Seuil bloquant : la derive agee passe EN TETE (SEUIL_DERIVE_BLOQUANTE_JOURS).
+                try:
+                    import carte_generes
+                    bloquante = ligne_derive_bloquante(
+                        derives, kit_installe, carte_generes.construire(),
+                        _chemins_projets(kit_installe))
+                    if bloquante:
+                        lignes.insert(0, bloquante)
+                except Exception as exc:  # fail-open : le point du jour reste affiche
+                    lignes.append(
+                        f"derive bloquante : mesure impossible ({_ascii(str(exc))})")
+        except Exception as exc:
+            lignes.append(f"kit installe : mesure impossible ({_ascii(str(exc))})")
 
     if not lignes:
         # Le silence est une information : rien ne vous attend. On le dit une fois,
@@ -723,8 +754,20 @@ def main():
         return 0
 
     print("Point du jour -- ce qui attend VOTRE decision :")
-    for ligne in lignes[:3]:
+    # PLAFOND borne les lignes de CONTENU (hors titre) a 3, verrouille par
+    # test_reste_court (<=4 lignes non vides au total). La notice de troncature
+    # (2026-09-21) est elle-meme une ligne de contenu : elle consomme un slot au lieu
+    # de s'ajouter, sinon la troncature redevient muette des qu'il y a >3 points --
+    # exactement ce qu'elle corrige. D'ou PLAFOND-1 lignes reelles des que ca deborde.
+    PLAFOND = 3
+    caches = len(lignes) - PLAFOND
+    a_afficher = lignes[:PLAFOND - 1] if caches > 0 else lignes[:PLAFOND]
+    for ligne in a_afficher:
         print("  " + ligne)
+    if caches > 0:
+        caches = len(lignes) - len(a_afficher)
+        print(f"  ... et {caches} autre(s) point(s) masque(s) par l'affichage --"
+              " tout voir : py .claude/hooks/point_du_jour.py")
     return 0
 
 

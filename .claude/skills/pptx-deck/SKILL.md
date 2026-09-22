@@ -65,6 +65,12 @@ Key API:
 - `D.tronquer_a_lignes(texte, largeur_in, taille_pt, max_lignes)` — last-resort ellipsis truncation for the rare case where even `taille_min` doesn't fit. Pair with `ajuster_police`: shrink first, truncate only as the final fallback, so geometry never breaks.
 - `D.verifier_geometrie(prs, marge_in=0.02)` — **returns the list of out-of-frame shapes** (empty = OK). Call before saving.
 - `D.verifier_debordements_texte(prs, cpi_pessimiste=10.7, tolerance_in=0.15)` — **returns the list of drawn text boxes whose estimated content height exceeds their box** (empty = OK), using a *pessimistic* character-per-inch calibration below `estimer_lignes`'s nominal one. Complements `verifier_geometrie`, which only sees shape bounds, never whether the text rendered inside overflows them — this is defect #7 below, now a real check instead of an eyeball-only warning. Skips placeholders (titles/covers/dividers, which PowerPoint lets grow unbounded) and rotated/non-TOP-anchored boxes (already bounded by the caller).
+
+`cpi_ref`/`cpi_pessimiste` are DEFAULTS, not universal constants — re-measure
+them on a real render before trusting them on a new template (finding
+hub:pptx-deck/estimer_lignes, 2026-09-17: ~30% too pessimistic for Outfit,
+the OCTO template's font — see `deck-design-library/references/template-octo.md`
+§4bis for the measured values on that specific template).
 - `D.theme_colors(prs)` — reads the template's theme palette (`dk1/lt1/dk2/lt2/accent1..6`) as `{name: '#RRGGBB'}` (empty dict if unreadable). Use to derive a **brand accent** from a provided model template instead of hardcoding — but keep categorical/series colors (e.g. per-pilier) as a deliberate palette, since a theme's accents are rarely a good N-category set.
 
 ## Design principles (keep the deck "de qualité")

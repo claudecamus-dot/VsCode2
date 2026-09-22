@@ -59,16 +59,53 @@ la vraie police vit sur les placeholders, d'où la détection par placeholder.
 | `Outfit Medium` | titre de couverture | 500 |
 | `Outfit SemiBold` | titres de contenu, corps gras | 600 |
 
+## 4bis. Calibration typographique mesurée (Outfit)
+
+Mesuré sur un rendu PowerPoint réel du template partagé (2026-09-17, sur
+VScode6) : ~14,8 caractères/pouce à 10,5pt (56 caractères tiennent sur
+3,78 in), hauteur de ligne ~0,19 in à interligne 1.1.
+
+Les défauts de la skill `pptx-deck` (`cpi_ref=11.0` dans `estimer_lignes`,
+`cpi_pessimiste=10.7` dans `verifier_debordements_texte`) sont calibrés sur
+une police plus large qu'Outfit et surestiment la hauteur d'environ 30 % sur
+ce gabarit — effet mesuré sur VScode6 : blocs de texte budgétés ~40 % trop
+hauts, cartes aux trois quarts vides, 28 faux débordements signalés sur un
+deck correct.
+
+**Ces calibrations sont des DÉFAUTS, pas des constantes universelles** — à
+re-mesurer sur un rendu réel avant usage sur un nouveau gabarit. Sur CE
+gabarit (Outfit, template OCTO), la valeur mesurée est `cpi_ref=14.0` /
+`cpi_pessimiste=14.0`, pas les défauts de la skill — les défauts eux-mêmes
+ne sont pas changés (ils servent d'autres gabarits).
+
 ## 5. Indices de layouts utilisés
 
 | Usage | Indice | Nom | Placeholders |
 | --- | --- | --- | --- |
 | Couverture | 8 | `40 - Couverture [1]` | idx0 titre · idx1 sous-titre · idx2 « OCTO Technology » · idx3 date |
 | Slides de contenu | 5 | `04 - Titre seul` | idx0 titre (garde logo/pied de page/n° slide) |
+| Intercalaire de chapitre | 2 | `50 - Chapitre [1]` | idx0 titre (+ sous-titre en 2e paragraphe) · idx1 numéro ; cadre photo teardrop OBLIGATOIRE à remplir |
 
 Layouts « cadre blanc » (idx 15–22, ex. `63 - Titre, contenu et visuel à
 droite - cadre blanc`) : cadres photo à coins diagonaux (`round2DiagRect`,
 texte gabarit « ici mettre une Photo ») — voir la skill `pptx-framed-image`.
+
+### 5bis. Deux pièges du layout Chapitre
+
+Implémentation de référence : VSCode3 `docs/cadrage-ppt/generate_deck.py::slide_chapitre`.
+Variante à lire quand la cible n'est pas le layout 50 : VSCode4
+`scripts/generate_deck_ohc.py::slide_chapitre` (repositionne un layout 51
+pour imiter la géométrie mesurée de VSCode3).
+
+- **Numéro de chapitre** : 17pt, marges à zéro, sans puce, ancrage `MIDDLE`
+  — sinon il est renvoyé à la ligne hors de son encart de 0,55 in.
+- **Cadre photo teardrop** : DOIT être rempli via `pptx-framed-image`
+  (`_remplir_cadre` avec repli Openverse à nom distinct) — sinon le texte
+  gabarit « ici mettre une Photo » reste visible au rendu final.
+
+_(finding hub:deck-design-library/template-octo.md, vu le 2026-09-17 sur
+VScode6 : ces deux défauts avaient déjà été résolus deux fois séparément,
+chez VSCode3 puis VSCode4, sans que le canon du hub le documente.)_
 
 ## 6. Chrome protégé (convention de placement, pas une cote mesurée)
 
