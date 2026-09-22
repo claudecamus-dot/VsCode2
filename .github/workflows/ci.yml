@@ -42,6 +42,29 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
+      # Scan de vulnérabilités des dépendances (finding audit-technique sécurité
+      # reconduit le 2026-09-21 : `grep -n 'pip-audit'` sur .github/workflows/
+      # rendait 0 occurrence — toutes les versions sont épinglées en `==` pour la
+      # reproductibilité du build, mais l'épinglage sans veille fige aussi les
+      # failles une fois une version publiée vulnérable.
+      #
+      # INFORMATIF, pas encore un gate : `pip-audit -r requirements.txt -r
+      # requirements-dev.txt`, exécuté le 2026-09-22 avant d'ajouter cette étape,
+      # trouve DÉJÀ 5 vulnérabilités connues sur 2 paquets épinglés existants
+      # (httpx2==2.5.0 : PYSEC-2026-3846/3847/3848/3849 ; httpcore2==2.5.0 :
+      # PYSEC-2026-3844 — les deux corrigés en amont par des versions plus
+      # récentes). Poser un gate bloquant maintenant rougirait la CI sur une
+      # dérive déjà présente, sans rapport avec ce correctif de scan lui-même
+      # (même prudence que le lint app/ le 2026-09-10 : mesurer d'abord, bumper
+      # les versions et faire passer la suite est un chantier à part, hors
+      # périmètre de cet ajout). `|| true` volontaire, pas un artefact
+      # d'inattention — la sortie reste lisible dans les logs du job à chaque
+      # run pour ne pas laisser le residuel retomber dans le silence.
+      - name: Scan de vulnérabilités des dépendances (pip-audit, informatif)
+        run: |
+          pip install pip-audit==2.9.0
+          pip-audit -r requirements.txt -r requirements-dev.txt || true
+
       # Lint BLOQUANT depuis le 2026-09-10 (arbitrage utilisateur, sur constat
       # d'audit risque technique : « le lint mesure la dérive mais ne la retient
       # pas » — 74 points dans app/, dont les 11 imports morts signalés à chaque
