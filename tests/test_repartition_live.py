@@ -579,7 +579,13 @@ def test_les_deux_ecrans_gardent_le_jeton_au_retour_du_poll(ecran: Path) -> None
         "garde se compare à elle-même et laisse passer la réponse périmée"
     )
     rendu = corps[corps.index(".then", corps.index(".then") + 1):]
-    assert re.search(r"sessionToken\s*===\s*tokenAuDepart", rendu), (
+    # Deux formes équivalentes re-vérifient le jeton : `sessionToken === tokenAuDepart`
+    # avant le rendu (record.html), ou un retour anticipé `sessionToken !== tokenAuDepart)
+    # return;` qui empêche tout simplement d'atteindre le rendu (record_libre.html,
+    # `936d678`) — même garde, deux styles. Un regex qui n'acceptait que le premier
+    # rejetait le second bien qu'il tienne l'invariant réel : le rendu n'est jamais
+    # atteint avec un jeton périmé.
+    assert re.search(r"sessionToken\s*(===|!==)\s*tokenAuDepart", rendu), (
         f"{ecran.name} : la réponse est rendue sans re-vérifier le jeton — une "
         "réponse partie avant « Recommencer » réaffiche la session jetée"
     )
