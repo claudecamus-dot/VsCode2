@@ -4,7 +4,7 @@
 # | garder : la signaler au hub, qui corrige le canon et re-synchronise.
 # | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
 # |  n'est pas déployé, il n'existe pas dans ce dépôt.)
-# | Provenance canon : eb05b12 du 2026-09-23 — permet, au prochain sync, de dire si
+# | Provenance canon : d83e76f du 2026-09-23 — permet, au prochain sync, de dire si
 # | une différence vient d'une édition locale ou d'une avance du canon (voir
 # | `determiner_cause` dans sync_dispositif.py au hub).
 # +---------------------------------------------------------------------------
@@ -239,9 +239,27 @@ def solder(argv) -> int:
 
     Si le dépôt a activé `solde_revue_requise` (opt-in, cf. docstring du module),
     la note doit commencer par « revue: » dès que le plan du run nomme un de ses
-    `watched_prefixes` — sinon le solde est refusé, le journal reste intact."""
+    `watched_prefixes` — sinon le solde est refusé, le journal reste intact.
+
+    `--par <nom> --artefact <chemin|url>` (2026-09-23) : pose la quittance NOMMEE
+    qu'exige un run `livrable_utilisateur: true` pour passer `succes`. Sans ces
+    options, un tel run ne pouvait JAMAIS etre solde en succes par la CLI, meme
+    valide par l'utilisateur (constate sur VSCode3). Les controles de
+    `verifier_validation_utilisateur` s'appliquent au bloc ainsi construit."""
+    options = {}
+    positionnels = []
+    i = 0
+    while i < len(argv):
+        if argv[i] in ("--par", "--artefact") and i + 1 < len(argv):
+            options[argv[i][2:]] = argv[i + 1]
+            i += 2
+        else:
+            positionnels.append(argv[i])
+            i += 1
+    argv = positionnels
     if len(argv) < 2:
-        print(f"log_run --solde : usage : --solde <prefixe-ts> <{'|'.join(RESULTATS_SOLDE)}> [note]")
+        print(f"log_run --solde : usage : --solde <prefixe-ts> <{'|'.join(RESULTATS_SOLDE)}> [note]"
+              " [--par <nom> --artefact <chemin>]")
         return 1
     prefixe, resultat = argv[0], argv[1]
     note = argv[2] if len(argv) > 2 else "valide par l'utilisateur"
@@ -290,6 +308,15 @@ def solder(argv) -> int:
     # reste controle : sans cela, `--solde` serait la porte de derriere du
     # garde-fou, exactement comme `verifier_etapes_du_plan` l'a ete jusqu'au
     # 2026-09-09.
+    if options.get("par") or options.get("artefact"):
+        run = {**run}
+        runs[runs.index(cibles[0])] = run
+        run["validation"] = {
+            "par": options.get("par", ""),
+            "artefact_ouvert": options.get("artefact", ""),
+            "quand": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+            "rapport": note,
+        }
     refus_validation = verifier_validation_utilisateur(
         {**run, "resultat": resultat}, au_solde=True)
     if refus_validation:
