@@ -834,7 +834,7 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-09-23T09:53:26+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-09-23T15:42:55+02:00</span></p>
 
       <div class="fact">
         <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>91 sessions</strong> couvertes · <strong>300</strong> invocations de skills · <strong>271</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
@@ -910,7 +910,6 @@ pytest -k "pptx or export"                                                     #
 
       <h3>TODO agents — chantiers à lancer (constats automatiques)</h3>
       <p class="avertissement"><em>⚠️ <strong>Mesure incomplète</strong> — 63 transcript(s) sur 91 absent(s) du disque. Un <code>n=0</code> ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.</em></p>
-      <p class="avertissement"><em>⚠️ <strong>Veille lancée le 2026-09-16, artefact plus ancien</strong> — <code>.claude/veille/veille.json</code> date du 2026-09-16 : le dernier tour n'a rien déposé. Vérifier où sa sortie a atterri avant de relancer.</em></p>
       <div class="critical">
         <p><strong>Désinstaller les shims BMAD dépréciés</strong> (21) : <code>bmad-checkpoint-preview</code>, <code>bmad-create-architecture</code>, <code>bmad-create-prd</code>, <code>bmad-create-story</code>, <code>bmad-dev-auto</code>, <code>bmad-dev-story</code>, <code>bmad-document-project</code>, <code>bmad-domain-research</code>, <code>bmad-edit-prd</code>, <code>bmad-editorial-review</code>, <code>bmad-editorial-review-prose</code>, <code>bmad-editorial-review-structure</code>, <code>bmad-generate-project-context</code>, <code>bmad-market-research</code>, <code>bmad-quick-dev</code>, <code>bmad-review-adversarial-general</code>, <code>bmad-review-edge-case-hunter</code>, <code>bmad-review-verification-gap</code>, <code>bmad-sprint-status</code>, <code>bmad-technical-research</code>, <code>bmad-validate-prd</code> — dépréciés par BMAD dans leur propre <code>description</code>, chacun avec son remplaçant ; le seul élagage qui ne repose pas sur notre mesure d'usage.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
