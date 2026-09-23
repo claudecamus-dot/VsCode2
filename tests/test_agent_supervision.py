@@ -420,9 +420,18 @@ def test_un_constat_ecarte_par_arbitrage_reste_visible_comme_ecarte(tmp_path):
         {"cible": "revue-increment", "decision": "règle déjà ajoutée le 2026-07-20",
          "date": "2026-07-20", "categories": ["verification-manquante"]},
     ]}, ensure_ascii=False), encoding="utf-8")
+    # `re_challenge: False` explicite : depuis le 2026-09-19 (canon, finding
+    # `VScode5:constat-neuf-masque-par-arbitrage-anterieur`), `write_diagnostic.py` pose
+    # `re_challenge=True` par défaut sur tout constat JAMAIS VU (paire cible+titre neuve),
+    # justement pour qu'il ne naisse pas masqué par un arbitrage antérieur sans rapport.
+    # Ce test veut le cas simple « masquage silencieux rendu visible » : il doit donc
+    # opter explicitement hors du re-challenge automatique (« un re_challenge explicite
+    # de l'appelant prime », write_diagnostic.py) — sinon ce constat neuf échapperait au
+    # masquage qu'on veut exercer ici, pour une tout autre raison que celle testée.
     assert _write_diag(tmp_path, {"findings": [
         {"categorie": "verification-manquante", "cible": "revue-increment",
-         "titre": "un gap produit rangé en xfail", "preuve": "test auto-skippé sans Ollama"},
+         "titre": "un gap produit rangé en xfail", "preuve": "test auto-skippé sans Ollama",
+         "re_challenge": False},
     ]}).returncode == 0
 
     result = _run(tmp_path)
@@ -453,7 +462,13 @@ def test_re_challenge_passe_outre_un_arbitrage_de_meme_cible_et_categorie(tmp_pa
                "preuve": "commit 38a040d touche build.py, pptx-verify absent depuis le 2026-07-23"}
 
     # Sans re_challenge : masqué (comportement voulu pour une redite déjà tranchée).
-    assert _write_diag(tmp_path, {"findings": [dict(payload)]}).returncode == 0
+    # `re_challenge=False` explicite : depuis le 2026-09-19 (canon, finding
+    # `VScode5:constat-neuf-masque-par-arbitrage-anterieur`), un constat JAMAIS VU (paire
+    # cible+titre neuve) naît `re_challenge=True` par défaut, justement pour ne pas être
+    # masqué en silence par un arbitrage antérieur sans rapport — l'inverse de ce que ce
+    # premier temps du test veut exercer. Sans cet opt-out explicite, cette premiere
+    # ecriture serait, elle aussi, auto-re-challengee.
+    assert _write_diag(tmp_path, {"findings": [dict(payload, re_challenge=False)]}).returncode == 0
     _run(tmp_path)
     assert "le deck a changé sans aucun rendu" not in (
         tmp_path / "page.md").read_text(encoding="utf-8").split("écarté(s) par un arbitrage")[0]
