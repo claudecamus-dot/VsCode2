@@ -71,6 +71,25 @@ from .ai_common import AIError
 
 logger = logging.getLogger(__name__)
 
+
+def _entier_env(nom: str, defaut: int) -> int:
+    """Entier positif lu dans l'environnement, sinon le défaut.
+
+    Jumeau de `app.uploads._entier_env` / `app.services.pptx_export.images._entier_env`,
+    volontairement recopié plutôt qu'importé (même raison : ce module doit
+    rester chargeable sans dépendre d'un autre package applicatif). Existe
+    parce qu'un `int(os.environ[...])` nu exécuté au niveau module plantait
+    l'import ENTIER sur une valeur non entière ou absente — un déploiement
+    avec une faute de frappe sur `WHISPER_BEAM_SIZE` par ex. rendait toute
+    l'appli indisponible au lieu de retomber sur le réglage documenté (finding
+    audit-technique robustesse, 2026-09-16)."""
+    try:
+        valeur = int(os.environ.get(nom, ""))
+    except ValueError:
+        return defaut
+    return valeur if valeur > 0 else defaut
+
+
 # Message rendu au CLIENT quand la transcription échoue. Constante parce qu'il
 # part depuis 4 endroits et qu'il doit rester identique : c'est un texte
 # d'interface, pas un diagnostic. Le diagnostic, lui, est journalisé à chacun
@@ -78,7 +97,7 @@ logger = logging.getLogger(__name__)
 ECHEC_TRANSCRIPTION = "Échec de la transcription de l'audio."
 
 MODEL_SIZE = os.environ.get("WHISPER_MODEL", "medium")
-BEAM_SIZE = int(os.environ.get("WHISPER_BEAM_SIZE", "2"))
+BEAM_SIZE = _entier_env("WHISPER_BEAM_SIZE", 2)
 
 # Durée (secondes) d'un BLOC de transcription d'un fichier audio importé
 # (`iter_transcribe_blocks`). Un fichier pré-enregistré n'a pas de rotation
@@ -93,20 +112,20 @@ BEAM_SIZE = int(os.environ.get("WHISPER_BEAM_SIZE", "2"))
 # qu'au bout de ~18 min, ce qui n'a plus rien de « au fil de l'eau ». À 60 s,
 # la première vague de texte tombe en ~3-4 min et le regroupement en tranches
 # d'extraction est fait côté client, comme pour le micro.
-FILE_BLOCK_S = int(os.environ.get("WHISPER_FILE_BLOCK_S", "60"))
+FILE_BLOCK_S = _entier_env("WHISPER_FILE_BLOCK_S", 60)
 
 # Au-delà de cette durée (secondes), transcrire en parallèle plutôt qu'en un
 # seul appel séquentiel — voir docstring du module.
-PARALLEL_THRESHOLD_S = int(os.environ.get("WHISPER_PARALLEL_THRESHOLD_S", "90"))
+PARALLEL_THRESHOLD_S = _entier_env("WHISPER_PARALLEL_THRESHOLD_S", 90)
 # Nombre max de workers parallèles — au-delà de ~8 sur ce type de CPU
 # (10 cœurs physiques), le gain mesuré devient marginal (rendements
 # décroissants, cf. cadrage perf).
-MAX_PARALLEL_WORKERS = int(os.environ.get("WHISPER_MAX_WORKERS", str(min(8, os.cpu_count() or 4))))
+MAX_PARALLEL_WORKERS = _entier_env("WHISPER_MAX_WORKERS", min(8, os.cpu_count() or 4))
 # Threads CPU par worker parallèle — mesuré : 1 thread/worker avec
 # MAX_PARALLEL_WORKERS workers simultanés bat un seul worker à plusieurs
 # threads, sur ce CPU hybride P/E-cores (contention mémoire au-delà d'un
 # certain nombre de threads par processus).
-CPU_THREADS_PER_WORKER = int(os.environ.get("WHISPER_CPU_THREADS", "1"))
+CPU_THREADS_PER_WORKER = _entier_env("WHISPER_CPU_THREADS", 1)
 
 # Marge de recouvrement (secondes) entre tronçons VOISINS de
 # `_transcribe_parallel`, de part et d'autre de chaque frontière de découpage
