@@ -175,7 +175,8 @@
       "Bash(./.venv/Scripts/python.exe -m pytest *)",
       "Bash(py -m pytest *)",
       "Bash(.venv/Scripts/python.exe -m py_compile *)",
-      "Bash(py -m py_compile *)"
+      "Bash(py -m py_compile *)",
+      "Read(**/*.png)"
     ]
   }
 }
