@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.db import DB_PATH, SessionLocal, init_db
+from app.db import DB_PATH, SessionLocal, engine, init_db
 from app.main import app
 from app.models import GlobalSynthesis, Interview, Mission, MissionSwot
 from app.services import synthese_ai
@@ -15,9 +15,30 @@ from app.services.pptx_export import build_presentation
 
 
 def setup_module() -> None:
+    # `engine` est PARTAGE par toute la suite : sans ce dispose, le pool ouvert
+    # par le fichier de test precedent tient encore le fichier SQLite et
+    # l'unlink ci-dessous leve WinError 32 sur Windows. Ce fichier etait le
+    # seul des 30 qui unlink DB_PATH a ne jamais disposer le moteur -- vert en
+    # isolation, il faisait echouer au SETUP les 32 tests de
+    # test_interview_pdf_export.py selon l'ordre de collecte.
+    try:
+        engine.dispose()
+    except Exception:
+        pass
     if DB_PATH.exists():
         DB_PATH.unlink()
     init_db()
+
+
+def teardown_module() -> None:
+    # Symetrique du setup : on ne laisse pas le pool tenir la base pour le
+    # fichier suivant. Motif canonique de la suite (cf. test_deck_qualite.py).
+    try:
+        engine.dispose()
+    except Exception:
+        pass
+    if DB_PATH.exists():
+        DB_PATH.unlink()
 
 
 @pytest.fixture

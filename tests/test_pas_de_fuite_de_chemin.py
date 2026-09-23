@@ -29,6 +29,14 @@ _CHEMIN_SECRET = r"C:\Users\jean.dupont\Documents\VSCode2\data\recordings\secret
 
 
 def setup_module() -> None:
+    # Le pool de `engine` est PARTAGE par toute la suite : sans ce dispose,
+    # le fichier de test precedent tient encore la base et l'unlink leve
+    # WinError 32 sur Windows (vert en isolation, rouge en ordre de
+    # collecte). Motif canonique de la suite, cf. test_deck_qualite.py.
+    try:
+        engine.dispose()
+    except Exception:
+        pass
     if DB_PATH.exists():
         DB_PATH.unlink()
     init_db()

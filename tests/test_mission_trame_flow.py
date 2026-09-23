@@ -22,6 +22,14 @@ from sqlalchemy import select
 
 
 def setup_module() -> None:
+    # Le pool de `engine` est PARTAGE par toute la suite : sans ce dispose,
+    # le fichier de test precedent tient encore la base et l'unlink leve
+    # WinError 32 sur Windows (vert en isolation, rouge en ordre de
+    # collecte). Motif canonique de la suite, cf. test_deck_qualite.py.
+    try:
+        engine.dispose()
+    except Exception:
+        pass
     # Ensure test DB is isolated and fresh.
     if DB_PATH.exists():
         DB_PATH.unlink()
