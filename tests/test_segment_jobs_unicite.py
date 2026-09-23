@@ -837,7 +837,12 @@ def test_une_tranche_re_soumise_non_encore_re_extraite_n_est_pas_prise_pour_abou
     Ce test épingle les deux prédicats. Sans lui, un retour à `turns_result` ne
     ferait rougir aucun test — le mode paramétré, lui, a toujours utilisé
     `status`, et c'est cette asymétrie qui a caché le défaut."""
-    brut = (RACINE_APP / "routers" / "interviews.py").read_text(encoding="utf-8")
+    # Routeur découpé par domaine le 2026-09-23 : les deux chemins vivent dans
+    # des modules `interviews_*` distincts — on lit donc tout le routeur.
+    brut = chr(10).join(
+        p.read_text(encoding="utf-8")
+        for p in sorted((RACINE_APP / "routers").glob("interviews*.py"))
+    )
     # Les COMMENTAIRES sont retirés : celui qui explique ce correctif cite
     # `bool(j.turns_result)` pour dire de ne pas y revenir, et l'assertion
     # ci-dessous se déclencherait sur son propre avertissement.

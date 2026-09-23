@@ -234,7 +234,7 @@ def _appels_destructeurs_sur_audio(racine: Path) -> dict[tuple[str, str], list[s
 # interviews.py » : la permission par fichier laissait passer n'importe quel
 # helper ajouté dans ce fichier, et ne disait pas POURQUOI l'exception existe.
 _EXCEPTIONS = {
-    ("app/routers/interviews.py", "delete_record_backup"): (
+    ("app/routers/interviews_backup.py", "delete_record_backup"): (
         "LA suppression d'audio du site : l'utilisateur clique dans l'onglet "
         "Backup de la mission"
     ),
