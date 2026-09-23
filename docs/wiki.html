@@ -834,12 +834,12 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-09-18T12:11:38+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-09-23T09:53:26+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>90 sessions</strong> couvertes · <strong>299</strong> invocations de skills · <strong>268</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>91 sessions</strong> couvertes · <strong>300</strong> invocations de skills · <strong>271</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-09-18 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
+        <div class="tag-source">scan_transcripts.py · 2026-09-23 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
 
       <h3>Skills — usage réel</h3>
@@ -847,7 +847,7 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Skill</th><th>Famille</th><th>Invocations</th><th>Première</th><th>Dernière</th></tr></thead>
           <tbody>
-            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>61</td><td>2026-07-17</td><td>2026-09-16</td></tr>
+            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>62</td><td>2026-07-17</td><td>2026-09-20</td></tr>
             <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>48</td><td>2026-07-20</td><td>2026-09-16</td></tr>
             <tr><td><code>run-dev-server</code></td><td>projet</td><td>47</td><td>2026-07-03</td><td>2026-09-16</td></tr>
             <tr><td><code>bmad-review-edge-case-hunter</code></td><td>BMAD</td><td>26</td><td>2026-07-20</td><td>2026-09-07</td></tr>
@@ -887,7 +887,7 @@ pytest -k "pptx or export"                                                     #
           <thead><tr><th>Sous-agent</th><th>Lancements</th><th>Premier</th><th>Dernier</th></tr></thead>
           <tbody>
             <tr><td><code>general-purpose</code></td><td>159</td><td>2026-07-15</td><td>2026-09-16</td></tr>
-            <tr><td><code>Explore</code></td><td>47</td><td>2026-06-30</td><td>2026-09-15</td></tr>
+            <tr><td><code>Explore</code></td><td>50</td><td>2026-06-30</td><td>2026-09-20</td></tr>
             <tr><td><code>bmad-revue</code></td><td>40</td><td>2026-08-31</td><td>2026-09-16</td></tr>
             <tr><td><code>(defaut)</code></td><td>7</td><td>2026-07-21</td><td>2026-07-30</td></tr>
             <tr><td><code>claude</code></td><td>4</td><td>2026-07-16</td><td>2026-07-16</td></tr>
@@ -909,22 +909,22 @@ pytest -k "pptx or export"                                                     #
       <p><strong>bibliothèque / référence</strong> — usage via scripts/sous-agent, non capté par le compteur (n=0 ≠ mort, constat #2) : <code>pdf-quality</code>, <code>pptx-framed-image</code></p>
 
       <h3>TODO agents — chantiers à lancer (constats automatiques)</h3>
-      <p class="avertissement"><em>⚠️ <strong>Mesure incomplète</strong> — 63 transcript(s) sur 90 absent(s) du disque. Un <code>n=0</code> ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.</em></p>
+      <p class="avertissement"><em>⚠️ <strong>Mesure incomplète</strong> — 63 transcript(s) sur 91 absent(s) du disque. Un <code>n=0</code> ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.</em></p>
       <p class="avertissement"><em>⚠️ <strong>Veille lancée le 2026-09-16, artefact plus ancien</strong> — <code>.claude/veille/veille.json</code> date du 2026-09-16 : le dernier tour n'a rien déposé. Vérifier où sa sortie a atterri avant de relancer.</em></p>
       <div class="critical">
         <p><strong>Désinstaller les shims BMAD dépréciés</strong> (21) : <code>bmad-checkpoint-preview</code>, <code>bmad-create-architecture</code>, <code>bmad-create-prd</code>, <code>bmad-create-story</code>, <code>bmad-dev-auto</code>, <code>bmad-dev-story</code>, <code>bmad-document-project</code>, <code>bmad-domain-research</code>, <code>bmad-edit-prd</code>, <code>bmad-editorial-review</code>, <code>bmad-editorial-review-prose</code>, <code>bmad-editorial-review-structure</code>, <code>bmad-generate-project-context</code>, <code>bmad-market-research</code>, <code>bmad-quick-dev</code>, <code>bmad-review-adversarial-general</code>, <code>bmad-review-edge-case-hunter</code>, <code>bmad-review-verification-gap</code>, <code>bmad-sprint-status</code>, <code>bmad-technical-research</code>, <code>bmad-validate-prd</code> — dépréciés par BMAD dans leur propre <code>description</code>, chacun avec son remplaçant ; le seul élagage qui ne repose pas sur notre mesure d'usage.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-09-18 · transcripts de session</div>
+        <div class="tag-source">scan_transcripts.py · 2026-09-23 · transcripts de session</div>
       </div>
       <div class="critical">
         <p><strong>Skills projet sans usage</strong> : <code>agent-securite</code> — vérifier pertinence et déclencheurs.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-09-18 · transcripts de session</div>
+        <div class="tag-source">scan_transcripts.py · 2026-09-23 · transcripts de session</div>
       </div>
       <div class="critical">
         <p><strong>Skills en sommeil (&gt;30 j sans usage)</strong> : <code>bmad-sprint-status</code>, <code>deck-design-library</code>, <code>deck-design-review</code>, <code>pptx-deck</code>, <code>priority-matrix</code>, <code>restitution-deck-design</code>, <code>roadmap-keeper</code>, <code>skill-creator</code>, <code>slide-text-polish</code>, <code>swot-matrix</code>.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-09-18 · transcripts de session</div>
+        <div class="tag-source">scan_transcripts.py · 2026-09-23 · transcripts de session</div>
       </div>
 
       <h3>Arbitrages enregistrés</h3>
@@ -1001,16 +1001,12 @@ pytest -k "pptx or export"                                                     #
         <li><strong><code>canon:vocabulaire-sans-pratique-securite</code></strong> (2026-09-16) : TRANSMIS AU HUB, non applique localement (arbitrage utilisateur du 2026-09-16, salle conseil-flotte + diagnostic frais agent-supervisor). `pratique-securite` absente des 2 vocabulaires miroirs de scan_transcripts.py/write_diagnostic.py (fichiers GENERES) -- l'arbitrage `VSCode1,VSCode2:permissions-hors-git-exec-arbitraire` du 2026-09-11 en est silencieusement inoperant. Message envoye a la session hub vscode5-supervision-projets-3f (msg_id 3cfe7db1) avec le correctif propose (ajouter la categorie aux 2 tuples canon). A re-verifier a la prochaine propagation du kit.</li>
         <li><strong><code>scan_transcripts.py:mesure-non-fiable-faux-positif</code></strong> (2026-09-16) : TRANSMIS AU HUB, non applique localement (arbitrage utilisateur du 2026-09-16). Le drapeau "mesure non fiable" (63/90 transcripts references disparus du disque) desactive a perpetuite le volet agent-mort sur une premisse fausse -- state.json est cumulatif, un transcript efface APRES son scan ne coute aucun evenement. Message envoye a la session hub vscode5-supervision-projets-3f (msg_id 3cfe7db1) avec le correctif propose (n'avertir que si un fichier absent n'a jamais ete lu). A re-verifier a la prochaine propagation du kit.</li>
         <li><strong><code>flotte:succes-sans-marqueur-non-outille-sur-les-cibles</code></strong> (2026-09-16) : TRANSMIS AU HUB, non applique localement (arbitrage utilisateur du 2026-09-16). La regle de veille adoptee le 2026-09-08 (faux succes auto-declares) n'est outillee qu'au hub (scripts/scan_projets.py, hub-only) -- mesure locale a la main sur runs.jsonl VSCode2 : 20/82 succes (24%) sans marqueur de verification, jamais affiche. Message envoye a la session hub vscode5-supervision-projets-3f (msg_id 3cfe7db1) avec le correctif propose (porter la mesure dans scan_transcripts.py, canon distribue). A re-verifier a la prochaine propagation du kit.</li>
+        <li><strong><code>VSCode2:ci-jamais-verifiee-faute-de-jeton</code></strong> (2026-09-22) : ACCEPTE + APPLIQUE (option A) : GH_TOKEN pose au niveau utilisateur du poste via gh auth token (compte claudecamus-dot, scopes repo/workflow/read:org/gist). Le garde-fou redevient operant sans une ligne de code. Les 11 commits du 16/09 restent a verifier manuellement une bonne fois (hors budget de cet arbitrage), mais tout futur push sera desormais controle.</li>
       </ul>
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
-      <p><em>Diagnostic à jour.</em></p>
-      <div class="critical">
-        <p><strong>11 commits pousses sur origin/main le 2026-09-16 sans le moindre verdict de CI : le garde-fou existe, il est structurellement muet, et 3 runs successifs ont cesse de le dire</strong> — Trancher, plutot que laisser un hook cable qui ne peut rien mesurer - c est la forme la plus couteuse : elle donne l impression que la CI est surveillee. · <strong>Proposition</strong> : Deux voies, a arbitrer par l utilisateur. (A) Poser GH_TOKEN (portee repo) dans l environnement de la machine - le hook redevient operant tel quel, sans une ligne de code, et rattrape les runs rouges au push. (B) Si aucun jeton ne sera pose, assumer et le dire : degrader le hook en avertissement de fin de seance unique et retirer la CI des verifications reputees couvertes dans revue-increment, pour que la suite locale verte ne soit plus lue comme une preuve de CI verte. Dans les deux cas : verifier manuellement l etat des 11 commits du 2026-09-16 avant de considerer la seance close. Preuve de succes : chaque push a un verdict CI trace, ou la CI est explicitement hors du perimetre de preuve.</p>
-        <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">agent-supervisor · étage 2</div>
-      </div>
-      <p><em>3 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un <code>re_challenge</code> avec des données nouvelles :</em></p>
-      <ul><li><s>La securite n existe dans aucun des deux vocabulaires du dispositif : l arbitrage du 2026-09-11 ne ferme rien, et aucun constat de securite ne peut meme s ecrire</s> (<code>canon:vocabulaire-sans-pratique-securite</code>)</li><li><s>Le drapeau mesure non fiable desactive a perpetuite le volet agent-mort sur une premisse fausse : les compteurs d usage NE SONT PAS perdus quand un transcript disparait</s> (<code>scan_transcripts.py:mesure-non-fiable-faux-positif</code>)</li><li><s>La regle de veille adoptee le 2026-09-08 sur les faux succes auto-declares n est outillee qu au hub : elle ne mesure rien la ou les runs se produisent</s> (<code>flotte:succes-sans-marqueur-non-outille-sur-les-cibles</code>)</li></ul>
+      <p><em>Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés.</em></p>
+      <p><em>4 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un <code>re_challenge</code> avec des données nouvelles :</em></p>
+      <ul><li><s>La securite n existe dans aucun des deux vocabulaires du dispositif : l arbitrage du 2026-09-11 ne ferme rien, et aucun constat de securite ne peut meme s ecrire</s> (<code>canon:vocabulaire-sans-pratique-securite</code>)</li><li><s>Le drapeau mesure non fiable desactive a perpetuite le volet agent-mort sur une premisse fausse : les compteurs d usage NE SONT PAS perdus quand un transcript disparait</s> (<code>scan_transcripts.py:mesure-non-fiable-faux-positif</code>)</li><li><s>11 commits pousses sur origin/main le 2026-09-16 sans le moindre verdict de CI : le garde-fou existe, il est structurellement muet, et 3 runs successifs ont cesse de le dire</s> (<code>VSCode2:ci-jamais-verifiee-faute-de-jeton</code>)</li><li><s>La regle de veille adoptee le 2026-09-08 sur les faux succes auto-declares n est outillee qu au hub : elle ne mesure rien la ou les runs se produisent</s> (<code>flotte:succes-sans-marqueur-non-outille-sur-les-cibles</code>)</li></ul>
     </section>
 <!-- TODO-AGENTS-HTML:END -->
 

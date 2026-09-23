@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-18
+updated: 2026-09-23
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -8,13 +8,13 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-09-18T12:11:38+02:00 · **90 sessions** (transcripts) · **299** invocations de skills · **268** lancements de sous-agents.
+Dernier scan : 2026-09-23T09:53:26+02:00 · **91 sessions** (transcripts) · **300** invocations de skills · **271** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `agent-orchestrator` | projet | 61 | 2026-07-17 | 2026-09-16 |
+| `agent-orchestrator` | projet | 62 | 2026-07-17 | 2026-09-20 |
 | `bmad-code-review` | BMAD | 48 | 2026-07-20 | 2026-09-16 |
 | `run-dev-server` | projet | 47 | 2026-07-03 | 2026-09-16 |
 | `bmad-review-edge-case-hunter` | BMAD | 26 | 2026-07-20 | 2026-09-07 |
@@ -50,7 +50,7 @@ Dernier scan : 2026-09-18T12:11:38+02:00 · **90 sessions** (transcripts) · **2
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
 | `general-purpose` | 159 | 2026-07-15 | 2026-09-16 |
-| `Explore` | 47 | 2026-06-30 | 2026-09-15 |
+| `Explore` | 50 | 2026-06-30 | 2026-09-20 |
 | `bmad-revue` | 40 | 2026-08-31 | 2026-09-16 |
 | `(defaut)` | 7 | 2026-07-21 | 2026-07-30 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
@@ -93,7 +93,7 @@ _Consommés en lisant/exécutant leurs `scripts/`, ou via un sous-agent qui les 
 
 ## TODO agents (constats automatiques)
 
-⚠️ **Mesure incomplète** — 63 transcript(s) sur 90 absent(s) du disque. Un `n=0` ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.
+⚠️ **Mesure incomplète** — 63 transcript(s) sur 91 absent(s) du disque. Un `n=0` ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.
 
 ⚠️ **Veille lancée le 2026-09-16, artefact plus ancien** — `.claude/veille/veille.json` date du 2026-09-16 : le dernier tour n'a rien déposé. Vérifier où sa sortie a atterri avant de relancer.
 
@@ -176,22 +176,22 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 - **`canon:vocabulaire-sans-pratique-securite`** (2026-09-16) : TRANSMIS AU HUB, non applique localement (arbitrage utilisateur du 2026-09-16, salle conseil-flotte + diagnostic frais agent-supervisor). `pratique-securite` absente des 2 vocabulaires miroirs de scan_transcripts.py/write_diagnostic.py (fichiers GENERES) -- l'arbitrage `VSCode1,VSCode2:permissions-hors-git-exec-arbitraire` du 2026-09-11 en est silencieusement inoperant. Message envoye a la session hub vscode5-supervision-projets-3f (msg_id 3cfe7db1) avec le correctif propose (ajouter la categorie aux 2 tuples canon). A re-verifier a la prochaine propagation du kit.
 - **`scan_transcripts.py:mesure-non-fiable-faux-positif`** (2026-09-16) : TRANSMIS AU HUB, non applique localement (arbitrage utilisateur du 2026-09-16). Le drapeau "mesure non fiable" (63/90 transcripts references disparus du disque) desactive a perpetuite le volet agent-mort sur une premisse fausse -- state.json est cumulatif, un transcript efface APRES son scan ne coute aucun evenement. Message envoye a la session hub vscode5-supervision-projets-3f (msg_id 3cfe7db1) avec le correctif propose (n'avertir que si un fichier absent n'a jamais ete lu). A re-verifier a la prochaine propagation du kit.
 - **`flotte:succes-sans-marqueur-non-outille-sur-les-cibles`** (2026-09-16) : TRANSMIS AU HUB, non applique localement (arbitrage utilisateur du 2026-09-16). La regle de veille adoptee le 2026-09-08 (faux succes auto-declares) n'est outillee qu'au hub (scripts/scan_projets.py, hub-only) -- mesure locale a la main sur runs.jsonl VSCode2 : 20/82 succes (24%) sans marqueur de verification, jamais affiche. Message envoye a la session hub vscode5-supervision-projets-3f (msg_id 3cfe7db1) avec le correctif propose (porter la mesure dans scan_transcripts.py, canon distribue). A re-verifier a la prochaine propagation du kit.
+- **`VSCode2:ci-jamais-verifiee-faute-de-jeton`** (2026-09-22) : ACCEPTE + APPLIQUE (option A) : GH_TOKEN pose au niveau utilisateur du poste via gh auth token (compte claudecamus-dot, scopes repo/workflow/read:org/gist). Le garde-fou redevient operant sans une ligne de code. Les 11 commits du 16/09 restent a verifier manuellement une bonne fois (hors budget de cet arbitrage), mais tout futur push sera desormais controle.
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic à jour._
+_Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés._
 
-1. **11 commits pousses sur origin/main le 2026-09-16 sans le moindre verdict de CI : le garde-fou existe, il est structurellement muet, et 3 runs successifs ont cesse de le dire** — Trancher, plutot que laisser un hook cable qui ne peut rien mesurer - c est la forme la plus couteuse : elle donne l impression que la CI est surveillee. · **Proposition** : Deux voies, a arbitrer par l utilisateur. (A) Poser GH_TOKEN (portee repo) dans l environnement de la machine - le hook redevient operant tel quel, sans une ligne de code, et rattrape les runs rouges au push. (B) Si aucun jeton ne sera pose, assumer et le dire : degrader le hook en avertissement de fin de seance unique et retirer la CI des verifications reputees couvertes dans revue-increment, pour que la suite locale verte ne soit plus lue comme une preuve de CI verte. Dans les deux cas : verifier manuellement l etat des 11 commits du 2026-09-16 avant de considerer la seance close. Preuve de succes : chaque push a un verdict CI trace, ou la CI est explicitement hors du perimetre de preuve.
-
-_3 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un `re_challenge` avec des données nouvelles :_
+_4 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un `re_challenge` avec des données nouvelles :_
 
 - ~~La securite n existe dans aucun des deux vocabulaires du dispositif : l arbitrage du 2026-09-11 ne ferme rien, et aucun constat de securite ne peut meme s ecrire~~ (`canon:vocabulaire-sans-pratique-securite`)
 - ~~Le drapeau mesure non fiable desactive a perpetuite le volet agent-mort sur une premisse fausse : les compteurs d usage NE SONT PAS perdus quand un transcript disparait~~ (`scan_transcripts.py:mesure-non-fiable-faux-positif`)
+- ~~11 commits pousses sur origin/main le 2026-09-16 sans le moindre verdict de CI : le garde-fou existe, il est structurellement muet, et 3 runs successifs ont cesse de le dire~~ (`VSCode2:ci-jamais-verifiee-faute-de-jeton`)
 - ~~La regle de veille adoptee le 2026-09-08 sur les faux succes auto-declares n est outillee qu au hub : elle ne mesure rien la ou les runs se produisent~~ (`flotte:succes-sans-marqueur-non-outille-sur-les-cibles`)
 
 ## Seuil de qualification — la mesure
 
-Depuis le 2026-09-11 : **148** demande(s) vue(s) hors commande slash (+ 31 slash), **6** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **4 %** des demandes orchestrées.
+Depuis le 2026-09-11 : **167** demande(s) vue(s) hors commande slash (+ 48 slash), **6** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **4 %** des demandes orchestrées.
 _Ce chiffre ne dit pas ce qui AURAIT dû être orchestré : le hook compte, il ne juge pas. Il donne le dénominateur qui manquait pour arbitrer le seuil sur données plutôt que sur habitude._
 
 ---

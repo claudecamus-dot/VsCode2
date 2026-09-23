@@ -418,7 +418,7 @@ def test_un_constat_ecarte_par_arbitrage_reste_visible_comme_ecarte(tmp_path):
     (tdir / "s1.jsonl").write_text(_line(skill="run-dev-server"), encoding="utf-8")
     (tmp_path / "arbitrages.json").write_text(json.dumps({"arbitrages": [
         {"cible": "revue-increment", "decision": "règle déjà ajoutée le 2026-07-20",
-         "date": "2026-07-20", "categories": ["verification-manquante"]},
+         "date": dt.date.today().isoformat(), "categories": ["verification-manquante"]},
     ]}, ensure_ascii=False), encoding="utf-8")
     # `re_challenge: False` explicite : depuis le 2026-09-19 (canon, finding
     # `VScode5:constat-neuf-masque-par-arbitrage-anterieur`), `write_diagnostic.py` pose
@@ -455,7 +455,7 @@ def test_re_challenge_passe_outre_un_arbitrage_de_meme_cible_et_categorie(tmp_pa
     (tdir / "s1.jsonl").write_text(_line(skill="run-dev-server"), encoding="utf-8")
     (tmp_path / "arbitrages.json").write_text(json.dumps({"arbitrages": [
         {"cible": "export-ppt-verifie", "decision": "rendre la référence avant d'implémenter",
-         "date": "2026-07-22", "categories": ["verification-manquante"]},
+         "titre": "le deck a changé sans aucun rendu", "date": "2026-07-22", "categories": ["verification-manquante"]},
     ]}, ensure_ascii=False), encoding="utf-8")
     payload = {"categorie": "verification-manquante", "cible": "export-ppt-verifie",
                "titre": "le deck a changé sans aucun rendu",
@@ -492,7 +492,7 @@ def test_re_challenge_rouvre_l_affichage_mais_jamais_le_routage(tmp_path):
     (tdir / "s1.jsonl").write_text(_line(skill="run-dev-server"), encoding="utf-8")
     (tmp_path / "arbitrages.json").write_text(json.dumps({"arbitrages": [
         {"cible": "revue-increment", "decision": "règle ajoutée le 2026-07-20",
-         "date": "2026-07-20", "categories": ["ko-repete"]},
+         "titre": "une séance se clôt sur un arbre sale", "date": "2026-07-20", "categories": ["ko-repete"]},
     ]}, ensure_ascii=False), encoding="utf-8")
     assert _write_diag(tmp_path, {"findings": [
         {"categorie": "ko-repete", "cible": "revue-increment", "re_challenge": True,

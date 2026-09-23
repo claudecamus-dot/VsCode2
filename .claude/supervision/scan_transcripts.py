@@ -1,14 +1,3 @@
-# +-- GÉNÉRÉ — NE PAS ÉDITER LOCALEMENT ---------------------------------------
-# | Source de vérité : hub de supervision VScode5, .claude/dispositif/canon/scan_transcripts.py
-# | Une correction faite ICI sera ÉCRASÉE à la prochaine propagation. Pour la
-# | garder : la signaler au hub, qui corrige le canon et re-synchronise.
-# | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
-# |  n'est pas déployé, il n'existe pas dans ce dépôt.)
-# | Provenance canon : 51dfa0f du 2026-09-19 — permet, au prochain sync, de dire si
-# | une différence vient d'une édition locale ou d'une avance du canon (voir
-# | `determiner_cause` dans sync_dispositif.py au hub).
-# +---------------------------------------------------------------------------
-
 """Superviseur d'agents — étage 1 (incrément A) : collecte déterministe, 0 token LLM.
 
 Scanne incrémentalement les transcripts JSONL du projet (~/.claude/projects/<slug>/*.jsonl),
@@ -856,6 +845,22 @@ CATEGORIES_CONNUES = (
     # Volet 2 — pratiques d'ingénierie, documentation, cadrage produit
     "pratique-test", "pratique-dev", "pratique-revue", "pratique-design",
     "pratique-doc", "pratique-produit",
+    # Volet 2 — securite (agent-securite installe le 2026-09-13). Absente jusqu'au
+    # 2026-09-21 : un arbitrage du 2026-09-11 portant cette categorie etait
+    # inoperant depuis son ecriture, hors vocabulaire. Distincte de "securite"
+    # (volet 3, dimension d'audit) : couvre les PRATIQUES, pas le niveau mesure.
+    "pratique-securite",
+    # Volet 3 - dimensions de l'audit technique (miroir de DIM_AUDIT dans
+    # scan_projets.py). Absentes jusqu'au 2026-09-21 : un constat d'audit
+    # corrige, teste et commite ne pouvait PAS etre ferme, log_arbitrage le
+    # refusant « hors vocabulaire ». Mesure du 2026-09-20 : 7 constats des lots
+    # VSCode et VScode6 dans ce cas, et le hook de session signalait deja
+    # « categorie(s) hors vocabulaire, sans effet ». Meme raison que le
+    # rattrapage du volet 2 : un garde-fou qui hurle a tort finit ignore.
+    "robustesse", "performance", "risque_technique", "securite",
+    # Orthographe heritee, presente dans arbitrages.json : la refuser ferait
+    # crier le controle sur des entrees reelles deja ecrites.
+    "risque-technique",
     "autre",
 )
 
@@ -917,9 +922,23 @@ def _vise_ce_constat(arbitrage: dict, finding: dict) -> bool:
     naissait masqué par une décision rendue sur un tout autre sujet — mesuré sur
     2 constats du 18/09, fermés par des arbitrages des 15 et 17."""
     titre_arb = str(arbitrage.get("titre") or "").strip().lower()
-    if not titre_arb:
+    if titre_arb:
+        return titre_arb == str(finding.get("titre") or "").strip().lower()
+    # Arbitrage SANS titre (portee large, cible+categorie) : ne ferme que s'il est
+    # POSTERIEUR OU DU MEME JOUR que la premiere mesure du constat (`vu_le`). Sans
+    # cette borne, un arbitrage ancien sur un tout autre sujet masque a perpetuite
+    # tout constat NEUF de la meme cible/categorie -- mesure le 2026-09-21 sur 2
+    # constats de VSCode1 (vu_le 2026-09-18), fermes par des arbitrages de juillet
+    # (finding VScode5:masquage-par-arbitrage-sans-rapport). Un `vu_le` absent sur
+    # le constat garde l'ancien comportement (retro-compatibilite : rien ne changerait
+    # pour un appelant qui ne remplit pas ce champ).
+    vu_le = str(finding.get("vu_le") or "")[:10]
+    if not vu_le:
         return True
-    return titre_arb == str(finding.get("titre") or "").strip().lower()
+    date_arb = str(arbitrage.get("date") or "")[:10]
+    if len(date_arb) != 10:
+        return True  # arbitrage sans date exploitable : comportement inchange
+    return date_arb >= vu_le
 
 
 def finding_arbitre(finding: dict, arbitrages: list = None, respecter_re_challenge: bool = True,

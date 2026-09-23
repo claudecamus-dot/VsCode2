@@ -632,6 +632,16 @@
       ],
       "source": "utilisateur",
       "decision": "TRANSMIS AU HUB, non applique localement (arbitrage utilisateur du 2026-09-16). La regle de veille adoptee le 2026-09-08 (faux succes auto-declares) n'est outillee qu'au hub (scripts/scan_projets.py, hub-only) -- mesure locale a la main sur runs.jsonl VSCode2 : 20/82 succes (24%) sans marqueur de verification, jamais affiche. Message envoye a la session hub vscode5-supervision-projets-3f (msg_id 3cfe7db1) avec le correctif propose (porter la mesure dans scan_transcripts.py, canon distribue). A re-verifier a la prochaine propagation du kit."
+    },
+    {
+      "cible": "VSCode2:ci-jamais-verifiee-faute-de-jeton",
+      "date": "2026-09-22",
+      "titre": "11 commits pousses sur origin/main le 2026-09-16 sans le moindre verdict de CI : le garde-fou existe, il est structurellement muet, et 3 runs successifs ont cesse de le dire",
+      "categories": [
+        "verification-manquante"
+      ],
+      "decision": "ACCEPTE + APPLIQUE (option A) : GH_TOKEN pose au niveau utilisateur du poste via gh auth token (compte claudecamus-dot, scopes repo/workflow/read:org/gist). Le garde-fou redevient operant sans une ligne de code. Les 11 commits du 16/09 restent a verifier manuellement une bonne fois (hors budget de cet arbitrage), mais tout futur push sera desormais controle.",
+      "preuve_application": "py -c test direct de _github_token('.') AVANT pose GH_TOKEN : resultat None (0 jeton resolu) ; py -c meme test APRES pose : resultat True (1 jeton resolu) ; commande : gh auth status confirme 4 scopes actifs"
     }
   ]
 }
