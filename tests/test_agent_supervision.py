@@ -430,7 +430,7 @@ def test_un_constat_ecarte_par_arbitrage_reste_visible_comme_ecarte(tmp_path):
     # masquage qu'on veut exercer ici, pour une tout autre raison que celle testée.
     assert _write_diag(tmp_path, {"findings": [
         {"categorie": "verification-manquante", "cible": "revue-increment",
-         "titre": "un gap produit rangé en xfail", "preuve": "test auto-skippé sans Ollama",
+         "titre": "un gap produit rangé en xfail", "preuve": "test auto-skippé sans Ollama (pytest -rs : 1 skip)",
          "re_challenge": False},
     ]}).returncode == 0
 
@@ -537,7 +537,7 @@ def test_write_diagnostic_refuse_plus_de_cinq_constats(tmp_path):
     """Le scan n'affiche que les 5 premiers : au-delà, un constat se perdait sans
     trace. La priorisation se fait chez le superviseur, pas par troncature muette."""
     out = _write_diag(tmp_path, {"findings": [
-        {"categorie": "autre", "titre": f"constat {i}", "preuve": "p"} for i in range(6)
+        {"categorie": "autre", "titre": f"constat {i}", "preuve": "grep -c motif : 1"} for i in range(6)
     ]})
     assert out.returncode == 1 and "maximum 5" in out.stdout
     assert not (tmp_path / "diagnostic.json").exists()
@@ -554,12 +554,12 @@ def test_ecrire_un_diagnostic_ne_supprime_pas_les_constats_non_arbitres(tmp_path
     remplacés."""
     _arbitrages(tmp_path)
     assert _write_diag(tmp_path, {"findings": [
-        {"categorie": "interaction", "cible": "A", "titre": "constat A", "preuve": "p"},
-        {"categorie": "autre", "cible": "B", "titre": "constat B", "preuve": "p"},
+        {"categorie": "interaction", "cible": "A", "titre": "constat A", "preuve": "grep -c motif : 1"},
+        {"categorie": "autre", "cible": "B", "titre": "constat B", "preuve": "grep -c motif : 1"},
     ]}).returncode == 0
 
     out = _write_diag(tmp_path, {"findings": [
-        {"categorie": "autre", "cible": "C", "titre": "constat C", "preuve": "p"}]})
+        {"categorie": "autre", "cible": "C", "titre": "constat C", "preuve": "grep -c motif : 1"}]})
     assert out.returncode == 0, out.stdout
     # Le constat neuf d'abord, les reportés ensuite — et surtout : A et B SURVIVENT.
     assert _cibles(tmp_path) == ["C", "A", "B"]
@@ -571,13 +571,13 @@ def test_un_constat_ferme_par_un_arbitrage_posterieur_disparait(tmp_path):
     humain reste le SEUL mécanisme qui retire un constat du registre."""
     _arbitrages(tmp_path)
     _write_diag(tmp_path, {"findings": [
-        {"categorie": "interaction", "cible": "A", "titre": "constat A", "preuve": "p"},
-        {"categorie": "autre", "cible": "B", "titre": "constat B", "preuve": "p"},
+        {"categorie": "interaction", "cible": "A", "titre": "constat A", "preuve": "grep -c motif : 1"},
+        {"categorie": "autre", "cible": "B", "titre": "constat B", "preuve": "grep -c motif : 1"},
     ]})
     _arbitrages(tmp_path, {"cible": "A", "date": dt.date.today().isoformat(),
                            "decision": "ACCEPTÉ + APPLIQUÉ", "source": "test"})
     _write_diag(tmp_path, {"findings": [
-        {"categorie": "autre", "cible": "D", "titre": "constat D", "preuve": "p"}]})
+        {"categorie": "autre", "cible": "D", "titre": "constat D", "preuve": "grep -c motif : 1"}]})
     assert _cibles(tmp_path) == ["D", "B"], "A est tranché, B ne l'est pas"
 
 
@@ -588,9 +588,9 @@ def test_un_arbitrage_anterieur_a_la_premiere_vue_ne_ferme_pas_le_constat(tmp_pa
     _arbitrages(tmp_path, {"cible": "B", "date": "2020-01-01",
                            "decision": "décision sans rapport", "source": "test"})
     _write_diag(tmp_path, {"findings": [
-        {"categorie": "autre", "cible": "B", "titre": "constat B", "preuve": "p"}]})
+        {"categorie": "autre", "cible": "B", "titre": "constat B", "preuve": "grep -c motif : 1"}]})
     _write_diag(tmp_path, {"findings": [
-        {"categorie": "autre", "cible": "E", "titre": "constat E", "preuve": "p"}]})
+        {"categorie": "autre", "cible": "E", "titre": "constat E", "preuve": "grep -c motif : 1"}]})
     assert _cibles(tmp_path) == ["E", "B"]
 
 
@@ -600,16 +600,16 @@ def test_un_constat_reconduit_garde_sa_date_de_premiere_vue(tmp_path):
     propre fenêtre d'arbitrage et ne serait jamais reconnu comme tranché."""
     _arbitrages(tmp_path)
     _write_diag(tmp_path, {"findings": [
-        {"categorie": "autre", "cible": "B", "titre": "constat B", "preuve": "p"}]})
+        {"categorie": "autre", "cible": "B", "titre": "constat B", "preuve": "grep -c motif : 1"}]})
     diag = json.loads((tmp_path / "diagnostic.json").read_text(encoding="utf-8"))
     diag["findings"][0]["vu_le"] = "2026-01-15"
     (tmp_path / "diagnostic.json").write_text(json.dumps(diag, ensure_ascii=False),
                                               encoding="utf-8")
     _write_diag(tmp_path, {"findings": [
-        {"categorie": "autre", "cible": "B", "titre": "constat B, reformule", "preuve": "p2"}]})
+        {"categorie": "autre", "cible": "B", "titre": "constat B, reformule", "preuve": "p2 (grep -c : 2)"}]})
     reconduit = json.loads((tmp_path / "diagnostic.json").read_text(encoding="utf-8"))["findings"][0]
     assert reconduit["vu_le"] == "2026-01-15", "la reformulation ne rajeunit pas le constat"
-    assert reconduit["preuve"] == "p2", "mais le contenu, lui, est bien celui du jour"
+    assert reconduit["preuve"] == "p2 (grep -c : 2)", "mais le contenu, lui, est bien celui du jour"
 
 
 def test_le_plafond_refuse_d_ecrire_et_nomme_les_constats_en_attente(tmp_path):
@@ -619,12 +619,12 @@ def test_le_plafond_refuse_d_ecrire_et_nomme_les_constats_en_attente(tmp_path):
     _arbitrages(tmp_path)
     for cible in ("A", "B", "C", "D"):
         _write_diag(tmp_path, {"findings": [
-            {"categorie": "autre", "cible": cible, "titre": f"constat {cible}", "preuve": "p"}]})
+            {"categorie": "autre", "cible": cible, "titre": f"constat {cible}", "preuve": "grep -c motif : 1"}]})
     avant = (tmp_path / "diagnostic.json").read_text(encoding="utf-8")
 
     out = _write_diag(tmp_path, {"findings": [
-        {"categorie": "autre", "cible": "X", "titre": "x", "preuve": "p"},
-        {"categorie": "autre", "cible": "Y", "titre": "y", "preuve": "p"},
+        {"categorie": "autre", "cible": "X", "titre": "x", "preuve": "grep -c motif : 1"},
+        {"categorie": "autre", "cible": "Y", "titre": "y", "preuve": "grep -c motif : 1"},
     ]})
     assert out.returncode == 1
     assert "2 constat(s) neuf(s) + 4 reporte(s) = 6, maximum 5" in out.stdout
@@ -640,12 +640,12 @@ def test_un_diagnostic_sans_vu_le_est_date_par_son_ecriture(tmp_path):
     n'importe quel arbitrage et refermerait en silence exactement ce qu'on veut sauver."""
     (tmp_path / "diagnostic.json").write_text(json.dumps({
         "generated": "2026-08-20T10:00:00+02:00",
-        "findings": [{"categorie": "autre", "cible": "B", "titre": "ancien", "preuve": "p"}],
+        "findings": [{"categorie": "autre", "cible": "B", "titre": "ancien", "preuve": "grep -c motif : 1"}],
     }, ensure_ascii=False), encoding="utf-8")
     _arbitrages(tmp_path, {"cible": "B", "date": "2026-08-01",
                            "decision": "antérieure au constat", "source": "test"})
     _write_diag(tmp_path, {"findings": [
-        {"categorie": "autre", "cible": "Z", "titre": "z", "preuve": "p"}]})
+        {"categorie": "autre", "cible": "Z", "titre": "z", "preuve": "grep -c motif : 1"}]})
     assert _cibles(tmp_path) == ["Z", "B"], "l'arbitrage du 01/08 ne ferme pas un constat vu le 20/08"
 
 
@@ -656,12 +656,12 @@ def test_un_arbitrage_restreint_par_categorie_ne_ferme_pas_une_autre_categorie(t
     _arbitrages(tmp_path)
     _write_diag(tmp_path, {"findings": [
         {"categorie": "verification-manquante", "cible": "A", "titre": "vérif absente",
-         "preuve": "p"}]})
+         "preuve": "grep -c motif : 1"}]})
     _arbitrages(tmp_path, {"cible": "A", "date": dt.date.today().isoformat(),
                            "decision": "agent activé", "source": "test",
                            "categories": ["agent-mort"]})
     _write_diag(tmp_path, {"findings": [
-        {"categorie": "autre", "cible": "W", "titre": "w", "preuve": "p"}]})
+        {"categorie": "autre", "cible": "W", "titre": "w", "preuve": "grep -c motif : 1"}]})
     assert _cibles(tmp_path) == ["W", "A"]
 
 
@@ -704,7 +704,7 @@ def test_re_challenge_sans_cible_est_refuse(tmp_path):
     """Un re-challenge conteste un arbitrage, qui porte toujours sur une cible : sans
     cible, le champ ne veut rien dire et deviendrait un passe-droit universel."""
     out = _write_diag(tmp_path, {"findings": [
-        {"categorie": "ko-repete", "titre": "t", "preuve": "p", "re_challenge": True},
+        {"categorie": "ko-repete", "titre": "t", "preuve": "grep -c motif : 1", "re_challenge": True},
     ]})
     assert out.returncode == 1 and "sans cible" in out.stdout
 
@@ -715,7 +715,7 @@ def test_write_diagnostic_rejette_sans_preuve_ou_categorie_inconnue(tmp_path):
     ]})
     assert sans_preuve.returncode == 1 and "preuve" in sans_preuve.stdout
     mauvaise_cat = _write_diag(tmp_path, {"findings": [
-        {"categorie": "ressenti", "cible": "x", "titre": "t", "preuve": "p"},
+        {"categorie": "ressenti", "cible": "x", "titre": "t", "preuve": "grep -c motif : 1"},
     ]})
     assert mauvaise_cat.returncode == 1 and "categorie invalide" in mauvaise_cat.stdout
     assert not (tmp_path / "diagnostic.json").exists()
@@ -766,7 +766,7 @@ def test_diagnostic_perime_par_activite_meme_recent(tmp_path):
     tdir.mkdir()
     (tdir / "s1.jsonl").write_text(_line(skill="run-dev-server"), encoding="utf-8")
     assert _write_diag(tmp_path, {"findings": [
-        {"categorie": "autre", "cible": "x", "titre": "t", "preuve": "p"},
+        {"categorie": "autre", "cible": "x", "titre": "t", "preuve": "grep -c motif : 1"},
     ]}).returncode == 0
     # 3 runs postérieurs au diagnostic : périmé malgré une date récente.
     futur = "2099-01-01T00:00:00+00:00"

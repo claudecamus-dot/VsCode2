@@ -71,6 +71,13 @@ import json
 import os
 import sys
 
+# `_preuve_mesuree` vit dans log_arbitrage.py (meme dossier, aucun effet de bord a
+# l'import : le module n'y calcule que des chemins et garde son `if __name__`).
+# IMPORTE et non recopie : l'oracle de « preuve mesuree » doit etre LE MEME a
+# l'arbitrage et a l'ecriture du constat, sinon la plus laxiste des deux sert.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from log_arbitrage import _preuve_mesuree  # noqa: E402
+
 DIAGNOSTIC_PATH = os.environ.get("AGENT_SUPERVISION_DIAGNOSTIC") or os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "diagnostic.json"
 )
@@ -301,6 +308,22 @@ def main(argv) -> int:
         if missing:
             print(f"write_diagnostic : finding #{i} sans {', '.join(missing)} "
                   "(un constat sans preuve objective ne se journalise pas)")
+            return 1
+        # La PRESENCE de `preuve` ne prouvait rien : une phrase d'opinion passait.
+        # Cas reels (2026-09-22) : le finding « CRLF » invente et la fausse alerte
+        # « facteur 33 », tous deux ecrits avec une `preuve` en prose. Meme oracle
+        # que `log_arbitrage._preuve_mesuree` — importe, jamais recopie : deux
+        # copies d'une regle finissent par diverger, et c'est la plus laxiste qui
+        # sert. Le controle porte sur ce qui est ECRIT DANS CETTE PASSE, jamais sur
+        # les findings REPORTES du diagnostic precedent (ceux-la sont deja stockes,
+        # les refuser retroactivement ferait perdre des constats ouverts).
+        if not _preuve_mesuree(str(f.get("preuve") or "")):
+            print(f"write_diagnostic : finding #{i} preuve NON MESUREE — "
+                  f"« {str(f.get('preuve'))[:160]} »\n"
+                  "  Une preuve doit porter un chiffre (compte, sha, date, nombre de "
+                  "tests) ou une commande rejouable (grep, pytest, git, py, --check). "
+                  "Une phrase d'opinion n'ancre pas un constat : va mesurer, puis "
+                  "reecris la preuve avec la commande qui l'a produite.")
             return 1
         if not str(f.get("cible") or "").strip():
             print(f"write_diagnostic : finding #{i} sans cible "

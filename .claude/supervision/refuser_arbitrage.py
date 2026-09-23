@@ -52,6 +52,7 @@ CATEGORIES_CONNUES = (
     "verification-manquante", "non-convergence",
     "pratique-test", "pratique-dev", "pratique-revue", "pratique-design",
     "pratique-doc", "pratique-produit",
+    "pratique-securite",  # miroir de scan_transcripts.py (2026-09-21)
     # Volet 3 - dimensions de l'audit technique (miroir de DIM_AUDIT dans
     # scan_projets.py). Absentes jusqu'au 2026-09-21 : un constat d'audit
     # corrige, teste et commite ne pouvait PAS etre ferme, log_arbitrage le

@@ -134,3 +134,16 @@ PY
 
 Adapter le chemin du template et le `sys.path` au projet courant — le script
 suppose l'arborescence VSCode1 (`app/scripts/pptx_deck.py`).
+
+## Rampes de teintes pour schémas (publiées par le gabarit, relevées le 2026-09-23)
+
+Une slide de palette d'un deck de formation OCTO publie deux rampes à 10 paliers,
+**réservées aux schémas** (secteurs, niveaux, séries) — jamais au texte courant :
+
+- **Rampe navy** (100 % → 10 %) : `#0E2356` `#263967` `#3E4F78` `#586586` `#6E7B9A`
+  `#8691AB` `#9FA7BB` `#B7BDCC` `#CFD3DD` `#E7E9EE` — reprend les slots du thème plus
+  deux intermédiaires (`#263967`, `#8691AB`).
+- **Rampe cyan** (100 % → 10 %) : `#00D2DD` `#3CD7E0` `#5BDDE4` `#72DFE7` `#8AE4EB`
+  `#9EE9ED` `#B2EEF2` `#C6F1F5` `#DAF6F9` `#EBFAFB`.
+- Turquoises profonds hors rampe, fréquents dans les schémas : `#00AFCB`, `#00A3BE`,
+  `#59C3D5` ; ardoise des connecteurs : `#627091`.

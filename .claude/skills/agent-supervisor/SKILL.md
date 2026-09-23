@@ -120,6 +120,7 @@ projet produit.
 | `pratique-doc` | La documentation est-elle présente et utile (pas juste un fichier vide) ? | dimension documentation 🔴/🟠 ; README absent ou sans section install/usage ; pas de CLAUDE.md ; pas de wiki. **Remédiation** : `bmad-project-context` (règles agent d'un dépôt, brownfield compris), ou un README/CLAUDE.md rédigé directement — la v6.12.0 a retiré `bmad-index-docs`, `bmad-shard-doc` et Paige sans remplaçant |
 | `pratique-produit` | Le cadrage produit existe-t-il (persona, why, besoins, proposition de valeur) ? | dimension cadrage produit 🔴/🟠 ; aucun artefact `product-brief`/`prd` ; pas de persona ni de proposition de valeur formalisée. **Remédiation** : `bmad-product-brief`, `bmad-prd`, `bmad-forge-idea`, `bmad-agent-analyst` (Mary) / `bmad-agent-pm` (John) — sur demande explicite (skills BMAD) |
 | `pratique-securite` | La dimension `securite` de l'audit technique est-elle dégradée, ou une pratique de sécurité (permissions, secrets, dépendances) fait-elle défaut ? | dimension audit `securite` 🔴/🟠 sur un projet qui expose des routes non authentifiées ou des secrets versionnés ; croiser avec `agent-securite` (installé le 2026-09-13) plutôt que de dupliquer son constat en `pratique-dev`. Distincte de la catégorie d'audit `securite` (volet 3) : celle-ci couvre les PRATIQUES, pas le niveau mesuré |
+| `robustesse`, `performance`, `risque_technique` (orthographe héritée `risque-technique`), `securite` | Catégories du volet 3 : les dimensions de l'audit technique (`.claude/audits/<projet>.json`), acceptées par `write_diagnostic.py` et `log_arbitrage.py` depuis le 2026-09-21 pour qu'un constat d'audit corrigé puisse être fermé | un constat d'audit repris tel quel ; ne pas les employer pour un écart de PRATIQUE (→ `pratique-*`) |
 
 Chaque finding de pratique porte une **preuve chiffrée** issue du scan (la pastille + son
 détail), pas une impression. La proposition (§ 3 bis) est le geste concret : installer le
@@ -166,7 +167,7 @@ Correspondance entre les catégories du diagnostic (§ 3) et les 3 catégories M
 ### 4. Écrire le diagnostic, puis propager
 
 ```bash
-py .claude/supervision/write_diagnostic.py '{"findings": [{"categorie": "ko-repete", "cible": "pptx-verify", "priorite": 3, "titre": "…", "preuve": "…", "recommandation": "…"}]}'
+py .claude/supervision/write_diagnostic.py '{"findings": [{"categorie": "ko-repete", "cible": "pptx-verify", "priorite": 3, "titre": "…", "preuve": "grep -c motif fichier : 3", "recommandation": "…"}]}'
 ```
 
 (JSON aussi accepté sur stdin. `cible` sur `ko-repete`/`inefficacite` alimente la liste
@@ -184,7 +185,7 @@ repris. Finding `flotte:mode-fusionner-absent-des-cibles-et-de-la-skill` (2026-0
 cette page ne citait que la commande par défaut.
 
 ```bash
-py .claude/supervision/write_diagnostic.py --fusionner '{"findings": [{"categorie": "pratique-test", "cible": "VSCode3", "priorite": 2, "titre": "…", "preuve": "…", "recommandation": "…", "proposition": "…"}]}'
+py .claude/supervision/write_diagnostic.py --fusionner '{"findings": [{"categorie": "pratique-test", "cible": "VSCode3", "priorite": 2, "titre": "…", "preuve": "grep -c motif fichier : 3", "recommandation": "…", "proposition": "…"}]}'
 ```
 
 Puis relancer le scan pour propager wiki + hints :

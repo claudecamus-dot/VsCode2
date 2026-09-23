@@ -494,3 +494,105 @@ generative.md`, réservée aux schémas de flux).
 - **Efficace parce que** : la répétition IDENTIQUE de ce bandeau sur toute une série de
   slides crée un gabarit de fiche technique reconnaissable — le lecteur apprend une fois
   où chercher chaque métadonnée et la retrouve ensuite sans effort.
+
+---
+
+## Complément du 2026-09-23 — formation agile de deux jours (référence anonymisée)
+
+Source : une formation OCTO Academy d'initiation à l'agilité (158 slides, gabarit OCTO
+10×5.625in), analysée le 2026-09-23 (rendu PowerPoint COM regardé, puis géométrie
+python-pptx). **Formes seulement**, aucun contenu repris. Même genre que ce catalogue :
+les motifs déjà présents (duel de triangles n°4, Venn de rôles n°7, story map n°16/17,
+lettrines n°20, t-shirts n°22, bulle géante n°5) n'ont PAS été re-catalogués. La slide
+de palette du deck publie deux rampes de teintes, reportées dans `template-octo.md`.
+
+## 30. Liste numérotée de principes : pastille-goutte, onglet de mot-clé, flèche double
+
+- **Situation/intention** : dérouler une série longue de principes (4 par slide, sur 3 slides consécutives), chacun = un mot-clé puis une phrase.
+- **Type** : liste verticale de rangées identiques (numéro, onglet, flèche, texte).
+- **Composition** (p.21-23) : 4 rangées de 8.75×1.05in au pas de 1.05in dès y=0.89in. Par rangée : `TEARDROP` `dk1` 0.46in tourné de 180° portant le numéro (15pt) ; onglet `ROUND_2_DIAG_RECTANGLE` 1.55×0.60in tourné de 180°, rempli `accent3`, contour navy 0.9pt, chevauchant la goutte, mot-clé en capitales 12pt gras navy ; double flèche « ⇉ » dessinée (2 connecteurs parallèles 0.89in + pointe en arcs 0.09in, navy 0.9pt) ; phrase libre 6.34in de large, 12pt navy.
+- **Efficace parce que** : la paire goutte + onglet est une signature du gabarit ; répétée à l'identique, la série se lit comme une seule liste.
+
+## 31. Grille d'engagements cochés en code tri-niveau + panneau d'explication
+
+- **Situation/intention** : énoncer les règles de conduite d'un groupe (charte) avec sa justification.
+- **Type** : grille 2×3 de pilules « case cochée » + panneau latéral.
+- **Composition** (p.8) : 6 `ROUNDED_RECTANGLE` 2.37×0.70in (x=1.01/3.70in ; y=2.14/3.16/4.17in). Remplissage par rangée : `dk1` (texte `lt1` 14pt), puis `accent3` (texte `dk1`), puis `lt1` contour `accent5` — dégradé d'intensité en 3 paliers. Pastille « coche » 0.54in (cercle `lt1` + picto) à cheval sur le coin haut gauche de chaque pilule. À droite, `ROUND_2_DIAG_RECTANGLE` navy 2.97×3.13in avec copie blanche décalée portant un paragraphe 15pt ; barre-titre `ROUND_2_SAME_RECTANGLE` navy tournée de 270°.
+- **Efficace parce que** : les paliers de remplissage hiérarchisent sans numéros ; la coche en débord fait lire « accepté ».
+
+## 32. Entonnoir inversé (longue-vue) : du noyau aux colonnes de pions
+
+- **Situation/intention** : montrer qu'un petit noyau (valeurs) se déploie en pratiques de plus en plus nombreuses.
+- **Type** : cône d'expansion horizontal + histogramme en pions.
+- **Composition** (p.25) : étiquette `ROUNDED_RECTANGLE` 1.02×0.60in (fond `#DAF6F9`, contour dk1 1.5pt) au-dessus d'un cercle `lt1` 0.92in avec picto ; cône freeform navy 5.34×2.57in à 3 anneaux-coupes `accent3`, qui s'évase vers la droite. Dans le cône, micro-formes de 0.16in de plus en plus nombreuses (4 carrés blancs, 12 carrés tournés 315° `accent6`, ≈20 ronds `#C6F1F5`), contour dk1 0.75pt. À droite, 4 colonnes `ROUND_2_SAME_RECTANGLE` blanches de hauteur croissante (0.52/0.99/1.65/2.33in) remplies de ronds `#C6F1F5` 0.16in au pas de 0.22in, libellés 13pt. **Inverse du n°2** (entonnoir de raffinement).
+- **Efficace parce que** : la quantité de pions matérialise la croissance sans afficher un chiffre.
+
+## 33. Petits multiples de courbes tendancielles, deux séries, légende commune
+
+- **Situation/intention** : comparer deux approches sur 4 critères qualitatifs, sans données chiffrées.
+- **Type** : grille 2×2 de mini-graphiques schématiques.
+- **Composition** (p.28) : 4 groupes = axes en L navy 1.5pt (1.18in × 2.33in) + courbe `accent3` 2.25pt + courbe `accent4` 2.25pt (arc ou freeform, montante/descendante/ondulante). Titre 14-16pt gras navy au-dessus de chaque graphique ; texte explicatif en marges (1.73in, x=0.25 et 8.0in, 12pt). Légende unique en pied (y=5.05in) : 2 carrés 0.13in + libellés 12pt.
+- **Efficace parce que** : même axe, même échelle, même code couleur → l'œil compare des formes de courbe, pas des valeurs.
+
+## 34. Tableau kanban en post-its lettrés légèrement désaxés
+
+- **Situation/intention** : expliquer un board de flux puis le faire évoluer de slide en slide (colonnes, puis couloirs).
+- **Type** : tableau à en-tête navy + cartes-tickets posées de travers.
+- **Composition** (p.74, variantes p.75/77/79/80) : 3 colonnes à en-têtes navy (texte blanc gras), entre un capot `ROUND_2_SAME_RECTANGLE` navy 8.51×0.19in en haut et le même tourné 180° en `accent3` en bas. Par colonne, 4 `ROUNDED_RECTANGLE` 0.79×0.58in (contour dk1 0.75pt) au pas de 0.80in, une lettre 19.4pt gras chacun, tournés d'un petit angle entre −8° et +7.5°. Remplissage par rangée : `lt1`, `accent3`, `dk1`, `#C6F1F5`. Le même ticket est répété d'une slide à l'autre pour suivre son déplacement.
+- **Efficace parce que** : les micro-rotations donnent l'effet post-it à coût nul ; les lettres laissent le formateur raconter.
+
+## 35. Colonne-pilule de chiffres-clés adossée à un texte
+
+- **Situation/intention** : appuyer un argumentaire par 3 statistiques d'études.
+- **Type** : colonne verticale de chiffres dans une seule forme. **Variante du n°3 de `catalogue-restitution.md`.**
+- **Composition** (p.78) : corps de texte à gauche (6.37×3.93in, 16pt gras navy, puces cyan). À droite, un seul `ROUNDED_RECTANGLE` 2.30×4.72in `accent3` contour dk1 0.75pt, qui déborde au-dessus de la ligne de titre (y=0.54in) ; dedans : titre 14pt gras, 3 chiffres 36pt gras navy suivis d'une légende en capitales 10pt, source 10pt en pied.
+- **Efficace parce que** : les chiffres se lisent d'un bloc comme un thermomètre ; le débord détache la colonne du texte.
+
+## 36. Mnémonique en donut segmenté : lettres dans les secteurs, cartouches reliés par coudes
+
+- **Situation/intention** : présenter un acronyme de critères (6 lettres) dont chaque lettre porte une définition.
+- **Type** : donut à 6 secteurs + cartouches latéraux.
+- **Composition** (p.106) : donut 2.88in en 6 freeforms, une teinte par secteur (`#00A3BE`, `dk1`, `#8691AA`, `#DBDEE6`, `#80D1DE`, `#59C3D5`), lettre 14pt gras dans chaque secteur ; libellé central 16pt gras navy. 3 cartouches `ROUNDED_RECTANGLE` 2.33×0.64in à gauche (x=0.82in) et 3 à droite (x=6.85in), chacun de la couleur de son secteur (titre en capitales gras + définition 12pt blanc). Liaisons `bentConnector3` ou droites, ardoise `#627091` 0.75pt.
+- **Efficace parce que** : couleur secteur = couleur cartouche ; le lien se lit sans suivre les traits.
+
+## 37. Liste en arc : pastilles-icônes sur un arc de cercle géant hors cadre
+
+- **Situation/intention** : conclure avec 3 résultats attendus, présentés comme une trajectoire.
+- **Type** : liste courbe, centre de l'arc hors de la slide.
+- **Composition** (p.138) : `BLOCK_ARC` 6.20×8.27in à (−3.19,−0.86), épaisseur quasi nulle (adj3 ≈286) → filet fin couleur sable `#D3B771`. 3 cercles blancs 1.11in, contour `#00AFCB` 6pt, décalés en x (2.08/2.42/2.22in) pour suivre la courbe, un picto chacun ; grand picto 1.64in dans le creux de l'arc. À droite de chaque cercle, titre 16pt gras + phrase 14pt (6-7in).
+- **Efficace parce que** : l'arc donne un mouvement ascendant à une liste courte ; un `BLOCK_ARC` très fin donne un filet courbe exact sans freeform.
+
+## 38. Couronne de 5 secteurs à ergots et descriptions rayonnantes
+
+- **Situation/intention** : présenter 5 leviers complémentaires d'un objectif central.
+- **Type** : anneau segmenté, chaque secteur pointant vers son texte.
+- **Composition** (p.152) : groupe central 3.20in, 5 secteurs épais séparés par un joint blanc, chacun avec un ergot en flèche vers l'extérieur (teintes `#00A3BE`, `dk1`, `#8691AA`, `#DBDEE6`, `#59C3D5`) ; titre central 19pt gras navy. 5 blocs de texte aux points cardinaux (haut gauche/droite x=0.55/6.62in, milieu gauche/droite, bas centre) : titre 16pt gras **de la couleur de son secteur** + 4 lignes 8pt navy alignées vers l'anneau. (Cotes des ergots non mesurées : groupe imbriqué sur 3 niveaux.)
+- **Efficace parce que** : l'ergot oriente chaque secteur vers son texte, sans connecteur.
+
+## 39. Frise de 5 anneaux-flèches en chaîne alternée
+
+- **Situation/intention** : dérouler 5 étapes successives où chacune relance la suivante.
+- **Type** : chaîne horizontale d'anneaux ouverts à pointes de flèche. **Variante du n°4 de `catalogue-transformation-commerciale.md`** (ici progression ouverte, flèches intégrées, deux familles de couleurs).
+- **Composition** (p.154) : 5 anneaux ≈2.2in chevauchants au pas ≈1.7in (y≈1.4-3.5in), en freeforms appariés (demi-arcs haut/bas) terminés par des pointes de flèche. Rangs impairs cyan (`#00AFCB` bas, `#80D7E5` haut), rangs pairs ardoise (`#627091` haut, `accent4` bas) → effet de tresse. Disque blanc + picto au centre de chaque anneau ; dessous, titre 12pt gras (couleur de l'anneau) + description 10.5pt `#566589` centrée.
+- **Efficace parce que** : alternance + chevauchement disent à la fois « étapes distinctes » et « continuité ».
+
+## 40. Trois bandeaux de niveaux empilés, pictos de flux et flèches de descente
+
+- **Situation/intention** : montrer la même mécanique déclinée sur 3 niveaux (stratégique, tactique, opérationnel) et la cascade.
+- **Type** : pile de 3 bandes pleine largeur, rangée d'icônes identique par bande.
+- **Composition** (p.153) : 3 `ROUNDED_RECTANGLE` 8.62×1.34in à y=1.26/2.65/4.03in, fond blanc au rendu, fin contour `#00AFCB` 0.75pt. Nom du niveau en haut à gauche 11.7pt `#627091` ; cartouche `lt2` 3.67×0.87in texte blanc 9.7pt à gauche ; 3 pictos en rangée à droite (légendes 7.8pt, la dernière en `#00AFCB`). Entre les bandes, `DOWN_ARROW` `#00AFCB` 0.52×0.45in à contour blanc, à cheval sur la jointure (x=4.35in).
+- **Efficace parce que** : la structure identique permet de comparer les niveaux ligne à ligne ; la flèche sur la jointure dit « alimente le suivant ».
+
+## 41. Rangée de médaillons dans un panneau gris + bandeau-conclusion à pointe bicolore
+
+- **Situation/intention** : présenter 4 rôles parallèles puis la règle qui les concerne tous.
+- **Type** : panneau conteneur, 4 médaillons, bandeau de synthèse.
+- **Composition** (p.150) : panneau `ROUNDED_RECTANGLE` `#ECEDF3` 8.60×3.18in (angles quasi droits) ; 4 cercles blancs 1.67in sans contour au pas de 2.15in, picto cyan, titre 13.6pt gras `#00A3BE` + description 10.7pt navy centrée. Sous le panneau, bandeau `#ECEDF3` 8.54×0.68in, phrase 13.6pt gras navy ; sur son bord gauche, 2 `TRIANGLE` tournés de 90° (0.40×0.15in), un blanc et un `#00AFCB`, décalés de 0.12in → pointe de lecture bicolore.
+- **Efficace parce que** : le fond commun unifie les rôles ; le bandeau de même teinte se lit comme la règle d'ensemble.
+
+## 42. Questionnaire à chaud : grande question + légende d'échelle dans une goutte navy
+
+- **Situation/intention** : pause interactive pour faire remplir un questionnaire de satisfaction.
+- **Type** : slide-appel à l'action typographique + panneau de légende.
+- **Composition** (p.140, idem p.156) : titre 4.89×3.81in à gauche, 43pt `dk1` sur 4 lignes, rien d'autre. À droite, `ROUND_2_DIAG_RECTANGLE` 3.01×4.34in (contour navy fin au rendu) contenant la légende d'une échelle à 4 niveaux (pastilles vert/jaune/orange/rouge + libellés).
+- **Efficace parce que** : la question en corps d'affiche occupe la moitié de la slide ; l'échelle tricolore isolée se lit instantanément.

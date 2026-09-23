@@ -31,6 +31,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import os
+import re
 import subprocess
 import sys
 
@@ -49,6 +50,7 @@ CATEGORIES_CONNUES = (
     "verification-manquante", "non-convergence",
     "pratique-test", "pratique-dev", "pratique-revue", "pratique-design",
     "pratique-doc", "pratique-produit",
+    "pratique-securite",  # miroir de scan_transcripts.py (2026-09-21)
     # Volet 3 - dimensions de l'audit technique (miroir de DIM_AUDIT dans
     # scan_projets.py). Absentes jusqu'au 2026-09-21 : un constat d'audit
     # corrige, teste et commite ne pouvait PAS etre ferme, log_arbitrage le
@@ -99,10 +101,92 @@ MARQUEURS_DE_MESURE = ("grep", "pytest", "git ", "py ", "npm ", "--check",
 
 
 def _preuve_mesuree(preuve: str) -> bool:
-    """Vrai si la preuve porte une trace d'execution : un chiffre (un compte, un
-    sha, une date, un nombre de tests) ou le nom d'une commande."""
-    t = (preuve or "").lower()
-    return any(c.isdigit() for c in t) or any(m in t for m in MARQUEURS_DE_MESURE)
+    """Vrai si la preuve porte une trace d'execution : le nom d'une commande, un
+    sha de commit, ou un chiffre AVEC CONTEXTE (un mot autour, ex. "hub 4").
+
+    Durci le 2026-09-23 (constat ASI06) : un '1' seul passait la garde
+    precedente (`any(c.isdigit() for c in t)`), qui n'exigeait aucun contexte.
+    Un chiffre isole n'est pas plus une preuve qu'une phrase sans chiffre — le
+    superviseur demande « un chiffre PAR cible », pas un caractere."""
+    t = (preuve or "").strip()
+    if not t:
+        return False
+    tl = t.lower()
+    if any(m in tl for m in MARQUEURS_DE_MESURE):
+        return True
+    if SHA_RE.search(tl):
+        return True
+    a_chiffre = any(c.isdigit() for c in t)
+    a_mot = re.search(r"[a-zA-Z]{3,}", t)
+    return bool(a_chiffre and a_mot)
+
+
+# --- PREUVE PAR COMMIT (constat ASI06, 2026-09-23) -----------------------------
+# Avant ce durcissement, `_preuve_mesuree` acceptait toute chaine contenant UN
+# chiffre ou 'sha'/'commit' : « 1 » suffisait a documenter une ACCEPTATION +
+# APPLICATION. On exige desormais un sha de commit REELLEMENT RESOLU (pas
+# seulement present sous forme de texte) dans --preuve ou --decision, verifie
+# par `git cat-file -e <sha>^{commit}` dans le hub OU un depot frere de la
+# flotte (les arbitrages citent souvent un commit d'un AUTRE depot, ex.
+# « VSCode3 e68e7a2 »). Echappatoire tracee et explicite pour les applications
+# sans commit (correctif hors depot, config, arbitrage de gouvernance) :
+# --sans-commit "<motif>".
+SHA_RE = re.compile(r"\b[0-9a-f]{7,40}\b")
+
+
+def _chemin_config_projets() -> str:
+    return os.environ.get("AGENT_SUPERVISION_PROJETS") or os.path.join(
+        ROOT, "projets.json")
+
+
+def _depots_flotte():
+    """Depots git a interroger pour resoudre un sha : le hub, puis chaque
+    projet de projets.json qui a un `.git` (reutilise la config existante du
+    scanner plutot que reinventer une decouverte par listdir)."""
+    depots = [ROOT]
+    try:
+        with open(_chemin_config_projets(), encoding="utf-8") as fh:
+            cfg = json.load(fh)
+    except (OSError, ValueError):
+        return depots
+    for p in cfg.get("projets", []) if isinstance(cfg, dict) else []:
+        chemin = isinstance(p, dict) and p.get("chemin")
+        if chemin and os.path.isdir(os.path.join(chemin, ".git")):
+            depots.append(chemin)
+    return depots
+
+
+def _shas_candidats(*textes):
+    """Tous les tokens hex 7-40 qui RESSEMBLENT a un sha, dans l'ordre
+    d'apparition — a confirmer ensuite par resolution git reelle."""
+    vus, out = set(), []
+    for t in textes:
+        for m in SHA_RE.finditer((t or "").lower()):
+            sha = m.group(0)
+            if sha not in vus:
+                vus.add(sha)
+                out.append(sha)
+    return out
+
+
+def _sha_resolu(sha: str, depots):
+    """Le depot ou ce sha resout comme un commit reel, sinon None."""
+    for d in depots:
+        try:
+            # -c safe.directory=* scope a CET appel seul (jamais une ecriture de
+            # config persistante, cf. garde-fou git du depot) : un depot de test
+            # (tmp_path) ou un clone recent peut avoir un proprietaire different
+            # de l'utilisateur courant sous Windows, ce que git refuse par
+            # defaut ("dubious ownership") independamment de toute preuve reelle.
+            r = subprocess.run(
+                ["git", "-c", "safe.directory=*", "cat-file", "-e",
+                 sha + "^{commit}"],
+                cwd=d, capture_output=True, timeout=10)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if r.returncode == 0:
+            return d
+    return None
 
 
 def _scan_script() -> str:
@@ -207,11 +291,41 @@ def main(argv=None) -> int:
         return 1
     if preuve and not _preuve_mesuree(preuve):
         print("log_arbitrage : REFUS — `preuve_application` ne porte aucune trace "
-              "d'execution (ni chiffre, ni nom de commande) : c'est une "
-              "auto-attestation de plus. Ecrire la commande lancee et ce qu'elle a "
-              "rendu. La garde reste volontairement permissive — un seul chiffre "
-              "suffit — pour ne pas pousser a habiller le texte.", file=sys.stderr)
+              "d'execution (ni chiffre avec contexte, ni sha, ni nom de commande) : "
+              "c'est une auto-attestation de plus. Ecrire la commande lancee et ce "
+              "qu'elle a rendu. Un chiffre isole ('1') ne suffit plus (constat "
+              "ASI06, 2026-09-23) : il faut un contexte (mot autour) ou un sha.",
+              file=sys.stderr)
         return 1
+    sans_commit = (a.get("sans-commit") or a.get("sans_commit") or "").strip()
+    if _exige_preuve(decision) and not sans_commit:
+        candidats = _shas_candidats(preuve, decision)
+        depots = _depots_flotte()
+        resolu = None
+        for sha in candidats:
+            d = _sha_resolu(sha, depots)
+            if d:
+                resolu = (sha, d)
+                break
+        if not resolu:
+            if candidats:
+                print("log_arbitrage : REFUS — sha(s) cite(s) "
+                      f"{candidats} ne resolvent dans aucun depot de la flotte "
+                      f"({[os.path.basename(d) for d in depots]}) : ni `git cat-file "
+                      "-e <sha>^{commit}` au hub, ni chez un projet frere. Un sha "
+                      "invente ou tronque n'est pas une preuve. Corriger le sha, ou "
+                      "si l'application ne correspond a aucun commit (config, "
+                      "gouvernance), relancer avec --sans-commit \"<motif>\".",
+                      file=sys.stderr)
+            else:
+                print("log_arbitrage : REFUS — cette decision affirme une "
+                      "APPLICATION mais ne cite aucun sha de commit (7-40 hex) dans "
+                      "--preuve ni --decision. Un chiffre ou un nom de commande sans "
+                      "commit reel est indiscernable d'une auto-attestation (constat "
+                      "ASI06, 2026-09-23). Citer le sha applique (ex. « VSCode3 "
+                      "e68e7a2 »), ou relancer avec --sans-commit \"<motif>\" si "
+                      "l'application ne correspond a aucun commit.", file=sys.stderr)
+            return 1
     if _decision_contradictoire(decision):
         print("log_arbitrage : REFUS — cette decision commence par REFUSE et contient "
               "ACCEPT. C'est le bug de 2026-09-17 (4 entrees ecrites ainsi, faute "
@@ -261,6 +375,8 @@ def main(argv=None) -> int:
     }
     if preuve:
         entree["preuve_application"] = preuve
+    if sans_commit:
+        entree["sans_commit"] = sans_commit
     data["arbitrages"].append(entree)
     tmp = ARBITRAGES_PATH + ".tmp"
     with open(tmp, "w", encoding="utf-8") as fh:
