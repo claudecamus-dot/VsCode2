@@ -108,7 +108,9 @@ def _slide_synthese_categorie(prs: Presentation, label: str, content: str, key: 
     retenir = lines[0] if len(lines) >= 2 else None
     rest = lines[1:] if retenir else lines
 
-    zone_bottom = (band_t - band_gap) if retenir else (h_in - 0.5)
+    # Sans encart, -0.60 (pas -0.50) : le visuel de droite descendait sur le badge
+    # n° de page du master (y≈5.09, x≈9.25) — signalé par verifier_chrome_gabarit.
+    zone_bottom = (band_t - band_gap) if retenir else (h_in - 0.60)
     avail = max(0.0, zone_bottom - top)
 
     body = D.TYPE["body"]
@@ -252,7 +254,9 @@ def _slide_swot(prs: Presentation, swot) -> None:
     area_l = MARGIN + gutter
     area_w = w_in - MARGIN - area_l
     area_t = top + axis_h
-    area_h = h_in - area_t - 0.45
+    # -0.60 (pas -0.45) : la cellule bas-droite recouvrait le badge n° de page du
+    # master (y≈5.09, x≈9.25) — signalé par verifier_chrome_gabarit.
+    area_h = h_in - area_t - 0.60
     col_w = (area_w - gap) / 2
     row_h = (area_h - gap) / 2
     cells = [(0, 0), (1, 0), (0, 1), (1, 1)]

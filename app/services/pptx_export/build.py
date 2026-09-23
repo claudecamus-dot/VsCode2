@@ -14,6 +14,10 @@ from ...models import Mission
 from .. import pptx_deck as D
 from .base import _H_IN, _W_IN, OCTO_TEMPLATE_PATH, _clear_slides
 
+# Bas de dessin que les slides tenues au badge n° de page s'imposent
+# (h - 0.60, cf. slides_trajectoire) — confronté au gabarit chargé à chaque build.
+_PLANCHER_DESSIN_IN = _H_IN - 0.60
+
 logger = logging.getLogger(__name__)
 from .slides_cadre import (
     _CH_DIAGNOSTIC,
@@ -195,6 +199,27 @@ def build_presentation(
     if problemes:
         raise RuntimeError(
             "Export PPT : formes hors cadre détectées —\n" + "\n".join(problemes)
+        )
+
+    # Filets « chrome du gabarit » (portés de la skill pptx-deck, audit
+    # 2026-09-21) : le badge n° de page vit sur le layout/master, hors de
+    # portée de verifier_geometrie. Plancher : la marge -0.60 que les slides
+    # tenues au badge s'imposent (slides_trajectoire) confrontée au gabarit
+    # CHARGÉ — une dérive du gabarit fait échouer l'export, comme la géométrie.
+    problemes = D.verifier_plancher_de_dessin(prs, _PLANCHER_DESSIN_IN)
+    if problemes:
+        raise RuntimeError(
+            "Export PPT : plancher de dessin décroché du gabarit —\n"
+            + "\n".join(problemes)
+        )
+    # Recouvrement du badge n° de page hérité du gabarit : même politique que la
+    # géométrie (échec bruyant). Au portage, 5 slides réelles le recouvraient
+    # (synthèse sans encart, SWOT) — corrigées dans slides_diagnostic.
+    problemes = D.verifier_chrome_gabarit(prs)
+    if problemes:
+        raise RuntimeError(
+            "Export PPT : formes sur le n° de page du gabarit —\n"
+            + "\n".join(problemes)
         )
 
     # Filet anti-corruption avant remise au routeur (0 en pratique ici : les

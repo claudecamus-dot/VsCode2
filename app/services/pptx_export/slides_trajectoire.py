@@ -53,7 +53,9 @@ def _slide_axes_overview(prs: Presentation, axes: list, palette: list[str]) -> N
     for k, page in enumerate(pages):
         suffix = f" ({k + 1}/{len(pages)})" if len(pages) > 1 else ""
         slide, w_in, h_in, top = _new_slide(prs, title + suffix)
-        band_h = h_in - top - 0.5
+        # -0.60 (pas -0.50) : la dernière rangée pleine largeur descendait sur le
+        # badge n° de page du master (verifier_chrome_gabarit, 2026-09-23).
+        band_h = h_in - top - 0.60
         row_h = _axes_row_h(len(page), band_h)
         total_h = len(page) * row_h + _AXES_ROW_GAP * (len(page) - 1)
         # Centré verticalement dans la bande plutôt que plaqué en haut : avec
