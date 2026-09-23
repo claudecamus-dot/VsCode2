@@ -3,9 +3,9 @@
     "source": "hub de supervision VScode5, .claude/veille/veille.json",
     "projection": "entrees dont projets_concernes nomme VSCode2",
     "ne_pas_editer": "Fichier GENERE, en lecture seule : une correction faite ici sera ecrasee a la prochaine propagation. La veille s'ecrit AU HUB, ou elle est lue (section 3 du wiki) et arbitree. Une veille lancee depuis ce depot doit y etre remontee.",
-    "date": "2026-09-18"
+    "date": "2026-09-23"
   },
-  "derniere_veille": "2026-09-16T00:00:00",
+  "derniere_veille": "2026-09-23T12:00:00",
   "entrees": [
     {
       "titre": "BMAD-METHOD — v7 ANNONCEE (uv standard) — PAS sortie : derniere release v6.10.0",
@@ -169,6 +169,125 @@
       "action_corrective": "ADOPTE ET APPLIQUE 2026-09-13 : les 3 rôles (audit dépendances/supply chain, revue avec historique git, audit workflows CI) sont repris comme squelette des étapes 2-4 de la skill `agent-securite`, réécrits maison par canal — jamais d'import du dépôt tiers.",
       "date": "2026-09-12",
       "statut": "adopte"
+    },
+    {
+      "titre": "Ruff PT (flake8-pytest-style) non active dans la flotte : PT015 assert-always-false - les 4 pyproject.toml selectionnent F,I,UP,B sans PT",
+      "url": "https://docs.astral.sh/ruff/rules/pytest-assert-always-false/",
+      "type": "outil",
+      "projets_concernes": [
+        "VScode5",
+        "VSCode2",
+        "VSCode3",
+        "VSCode4"
+      ],
+      "date": "2026-09-19",
+      "statut": "adopte",
+      "source_referentiel": "Astral - doc officielle Ruff, regle PT015 derivee de flake8-pytest-style (consultee 2026-09-19). NATURE : doc officielle. CLASSE : prouve (regle publiee, implementee, sortie non nulle sur detection).",
+      "pertinence": "B1 - motif syntaxique du test qui ne peut pas echouer. Constat local mesure le 2026-09-19 : les 4 pyproject.toml de la flotte portent select = [F, I, UP, B] ; B015 (useless-comparison : comparaison nue sans assert) est donc DEJA actif, mais la famille PT ne l'est pas. Extension a cout quasi nul : ajouter PT au select existant. LIMITE HONNETE, tranchee : aucune regle PT n'aurait attrape nos cas reels (assertion sur des noms d'outils inexistants, garde comparant un chapitre a lui-meme, regex ou \\b est devenu un backspace 0x08) - ces tests sont syntaxiquement irreprochables et semantiquement vides. PT et B015 couvrent la classe triviale, pas la notre. [adopte le 2026-09-19 : PT ajoute au select ruff du HUB SEULEMENT (les 3 autres pyproject.toml sont dans des depots occupes par un autre agent). Tri AVANT de graver, aucun --fix : 158 points PT remontes, 140 PT018 ecartes nommement dans pyproject.toml (eclater `assert a and b` ferait perdre le message d'assertion unique que nos gardes portent), 18 points gardes et inscrits a la baseline de lint. Portee honnete gravee dans le fichier : PT n'attrape AUCUN de nos 6 cas reels. Regle inscrite au referentiel en oo (mesurable a froid mais NON outillee : adoption scopee hub).]",
+      "regle_proposee": "Tout pyproject.toml de la flotte qui selectionne des familles ruff DOIT inclure PT (mesurable a froid par le scan : lecture de [tool.ruff.lint].select dans chaque pyproject.toml).",
+      "action_corrective": "Ajouter PT a select dans les 4 pyproject.toml, lancer ruff check une fois et trier les remontees avant de graver (jamais de ruff --fix aveugle : un --fix a casse un re-export sur VSCode2 le 2026-07-23). Cout : ~15 min par projet."
+    },
+    {
+      "titre": "Mutation testing scopee comme seul detecteur de la garde verte par construction - mutmut only_mutate, Stryker thresholds.break (exit 1)",
+      "url": "https://stryker-mutator.io/docs/stryker-js/configuration/",
+      "type": "outil",
+      "projets_concernes": [
+        "VScode5",
+        "VSCode2",
+        "VSCode4"
+      ],
+      "date": "2026-09-19",
+      "statut": "adopte",
+      "source_referentiel": "Stryker - doc officielle de configuration (thresholds.break : Stryker sort en code 1, echec de build, quand le score de mutation est sous le seuil ; incremental / incrementalFile / force) ET mutmut.readthedocs.io (source_paths, only_mutate, do_not_mutate, filtrage par motif : mutmut run \"my_module.my_function*\"). Consultees 2026-09-19. NATURE : docs officielles. CLASSE : prouve (echec mecanique documente par code de sortie).",
+      "pertinence": "B1 et B5. Repond a la question laissee ouverte par la salle : NON, un grep ou une regle de lint ne suffit pas pour nos cas - ils sont semantiques, pas syntaxiques. Le detecteur qui les attrape est la mutation SCOPEE SUR LA SOURCE DU GARDE-FOU : muter la regex ou la comparaison du garde ; si le mutant survit, le test du garde etait vert par construction. C'est la mecanisation de la memoire 'une garde s'eprouve contre un adversaire' (4 gardes vertes et contournables le meme jour, 2026-09-09) et de 'faire echouer le test une fois avant de le croire' (2026-07-30). Une campagne mutmut sur tout le hub serait prohibitive - d'ou le scope : only_mutate sur le seul fichier de garde modifie. [adopte le 2026-09-19 : Regle inscrite au referentiel comme NON OUTILLABLE par le scan (la mutation exige une execution) et ajoutee comme etape de la skill revue-increment : muter la source du garde, au moins un mutant tue, ecrit dans le commit. Applique des cette seance sur les deux gardes livrees.]",
+      "regle_proposee": "Tout garde-fou (hook, regex de blocage, comparateur de derive) livre avec son test DOIT avoir ete soumis a une mutation de sa propre source : au moins un mutant tue, documente dans le commit. Non mesurable a froid par le scan (necessite une execution) - critere de revue, marqueur 'mutant tue' recherchable dans les notes de run.",
+      "action_corrective": "Ajouter a revue-increment une etape 'mutation du garde' : mutmut run sur le seul module touche, suite ciblee par -k. Cout chiffre : sur un hook de ~150 lignes, ordre de 40-80 mutants x duree de la suite ciblee ; estimation 5-15 min de machine, 0 token. A mesurer reellement sur le premier essai avant d'en faire une regle."
+    },
+    {
+      "titre": "CI qui ne peut pas echouer : 'ruff check . || true' sur 3 depots, et zero artefact d'execution publie sur les 5 workflows de la flotte",
+      "url": "https://github.com/actions/upload-artifact",
+      "type": "pratique",
+      "projets_concernes": [
+        "VScode5",
+        "VSCode2",
+        "VSCode4",
+        "VSCode",
+        "VSCode1"
+      ],
+      "date": "2026-09-19",
+      "statut": "adopte",
+      "source_referentiel": "actions/upload-artifact - README officiel : if-no-files-found accepte warn (defaut) | error (echec de l'action avec message) | ignore. ET docs.pytest.org/en/stable/reference/exit-codes.html : code 5 = 'No tests were collected'. Consultes 2026-09-19. NATURE : docs officielles. CLASSE : prouve (deux mecanismes d'echec documentes).",
+      "pertinence": "A1 - distinguer mecaniquement une CI qui a EXECUTE d'une CI verte par absence d'execution. Constat local mesure le 2026-09-19 (grep sur les 5 dossiers .github/workflows de la flotte) : (1) 'python -m ruff check . || true' en ligne 65 de VSCode2, 105 de VSCode4 et 34 du hub - une etape de verification qui ne peut structurellement pas faire echouer la CI ; (2) ZERO occurrence de upload-artifact, if-no-files-found ou --junitxml sur toute la flotte : aucun workflow ne publie de rapport d'execution, le vert est le seul signal disponible. Ici, contrairement a B1, un GREP SUFFIT : '|| true' dans un workflow est un motif syntaxique decisif. [adopte le 2026-09-19 : Garde de baseline de lint PORTEE DE VSCode4 AU HUB (tests/test_lint_baseline.py, motif repris et non reinvente) : compte par zone et par regle, barre dans les deux sens. Le `|| true` de ci.yml n'est PAS supprime, il devient deliberement informatif et adosse a la garde, comme chez VSCode4 - l'entree dit de traiter le perimetre, pas de supprimer sans decision. Artefact d'execution ajoute : pytest --junitxml + actions/upload-artifact avec if-no-files-found: error et if: always(). Les deux criteres inscrits au referentiel en oo avec la raison du non-outillage (le grep brut ferait un faux positif sur VSCode4 et sur le hub).]",
+      "regle_proposee": "Deux criteres mesurables a froid par scan_projets.py sur .github/workflows/*.yml : (a) aucune etape de verification ne se termine par '|| true' ni ne porte continue-on-error: true ; (b) tout workflow qui lance des tests publie un artefact d'execution via actions/upload-artifact avec if-no-files-found: error - un vert sans artefact publie compte comme non execute.",
+      "action_corrective": "1) Traiter les 3 etapes '|| true' : elles avaient ete posees pour ne pas bloquer sur du legacy ; les remplacer par un perimetre qui echoue vraiment (ex. ruff check --select F .) plutot que les supprimer sans decision. 2) Ajouter pytest --junitxml=report.xml puis upload-artifact avec if-no-files-found: error. Cout : ~20 min par depot, 5 depots concernes."
+    },
+    {
+      "titre": "vulture - filet jamais appele : code injoignable, condition if/while insatisfiable, code de sortie 3 sur detection",
+      "url": "https://github.com/jendrikseipp/vulture",
+      "type": "outil",
+      "projets_concernes": [
+        "VScode5",
+        "VSCode2",
+        "VSCode3",
+        "VSCode4"
+      ],
+      "date": "2026-09-19",
+      "statut": "adopte",
+      "source_referentiel": "jendrikseipp/vulture - README officiel (consulte 2026-09-19) : detecte fonctions/classes/variables/imports inutilises, code injoignable apres return/break/raise, ET conditions if/while insatisfiables ; codes de sortie 0 = rien, 3 = dead code trouve ; --min-confidence 100 ne rend que le certain ; whitelists (--make-whitelist) pour les appels dynamiques. NATURE : doc officielle de depot. CLASSE : prouve (echec mecanique par code 3).",
+      "pertinence": "B2 - prouver a froid qu'un filet de securite est appele EN PRODUCTION, pas seulement dans sa propre suite. La couverture de tests ne repond pas a cette question : une fonction de garde couverte a 100 % par ses tests et jamais cablee dans le chemin applicatif est verte. vulture --min-confidence 100 sur le code applicatif seul, tests exclus, liste ce qu'aucun point d'entree n'atteint. LIMITE HONNETE : vulture est statique et rate les appels dynamiques - or nos hooks sont appeles par NOM depuis settings.json, donc ils remonteront en faux positifs. Le detecteur utile n'est pas vulture nu mais vulture + whitelist DERIVEE de settings.json (generee, pas ecrite a la main). [adopte le 2026-09-19 : INSTRUCTION SEULE, conformement au texte de l'entree - RIEN n'a ete cable au scan. Instruction faite sur le HUB (VSCode2 etant occupe par un autre agent). Whitelist GENEREE depuis settings.json (17 points d'entree). Taux de faux positifs MESURE : 5 sur 9 remontees a --min-confidence 60, soit 56 % ; a --min-confidence 100, 0 remontee donc 0 % de FP mais 0 utilite comme gate. Conclusion inscrite au referentiel : un critere a 56 % de bruit ne se cable pas, l'outil reste utile a la main.]",
+      "regle_proposee": "Critere mesurable a froid : 'vulture <code_applicatif> --min-confidence 100 --exclude tests' sort en 0, avec une whitelist generee depuis les points d'entree declares (hooks de settings.json, console_scripts, routes). Un filet present mais non atteint depuis un point d'entree reel est un ecart.",
+      "action_corrective": "Instruire sur UN depot (VSCode2) avant toute generalisation : generer la whitelist, lire les remontees, MESURER le taux de faux positifs. Cout : ~45 min sur le premier depot, ~10 min ensuite. Ne pas cabler au scan avant d'avoir ce chiffre."
+    },
+    {
+      "titre": "Hook Stop / SubagentStop bloquant (exit 2) - le seul mecanisme publie qui rend un gate de fin d'increment opposable",
+      "url": "https://code.claude.com/docs/en/hooks",
+      "type": "pratique",
+      "projets_concernes": [
+        "VScode5",
+        "VSCode",
+        "VSCode1",
+        "VSCode2",
+        "VSCode3",
+        "VSCode4"
+      ],
+      "date": "2026-09-19",
+      "statut": "adopte",
+      "source_referentiel": "Anthropic - doc officielle Claude Code / Hooks (consultee 2026-09-19 ; docs.claude.com/en/docs/claude-code/hooks redirige en 301 vers code.claude.com/docs/en/hooks). Stop et SubagentStop : 'Can block? Yes' ; le code de sortie 2 empeche l'arret et poursuit la conversation ; le message vient du champ de raison JSON, sinon de stderr ; garde-fou stop_hook_active contre la boucle infinie. NATURE : doc officielle. CLASSE : ANNONCE, pas prouve - la doc decrit le mecanisme, je n'ai ouvert AUCUN transcript reel ou un hook Stop a effectivement bloque.",
+      "pertinence": "A2 - rendre un gate humain BLOQUANT avant qu'un increment soit marque termine. La flotte n'a aujourd'hui que des hooks de RAPPEL (remind_revue_increment, warn_verif_before_commit), tous fail-open : rien n'empeche mecaniquement de conclure. Le couple Stop + code 2 est le seul mecanisme publie qui transforme le rappel en blocage, et stop_hook_active repond precisement a l'objection 'un hook bloquant fera boucler l'agent'. [adopte le 2026-09-19 : PREUVE CHERCHEE, AUCUN GATE CABLE - conformement au texte de l'entree. Hook Stop jetable ecrit HORS DU DEPOT (scratchpad) : il rend bien 2 sur le cas nominal et 0 quand stop_hook_active est vrai (la reponse publiee a l'objection de la boucle infinie). MAIS le blocage au niveau du HARNAIS n'a PAS ete observe : aucun transcript de session bloquee n'a pu etre produit depuis un sous-agent. L'entree RESTE donc classee 'annonce' au referentiel, et settings.json n'a pas ete touche. La distinction rappel (fail-open, sortie 0) / gate (sortie 2) est inscrite au referentiel en oo.]",
+      "regle_proposee": "Distinguer au referentiel les hooks de RAPPEL (fail-open, sortie 0) des hooks de GATE (sortie 2 bloquante). Critere mesurable a froid : un projet qui pretend gater la fin d'increment doit avoir au moins un chemin de sortie 2 dans le hook concerne - grep sys.exit(2) dans .claude/hooks/*.py croise avec la declaration Stop de settings.json.",
+      "action_corrective": "NE PAS cabler avant preuve : ecrire d'abord un hook Stop jetable dans le scratchpad, provoquer le blocage, LIRE le transcript, et seulement alors proposer le gate. Cout de verification : ~30 min, 0 token reseau. Tant que ce transcript n'existe pas, cette entree reste classee 'annonce'."
+    },
+    {
+      "titre": "Copybara et OpenFastTrace - divergence copie/source et tracabilite exigence<->test : ce que les references attendues ne donnent PAS",
+      "url": "https://github.com/itsallcode/openfasttrace-github-action",
+      "type": "outil",
+      "projets_concernes": [
+        "VScode5",
+        "VSCode1",
+        "VSCode2"
+      ],
+      "date": "2026-09-19",
+      "statut": "adopte",
+      "source_referentiel": "google/copybara - README officiel consulte 2026-09-19 (origin -> destination, transformations, etat stocke en labels de commit, depot actif) ET itsallcode/openfasttrace-github-action (l'action expose oft-exit-code et peut renvoyer le code de OFT pour casser le build ; wrapper oftw.sh pour la CI, Java 17). NATURE : docs officielles de depots. CLASSE : copybara = SORTI mais INVERIFIABLE A FROID pour notre besoin (aucun mode verify/check echouant sur divergence n'est documente : il transforme et pousse, il ne controle pas) ; OpenFastTrace = SORTI (code de sortie documente, mais AUCUN taux d'adoption mesure sur un depot nomme n'a ete ouvert par moi).",
+      "pertinence": "A3 et B3. A3 : copybara est la reference attendue pour 'correctif applique a la copie generee au lieu de la source', mais lecture faite il ne porte pas de garde de divergence comparable a notre export_agentic.py --check - le dispositif maison est DEJA en avance sur ce que copybara documente publiquement. C'est un constat, pas une trouvaille. B3 : OpenFastTrace repond bien a la tracabilite exigence<->test cassant la CI, au-dela du tag Gherkin ; pertinent pour VSCode1/VSCode2 qui portent de vraies user stories, sans objet pour le hub qui n'en a pas. [adopte le 2026-09-19 : AUCUNE ACTION, l'entree le dit elle-meme (A3). Constat inscrit au referentiel sans regle nouvelle : copybara ne documente pas de garde de divergence comparable a export_agentic.py --check, le dispositif maison est deja en avance. B3 (OpenFastTrace sur VSCode1, ~2 h, dependance Java 17) NON FAIT : hors perimetre, VSCode1 est occupe par un autre agent - note comme reste a faire.]",
+      "regle_proposee": "Pour les projets porteurs d'exigences utilisateur (VSCode1, VSCode2) : critere 'tracabilite exigence -> test verifiee en CI par un outil a code de sortie non nul'. Ne PAS etendre au hub. Pour A3 : aucune regle nouvelle - le seuil de derive du kit deja pose couvre le besoin, copybara ne l'ameliore pas.",
+      "action_corrective": "A3 : aucune. B3 : instruire OpenFastTrace sur VSCode1 seulement - la dependance Java 17 sur un depot Node/Python n'est pas triviale, cout d'entree estime ~2 h a mettre en regard du benefice. Ne pas generaliser avant cet essai."
+    },
+    {
+      "titre": "Lost in Simulation - les utilisateurs simules par LLM sont des proxys peu fiables (jusqu'a 9 points d'ecart de taux de succes selon le LLM utilisateur)",
+      "url": "https://arxiv.org/abs/2601.17087",
+      "type": "pratique",
+      "projets_concernes": [
+        "VScode5",
+        "VSCode1",
+        "VSCode2"
+      ],
+      "date": "2026-09-19",
+      "statut": "adopte",
+      "source_referentiel": "arXiv:2601.17087, soumis le 23 janvier 2026 (page d'abstract consultee le 2026-09-19 ; le PDF complet n'a PAS ete lu). NATURE : preprint arXiv, aucun comite de lecture identifie a ce stade. CLASSE : prouve pour le resultat negatif (etude avec participants reels aux Etats-Unis, en Inde, au Kenya et au Nigeria sur un benchmark retail).",
+      "pertinence": "B4 - 'qui a ouvert la page ?'. Resultat mesure : le taux de succes d'un agent varie jusqu'a 9 points de pourcentage selon le LLM qui joue l'utilisateur, avec une mauvaise calibration systematique (sous-estimation sur les taches difficiles, surestimation sur les moyennes) et des ecarts selon le dialecte (AAVE vs SAE) s'aggravant avec l'age. Consequence directe ici : le sous-agent utilisateur-produit, dormant, ne doit PAS etre promu en validateur de fin d'increment - il fournirait une quittance dont ce papier chiffre l'infidelite. La validation utilisateur sans nom ne se repare pas en lui donnant le nom d'un agent. Recherche faite, AUCUN protocole publie ne rend un role utilisateur/QA obligatoire avec un nom identifiable en sortie : ISO 9241-11 reste invarifiable a froid, et la litterature user-simulator evalue des agents, elle ne signe pas des increments. B4 etait la case la plus faible de la grille et le reste. [adopte le 2026-09-19 : Regle NEGATIVE inscrite au referentiel ET contrainte dans le CANON (.claude/dispositif/canon/log_run.py) : est_identite_non_humaine() refuse toute identite s'annoncant non humaine (prefixe agent-, sous-agent, subagent, nom de modele). La porte 'mettre l'agent au plan', que l'ancienne garde laissait ouverte, est explicitement fermee dans le message de refus. Le canon corrige PUIS propage par sync_dispositif.py, jamais la copie editee a la main. utilisateur-produit n'a PAS ete cable comme validateur.]",
+      "regle_proposee": "Inscrire au referentiel, cote negatif : une quittance de validation utilisateur produite par un agent simulant l'utilisateur NE VAUT PAS quittance - le nom en sortie doit etre celui d'une personne. Mesurable a froid : le champ de quittance des runs ne doit pas porter un nom de sous-agent.",
+      "action_corrective": "Ne pas cabler utilisateur-produit comme validateur. Si la quittance nommee est cablee, contraindre le champ a un nom humain (liste fermee). Cout : ~30 min dans le script de journalisation."
     }
   ]
 }

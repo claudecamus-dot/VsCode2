@@ -1,3 +1,14 @@
+# +-- GÉNÉRÉ — NE PAS ÉDITER LOCALEMENT ---------------------------------------
+# | Source de vérité : hub de supervision VScode5, .claude/dispositif/canon/scan_transcripts.py
+# | Une correction faite ICI sera ÉCRASÉE à la prochaine propagation. Pour la
+# | garder : la signaler au hub, qui corrige le canon et re-synchronise.
+# | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
+# |  n'est pas déployé, il n'existe pas dans ce dépôt.)
+# | Provenance canon : eb05b12 du 2026-09-23 — permet, au prochain sync, de dire si
+# | une différence vient d'une édition locale ou d'une avance du canon (voir
+# | `determiner_cause` dans sync_dispositif.py au hub).
+# +---------------------------------------------------------------------------
+
 """Superviseur d'agents — étage 1 (incrément A) : collecte déterministe, 0 token LLM.
 
 Scanne incrémentalement les transcripts JSONL du projet (~/.claude/projects/<slug>/*.jsonl),

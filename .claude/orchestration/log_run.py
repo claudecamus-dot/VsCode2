@@ -4,7 +4,7 @@
 # | garder : la signaler au hub, qui corrige le canon et re-synchronise.
 # | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
 # |  n'est pas déployé, il n'existe pas dans ce dépôt.)
-# | Provenance canon : 51dfa0f du 2026-09-19 — permet, au prochain sync, de dire si
+# | Provenance canon : eb05b12 du 2026-09-23 — permet, au prochain sync, de dire si
 # | une différence vient d'une édition locale ou d'une avance du canon (voir
 # | `determiner_cause` dans sync_dispositif.py au hub).
 # +---------------------------------------------------------------------------
@@ -48,12 +48,12 @@ du 2026-09-19, arbitree). Tout run porte un champ OBLIGATOIRE
 `livrable_utilisateur` (booleen) + une justification courte
 (`livrable_utilisateur_motif`, exigee quand il vaut `false`). A `true`, le run
 `succes` doit porter une quittance NOMMEE
-`validation: {par, artefact_ouvert, quand}` : `par` = un sous-agent reellement
-present au plan ou un nom d'humain, `artefact_ouvert` = un chemin/URL/capture NON
-NULLABLE, `quand` = horodatage. Quatre refus mecaniques (cf.
-`verifier_validation_utilisateur`) : champ absent ; `true` sans `validation` ;
-`artefact_ouvert` vide meme si `par` est rempli ; `par: utilisateur-produit` dont
-le rapport porte un signal d'echec produit. NON RETROACTIF : au `--solde`, un run
+`validation: {par, artefact_ouvert, quand}` : `par` = UN NOM DE PERSONNE,
+`artefact_ouvert` = un chemin/URL/capture NON NULLABLE, `quand` = horodatage.
+Quatre refus mecaniques (cf. `verifier_validation_utilisateur`) : champ absent ;
+`true` sans `validation` ; `artefact_ouvert` vide meme si `par` est rempli ;
+`par` portant une identite d'AGENT (veille « Lost in Simulation », adoptee le
+2026-09-19). NON RETROACTIF : au `--solde`, un run
 qui ne porte pas le champ (les 194 d'avant le deploiement) n'est pas controle.
 
 Solde d'un run ouvert ou en attente (constat superviseur 2026-07-23 : la boucle
@@ -118,6 +118,32 @@ RESULTATS_APPEND = ("en-cours",) + RESULTATS_SOLDE
 # un état inoffensif à côté d'un `resultat: succes`.
 ETATS_ETAPE = ("ok", "echec", "non-rendu")
 ETATS_ETAPE_FAUTIFS = ("echec", "non-rendu")
+
+# Vocabulaire FERME de la FORME de la tache d'un run -- veille du 2026-09-20,
+# « Lois de scaling conditionnelles du multi-agent ». [S5] (arXiv 2512.08296,
+# Google, PREPRINT, et juge et partie) mesure sur 260 configurations un ecart de
+# +80,8 % (tache decomposable) a -70 % (tache sequentielle) : l'effet du
+# multi-agent suit la FORME de la tache, pas le NOMBRE d'agents. Un plafond
+# « <= 4 salles » borne donc la mauvaise variable. Le champ est DECLARE et non
+# deduit : typer la forme depuis l'etage deterministe est hors de portee, et une
+# heuristique textuelle en ferait un champ decoratif (meme raisonnement que
+# `livrable_utilisateur`, qui a DEJA ete arbitre en declare).
+#
+# NON RETROACTIF, et c'est le point : absent = accepte en silence. Les 197 runs
+# deja journalises n'en portent aucun, et les requalifier a posteriori
+# fabriquerait exactement la donnee que l'ablation mono-agent doit aller
+# chercher. Ce champ ne PROUVE rien ; il rend l'ablation stratifiable, c'est-a-dire
+# possible (salle `anti-consensus` du 2026-09-20 : un lot heterogene rendrait UN
+# chiffre generalise a tort sur une plage de variance de 150 points).
+FORMES_TACHE = ("decomposable", "sequentiel", "inconnu")
+CHAMP_FORME = "forme_tache"
+CHAMP_FORME_MOTIF = "forme_tache_motif"
+# Seule `decomposable` exige un motif ecrit : c'est la valeur qui ACHETE le
+# fan-out. `sequentiel` et `inconnu` n'autorisent rien, donc ne justifient rien --
+# et exiger un motif pour les trois rendrait le champ couteux a renseigner
+# honnetement, donc renseigne a `decomposable` par reflexe. La contrainte est
+# placee la ou elle coute quelque chose.
+FORME_A_JUSTIFIER = "decomposable"
 
 # --- « Solde sous revue » : capacité OPT-IN, ÉTEINTE PARTOUT par défaut ------
 # Mécanique reprise TELLE QUELLE de `.claude/hooks/warn_verif_before_commit.py`
@@ -254,6 +280,10 @@ def solder(argv) -> int:
     if refus_etapes:
         print(refus_etapes)
         return 1
+    refus_forme = verifier_forme_tache({**run, "resultat": resultat})
+    if refus_forme:
+        print(refus_forme)
+        return 1
     # NON RETROACTIF : `au_solde=True` fait sortir sans rien controler tout run
     # qui ne PORTE PAS `livrable_utilisateur` — c'est-a-dire les 194 runs ecrits
     # avant le deploiement du champ. Un run qui le porte a ete ecrit apres, et
@@ -264,6 +294,12 @@ def solder(argv) -> int:
         {**run, "resultat": resultat}, au_solde=True)
     if refus_validation:
         print(refus_validation)
+        return 1
+    # Lot nominatif : controle a l'append ET au solde, comme les etapes du plan
+    # (le solde a deja servi de porte de derriere a un garde-fou, 2026-09-09).
+    refus_lot = verifier_lot({**run, "resultat": resultat})
+    if refus_lot:
+        print(refus_lot)
         return 1
     avant = run.get("resultat")
     run["resultat"] = resultat
@@ -283,6 +319,52 @@ def solder(argv) -> int:
     os.replace(tmp, RUNS_PATH)
     print(f"log_run --solde : run {run.get('ts')} requalifie {avant} -> {resultat}")
     return 0
+
+
+def verifier_forme_tache(run: dict) -> str | None:
+    """Refus si la forme de tache declaree contredit le vocabulaire ou s'affirme
+    `decomposable` sans motif ecrit -- sinon None.
+
+    Trois cas, et le premier est le plus important :
+      - champ ABSENT -> None, sans un mot. Non retroactif par construction : un
+        avertissement sur les runs anterieurs transformerait une donnee neuve en
+        bruit de fond, et la premiere reaction serait de le faire taire.
+      - valeur hors vocabulaire -> REFUS si `succes` (un `forme_tache: "mixte"`
+        ecrit de bonne foi ne doit pas passer pour une declaration valide), simple
+        AVERTISSEMENT sinon : R5 exige que le run rate soit journalise, et le
+        refuser sur une faute de frappe en perdrait la trace (meme arbitrage que
+        `verifier_etapes_du_plan`, revue bmad-code-review du 2026-09-09).
+      - `decomposable` sans motif -> REFUS a tout resultat, celui-la. Ce n'est pas
+        une faute de frappe rattrapable : c'est l'affirmation qui justifie de payer
+        un fan-out, et une affirmation non motivee est precisement ce que la veille
+        reproche au plafond « <= 4 ». L'auteur a toujours l'issue d'omettre le champ
+        ou de declarer `inconnu` -- aucune trace n'est perdue.
+    """
+    if CHAMP_FORME not in run:
+        return None
+    forme = run.get(CHAMP_FORME)
+    if forme not in FORMES_TACHE:
+        message = (
+            f"{CHAMP_FORME} hors vocabulaire : {forme!r}.\n"
+            f"  Attendu : {' | '.join(FORMES_TACHE)} - ou champ absent (un run "
+            "anterieur au 2026-09-20 n'en porte aucun, et c'est valide)."
+        )
+        if run.get("resultat") == "succes":
+            return "log_run REFUS : " + message
+        print("log_run AVERTISSEMENT : " + message)
+        return None
+    if forme == FORME_A_JUSTIFIER and not str(
+            run.get(CHAMP_FORME_MOTIF) or "").strip():
+        return (
+            f"log_run REFUS : {CHAMP_FORME} '{FORME_A_JUSTIFIER}' declare sans "
+            f"'{CHAMP_FORME_MOTIF}'.\n"
+            "  C'est cette declaration qui justifie de payer un fan-out : dire EN "
+            "QUOI la tache se decoupe (sous-questions independantes, pas un meme "
+            "brief lu en parallele par N salles - ce dernier cas est de la "
+            "redondance, pas du decoupage).\n"
+            f"  Sinon : '{CHAMP_FORME}': 'inconnu', ou omettre le champ."
+        )
+    return None
 
 
 def verifier_etapes_du_plan(run: dict) -> str | None:
@@ -367,19 +449,41 @@ CHAMPS_QUITTANCE = ("par", "artefact_ouvert", "quand")
 # ci-dessous, la garde SE SIGNERAIT ELLE-MEME : le meme dispositif produirait le
 # livrable, simulerait son utilisateur, et signerait la quittance.
 AGENT_UTILISATEUR_SIMULE = "utilisateur-produit"
-# Signaux d'echec PRODUIT dans le rapport de l'utilisateur simule. Liste courte et
-# explicite : une detection large ferait refuser des quittances honnetes (« non
-# operationnel avant correction »), et le refus pousserait alors a mentir — ce que
-# R5 interdit plus surement qu'il n'interdit un faux succes.
-SIGNAUX_ECHEC_PRODUIT = ("non operationnel", "non operationnels", "non-operationnel",
-                         "inutilisable", "ne fonctionne pas", "echec produit",
-                         "bloquant pour l'utilisateur")
+# SIGNAUX_ECHEC_PRODUIT et _texte_quittance ont ete RETIRES le 2026-09-19 : la
+# regle « une quittance signee par un agent ne vaut pas quittance » refuse
+# desormais l'identite AVANT qu'on ait a lire son rapport, et les elargir aux
+# quittances humaines ferait refuser « non operationnel avant correction » ecrit
+# honnetement (le refus pousserait a mentir, ce que R5 interdit plus surement
+# qu'un faux succes). Ils sont partis plutot que laisses en place : un commentaire
+# ecrit ici affirmait qu'ils restaient utilises ailleurs, ce que `vulture
+# --min-confidence 60` a dementi le jour meme (instruction de la trouvaille
+# « vulture »). Une constante morte gardee « au cas ou » est un filet non appele.
+
+# Identites NON HUMAINES pour la quittance. Liste de MOTIFS, pas de noms : un
+# sous-agent neuf ne doit pas passer parce qu'il n'etait pas prevu.
+PREFIXES_NON_HUMAINS = ("agent-", "agent ", "sous-agent", "subagent", "bot-",
+                        "claude-", "gpt-")
+EXACTS_NON_HUMAINS = ("agent", "sous-agent", "subagent", "claude", "claude code",
+                      "llm", "ia", "ai", AGENT_UTILISATEUR_SIMULE)
 
 
-def _texte_quittance(validation: dict) -> str:
-    """Tout ce que la quittance dit en prose (rapport, note, commentaire)."""
-    return " ".join(str(validation.get(k) or "")
-                    for k in ("rapport", "note", "notes", "commentaire")).lower()
+def est_identite_non_humaine(par: str) -> bool:
+    """`par` designe-t-il un agent plutot qu'une personne ?
+
+    Regle NEGATIVE inscrite au referentiel le 2026-09-19 : une quittance
+    produite par un agent simulant l'utilisateur ne vaut pas quittance. On
+    reconnait un agent par son ECRITURE (prefixe `agent-`, mention
+    `sous-agent`, nom de modele) - on ne peut pas prouver qu'un nom est humain,
+    on peut refuser ceux qui s'annoncent comme ne l'etant pas. Un faux negatif
+    (« Jean Agent ») reste possible : la garde exige que la quittance soit
+    SIGNEE de facon relisible a la main, elle ne fait pas l'etat civil.
+    """
+    p = " ".join(str(par or "").strip().lower().replace("_", "-").split())
+    if not p:
+        return False
+    if p in EXACTS_NON_HUMAINS:
+        return True
+    return p.startswith(PREFIXES_NON_HUMAINS)
 
 
 def verifier_validation_utilisateur(run: dict, au_solde: bool = False) -> str | None:
@@ -441,20 +545,22 @@ def verifier_validation_utilisateur(run: dict, au_solde: bool = False) -> str | 
     par = str(validation.get("par") or "").strip()
     if not par:
         return ("log_run REFUS : 'validation.par' vide - la quittance doit NOMMER "
-                "une identite verifiable : soit un sous-agent reellement present "
-                "comme 'agent' dans une etape du plan, soit un nom d'humain.")
-    agents_du_plan = {str(e.get("agent") or "").strip().lower()
-                      for e in (run.get("plan") or []) if isinstance(e, dict)}
-    # Un `par` qui se presente comme un sous-agent doit exister AU PLAN. Un nom
-    # d'humain, lui, n'est pas verifiable ici et passe : la garde verifie que la
-    # quittance est SIGNEE, pas que le signataire existe a l'etat civil.
-    if (par.lower() in (AGENT_UTILISATEUR_SIMULE, "agent") or par.lower().startswith(
-            ("agent-", "sous-agent"))) and par.lower() not in agents_du_plan:
+                "une PERSONNE. Un nom de sous-agent n'y suffit pas (cf. "
+                "est_identite_non_humaine) : sans personne pour signer, le run "
+                "reste 'en-attente-validation'.")
+    if est_identite_non_humaine(par):
         return (
-            f"log_run REFUS : 'validation.par' nomme le sous-agent '{par}', absent "
-            "des etapes du plan - une quittance signee par un agent jamais "
-            "convoque ne vaut rien. Mettre l'etape au plan, ou signer d'un nom "
-            "d'humain."
+            f"log_run REFUS : 'validation.par' nomme '{par}', une identite "
+            "d'AGENT - une quittance produite par un agent simulant "
+            "l'utilisateur NE VAUT PAS quittance. Le nom en sortie doit etre "
+            "celui d'une PERSONNE.\n"
+            "  Mesure : le taux de succes d'un agent varie jusqu'a 9 points de "
+            "pourcentage selon le LLM qui joue l'utilisateur, avec une "
+            "miscalibration systematique (Lost in Simulation, veille adoptee le "
+            "2026-09-19). Mettre le nom d'agent AU PLAN ne repare rien : il "
+            "repond a 'qui a ete simule en train d'ouvrir l'artefact', pas a "
+            "'qui l a ouvert'.\n"
+            "  Sans personne pour signer : 'en-attente-validation'."
         )
     if not str(validation.get("artefact_ouvert") or "").strip():        # (c)
         return (
@@ -468,27 +574,264 @@ def verifier_validation_utilisateur(run: dict, au_solde: bool = False) -> str | 
     if not str(validation.get("quand") or "").strip():
         return ("log_run REFUS : 'validation.quand' vide ou absent - une quittance "
                 "sans horodatage ne se rattache a aucune version de l'artefact.")
-    if par.lower() == AGENT_UTILISATEUR_SIMULE:                         # (d)
-        texte = _texte_quittance(validation) + " " + str(run.get("notes") or "").lower()
-        touches = [s for s in SIGNAUX_ECHEC_PRODUIT if s in texte]
-        if touches:
-            return (
-                "log_run REFUS : la quittance est signee par "
-                f"'{AGENT_UTILISATEUR_SIMULE}' et son rapport porte un signal "
-                f"d'echec produit ({', '.join(touches)}) - 'succes' est interdit, "
-                "au mieux 'en-attente-validation'.\n"
-                f"  '{AGENT_UTILISATEUR_SIMULE}' est un utilisateur SIMULE : il "
-                "repond a : qui a ete simule en train d'ouvrir la page, pas "
-                "a : qui a ouvert la page. Sans ce refus, la garde se signerait "
-                "elle-meme."
-            )
+    # (d) ABSORBE le 2026-09-19. Ce refus visait `par: utilisateur-produit` dont
+    # le rapport portait un signal d'echec produit ; depuis que TOUTE identite
+    # d'agent est refusee plus haut (regle Lost in Simulation), il ne peut plus
+    # etre atteint - un `par` valide est desormais un nom de personne, et les
+    # signaux d'echec ne doivent PAS s'y appliquer : un humain qui ecrit
+    # "non operationnel avant correction" dans une quittance honnete ne doit pas
+    # se faire refuser. Sa constante et son aide de lecture ont ete retirees avec
+    # lui (cf. le commentaire en tete de fichier) plutot que laissees mortes.
     return None
 
+
+
+
+# --- Lot nominatif de constats (remede 2, superviseur 2026-09-20) ------------
+# Mesure : 172 constats crees contre 156 fermes entre le 2026-07-30 et le
+# 2026-09-20 (469 snapshots), avec des pics de creation NETTE les jours memes ou
+# l'utilisateur demandait qu'on traite les ecarts (01/09 +14 : la demande
+# « traite les 34 constats » a fait passer le compteur de 5 a 19 dans la
+# journee). Un `succes` adosse a un compteur vivant ne dit donc RIEN de la
+# demande. Un run peut desormais porter `"lot": "<id>"` : la liste NOMINATIVE
+# des constats vises, gelee a l'ouverture par
+# `.claude/supervision/lot.py --ouvrir`. Le run ne se solde `succes` que si
+# 100 % du lot est ferme, et le refus NOMME les manquants.
+#
+# NON RETROACTIF, comme `livrable_utilisateur` : un run sans champ `lot` (les
+# 195 anterieurs, et tous les depots de la flotte ou le lot n'existe pas) n'est
+# pas controle. Le canon est propage a 6 depots : aucun signal nouveau ne doit
+# s'y allumer par heritage.
+CHAMP_LOT = "lot"
+
+
+def _module_lot():
+    """Charge `.claude/supervision/lot.py` du depot courant, ou None."""
+    import importlib.util
+    # Remontee des ancetres, jamais un nombre fixe de dirname() : ce fichier vit
+    # en canon (.claude/dispositif/canon/) ET en copie generee
+    # (.claude/orchestration/) — deux profondeurs differentes.
+    chemin, d = None, os.path.dirname(os.path.abspath(__file__))
+    while True:
+        cand = os.path.join(d, ".claude", "supervision", "lot.py")
+        if os.path.exists(cand):
+            chemin = cand
+            break
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+    spec = importlib.util.spec_from_file_location("_lot_log_run", chemin)
+    mod = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(mod)
+    except Exception:                                   # noqa: BLE001
+        return None
+    return mod
+
+
+def verifier_lot(run: dict) -> str | None:
+    """Refus si `resultat: succes` alors que le lot nomme n'est pas a 100 %.
+
+    Trois refus : (a) lot nomme mais instrument absent ; (b) lot INTROUVABLE —
+    refus DUR, solder contre un lot inexistant serait inoperant en silence ;
+    (c) lot incomplet — le message NOMME chaque constat qui manque, « lot
+    incomplet » ferait exactement ce que ce remede reproche au compteur."""
+    if run.get("resultat") != "succes":
+        return None
+    lot_id = str(run.get(CHAMP_LOT) or "").strip()
+    if not lot_id:
+        return None
+    mod = _module_lot()
+    if mod is None:                                                     # (a)
+        return (f"log_run REFUS : le run nomme le lot '{lot_id}' mais "
+                ".claude/supervision/lot.py est introuvable dans ce depot - "
+                "impossible de verifier que le lot est ferme. Retirer le champ "
+                f"'{CHAMP_LOT}' ou installer l'instrument.")
+    try:
+        fermes, total, restants = mod.etat_lot(lot_id)
+    except mod.LotIntrouvable:                                          # (b)
+        return (f"log_run REFUS : lot '{lot_id}' INTROUVABLE. Solder un run "
+                "'succes' contre un lot qui n'existe pas serait inoperant en "
+                "silence : la promesse faite a l'utilisateur ne serait rattachee "
+                "a rien. Ouvrir le lot avec "
+                "`py .claude/supervision/lot.py --ouvrir <id> --projet <projet>`, "
+                "ou corriger l'identifiant.")
+    if restants:                                                        # (c)
+        return ("log_run REFUS : lot '" + lot_id + f"' a {fermes}/{total} fermes - "
+                "un 'succes' declarerait satisfaite une demande qui ne l'est pas.\n  "
+                + "\n  ".join(restants)
+                + "\n  Journaliser 'partiel' (ce qui a ete ferme), ou fermer les "
+                  "constats ci-dessus. Un constat CREE depuis l'ouverture du lot "
+                  "n'y entre jamais : il ne peut ni le gonfler ni le sauver.")
+    return None
+
+
+def compter_succes_sans_oracle(runs=None):
+    """(sans_oracle, total_succes) — la DETTE laissee par la non-retroactivite.
+
+    `verifier_validation_utilisateur(au_solde=True)` laisse sortir sans aucun
+    controle tout run qui ne porte pas `livrable_utilisateur`. C'est DELIBERE
+    (les runs anterieurs au deploiement restent soldables), mais la mesure du
+    superviseur — 165 des 166 runs `succes` sans le champ — etait muette :
+    personne ne pouvait la relire. Cette fonction la rend executable.
+    `py log_run.py --dette-oracle`."""
+    if runs is None:
+        try:
+            with open(RUNS_PATH, encoding="utf-8") as fh:
+                runs = [json.loads(l) for l in fh if l.strip()]
+        except (OSError, ValueError):
+            return 0, 0
+    succes = [r for r in runs if isinstance(r, dict) and r.get("resultat") == "succes"]
+    sans = [r for r in succes if CHAMP_LIVRABLE not in r]
+    return len(sans), len(succes)
+
+
+# --- Ordre du playbook deck : le RENDU avant toute hypothese ----------------
+# Cas reel du 2026-09-22 (run « deck PPT Trucks KO ») : 5 hypotheses fausses et 3
+# analyses python-pptx infructueuses (geometrie, largeurs de colonnes, marges,
+# polices, structure des paragraphes) avant qu'un rendu reel ne montre le defaut
+# en une passe. python-pptx est un parseur TOLERANT : il est aveugle par
+# construction a ce que le rendu expose. Le playbook `export-ppt-verifie` impose
+# donc une etape 0 « rendu comparatif avant toute hypothese ».
+# Ce que la garde REFUSE : un plan de CE playbook ou une etape d'analyse
+# python-pptx precede la premiere etape de rendu. Ce qu'elle ne ferme pas : un
+# plan dont les libelles ne nomment ni l'un ni l'autre n'est pas vu — garde-fou
+# textuel, pas preuve.
+PLAYBOOK_DECK = "export-ppt-verifie"
+_MARQ_RENDU = ("rendu", "render", "libreoffice", "pptx-verify", "screenshot",
+               "pymupdf", "capture", "pdf de reference", "com ")
+_MARQ_ANALYSE = ("python-pptx", "python pptx", "xml brut", "analyse du xml",
+                 "inspection xml", "parse du pptx", "parsing pptx")
+
+
+def verifier_ordre_playbook_ppt(run: dict) -> str | None:
+    """Refus si une analyse python-pptx precede le rendu — sinon None."""
+    if str(run.get("playbook") or "") != PLAYBOOK_DECK:
+        return None
+    rang_rendu = rang_analyse = None
+    libelle_analyse = ""
+    for rang, etape in enumerate(run.get("plan") or [], start=1):
+        if not isinstance(etape, dict):
+            continue
+        texte = (str(etape.get("etape", "")) + " " + str(etape.get("agent", ""))).lower()
+        if rang_analyse is None and any(m in texte for m in _MARQ_ANALYSE):
+            rang_analyse, libelle_analyse = rang, str(etape.get("etape", ""))
+        if rang_rendu is None and any(m in texte for m in _MARQ_RENDU):
+            rang_rendu = rang
+    if rang_analyse is None:
+        return None
+    if rang_rendu is not None and rang_rendu < rang_analyse:
+        return None
+    ou = (f"le rendu arrive a l'etape {rang_rendu}"
+          if rang_rendu is not None else "aucune etape de rendu n'est au plan")
+    return (
+        f"log_run REFUS : playbook '{PLAYBOOK_DECK}' — analyse python-pptx a "
+        f"l'etape {rang_analyse} (« {libelle_analyse} ») alors que {ou}.\n"
+        "  Etape 0 OBLIGATOIRE de ce playbook : rendu comparatif (original vs "
+        "regenere) AVANT toute hypothese. Mesure du 2026-09-22 : 5 hypotheses "
+        "fausses et 3 analyses python-pptx infructueuses avant que le rendu ne "
+        "montre le defaut en une passe — python-pptx est aveugle a ce defaut par "
+        "construction.\n"
+        "  Rejouer en placant l'etape de rendu comparatif AVANT l'analyse."
+    )
+
+
+# --- Interrogateur du journal (--stats) -------------------------------------
+# Pourquoi ce mode existe : `runs.jsonl` fait ~486 Ko et un `Read` entier coute
+# ~109 000 jetons, donc la regle d'economie du depot ne laissait que `grep`. C'est
+# elle qui a fabrique une mesure FAUSSE le 2026-09-22 :
+#   grep -c "en-attente-validation" -> 14 « runs en attente » chez VSCode3,
+#   alors que 0 run portait ce RESULTAT — la chaine etait dans `notes`, texte
+#   libre. Un compte par SOUS-CHAINE n'est pas un compte par CHAMP.
+# Le mode lit le fichier LIGNE A LIGNE (streaming, jamais en memoire entiere) et
+# compte la valeur d'un CHAMP JSON. `--depot` filtre sur ce que le run NOMME
+# (demande + plan + notes) : filtre textuel assume, borne explicitement dans la
+# sortie, jamais une preuve d'appartenance.
+CHAMPS_STATS = ("resultat", "qualification", "playbook", CHAMP_FORME,
+                "reprises", CHAMP_LIVRABLE)
+
+
+def _texte_du_run(run: dict) -> str:
+    morceaux = [str(run.get("demande") or ""), str(run.get("notes") or "")]
+    for e in run.get("plan") or []:
+        if isinstance(e, dict):
+            morceaux.append(str(e.get("etape", "")) + " " + str(e.get("agent", "")))
+    return " ".join(morceaux).lower()
+
+
+def stats(champ: str = "resultat", depot: str | None = None, chemin: str | None = None):
+    """(compteur {valeur: n}, total_lu, total_retenu, lignes_illisibles).
+
+    Streaming : une ligne a la fois, rien n'est accumule hors le compteur.
+    """
+    compteur, total, retenus, illisibles = {}, 0, 0, 0
+    with open(chemin or RUNS_PATH, encoding="utf-8") as fh:
+        for ligne in fh:
+            ligne = ligne.strip()
+            if not ligne:
+                continue
+            total += 1
+            try:
+                run = json.loads(ligne)
+            except ValueError:
+                illisibles += 1
+                continue
+            if not isinstance(run, dict):
+                illisibles += 1
+                continue
+            if depot and depot.lower() not in _texte_du_run(run):
+                continue
+            retenus += 1
+            valeur = run.get(champ, "(absent)")
+            if isinstance(valeur, (dict, list)):
+                valeur = "(structure)"
+            compteur[str(valeur)] = compteur.get(str(valeur), 0) + 1
+    return compteur, total, retenus, illisibles
+
+
+def imprimer_stats(argv) -> int:
+    opts, i = {}, 0
+    while i < len(argv):
+        if argv[i].startswith("--") and i + 1 < len(argv):
+            opts[argv[i][2:]] = argv[i + 1]
+            i += 2
+        else:
+            i += 1
+    champ = opts.get("champ", "resultat")
+    depot = opts.get("depot")
+    try:
+        compteur, total, retenus, illisibles = stats(champ, depot)
+    except OSError as exc:
+        print(f"log_run --stats : journal illisible ({exc})")
+        return 1
+    entete = f"log_run --stats : champ '{champ}'"
+    if champ not in CHAMPS_STATS:
+        entete += " (hors champs usuels : " + ", ".join(CHAMPS_STATS) + ")"
+    if depot:
+        entete += (f" · filtre textuel '{depot}' — le run le NOMME dans demande/plan/"
+                   "notes ; un run qui ne le nomme pas n'est pas vu")
+    print(entete)
+    print(f"  {retenus} run(s) retenu(s) sur {total} lu(s)"
+          + (f", {illisibles} ligne(s) illisible(s)" if illisibles else ""))
+    for valeur, n in sorted(compteur.items(), key=lambda kv: (-kv[1], kv[0])):
+        print(f"  {n:5d}  {valeur}")
+    if not compteur:
+        print("  (aucun run retenu)")
+    return 0
 
 
 def main(argv) -> int:
     if argv and argv[0] == "--solde":
         return solder(argv[1:])
+    if argv and argv[0] == "--stats":
+        return imprimer_stats(argv[1:])
+    if argv and argv[0] == "--dette-oracle":
+        sans, total = compter_succes_sans_oracle()
+        print(f"log_run : {sans} run(s) 'succes' sur {total} ne portent aucun "
+              f"'{CHAMP_LIVRABLE}' - non controles au solde (non-retroactivite "
+              "deliberee). La dette est desormais mesuree, plus muette.")
+        return 0
     raw = argv[0] if argv else sys.stdin.read()
     try:
         run = json.loads(raw)
@@ -518,9 +861,21 @@ def main(argv) -> int:
     if refus_etapes:
         print(refus_etapes)
         return 1
+    refus_ordre = verifier_ordre_playbook_ppt(run)
+    if refus_ordre:
+        print(refus_ordre)
+        return 1
+    refus_forme = verifier_forme_tache(run)
+    if refus_forme:
+        print(refus_forme)
+        return 1
     refus_validation = verifier_validation_utilisateur(run, au_solde=False)
     if refus_validation:
         print(refus_validation)
+        return 1
+    refus_lot = verifier_lot(run)
+    if refus_lot:
+        print(refus_lot)
         return 1
     refus_revue = verifier_revue_increment(run)
     if refus_revue:
