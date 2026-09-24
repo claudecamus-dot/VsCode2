@@ -41,8 +41,6 @@ from ..uploads import (
     lire_upload_borne,
     verifier_zip_borne,
 )
-
-
 from .interviews_commun import (
     _get_mission,
 )

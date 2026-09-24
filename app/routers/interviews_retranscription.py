@@ -44,17 +44,15 @@ from ..services.interview_segment_jobs import (
     segment_jobs_status,
 )
 from ..templating import templates
-
-
+from .interviews_analyse import (
+    _get_interview_libre,
+    _libre_analyse_context,
+)
 from .interviews_commun import (
     _fenetre_recuperation,
 )
 from .interviews_libre import (
     _parse_turns_from_form,
-)
-from .interviews_analyse import (
-    _get_interview_libre,
-    _libre_analyse_context,
 )
 
 router = APIRouter(tags=["interviews"])

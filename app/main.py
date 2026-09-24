@@ -24,7 +24,8 @@ try:
 except ModuleNotFoundError:
     pass
 
-from .auth import exiger_authentification, router as auth_router  # noqa: E402
+from .auth import exiger_authentification  # noqa: E402
+from .auth import router as auth_router
 from .csrf import verifier_origine  # noqa: E402
 from .db import init_db  # noqa: E402
 from .entetes_securite import entetes_securite  # noqa: E402

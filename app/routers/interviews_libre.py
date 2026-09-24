@@ -36,8 +36,6 @@ from ..services.interview_segment_jobs import (
 )
 from ..services.mission_axes import axes_of
 from ..templating import templates
-
-
 from .interviews_commun import (
     REPARTITION_KEYS,
     _get_mission,

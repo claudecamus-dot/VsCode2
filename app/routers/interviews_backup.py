@@ -32,8 +32,6 @@ from ..uploads import (
     UploadTropVolumineux,
     ecrire_audio_borne,
 )
-
-
 from .interviews_commun import (
     _get_mission,
 )

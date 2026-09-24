@@ -22,8 +22,6 @@ from ..models import (
     Interview,
     Verbatim,
 )
-
-
 from .interviews_commun import (
     _get_mission,
 )

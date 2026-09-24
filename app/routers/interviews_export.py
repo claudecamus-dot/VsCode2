@@ -34,8 +34,6 @@ from ..services.interview_pdf_export import (
     build_turns_only_pdf,
 )
 from ..templating import templates
-
-
 from .interviews_commun import (
     _coverage,
     _get_interview,

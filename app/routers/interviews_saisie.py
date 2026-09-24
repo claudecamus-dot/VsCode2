@@ -43,8 +43,6 @@ from ..uploads import (
     UploadTropVolumineux,
     lire_upload_audio_borne,
 )
-
-
 from .interviews_commun import (
     _all_questions,
     _coverage,

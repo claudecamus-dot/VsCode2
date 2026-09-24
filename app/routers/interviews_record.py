@@ -6,7 +6,6 @@ ordre d'enregistrement des routes et nom de logger inchangés.
 """
 from __future__ import annotations
 
-
 from fastapi import (
     APIRouter,
     Depends,
@@ -37,8 +36,6 @@ from ..services.interview_segment_jobs import (
     segment_jobs_status,
 )
 from ..templating import templates
-
-
 from .interviews_commun import (
     _fenetre_recuperation,
     _get_mission,

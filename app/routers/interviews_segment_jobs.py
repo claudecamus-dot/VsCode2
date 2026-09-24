@@ -34,8 +34,6 @@ from ..services.interview_segment_jobs import (
     segment_jobs_status,
     segment_jobs_status_light,
 )
-
-
 from .interviews_commun import (
     _get_mission,
 )

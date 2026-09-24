@@ -25,8 +25,6 @@ from ..models import (
 from ..templating import templates
 
 
-
-
 def _parse_repartition(repartition_json: str, valeurs_nommees: tuple) -> dict:
     """Répartition postée par le wizard libre.
 
