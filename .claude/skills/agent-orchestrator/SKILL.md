@@ -158,6 +158,7 @@ checkpoints**, ne garder que les étapes conditionnelles applicables. Playbooks 
 | `dev-verifie` | Implémentation/correction avec tests + vérif réelle + revue finale avant commit | Importé, à confirmer |
 | `export-ppt-verifie` | Livrable = un deck PPT : génération + enrichissements conditionnels (cadres photo, polish, design) + `pptx-verify` obligatoire | Importé, à confirmer |
 | `revue-design-parallele` | Revue multi-angles d'un livrable en fan-out puis consolidation | Importé, à confirmer |
+| `cadrage-produit` | Intention produit NEUVE (pas un bug) : durcir l'idée → brief → PRD → architecture → UX, puis relais explicite vers `dev-verifie` à son étape `cadrage-epics` (`bmad-create-epics-and-stories`, critères d'acceptance) — jamais de code avant les stories | Créé 2026-09-21, routé ici le 2026-09-24 (il ne l'était pas : un playbook absent de cette table n'existe pas pour l'orchestrateur) |
 
 Sinon composition libre depuis le catalogue + `routing-hints.json` : préférer les
 `eprouves`, prudence explicite sur les `jamais_utilises` et les cibles listées dans
