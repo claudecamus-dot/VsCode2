@@ -1,0 +1,8 @@
+# --- dispositif de supervision (genere par install_agentic) ---
+orchestration/prompts.jsonl
+supervision/usage.jsonl
+supervision/jobs.jsonl
+supervision/vues.jsonl
+supervision/scan_incidents.jsonl
+supervision/state.json
+gabarits/
