@@ -32,6 +32,7 @@ from .slides_cadre import (
 from .slides_diagnostic import (
     _slide_difficultes,
     _slide_executive_summary,
+    _slide_maturite,
     _slide_swot,
     _slide_synthese_categorie,
     _slide_verbatims,
@@ -68,6 +69,7 @@ def build_presentation(
     include_matrix: bool = True,
     include_kpis: bool = True,
     include_risques: bool = True,
+    include_maturite: bool = True,
     include_axis_ids: set[int] | None = None,
     axes_etude=None,
 ) -> Presentation:
@@ -114,6 +116,7 @@ def build_presentation(
     verbatims = mission.selected_verbatims
     kpis = [k for k in mission.kpis if (k.libelle or "").strip()]
     risks = [r for r in mission.risks if (r.risque or "").strip()]
+    maturites = [m for m in mission.maturites if (m.pilier or "").strip()]
     axes = list(mission.recommendation_axes)
     selected_axes = [a for a in axes if include_axis_ids is None or a.id in include_axis_ids]
 
@@ -136,6 +139,9 @@ def build_presentation(
         ch_sections[_CH_DIAGNOSTIC].append("Difficultés")
     if include_swot and swot and swot.has_content:
         ch_sections[_CH_DIAGNOSTIC].append("Matrice SWOT")
+    # Maturité par pilier (incr.10 palier 3) : clôt le diagnostic, après la SWOT.
+    if include_maturite and maturites:
+        ch_sections[_CH_DIAGNOSTIC].append("Maturité par pilier")
     if include_verbatims and verbatims:
         ch_sections[_CH_PAROLE].append("Paroles d'acteurs")
     # « Recommandations » dès qu'il y a des axes à détailler (les fiches reco
@@ -181,6 +187,8 @@ def build_presentation(
             _slide_difficultes(prs, difficulties)
         if include_swot and swot and swot.has_content:
             _slide_swot(prs, swot)
+        if include_maturite and maturites:
+            _slide_maturite(prs, maturites)
 
     # Chapitre 3 — La parole des équipes
     if ch_sections[_CH_PAROLE]:

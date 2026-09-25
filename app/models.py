@@ -132,6 +132,11 @@ class Mission(Base):
         cascade="all, delete-orphan",
         order_by="MissionKpi.position",
     )
+    maturites: Mapped[list[MissionMaturite]] = relationship(
+        back_populates="mission",
+        cascade="all, delete-orphan",
+        order_by="MissionMaturite.position",
+    )
     risks: Mapped[list[MissionRisk]] = relationship(
         back_populates="mission",
         cascade="all, delete-orphan",
@@ -745,6 +750,46 @@ class MissionRisk(Base):
     def criticite(self) -> int:
         """Gravité × probabilité (1-9) — ordre de lecture et couleur du repère."""
         return criticite_risque(self.gravite, self.probabilite)
+
+
+# Échelle de maturité 0-3 par pilier (incr.10 palier 3) — nommée, affichée à
+# l'écran ET en légende de la slide : un score nu ne se lit pas.
+MATURITE_NIVEAUX = {0: "Absent", 1: "Émergent", 2: "Structuré", 3: "Maîtrisé"}
+
+
+def score_maturite(v) -> int:
+    """Score borné 0-3 (0 si illisible) — lecture sûre d'une valeur en base."""
+    try:
+        return max(0, min(3, int(v)))
+    except (TypeError, ValueError):
+        return 0
+
+
+class MissionMaturite(Base):
+    """Grille de maturité par pilier (incr.10 palier 3) : un score 0-3
+    (`MATURITE_NIVEAUX`) et une justification courte par pilier, les piliers
+    étant les thèmes de la trame. Le pilier est gardé en TEXTE (`pilier`, le
+    titre du thème au moment de la génération) et non en clé étrangère : la trame
+    se ré-importe et ses thèmes se suppriment/renomment (cascade delete-orphan
+    sur `Trame.themes`) — une FK en CASCADE effacerait la grille affinée, en
+    SET NULL elle perdrait le libellé. Même choix que `MissionKpi.axe`."""
+
+    __tablename__ = "mission_maturites"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mission_id: Mapped[int] = mapped_column(
+        ForeignKey("missions.id", ondelete="CASCADE")
+    )
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    pilier: Mapped[str] = mapped_column(Text, default="")
+    score: Mapped[int] = mapped_column(Integer, default=0)
+    justification: Mapped[str] = mapped_column(Text, default="")
+
+    mission: Mapped[Mission] = relationship(back_populates="maturites")
+
+    @property
+    def niveau_label(self) -> str:
+        return MATURITE_NIVEAUX[score_maturite(self.score)]
 
 
 class RecommendationAxis(Base):

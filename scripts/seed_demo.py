@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.db import SessionLocal, init_db  # noqa: E402
 from app.models import (  # noqa: E402
     Answer, GlobalSynthesis, Interview, Mission, MissionDifficulty,
-    MissionExecutiveSummary, MissionKpi, MissionRisk, MissionSwot, Question, Recommendation,
+    MissionExecutiveSummary, MissionKpi, MissionMaturite, MissionRisk, MissionSwot, Question, Recommendation,
     RecommendationAxis, Theme, Trame, Verbatim,
 )
 
@@ -219,6 +219,18 @@ def seed() -> int:
                            proposition_valeur="Un vocabulaire partagé évite que « le même mot » désigne deux choses — la base de toute collaboration data.",
                            plan_actions="- Construire un glossaire des termes clés\n- Aligner les indicateurs de référence\n- Publier et maintenir dans le catalogue",
                            resultats_attendus="- Indicateurs non ambigus\n- Moins de retravail par incompréhension"),
+        ])
+
+        # Grille de maturité par pilier (incr.10 palier 3) : un score par thème.
+        _scores = [(1, "Pratiques data isolées, sans responsable ni règle commune"),
+                   (2, "Squads mixtes en place sur quelques produits, modèle défini"),
+                   (0, "Aucune instance de priorisation partagée entre métiers et DSI"),
+                   (3, "Socle technique maîtrisé, industrialisé et reconnu")]
+        db.add_all([
+            MissionMaturite(mission_id=mission.id, position=i, pilier=titre,
+                            score=_scores[i % len(_scores)][0],
+                            justification=_scores[i % len(_scores)][1])
+            for i, (titre, _qs) in enumerate(TRAME)
         ])
 
         # Indicateurs de suivi + matrice risques-contrôles (US9.27 b/c).

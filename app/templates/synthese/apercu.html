@@ -31,6 +31,8 @@
 {# Même filtre que build_presentation pour les KPIs / risques (libellé non vide). #}
 {% set kpis_shown = [] %}
 {% if kpis %}{% for k in kpis %}{% if (k.libelle or '').strip() %}{% set _ = kpis_shown.append(k) %}{% endif %}{% endfor %}{% endif %}
+{% set maturites_shown = [] %}
+{% if maturites %}{% for m in maturites %}{% if (m.pilier or '').strip() %}{% set _ = maturites_shown.append(m) %}{% endif %}{% endfor %}{% endif %}
 {% set risks_shown = [] %}
 {% if risks %}{% for r in risks %}{% if (r.risque or '').strip() %}{% set _ = risks_shown.append(r) %}{% endif %}{% endfor %}{% endif %}
 
@@ -81,6 +83,9 @@
       {% endif %}
       {% if swot and swot.has_content %}
       <label class="pptx-check"><input type="checkbox" name="swot" value="true" checked> Matrice SWOT</label>
+      {% endif %}
+      {% if maturites_shown %}
+      <label class="pptx-check"><input type="checkbox" name="maturite" value="true" checked> Maturité par pilier ({{ maturites_shown|length }})</label>
       {% endif %}
       {% if mission.selected_verbatims %}
       <label class="pptx-check"><input type="checkbox" name="verbatims" value="true" checked> Paroles d'acteurs ({{ mission.selected_verbatims|length }})</label>
@@ -170,6 +175,9 @@
     {% if (global_synthesis and global_synthesis.has_content) or (swot and swot.has_content) %}
     <button type="button" class="tab" data-tab="swot">SWOT</button>
     {% endif %}
+    {% if ((global_synthesis and global_synthesis.has_content) and themes) or maturites %}
+    <button type="button" class="tab" data-tab="maturite">Maturité</button>
+    {% endif %}
     {% if mission.all_verbatims %}
     <button type="button" class="tab" data-tab="verbatims">Verbatims</button>
     {% endif %}
@@ -215,6 +223,7 @@
           {% if diffs_shown %}{% set _ = sommaire_sections.append('Difficultés') %}{% endif %}
           {# Même condition que build_presentation (include_swot and swot.has_content) — tenir la parité aperçu/PPT du sommaire. #}
           {% if swot and swot.has_content %}{% set _ = sommaire_sections.append('Matrice SWOT') %}{% endif %}
+          {% if maturites_shown %}{% set _ = sommaire_sections.append('Maturité par pilier') %}{% endif %}
           {% if mission.selected_verbatims %}{% set _ = sommaire_sections.append("Paroles d'acteurs") %}{% endif %}
           {% if axes %}{% set _ = sommaire_sections.append('Recommandations') %}{% set _ = sommaire_sections.append('Matrice de priorisation') %}{% endif %}
           {% if kpis_shown %}{% set _ = sommaire_sections.append('Indicateurs de suivi') %}{% endif %}
@@ -567,6 +576,65 @@
       </section>
       {% endfor %}
     {% endfor %}
+    {% endif %}
+
+    {% if ((global_synthesis and global_synthesis.has_content) and themes) or maturites %}
+    <section class="tab-panel two-col" data-panel="maturite">
+      <div class="deck-pane deck-pane-form">
+        <form method="post" action="/missions/{{ mission.id }}/maturite/generate" class="swot-generate"
+          data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
+          {% if maturites %}onsubmit="return confirm('Remplacer la grille de maturité actuelle par une nouvelle génération IA ? Vos modifications seront perdues.');"{% endif %}>
+          <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>
+            {% if maturites %}↻ Régénérer la grille de maturité (IA){% else %}Générer la grille de maturité (IA){% endif %}
+          </button>
+          {% if not ai_ready %}<span class="muted">Service IA indisponible ({{ api_key_env }}).</span>{% endif %}
+        </form>
+        <p class="muted maturite-echelle">Échelle :
+          {% for n, lib in maturite_niveaux.items() %}<span class="maturite-pill maturite-{{ n }}">{{ n }} {{ lib }}</span>{% endfor %}
+          — un pilier par thème de la trame.</p>
+        {% if maturites %}
+        <ol class="suivi-list">
+          {% for m in maturites %}
+          <li class="suivi-item maturite-item">
+            <div class="suivi-row">
+              <strong class="maturite-pilier">{{ m.pilier }}</strong>
+              <label class="suivi-inline">Score
+                <select name="value" hx-post="/maturites/{{ m.id }}/field" hx-vals='{"field": "score"}'
+                  hx-trigger="change" hx-target="#mat-saved-{{ m.id }}" hx-swap="innerHTML">
+                  {% for n, lib in maturite_niveaux.items() %}<option value="{{ n }}" {% if m.score == n %}selected{% endif %}>{{ n }} — {{ lib }}</option>{% endfor %}
+                </select></label>
+            </div>
+            <label class="synth-field"><span>Justification</span>
+              <textarea name="value" rows="2" hx-post="/maturites/{{ m.id }}/field" hx-vals='{"field": "justification"}'
+                hx-trigger="keyup changed delay:700ms, change, blur" hx-target="#mat-saved-{{ m.id }}" hx-swap="innerHTML">{{ m.justification }}</textarea></label>
+            {{ fit_hint('fit-hint-mat-' ~ m.id, 'maturite_justification', m.justification) }}
+            <span class="saved" id="mat-saved-{{ m.id }}"></span>
+          </li>
+          {% endfor %}
+        </ol>
+        {% else %}
+        <p class="muted">Lance la génération pour obtenir un premier score 0-3 par thème (dérivé de la synthèse globale), puis ajuste scores et justifications — la grille s'intègre au diagnostic de l'export PPT.</p>
+        {% endif %}
+      </div>
+      <div class="deck-pane deck-pane-preview">
+        <div class="slide-preview-body">
+          <h3>Grille de maturité par pilier</h3>
+          <p class="muted risk-preview-note">Aperçu à l'ouverture de la page — rechargez après avoir changé des scores.</p>
+          <table class="maturite-table">
+            <thead><tr><th>Pilier</th><th>Maturité</th><th>Justification</th></tr></thead>
+            <tbody>
+              {% for m in maturites_shown %}
+              <tr>
+                <td class="maturite-pilier">{{ m.pilier }}</td>
+                <td><span class="maturite-jauge maturite-{{ m.score }}" aria-label="{{ m.score }} sur 3">{% for i in range(3) %}<i class="{{ 'on' if i < m.score else '' }}"></i>{% endfor %}</span> <span class="maturite-lib maturite-{{ m.score }}">{{ m.score }} · {{ m.niveau_label }}</span></td>
+                <td>{{ m.justification }}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
     {% endif %}
 
     {% if (global_synthesis and global_synthesis.has_content) or kpis %}

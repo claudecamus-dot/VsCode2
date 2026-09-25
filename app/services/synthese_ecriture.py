@@ -28,12 +28,13 @@ from ..models import (
     MissionDifficulty,
     MissionExecutiveSummary,
     MissionKpi,
+    MissionMaturite,
     MissionRisk,
     MissionSwot,
     Recommendation,
     RecommendationAxis,
 )
-from .synthese_ai import _coerce_niveau
+from .synthese_ai import _coerce_niveau, _coerce_score03
 
 SWOT_FIELDS = ("forces", "faiblesses", "opportunites", "menaces")
 EXEC_SUMMARY_FIELDS = ("headline", "points", "key_message")
@@ -181,6 +182,20 @@ def apply_risks_result(mission: Mission, risks: list[dict]) -> None:
                 controle_type=r.get("controle_type") or "propose",
             ))
     mission.risks = items
+
+
+def apply_maturite_result(mission: Mission, lignes: list[dict]) -> None:
+    """Remplace la grille de maturité (position = ordre de la trame)."""
+    items = []
+    for r in lignes:
+        pilier = (r.get("pilier") or "").strip()
+        if pilier:
+            items.append(MissionMaturite(
+                position=len(items), pilier=pilier,
+                score=_coerce_score03(r.get("score")),
+                justification=(r.get("justification") or "").strip(),
+            ))
+    mission.maturites = items
 
 # --------------------------------------------------------------------------- #
 # Application en base d'un résultat de synthèse globale / recommandations —

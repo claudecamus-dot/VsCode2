@@ -1124,3 +1124,21 @@ textarea.htmx-request, input.htmx-request, select.htmx-request {
 .risk-pill { color: #fff; font-size: .75rem; font-weight: 700; border-radius: 999px; padding: 2px 7px; }
 .risk-axis { font-size: .8rem; margin: 4px 0 8px; }
 .risk-register { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: .9rem; }
+
+/* Grille de maturité par pilier (incr.10 palier 3) — parité _slide_maturite :
+   jauge 3 segments, couleur sémantique du score (rouge → ambre → vert). */
+.maturite-echelle { font-size: .85rem; }
+.maturite-pill { display: inline-block; margin: 0 4px 4px 0; padding: 1px 8px; border-radius: 999px; color: #fff; font-size: .75rem; font-weight: 700; }
+.maturite-pill.maturite-0 { background: #b3261e; } .maturite-pill.maturite-1 { background: #8a6508; }
+.maturite-pill.maturite-2 { background: #2f7a45; } .maturite-pill.maturite-3 { background: #1e6b34; }
+.maturite-item { border-left-color: #1e6b34; }
+.maturite-pilier { color: #0E2356; }
+.maturite-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.maturite-table th { text-align: left; font-size: .7rem; color: var(--muted); border-bottom: 2px solid #1c2330; padding: 4px; }
+.maturite-table td { border-bottom: 1px solid var(--border); padding: 6px 4px; vertical-align: top; }
+.maturite-jauge { display: inline-flex; gap: 3px; vertical-align: middle; }
+.maturite-jauge i { width: 16px; height: 8px; border-radius: 4px; background: #eef1f7; }
+.maturite-0 i { box-shadow: inset 0 0 0 1px #b3261e; } /* 0 = segments vides cerclés de rouge, parité slide + légende */ .maturite-1 i.on { background: #b8860b; }
+.maturite-2 i.on { background: #6fa77d; } .maturite-3 i.on { background: #1e6b34; }
+.maturite-lib { font-weight: 700; white-space: nowrap; } .maturite-lib.maturite-0 { color: #b3261e; } .maturite-lib.maturite-1 { color: #8a6508; }
+.maturite-lib.maturite-2, .maturite-lib.maturite-3 { color: #1e6b34; }

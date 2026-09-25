@@ -293,6 +293,10 @@
   ],
   [
     "POST",
+    "/maturites/{maturite_id}/field"
+  ],
+  [
+    "POST",
     "/missions"
   ],
   [
@@ -402,6 +406,10 @@
   [
     "POST",
     "/missions/{mission_id}/kpis/generate"
+  ],
+  [
+    "POST",
+    "/missions/{mission_id}/maturite/generate"
   ],
   [
     "POST",

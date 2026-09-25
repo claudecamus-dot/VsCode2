@@ -245,7 +245,8 @@ def _python_sur_base(base_db: Path, code: str, *args: str) -> str:
     import sys
     env = dict(os.environ, APP_DB_PATH=str(base_db), PYTHONUTF8="1")
     res = subprocess.run([sys.executable, "-c", code, *args], cwd=Path(__file__).resolve().parents[1],
-                         env=env, capture_output=True, text=True, timeout=60)
+                         env=env, capture_output=True, text=True, timeout=60,
+                         encoding="utf-8")  # enfant en PYTHONUTF8 : accents intacts
     assert res.returncode == 0, res.stderr
     return res.stdout.strip().splitlines()[-1]
 
@@ -311,3 +312,60 @@ def test_indicateurs_et_risques_autosave_et_generation(
         # Ollama injoignable : la matrice existante n'est pas écrasée.
         assert _python_sur_base(base_db, _LIRE_SUIVI, kid, rid) == repr(
             ("90 % sous 6 mois", 3, "existant"))
+
+
+# --------------------------------------------------------------------------- #
+# Grille de maturité par pilier (incr.10 palier 3) : autosave + génération.
+# --------------------------------------------------------------------------- #
+_SEED_MATURITE = r"""
+from app.db import SessionLocal, init_db
+from app.models import (GlobalSynthesis, Interview, Mission, MissionMaturite, Theme, Trame)
+init_db()
+db = SessionLocal()
+m = Mission(name="E2E maturité")
+db.add(m); db.flush()
+tr = Trame(mission_id=m.id); db.add(tr); db.flush()
+db.add(Theme(trame_id=tr.id, title="Gouvernance", position=0))
+db.add(Interview(mission_id=m.id, interviewee_name="Témoin", status="done"))
+db.add(GlobalSynthesis(mission_id=m.id, status="generated", points_amelioration="- Silos"))
+m.maturites = [MissionMaturite(position=0, pilier="Gouvernance", score=1, justification="")]
+db.commit()
+print(m.id, m.maturites[0].id)
+"""
+
+_LIRE_MATURITE = r"""
+import sys
+from app.db import SessionLocal
+from app.models import MissionMaturite
+x = SessionLocal().get(MissionMaturite, int(sys.argv[1]))
+print(repr((x.score, x.justification)))
+"""
+
+
+def test_grille_maturite_autosave_et_generation(
+    tmp_path_factory: pytest.TempPathFactory, nav: Navigateur
+) -> None:
+    """Onglet Maturité : choix d'un score (POST /maturites/{id}/field), saisie
+    d'une justification (autosave htmx), puis « Régénérer la grille » (POST
+    …/maturite/generate, confirm() accepté) — Ollama injoignable exprès : message
+    d'erreur rendu en 200, jamais un 4xx CSRF, grille existante conservée."""
+    dossier = tmp_path_factory.mktemp("e2e-maturite")
+    base_db = dossier / "e2e.db"
+    mid, lid = _python_sur_base(base_db, _SEED_MATURITE).split()
+    with serveur_uvicorn(dossier, OLLAMA_HOST="http://127.0.0.1:9") as base:
+        nav.naviguer(f"{base}/missions/{mid}/synthese/apercu")
+        _sans_erreur(nav, "Ouvrir l'aperçu")
+        nav.cliquer(".tab[data-tab='maturite']")
+        nav.remplir(f"select[hx-post='/maturites/{lid}/field'][hx-vals*='score']", "3")
+        _attendre_texte(nav, f"#mat-saved-{lid}", "enregistré")
+        nav.evaluer(f"document.getElementById('mat-saved-{lid}').textContent=''")
+        nav.remplir(f"textarea[hx-post='/maturites/{lid}/field'][hx-vals*='justification']",
+                    "Pratiques pilotées")
+        _attendre_texte(nav, f"#mat-saved-{lid}", "enregistré")
+        _sans_erreur(nav, "Autosave maturité")
+        assert _python_sur_base(base_db, _LIRE_MATURITE, lid) == repr((3, "Pratiques pilotées"))
+
+        nav.cliquer_et_attendre(f"form[action='/missions/{mid}/maturite/generate'] button[type=submit]")
+        _sans_erreur(nav, "Régénérer la grille de maturité")
+        assert "⚠" in nav.texte(), "le message d'échec IA n'est pas rendu"
+        assert _python_sur_base(base_db, _LIRE_MATURITE, lid) == repr((3, "Pratiques pilotées"))

@@ -112,6 +112,11 @@ FIELD_SHAPE = {
     # (cf. _slide_matrice_risques), tiny, 2 lignes chacun.
     "risk_risque": dict(width_in=_RISK_TXT_W, size_pt=D.TYPE["tiny"], max_lignes=2),
     "risk_controle": dict(width_in=_RISK_TXT_W, size_pt=D.TYPE["tiny"], max_lignes=2),
+    # Grille de maturité (incr.10 palier 3) : colonne justification de
+    # _slide_maturite (pilier 2.5 + jauge 2.1 + 2 gouttières 0.2), small, 2 lignes (3 si peu de piliers).
+    "maturite_justification": dict(width_in=_W_IN - 2 * MARGIN - 2.5 - 2.1 - 0.4,
+                                   size_pt=D.TYPE["small"], max_lignes=2),
+    "maturite_pilier": dict(width_in=2.5, size_pt=D.TYPE["small"], max_lignes=2),
 }
 
 def field_fit_hint(field_key: str, text: str) -> str:

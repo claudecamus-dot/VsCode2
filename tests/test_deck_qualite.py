@@ -13,7 +13,7 @@ from __future__ import annotations
 from app.db import DB_PATH, SessionLocal, engine, init_db
 from app.models import (
     GlobalSynthesis, Interview, Mission, MissionDifficulty, MissionExecutiveSummary,
-    MissionKpi, MissionRisk, MissionSwot, Question, Recommendation, RecommendationAxis, Theme, Trame, Verbatim,
+    MissionKpi, MissionMaturite, MissionRisk, MissionSwot, Question, Recommendation, RecommendationAxis, Theme, Trame, Verbatim,
 )
 from app.services import pptx_deck as D
 from app.services.pptx_export import build_presentation
@@ -65,6 +65,11 @@ def _mission_complete() -> int:
                              libelle="Part des décisions data arbitrées en comité mensuel",
                              cible="80 % des arbitrages tracés sous 6 mois, relevé trimestriel")
                   for i in range(5)]
+        m.maturites = [MissionMaturite(position=i, pilier=f"Pilier de la trame n°{i + 1}",
+                                       score=i % 4,
+                                       justification="Pratiques définies mais inégalement "
+                                                     "appliquées selon les directions")
+                       for i in range(4)]
         m.risks = [MissionRisk(position=i, gravite=3 - i % 3, probabilite=1 + i % 3,
                                risque="Départ des profils data rares avant la montée en compétence",
                                controle="Plan de rétention et binômes de transmission",
@@ -853,4 +858,37 @@ def test_design_kpis_et_matrice_risques_dessinees() -> None:
     kpi = prs.slides[i_kpi]
     kt = " ".join(sh.text_frame.text for sh in kpi.shapes if sh.has_text_frame)
     assert kt.count("CIBLE / MESURE") == 5 and "Axe 1" in kt
+
+
+
+def test_design_grille_maturite_table_semantique_et_legende() -> None:
+    """Invariant P4 (incr.10 palier 3) : la grille de maturité clôt le chapitre
+    Diagnostic (après la SWOT, avant la parole des équipes), c'est une table
+    DESSINÉE (aucun tableau/graphique natif), chaque pilier porte « n · Niveau »,
+    la légende de l'échelle nommée est présente, et les pleins des jauges sont les
+    couleurs SÉMANTIQUES du score — jamais une couleur d'identité d'axe."""
+    from app.models import MATURITE_NIVEAUX
+    from app.services.pptx_export.slides_diagnostic import couleur_maturite
+    prs = _prs_complete()
+    titres = [_slide_titre(s) for s in prs.slides]
+    i_swot = titres.index("Matrice SWOT")
+    i_mat = titres.index("Grille de maturité par pilier")
+    i_verb = next(i for i, t in enumerate(titres) if "Paroles" in t or "parole" in t.lower())
+    assert i_swot < i_mat < i_verb, titres
+    s = prs.slides[i_mat]
+    assert not any(sh.has_chart or sh.has_table for sh in s.shapes)
+    textes = " ".join(sh.text_frame.text for sh in s.shapes if sh.has_text_frame)
+    for sc, lib in MATURITE_NIVEAUX.items():
+        assert f"{sc} {lib}" in textes, f"légende : {sc} {lib}"
+        assert f"{sc} · {lib}" in textes, f"ligne au score {sc} absente"
+    fills = set()
+    for sh in s.shapes:
+        try:
+            if sh.fill.type == 1:
+                fills.add(str(sh.fill.fore_color.rgb).upper())
+        except Exception:
+            pass
+    permis = {couleur_maturite(n).lstrip("#").upper() for n in range(4)}
+    permis |= {D.TRACK.lstrip("#").upper(), D.LINE.lstrip("#").upper(), D.INK.lstrip("#").upper()}
+    assert fills and fills <= permis, fills - permis
 

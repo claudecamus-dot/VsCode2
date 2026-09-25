@@ -44,6 +44,7 @@ def test_seed_creates_complete_demo_mission() -> None:
         assert m.executive_summary is not None and m.executive_summary.has_content
         assert len(m.difficulties) == 3
         assert len(m.kpis) == 3 and len(m.risks) == 4  # US9.27 b/c
+        assert [x.pilier for x in m.maturites] == [t.title for t in m.trame.themes]  # incr.10 p3
         assert len(m.recommendation_axes) == 2
         # Deck générable de bout en bout sur ce jeu (geometry check inclus).
         prs = build_presentation(m)

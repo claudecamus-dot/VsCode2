@@ -16,12 +16,14 @@ from sqlalchemy.orm import Session
 
 from ..db import get_session
 from ..models import (
+    MATURITE_NIVEAUX,
     RISK_CONTROL_TYPES,
     RISK_LEVELS,
     GlobalSynthesis,
     Mission,
     MissionDifficulty,
     MissionKpi,
+    MissionMaturite,
     MissionRisk,
     MissionSynthesisAxis,
     Recommendation,
@@ -641,6 +643,36 @@ def save_risk_field(
         if value not in RISK_CONTROL_TYPES:
             raise HTTPException(status_code=400, detail="Type de contrôle inconnu.")
         r.controle_type = value
+    else:
+        raise HTTPException(status_code=400, detail="Champ inconnu.")
+    db.commit()
+    return HTMLResponse(f'<span class="saved">✓ enregistré</span>{hint}')
+
+
+@router.post("/maturites/{maturite_id}/field")
+def save_maturite_field(
+    maturite_id: int,
+    field: str = Form(...),
+    value: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    """Autosave d'une ligne de la grille de maturité (incr.10 palier 3) : score
+    0-3 validé (400 sinon), justification libre."""
+    m = db.get(MissionMaturite, maturite_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail="Pilier introuvable.")
+    hint = ""
+    if field == "score":
+        try:
+            score = int(value)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Score invalide.") from exc
+        if score not in MATURITE_NIVEAUX:
+            raise HTTPException(status_code=400, detail="Score invalide (0 à 3).")
+        m.score = score
+    elif field == "justification":
+        m.justification = value
+        hint = _hint_span(f"fit-hint-mat-{maturite_id}", "maturite_justification", value)
     else:
         raise HTTPException(status_code=400, detail="Champ inconnu.")
     db.commit()

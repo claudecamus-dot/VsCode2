@@ -19,7 +19,7 @@ from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import PPTX_TEMPLATES_DIR, get_session
-from ..models import RISK_CONTROL_TYPES, RISK_LEVELS, Interview, Mission
+from ..models import MATURITE_NIVEAUX, RISK_CONTROL_TYPES, RISK_LEVELS, Interview, Mission
 from ..services.ai_common import api_key_env_name, is_configured
 from ..services.analyse_import import (
     AnalysisParseError,
@@ -35,6 +35,7 @@ from ..services.synthese_ai import (
     generate_difficulties,
     generate_executive_summary,
     generate_kpis,
+    generate_maturite,
     generate_risks,
     generate_swot,
 )
@@ -43,6 +44,7 @@ from ..services.synthese_ecriture import (
     apply_executive_summary_result,
     apply_global_synthesis_result,
     apply_kpis_result,
+    apply_maturite_result,
     apply_recommendations_result,
     apply_risks_result,
     apply_swot_result,
@@ -112,6 +114,8 @@ def _synthese_context(db: Session, mission: Mission, error: str | None = None) -
         "risks": mission.risks,
         "risk_levels": RISK_LEVELS,
         "risk_control_types": RISK_CONTROL_TYPES,
+        "maturites": mission.maturites,
+        "maturite_niveaux": MATURITE_NIVEAUX,
         "axes": mission.recommendation_axes,
         # Axes d'etude configurables (2026-07-27) : l'onglet de parametrage,
         # les champs de la synthese et l'apercu sont tous rendus depuis cette
@@ -359,6 +363,29 @@ def generate_risks_view(mission_id: int, request: Request, db: Session = Depends
     )
 
 
+@router.post("/missions/{mission_id}/maturite/generate")
+def generate_maturite_view(mission_id: int, request: Request, db: Session = Depends(get_session)):
+    """Génère la grille de maturité 0-3 par pilier (incr.10 palier 3) — les
+    piliers sont les THÈMES de la trame ; sans thème, rien à évaluer."""
+    mission = _get_mission(db, mission_id)
+    piliers = [t.title for t in (mission.trame.themes if mission.trame else [])
+               if (t.title or "").strip()]
+    if not piliers:
+        return templates.TemplateResponse(
+            request, "synthese/apercu.html", _synthese_context(
+                db, mission,
+                "La trame n'a aucun thème : la grille de maturité évalue un pilier par thème."),
+        )
+    return _generate_liste_view(
+        request, db, mission_id,
+        generer=lambda gs, axes, _reco: generate_maturite(gs, axes, piliers),
+        appliquer=apply_maturite_result,
+        manque_synthese="Générez d'abord la synthèse globale — la grille de maturité en découle.",
+        vide=("La génération n'a produit aucun score sur les thèmes de la trame — grille "
+              "inchangée. Réessayez, ou vérifiez la synthèse globale."),
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Étape 4 — Export PowerPoint (respecte la sélection de slides si soumise)
 # --------------------------------------------------------------------------- #
@@ -378,6 +405,7 @@ async def export_pptx(
     matrix: bool = False,
     kpis: bool = False,
     risques: bool = False,
+    maturite: bool = False,
     axis: list[int] = Query(default=[]),
 ):
     mission = _get_mission(db, mission_id)
@@ -400,6 +428,7 @@ async def export_pptx(
             include_matrix=matrix,
             include_kpis=kpis,
             include_risques=risques,
+            include_maturite=maturite,
             include_axis_ids=set(axis),
         )
     else:

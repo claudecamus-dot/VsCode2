@@ -10,6 +10,7 @@ import re
 from pptx import Presentation
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 
+from ...models import MATURITE_NIVEAUX, score_maturite
 from .. import pptx_deck as D
 from .base import (
     _SYNTH_VIS_W,
@@ -17,6 +18,7 @@ from .base import (
     _add_bulleted_text,
     _add_measured_field,
     _bullet_lines,
+    _dims,
     _label_axe_vertical,
     _new_slide,
     _per_line_height_in,
@@ -403,3 +405,153 @@ def _slide_verbatims(prs: Presentation, verbatims) -> None:
             size_max=size, size_min=D.TYPE["tiny"], italic=True,
         )
         y += card_h + gap
+
+
+# --------------------------------------------------------------------------- #
+# Grille de maturité par pilier (incr.10 palier 3) — TABLE dessinée robuste au
+# texte FR long (pas un tableau natif : hauteurs de ligne maîtrisées), une ligne
+# par pilier : intitulé | jauge 3 segments + niveau nommé | justification. Couleur
+# = SÉMANTIQUE du score (rouge → ambre → vert, jamais une couleur d'axe), légende
+# de l'échelle en pied de slide, pagination au-delà de ce qu'une page loge.
+# --------------------------------------------------------------------------- #
+_MAT_CPI_LAYOUT = 12.5  # calibration mesurée au rendu réel (cf. slides_trajectoire)
+_MAT_CPI_BOITE = 10.7   # hauteur pessimiste des boîtes (verifier_debordements_texte)
+# Colonnes (reprises par FIELD_SHAPE, base.py) : jauge au contenu = 3 segments
+# (0.22 + 0.05) + 0.06 + « 2 · Structuré » en small gras (~1.2 in pessimiste).
+_MAT_COL_PILIER = 2.5
+_MAT_SEG_W, _MAT_SEG_GAP = 0.22, 0.05
+_MAT_COL_JAUGE = 2.1
+
+
+def couleur_maturite(score: int) -> str:
+    """0 rouge, 1 ambre, 2 vert clair, 3 vert — couleurs sémantiques du deck."""
+    return (D.WARN, D.GOLD, D.melanger_blanc(D.OK, 0.35), D.OK)[score_maturite(score)]
+
+
+def _couleur_texte_maturite(score: int) -> str:
+    # GOLD / vert clair < 4.5:1 sur blanc : variante foncée pour le TEXTE (WCAG).
+    return (D.WARN, "#8a6508", D.OK, D.OK)[score_maturite(score)]
+
+
+def _slide_maturite(prs: Presentation, maturites) -> None:
+    lignes = [m for m in maturites if (getattr(m, "pilier", "") or "").strip()]
+    if not lignes:
+        return
+    title = "Grille de maturité par pilier"
+    w_in, h_in = _dims(prs)
+    s = D.TYPE["small"]
+    lh = _per_line_height_in(s)
+    x0 = MARGIN
+    col_p = _MAT_COL_PILIER
+    col_s = _MAT_COL_JAUGE  # au contenu : 3 segments + « 2 · Structuré » (revue)
+    gap = 0.2
+    x_s = x0 + col_p + gap
+    x_j = x_s + col_s + gap
+    w_j = w_in - MARGIN - x_j
+    pad_v = 0.06
+    head_h = 0.28
+    leg_h = 0.30
+
+    def plan(m, max_j: int, max_p: int = 2):
+        p = D.tronquer_a_lignes(m.pilier.strip(), col_p, s, max_p, cpi_ref=_MAT_CPI_LAYOUT)
+        j = (m.justification or "").strip()
+        j = D.tronquer_a_lignes(j, w_j, s, max_j, cpi_ref=_MAT_CPI_LAYOUT) if j else ""
+        n = max(min(max_p, D.estimer_lignes(p, col_p, s, cpi_ref=_MAT_CPI_LAYOUT)),
+                min(max_j, D.estimer_lignes(j, w_j, s, cpi_ref=_MAT_CPI_LAYOUT)) if j else 1)
+        return m, p, j, max(0.42, n * lh + 2 * pad_v), max(max_j, max_p)
+
+    # Capacité estimée sur un titre à une ligne (content_top ≈ 1.25 sur OCTO) ; le
+    # rendu recoupe sur le content_top réel de chaque page et reporte le surplus.
+    capacite = (h_in - 0.60 - leg_h) - (1.25 + head_h)
+    # Justification jusqu'à 3 lignes si TOUTE la grille tient alors sur une page
+    # (peu de piliers : la place existe) ; sinon 2 lignes, page pleine (revue).
+    plans = [plan(m, 3) for m in lignes]
+    if sum(pl[3] for pl in plans) > capacite:
+        plans = [plan(m, 2) for m in lignes]
+    pages = D.paginer_items(plans, lambda pl: pl[3], capacite_in=capacite)
+    reste: list = []
+    k = 0
+    while pages or reste:
+        page = reste + (pages.pop(0) if pages else [])
+        k += 1
+        n_pages = k + len(pages)
+        suffix = f" ({k}/{n_pages})" if n_pages > 1 else ""
+        slide, w_in, h_in, top = _new_slide(prs, title + suffix)
+        bas = h_in - 0.60 - leg_h
+        y = top + head_h
+        tenus = []
+        def bas_boites(pl, y0):
+            # Bas des boîtes de texte à hauteur PESSIMISTE (ce que PowerPoint peut
+            # réellement occuper) — c'est lui, pas la hauteur de mise en page, qui
+            # ne doit pas franchir `bas` (revue : la ligne « tient » en layout mais
+            # sa boîte descendait sous la bande).
+            _m, p, j, rh, n_max = pl
+            if n_max == 1:
+                return y0 + rh
+            hp = max(D.estimer_lignes(p, col_p, s, cpi_ref=_MAT_CPI_BOITE),
+                     D.estimer_lignes(j, w_j, s, cpi_ref=_MAT_CPI_BOITE) if j else 1) * lh
+            return y0 + max(rh, pad_v + hp)
+
+        for pl in page:
+            if max(y + pl[3], bas_boites(pl, y)) > bas:
+                if tenus:
+                    break
+                # 1re ligne de page trop haute (gabarit client au titre bas) :
+                # tronquée à UNE ligne plutôt que de déborder sur la légende.
+                pl = plan(pl[0], 1, 1)
+            tenus.append(pl)
+            y += pl[3]
+        reste = page[len(tenus):]
+        for x, w, lab in ((x0, col_p, "PILIER"), (x_s, col_s, "MATURITÉ"),
+                          (x_j, w_j, "JUSTIFICATION")):
+            D.add_text(slide, x, top, w, head_h - 0.06,
+                       [(lab, {"size": D.TYPE["tiny"], "bold": True, "color": D.MUTED})])
+        D.add_rect(slide, x0, top + head_h - 0.03, w_in - 2 * MARGIN, 0.015, fill=D.INK)
+        y = top + head_h
+        for m, p, j, rh, n_max in tenus:
+            sc = score_maturite(m.score)
+            h_box = min(rh - 2 * pad_v if n_max == 1 else 9.0, bas - (y + pad_v))
+            D.add_text(slide, x0, y + pad_v, col_p,
+                       max(h_box, 0.2) if n_max == 1 else
+                       max(rh - 2 * pad_v, D.estimer_lignes(p, col_p, s, cpi_ref=_MAT_CPI_BOITE) * lh),
+                       [(p, {"size": s, "bold": True, "color": D.INK})],
+                       anchor=MSO_ANCHOR.MIDDLE if n_max == 1 else MSO_ANCHOR.TOP)
+            # Jauge 3 segments (score = segments pleins) + niveau nommé. Score 0 :
+            # segments vides CERCLÉS de la couleur du 0 — même rouge que la légende
+            # et que le libellé « 0 · Absent » (revue : trois gris muets contredisaient
+            # la légende rouge).
+            seg_w, seg_h, seg_gap = _MAT_SEG_W, 0.13, _MAT_SEG_GAP
+            sy = y + pad_v + (lh - seg_h) / 2
+            for i in range(3):
+                plein = i < sc
+                D.add_rect(slide, x_s + i * (seg_w + seg_gap), sy, seg_w, seg_h,
+                           fill=couleur_maturite(sc) if plein else D.TRACK,
+                           line=couleur_maturite(0) if sc == 0 else None, line_w=0.75,
+                           rounded=True, radius=0.5)
+            lx = x_s + 3 * (seg_w + seg_gap) + 0.06
+            D.add_text(slide, lx, y + pad_v, x_s + col_s - lx, lh,
+                       [(f"{sc} · {MATURITE_NIVEAUX[sc]}",
+                         {"size": s, "bold": True, "color": _couleur_texte_maturite(sc)})])
+            if j:
+                D.add_text(slide, x_j, y + pad_v, w_j,
+                           max(h_box, 0.2) if n_max == 1 else
+                           max(rh - 2 * pad_v, D.estimer_lignes(j, w_j, s, cpi_ref=_MAT_CPI_BOITE) * lh),
+                           [(j, {"size": s, "color": D.INK})],
+                           anchor=MSO_ANCHOR.MIDDLE if n_max == 1 else MSO_ANCHOR.TOP)
+            y += rh
+            D.add_rect(slide, x0, y - 0.0075, w_in - 2 * MARGIN, 0.0075, fill=D.LINE)
+        # Légende de l'échelle (un score nu ne se lit pas) : pas PROPORTIONNEL à la
+        # largeur estimée de chaque libellé (revue : pas fixe = trous inégaux).
+        t = D.TYPE["tiny"]
+        ly = h_in - 0.60 - leg_h + 0.06
+        D.add_text(slide, x0, ly, 0.75, 0.22,
+                   [("Échelle :", {"size": t, "bold": True, "color": D.MUTED})])
+        lx = x0 + 0.75
+        for sc, lab in MATURITE_NIVEAUX.items():
+            txt = f"{sc} {lab}"
+            tw = len(txt) / (_MAT_CPI_LAYOUT * 10.5 / t) + 0.12  # pas (mise en page)
+            boite = len(txt) / (_MAT_CPI_BOITE * 10.5 / t) + 0.15  # boîte pessimiste
+            D.add_dot(slide, lx, ly + 0.035, 0.11, couleur_maturite(sc))
+            D.add_text(slide, lx + 0.16, ly, max(tw, boite), 0.22,
+                       [(txt, {"size": t, "color": D.MUTED})])
+            lx += 0.16 + tw + 0.22

@@ -1130,3 +1130,117 @@ def generate_risks(global_synthesis, axes=None, reco_axes=None) -> list[dict]:
     prompt = _build_trajectoire_prompt(global_synthesis, axes, reco_axes)
     data = _call_claude(RISQUES_SYSTEM, prompt, RISQUES_SCHEMA, RISQUES_JSON_HINT)
     return _clean_risks(data)
+
+
+# --------------------------------------------------------------------------- #
+# Grille de maturité par pilier (incr.10 palier 3) : un score 0-3 + une
+# justification par THÈME de trame, dérivés de la synthèse globale. Même patron
+# que KPIs/risques : un appel, aplatissement Ollama, pilier ramené au titre
+# EXACT d'un thème (les piliers inventés sont écartés : la grille suit la trame).
+# --------------------------------------------------------------------------- #
+MATURITE_SYSTEM = (
+    "Tu es consultant·e senior en audit. À partir d'une synthèse transverse "
+    "d'entretiens, évalue la MATURITÉ de l'organisation sur chacun des piliers "
+    "listés (et seulement eux), sur l'échelle : 0 = absent, 1 = émergent (pratiques "
+    "isolées), 2 = structuré (pratiques définies et partagées), 3 = maîtrisé "
+    "(pratiques pilotées et améliorées). Pour chaque pilier : le score entier et "
+    "une justification d'UNE phrase courte, ancrée dans la matière. Sans matière "
+    "sur un pilier, mets 0 et dis-le."
+)
+
+MATURITE_JSON_HINT = (
+    "\nRéponds UNIQUEMENT par un objet JSON à la clé \"maturite\", une liste "
+    "d'objets {\"pilier\": chaîne (intitulé exact), \"score\": entier 0-3, "
+    "\"justification\": chaîne}."
+)
+
+MATURITE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "maturite": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "pilier": {"type": "string"},
+                    "score": {"type": "integer"},
+                    "justification": {"type": "string"},
+                },
+                "required": ["pilier", "score", "justification"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["maturite"],
+    "additionalProperties": False,
+}
+
+_SCORE_MOTS = (
+    (3, ("maîtris", "maitris", "optimis", "mastered", "advanced", "avancé")),
+    (2, ("structur", "défini", "defini", "defined", "intermédiaire")),
+    (1, ("émerg", "emerg", "initial", "partiel", "isolé", "basic", "faible")),
+    (0, ("absent", "inexistant", "aucun", "none", "néant")),
+)
+
+
+def _coerce_score03(value, defaut: int = 0) -> int:
+    """Score 0-3 depuis ce qu'un modèle local renvoie : entier, flottant, « 2 »,
+    « 2/3 », « structuré », une liste ou un dict qui en contient un. Une note sur 5
+    (« 4/5 ») est ramenée sur 3 ; illisible → `defaut`, jamais d'erreur."""
+    if isinstance(value, bool) or value is None:
+        return defaut
+    if isinstance(value, (int, float)):
+        n = int(round(value))
+        return max(0, min(3, n))
+    if isinstance(value, str):
+        v = value.strip().casefold()
+        m = re.match(r"(-?\d+(?:[.,]\d+)?)\s*(?:/\s*(\d+))?", v)
+        if m:
+            n = float(m.group(1).replace(",", "."))
+            sur = int(m.group(2)) if m.group(2) else 3
+            if sur and sur != 3:
+                n = n * 3 / sur
+            return max(0, min(3, int(round(n))))
+        for score, mots in _SCORE_MOTS:
+            if any(mot in v for mot in mots):
+                return score
+        return defaut
+    if isinstance(value, dict):
+        inner = _first_key(value, "score", "niveau", "valeur", "value")
+        if inner is None:
+            inner = next(iter(value.values()), None)
+        return _coerce_score03(inner, defaut)
+    if isinstance(value, list):
+        return _coerce_score03(value[0], defaut) if value else defaut
+    return defaut
+
+
+def _clean_maturite(data, piliers: list[str]) -> list[dict]:
+    """{pilier, score, justification} pour les piliers CONNUS seulement (titre
+    exact d'un thème, via `_snap_axe`), dans l'ordre de la trame. Une ligne par
+    THÈME (position), pas par texte : deux thèmes de même titre gardent chacun
+    leur ligne — la n-ième réponse d'un titre remplit sa n-ième occurrence."""
+    titres = [p for p in piliers if (p or "").strip()]
+    slots: list[dict | None] = [None] * len(titres)
+    for it in _items_list(data, "maturite", "maturité", "maturity", "piliers", "grille"):
+        if isinstance(it, dict):
+            brut = _coerce_line(_first_key(it, "pilier", "theme", "thème", "pillar", "label", "nom"))
+            score = _coerce_score03(_first_key(it, "score", "niveau", "note", "maturite", "level"))
+            just = _coerce_line(_first_key(it, "justification", "commentaire", "raison",
+                                           "rationale", "justif"))
+        else:
+            continue  # une chaîne nue ne porte ni pilier sûr ni score
+        pilier = _snap_axe(brut, titres)
+        libre = next((i for i, t in enumerate(titres) if t == pilier and slots[i] is None), None)
+        if libre is not None:
+            slots[libre] = {"pilier": pilier, "score": score, "justification": just}
+    return [x for x in slots if x is not None]
+
+
+def generate_maturite(global_synthesis, axes=None, piliers=None) -> list[dict]:
+    """Grille de maturité sur les `piliers` (titres de thèmes). Lève SynthesisAIError."""
+    piliers = [p for p in (piliers or []) if (p or "").strip()]
+    prompt = _build_reco_prompt(global_synthesis, axes)
+    prompt += "\n=== PILIERS À ÉVALUER ===\n" + "\n".join(f"- {p}" for p in piliers) + "\n"
+    data = _call_claude(MATURITE_SYSTEM, prompt, MATURITE_SCHEMA, MATURITE_JSON_HINT)
+    return _clean_maturite(data, piliers)
