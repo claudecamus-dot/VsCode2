@@ -4,9 +4,12 @@ Extrait de pptx_export.py (découpage du gros module, finding audit
 2026-07-24) — code déplacé tel quel."""
 from __future__ import annotations
 
+import copy
+
 from pptx import Presentation
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
 
+from ...models import criticite_risque, niveau_risque
 from .. import pptx_deck as D
 from .base import (
     MARGIN,
@@ -421,3 +424,366 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
     base_title = f"{index} — {reco.title}"
     if plan_overflow:
         _emit_bullet_overflow(prs, base_title, "Plan d'actions", plan_overflow)
+
+
+# --------------------------------------------------------------------------- #
+# Indicateurs de suivi (US9.27 b) — grille de cartes KPI (deck-design-library
+# n°3 « cartes stat ») : rang + libellé, CIBLE en encre de marque, chip de l'axe
+# suivi (couleur d'IDENTITÉ de l'axe, même palette que la vue d'ensemble et la
+# matrice de priorisation). 6 cartes max par slide, pagination au-delà.
+# --------------------------------------------------------------------------- #
+_KPI_PAR_PAGE = 6
+_KPI_GAP = 0.2
+_KPI_PAD = 0.16
+_KPI_RANG_D = 0.34
+_KPI_CPI = 10.7  # hauteur PESSIMISTE des boîtes (filet verifier_debordements_texte)
+# Calibration de MISE EN PAGE (positions, hauteur des cartes/du registre), mesurée
+# au rendu réel (PowerPoint, police du thème OCTO) : 57 caractères tiennent sur
+# 3.77 in à 9 pt, soit ≥ 12.9 cpi ramenés à 10.5 pt. Les estimations 10.7 / 11.0
+# doublaient les hauteurs (cartes et registre à moitié vides, constaté sur PNG).
+# Troncature et espacement suivent cette calibration ; les BOÎTES de texte gardent
+# la hauteur pessimiste (filet verifier_debordements_texte, boîtes transparentes).
+_LAYOUT_CPI = 12.5
+
+
+def _kpi_grille(n: int) -> tuple[int, int]:
+    """(colonnes, lignes) pour n cartes sur une page : 1-3 sur une rangée, 4 en
+    2×2, 5-6 en 3×2 — gabarit uniforme, jamais une carte orpheline étirée."""
+    if n <= 3:
+        return max(1, n), 1
+    if n == 4:
+        return 2, 2
+    return 3, 2
+
+
+def _slide_kpis(prs: Presentation, kpis: list, axes: list, palette: list[str]) -> None:
+    """Slide(s) « Indicateurs de suivi ». Aucun KPI à libellé non vide → aucune
+    slide (jamais un cadre vide). L'axe suivi est retrouvé PAR INTITULÉ parmi les
+    axes de la mission (le KPI le garde en texte, cf. `MissionKpi`) : liseré +
+    pastille à la couleur d'IDENTITÉ de l'axe ; un axe inconnu est écrit sans
+    liseré ni pastille (un gris ne doit pas se lire comme un axe). Rang en navy.
+
+    Alignement : dans une rangée, les blocs (libellé, CIBLE, axe) démarrent à la
+    MÊME ordonnée d'une carte à l'autre — hauteurs communes à la rangée."""
+    titres_axes = {(a.title or "").strip().casefold(): i for i, a in enumerate(axes)}
+    kpis = [k for k in kpis if (getattr(k, "libelle", "") or "").strip()]
+    if not kpis:
+        return
+    pages = [kpis[i:i + _KPI_PAR_PAGE] for i in range(0, len(kpis), _KPI_PAR_PAGE)]
+    title = "Indicateurs de suivi"
+    navy = "#0E2356"
+    s_lib = s_c = D.TYPE["small"]
+    s_axe = D.TYPE["tiny"]
+    lh_lib, lh_c, lh_axe = (_per_line_height_in(s) for s in (s_lib, s_c, s_axe))
+    lab_h = 0.18
+    cpi = _KPI_CPI
+    rang = 0
+    for k_page, page in enumerate(pages):
+        suffix = f" ({k_page + 1}/{len(pages)})" if len(pages) > 1 else ""
+        slide, w_in, h_in, top = _new_slide(prs, title + suffix)
+        cols, rows = _kpi_grille(len(page))
+        band_h = h_in - top - 0.60  # -0.60 : badge n° de page du master OCTO
+        card_w = (w_in - 2 * MARGIN - (cols - 1) * _KPI_GAP) / cols
+        iw = card_w - 2 * _KPI_PAD - 0.07
+        lw = iw - _KPI_RANG_D - 0.1
+        aw = iw - 0.18  # texte d'axe à droite de sa pastille
+        max_lib = 3 if rows == 1 else 2
+        max_c = 4
+        max_axe = 2 if rows == 1 else 1  # grille 2 rangées : la place va à la cible
+
+        def plan(k, lw=lw, aw=aw, iw=iw, max_lib=max_lib, max_c=max_c, max_axe=max_axe):
+            lib = D.tronquer_a_lignes(k.libelle.strip(), lw, s_lib, max_lib, cpi_ref=_LAYOUT_CPI)
+            cible = (getattr(k, "cible", "") or "").strip()
+            axe = (getattr(k, "axe", "") or "").strip()
+            # Axe tronqué à l'estimation PESSIMISTE : sa boîte est ancrée TOP en pied
+            # de carte, elle doit tenir sans marge (pas de boîte plus haute possible).
+            axe_t = D.tronquer_a_lignes(axe, aw, s_axe, max_axe, cpi_ref=cpi) if axe else ""
+            return dict(
+                k=k, lib=lib, cible=cible, axe=axe, axe_t=axe_t,
+                n_lib=min(max_lib, max(1, D.estimer_lignes(lib, lw, s_lib, cpi_ref=_LAYOUT_CPI))),
+                # boîte à la hauteur PESSIMISTE (non plafonnée) : transparente, elle
+                # peut chevaucher le bloc CIBLE sans rien masquer.
+                b_lib=max(1, D.estimer_lignes(lib, lw, s_lib, cpi_ref=cpi)),
+                n_c=min(max_c, max(1, D.estimer_lignes(cible, iw, s_c, cpi_ref=_LAYOUT_CPI))) if cible else 0,
+                n_axe=min(max_axe, max(1, D.estimer_lignes(axe_t, aw, s_axe, cpi_ref=cpi))) if axe else 0,
+            )
+
+        plans = [plan(k) for k in page]
+        rangees = [plans[r * cols:(r + 1) * cols] for r in range(rows)]
+        geo = []
+        for rp in rangees:
+            lib_h = max(_KPI_RANG_D, max(p["n_lib"] for p in rp) * lh_lib)
+            n_c = max(p["n_c"] for p in rp)
+            axe_h = max(p["n_axe"] for p in rp) * lh_axe
+            geo.append([lib_h, n_c, axe_h])
+
+        def hauteur(g) -> float:
+            lib_h, n_c, axe_h = g
+            return (2 * _KPI_PAD + lib_h + (0.10 + lab_h + n_c * lh_c if n_c else 0.0)
+                    + (0.12 + axe_h if axe_h else 0.0))
+
+        if rows == 1:
+            # Carte DIMENSIONNÉE AU CONTENU (pas un panneau étiré, constat rendu réel).
+            card_h = min(band_h, max(1.1, hauteur(geo[0])))
+        else:
+            card_h = (band_h - (rows - 1) * _KPI_GAP) / rows
+            for g in geo:  # la cible prend ce que la carte loge, au moins 1 ligne
+                while g[1] > 1 and hauteur(g) > card_h:
+                    g[1] -= 1
+        y0 = top + max(0.0, (band_h - (rows * card_h + (rows - 1) * _KPI_GAP)) / 2)
+        for r_i, rp in enumerate(rangees):
+            lib_h, n_c_row, axe_h = geo[r_i]
+            for c_i, p in enumerate(rp):
+                rang += 1
+                x = MARGIN + c_i * (card_w + _KPI_GAP)
+                y = y0 + r_i * (card_h + _KPI_GAP)
+                ai = titres_axes.get(p["axe"].casefold()) if p["axe"] else None
+                accent = palette[ai % len(palette)] if ai is not None else None
+                D.add_card(slide, x, y, card_w, card_h, accent)
+                ix = x + _KPI_PAD + 0.07
+                iy = y + _KPI_PAD
+                D.add_badge(slide, ix, iy, _KPI_RANG_D, str(rang), navy,
+                            size=D.TYPE["small"], radius=0.5)
+                D.add_text(slide, ix + _KPI_RANG_D + 0.1, iy + 0.04, lw,
+                           max(lib_h, p["b_lib"] * lh_lib),
+                           [(p["lib"], {"size": s_lib, "bold": True, "color": D.INK})])
+                y_txt = iy + lib_h + 0.10
+                if p["cible"] and n_c_row:
+                    D.add_text(slide, ix, y_txt, iw, lab_h,
+                               [("CIBLE / MESURE", {"size": D.TYPE["tiny"], "bold": True,
+                                                    "color": D.MUTED})])
+                    txt = D.tronquer_a_lignes(p["cible"], iw, s_c, n_c_row, cpi_ref=_LAYOUT_CPI)
+                    b_c = max(1, D.estimer_lignes(txt, iw, s_c, cpi_ref=cpi))
+                    D.add_text(slide, ix, y_txt + lab_h, iw, b_c * lh_c,
+                               [(txt, {"size": s_c, "bold": True, "color": navy})])
+                if p["axe"]:
+                    ay = y + card_h - _KPI_PAD - axe_h
+                    # Texte ancré TOP : la 1re ligne commence à `ay` quel que soit le
+                    # nombre de lignes — la pastille se centre sur CETTE ligne (revue
+                    # adversariale : en MIDDLE, elle flottait au-dessus d'un libellé
+                    # sur 2 lignes). Hauteur de glyphe ≈ corps × 1.2 / 72.
+                    if accent:
+                        dot = 0.1
+                        D.add_dot(slide, ix, ay + (s_axe * 1.2 / 72 - dot) / 2, dot, accent)
+                    D.add_text(slide, ix + 0.18, ay, aw, axe_h,
+                               [(p["axe_t"], {"size": s_axe, "color": D.MUTED})])
+
+
+# --------------------------------------------------------------------------- #
+# Matrice risques-contrôles (US9.27 c) — DESSINÉE (même doctrine que la matrice
+# de priorisation, skill priority-matrix) : grille 3×3 gravité × probabilité
+# teintée par CRITICITÉ (couleurs SÉMANTIQUES OK/GOLD/WARN, jamais celles des
+# axes), un repère « R n » par risque dans sa cellule, et un registre encadré à
+# droite (risque + contrôle existant / mesure proposée). Registre paginé : chaque
+# page redessine la matrice avec SES risques — aucun risque perdu, jamais de
+# registre qui déborde.
+# --------------------------------------------------------------------------- #
+_NIVEAUX = ("Faible", "Moyenne", "Élevée")
+
+
+def _couleur_criticite(g: int, p: int) -> str:
+    score = criticite_risque(g, p)  # définition unique (models), cf. MissionRisk.criticite
+    if score >= 6:
+        return D.WARN
+    if score >= 3:
+        return D.GOLD
+    return D.OK
+
+
+_niveau = niveau_risque  # même bornage que MissionRisk.criticite
+
+
+def _couleur_texte_criticite(g: int, p: int) -> str:
+    """Variante TEXTE de la couleur de criticité : l'ambre GOLD (≈ 3.3:1 sur blanc)
+    passe pour une pastille (3:1) mais pas pour du texte (4.5:1, WCAG) — foncé ici."""
+    col = _couleur_criticite(g, p)
+    return "#8a6508" if col == D.GOLD else col
+
+
+_RISK_SPACE_PT = 5  # espace avant chaque entrée du registre (sauf la 1re)
+
+
+def _risk_entry(num: int, r, tw: float, size: float) -> tuple[str, str, str]:
+    """(préfixe « Rn », risque, contrôle) tronqués à 2 lignes chacun — le préfixe
+    fait partie de la 1re ligne, il est donc compté dans la troncature."""
+    prefixe = f"R{num}   "
+    corps = (r.risque or "").strip()
+    # Le préfixe occupe sa place dans la 1re ligne mais n'est PAS tronquable : on
+    # tronque un gabarit de même longueur (« x » insécables) + le corps, puis on
+    # remet le préfixe — la coupe ne tombe que dans le corps (revue adversariale :
+    # « R10   » ne doit jamais laisser un corps réduit à « … »). Garde DÉFENSIVE,
+    # arbitrée le 2026-09-25 : avec le plancher actuel de tronquer_a_lignes
+    # (≥ 11 car. sur 2 lignes) la version naïve ne vide jamais le corps (16 200
+    # cas cherchés, 0 échec), donc aucun test rouge possible — elle protège d'un
+    # futur abaissement de ce plancher.
+    gabarit = "x" * len(prefixe)
+    tronque = D.tronquer_a_lignes(gabarit + corps, tw, size, 2, cpi_ref=_LAYOUT_CPI)
+    if not tronque.startswith(gabarit) or not tronque[len(gabarit):].strip(" …"):
+        tronque = gabarit + D.tronquer_a_lignes(corps, tw, size, 1, cpi_ref=_LAYOUT_CPI)
+    tete = prefixe + tronque[len(gabarit):]
+    ctrl = (getattr(r, "controle", "") or "").strip()
+    if ctrl:
+        lib = ("Contrôle existant : " if getattr(r, "controle_type", "") == "existant"
+               else "Mesure proposée : ")
+        ctrl = D.tronquer_a_lignes(lib + ctrl, tw, size, 2, cpi_ref=_LAYOUT_CPI)
+    return prefixe, tete[len(prefixe):], ctrl
+
+
+def _risk_entry_h(num: int, r, tw: float, size: float, premier: bool) -> float:
+    """Hauteur de MISE EN PAGE d'une entrée (`_LAYOUT_CPI`, mesurée au rendu réel),
+    + l'espace avant l'entrée. Chaque bloc est tronqué à 2 lignes, même calibration."""
+    prefixe, risque, ctrl = _risk_entry(num, r, tw, size)
+    lh = _per_line_height_in(size)
+    h = D.estimer_lignes(prefixe + risque, tw, size, cpi_ref=_LAYOUT_CPI) * lh
+    if ctrl:
+        h += D.estimer_lignes(ctrl, tw, size, cpi_ref=_LAYOUT_CPI) * lh
+    return h + (0.0 if premier else _RISK_SPACE_PT / 72)
+
+
+def _registre_risques(slide, x: float, y: float, w: float, h: float,
+                      page: list, size: float) -> None:
+    """Registre en UNE zone de texte qui s'écoule (pas une boîte par entrée) : les
+    hauteurs estimées, pessimistes par contrat, ne créent plus de trous entre les
+    entrées (constat rendu réel). « Rn » est un run gras en couleur de criticité
+    en tête du paragraphe du risque."""
+    lignes = []
+    meta = []
+    for k, (num, r) in enumerate(page):
+        prefixe, risque, ctrl = _risk_entry(num, r, w, size)
+        opts = {"size": size, "bold": True, "color": D.INK}
+        if k:
+            opts["space_before"] = _RISK_SPACE_PT
+        lignes.append((risque, opts))
+        meta.append((len(lignes) - 1, prefixe, _couleur_texte_criticite(
+            _niveau(r.gravite), _niveau(r.probabilite))))
+        if ctrl:
+            lignes.append((ctrl, {"size": size, "color": D.MUTED}))
+    # Ancrage MIDDLE dans une boîte à la hauteur de MISE EN PAGE du contenu (cf.
+    # _risk_entry_h) : la boîte colle au texte, et le filet pessimiste de
+    # verifier_debordements_texte ne s'applique pas — le contenu est borné par la
+    # troncature en amont, comme les autres blocs MIDDLE du deck.
+    box = D.add_text(slide, x, y, w, h, lignes, anchor=MSO_ANCHOR.MIDDLE)
+    paras = box.text_frame.paragraphs
+    for idx, prefixe, couleur in meta:
+        run0 = paras[idx].runs[0]
+        new_r = copy.deepcopy(run0._r)
+        run0._r.addprevious(new_r)
+        pre = paras[idx].runs[0]
+        pre.text = prefixe
+        pre.font.color.rgb = D.rgb(couleur)
+
+
+def _slide_matrice_risques(prs: Presentation, risks: list) -> None:
+    """Slide(s) « Matrice des risques et contrôles ». Aucun risque à libellé non
+    vide → aucune slide. Numérotation R1..Rn = ordre de la liste (continue d'une
+    page à l'autre)."""
+    risks = [r for r in risks if (getattr(r, "risque", "") or "").strip()]
+    if not risks:
+        return
+    numerotes = list(enumerate(risks, 1))
+    title = "Matrice des risques et contrôles"
+    w_in, h_in = _dims(prs)
+    size = D.TYPE["tiny"]
+    lpad = 0.14
+    # pl + pw = MARGIN + 4.45 : bord gauche du registre, repris par FIELD_SHAPE.
+    pl = MARGIN + 0.95
+    pw = 3.5
+    lx = pl + pw + 0.3
+    lw = w_in - MARGIN - lx
+    tw = lw - 2 * lpad
+
+    def paginer(capacite: float, items: list) -> list[list]:
+        pages, cur, h = [], [], 0.0
+        for it in items:
+            hi = _risk_entry_h(it[0], it[1], tw, size, premier=not cur)
+            if cur and h + hi > capacite:
+                pages.append(cur)
+                cur, h = [], 0.0
+                hi = _risk_entry_h(it[0], it[1], tw, size, premier=True)
+            cur.append(it)
+            h += hi
+        if cur:
+            pages.append(cur)
+        return pages
+
+    # Capacité estimée sur un titre à une ligne (content_top ≈ 1.25 sur OCTO) ; le
+    # rendu de chaque page recoupe sur SON content_top réel et reporte le surplus.
+    pages = paginer((h_in - 0.60) - (1.25 + 0.05) - 2 * lpad, numerotes)
+    reste: list = []
+    k = 0
+    while pages or reste:
+        page = reste + (pages.pop(0) if pages else [])
+        reste = []
+        k += 1
+        # Total annoncé = pages planifiées ; il ne grossit que si un gabarit client
+        # au titre plus bas fait reporter des risques (filet `reste` ci-dessous).
+        n_pages = k + len(pages)
+        suffix = f" ({k}/{n_pages})" if n_pages > 1 else ""
+        slide, w_in, h_in, top = _new_slide(prs, title + suffix)
+        pt = top + 0.05
+        pb = h_in - 0.60 - 0.50  # ticks + libellé d'axe X sous la grille
+        ph = pb - pt
+        leg_bottom = h_in - 0.60
+        coupe = paginer(leg_bottom - pt - 2 * lpad, page)
+        page, reste = coupe[0], [it for p in coupe[1:] for it in p]
+        cw, ch = pw / 3, ph / 3
+        # Cellules teintées par criticité (rangée du haut = gravité élevée).
+        for gi in range(3):
+            g = 3 - gi
+            for p in range(1, 4):
+                col = _couleur_criticite(g, p)
+                D.add_rect(slide, pl + (p - 1) * cw, pt + gi * ch, cw, ch,
+                           fill=D.melanger_blanc(col, 0.86), line="#ffffff", line_w=1.5)
+            D.add_text(slide, pl - 0.62, pt + gi * ch, 0.58, ch,
+                       [(_NIVEAUX[g - 1], {"size": size, "color": D.MUTED})],
+                       anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.RIGHT)
+        for p in range(1, 4):
+            D.add_text(slide, pl + (p - 1) * cw, pb + 0.04, cw, 0.2,
+                       [(_NIVEAUX[p - 1], {"size": size, "color": D.MUTED})],
+                       align=PP_ALIGN.CENTER)
+        D.add_text(slide, pl, pb + 0.24, pw, 0.24,
+                   [("Probabilité →", {"size": D.TYPE["small"], "bold": True,
+                                       "color": D.MUTED})],
+                   align=PP_ALIGN.CENTER)
+        # Même ancrage que l'axe Valeur de la matrice de priorisation (MARGIN + 0.18,
+        # longueur ≤ 1.3) : la boîte NON rotée reste dans la slide (verifier_geometrie).
+        _label_axe_vertical(slide, MARGIN + 0.18, pt + ph / 2, min(ph, 1.3), 0.26,
+                            "Gravité →")
+        # Repères par cellule, en grille dans la cellule (diamètre réduit si la
+        # cellule est chargée) — jamais superposés.
+        par_cellule: dict[tuple[int, int], list] = {}
+        for num, r in page:
+            par_cellule.setdefault((_niveau(r.gravite), _niveau(r.probabilite)), []).append(num)
+        for (g, p), nums in par_cellule.items():
+            cx0 = pl + (p - 1) * cw
+            cy0 = pt + (3 - g) * ch
+            d = 0.40
+            while d > 0.24:
+                per_row = max(1, int((cw - 0.08) // (d + 0.05)))
+                n_rows = -(-len(nums) // per_row)
+                if n_rows * (d + 0.05) <= ch - 0.08:
+                    break
+                d -= 0.04
+            per_row = max(1, int((cw - 0.08) // (d + 0.05)))
+            n_rows = -(-len(nums) // per_row)
+            bloc_h = n_rows * d + (n_rows - 1) * 0.05
+            by0 = cy0 + max(0.04, (ch - bloc_h) / 2)
+            for idx, num in enumerate(nums):
+                rr, cc = idx // per_row, idx % per_row
+                n_this = min(per_row, len(nums) - rr * per_row)
+                row_w = n_this * d + (n_this - 1) * 0.05
+                bx = cx0 + (cw - row_w) / 2 + cc * (d + 0.05)
+                by = by0 + rr * (d + 0.05)
+                D.add_badge(slide, bx, by, d, f"R{num}", _couleur_criticite(g, p),
+                            size=D.TYPE["tiny"] if d >= 0.32 else 7, radius=0.5)
+        # Registre encadré, dimensionné au contenu (calibration de mise en page).
+        besoin = sum(_risk_entry_h(n, r, tw, size, premier=(i == 0))
+                     for i, (n, r) in enumerate(page))
+        # Bas du registre calé AU MOINS sur le bas de la grille : deux colonnes de
+        # même hauteur (le registre centré dedans) se lisent comme une composition,
+        # alors qu'une carte « au contenu » gardait une marge morte aléatoire — les
+        # estimations de lignes restent larges au vrai rendu (constaté sur PNG).
+        carte_bas = min(max(pt + besoin + 2 * lpad, pb), leg_bottom)
+        D.add_card(slide, lx, pt, lw, carte_bas - pt)
+        _registre_risques(slide, lx + lpad, pt + lpad, tw, carte_bas - pt - 2 * lpad,
+                          page, size)

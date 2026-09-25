@@ -289,6 +289,10 @@
   ],
   [
     "POST",
+    "/kpis/{kpi_id}/field"
+  ],
+  [
+    "POST",
     "/missions"
   ],
   [
@@ -397,6 +401,10 @@
   ],
   [
     "POST",
+    "/missions/{mission_id}/kpis/generate"
+  ],
+  [
+    "POST",
     "/missions/{mission_id}/name"
   ],
   [
@@ -406,6 +414,10 @@
   [
     "POST",
     "/missions/{mission_id}/recommandations/generate"
+  ],
+  [
+    "POST",
+    "/missions/{mission_id}/risques/generate"
   ],
   [
     "POST",
@@ -466,6 +478,10 @@
   [
     "POST",
     "/recommandations/{recommendation_id}/field"
+  ],
+  [
+    "POST",
+    "/risques/{risk_id}/field"
   ],
   [
     "POST",

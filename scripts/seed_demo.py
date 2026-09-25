@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.db import SessionLocal, init_db  # noqa: E402
 from app.models import (  # noqa: E402
     Answer, GlobalSynthesis, Interview, Mission, MissionDifficulty,
-    MissionExecutiveSummary, MissionSwot, Question, Recommendation,
+    MissionExecutiveSummary, MissionKpi, MissionRisk, MissionSwot, Question, Recommendation,
     RecommendationAxis, Theme, Trame, Verbatim,
 )
 
@@ -219,6 +219,33 @@ def seed() -> int:
                            proposition_valeur="Un vocabulaire partagé évite que « le même mot » désigne deux choses — la base de toute collaboration data.",
                            plan_actions="- Construire un glossaire des termes clés\n- Aligner les indicateurs de référence\n- Publier et maintenir dans le catalogue",
                            resultats_attendus="- Indicateurs non ambigus\n- Moins de retravail par incompréhension"),
+        ])
+
+        # Indicateurs de suivi + matrice risques-contrôles (US9.27 b/c).
+        db.add_all([
+            MissionKpi(mission_id=mission.id, position=0, axe=ax1.title,
+                       libelle="Domaines de données dotés d'un data owner",
+                       cible="100 % des domaines sous 6 mois (revue trimestrielle)"),
+            MissionKpi(mission_id=mission.id, position=1, axe=ax1.title,
+                       libelle="Délai moyen d'arbitrage d'une priorité data",
+                       cible="Divisé par deux en un an (comité mensuel)"),
+            MissionKpi(mission_id=mission.id, position=2, axe=ax2.title,
+                       libelle="Produits portés par une squad mixte",
+                       cible="2 pilotes puis 5 produits à 12 mois"),
+        ])
+        db.add_all([
+            MissionRisk(mission_id=mission.id, position=0, gravite=3, probabilite=3,
+                        risque="Départ des profils data rares avant la montée en compétence",
+                        controle="Plan de rétention et binômes de transmission", controle_type="propose"),
+            MissionRisk(mission_id=mission.id, position=1, gravite=3, probabilite=2,
+                        risque="Non-conformité RGPD faute de responsable des données",
+                        controle="Registre des traitements tenu par le DPO", controle_type="existant"),
+            MissionRisk(mission_id=mission.id, position=2, gravite=2, probabilite=3,
+                        risque="Les squads mixtes s'essoufflent sans sponsor métier",
+                        controle="Sponsor COMEX nommé par squad pilote", controle_type="propose"),
+            MissionRisk(mission_id=mission.id, position=3, gravite=2, probabilite=1,
+                        risque="Dérive du glossaire faute de mise à jour",
+                        controle="Revue semestrielle dans le catalogue", controle_type="propose"),
         ])
 
         db.commit()

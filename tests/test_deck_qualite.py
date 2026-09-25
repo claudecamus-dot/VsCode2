@@ -13,7 +13,7 @@ from __future__ import annotations
 from app.db import DB_PATH, SessionLocal, engine, init_db
 from app.models import (
     GlobalSynthesis, Interview, Mission, MissionDifficulty, MissionExecutiveSummary,
-    MissionSwot, Question, Recommendation, RecommendationAxis, Theme, Trame, Verbatim,
+    MissionKpi, MissionRisk, MissionSwot, Question, Recommendation, RecommendationAxis, Theme, Trame, Verbatim,
 )
 from app.services import pptx_deck as D
 from app.services.pptx_export import build_presentation
@@ -59,6 +59,17 @@ def _mission_complete() -> int:
             mission_id=m.id, status="generated", headline="Un titre-claim de synthèse",
             points="- Point un\n- Point deux", key_message="Le message à retenir."))
         m.difficulties = [MissionDifficulty(position=0, label="Silos entre équipes")]
+        # Suivi (US9.27) : volumes réalistes, pour que les filets géométrie /
+        # débordement / chrome exécutés sur cette fixture couvrent aussi ces slides.
+        m.kpis = [MissionKpi(position=i, axe="Axe 1",
+                             libelle="Part des décisions data arbitrées en comité mensuel",
+                             cible="80 % des arbitrages tracés sous 6 mois, relevé trimestriel")
+                  for i in range(5)]
+        m.risks = [MissionRisk(position=i, gravite=3 - i % 3, probabilite=1 + i % 3,
+                               risque="Départ des profils data rares avant la montée en compétence",
+                               controle="Plan de rétention et binômes de transmission",
+                               controle_type="existant" if i % 2 else "propose")
+                   for i in range(6)]
         db.add(MissionSwot(
             mission_id=m.id, status="generated", forces="- F", faiblesses="- Fa",
             opportunites="- O", menaces="- Me"))
@@ -800,3 +811,46 @@ def test_design_matrice_legende_dimensionnee_au_contenu() -> None:
         f"la légende occupe {hauteur_in:.2f}in de haut pour quelques recos — "
         "carte étirée au lieu d'être dimensionnée au contenu"
     )
+
+
+def test_design_kpis_et_matrice_risques_dessinees() -> None:
+    """Invariant P4 (US9.27) : les indicateurs de suivi et la matrice risques-contrôles
+    sont au chapitre « trajectoire », APRÈS les fiches de recommandation ; la matrice
+    est DESSINÉE (aucun graphique natif, grille 3×3 + repère Rn par risque + registre),
+    et les couleurs de criticité sont les SÉMANTIQUES OK/GOLD/WARN — jamais celles
+    d'identité des axes (restitution-deck-design §3)."""
+    prs = _prs_complete()
+    titres = [_slide_titre(s) for s in prs.slides]
+    i_reco = max(i for i, t in enumerate(titres) if t.startswith("1.1"))
+    i_kpi = titres.index("Indicateurs de suivi")
+    i_risk = next(i for i, t in enumerate(titres) if t.startswith("Matrice des risques et contrôles"))
+    assert i_reco < i_kpi < i_risk, titres
+    matrice = prs.slides[i_risk]
+    assert not any(sh.has_chart for sh in matrice.shapes), "graphique natif dans la matrice risques"
+    textes = " ".join(sh.text_frame.text for sh in matrice.shapes if sh.has_text_frame)
+    pages = [prs.slides[i] for i, t in enumerate(titres)
+             if t.startswith("Matrice des risques et contrôles")]
+    textes = " ".join(sh.text_frame.text for s in pages for sh in s.shapes if sh.has_text_frame)
+    for n in range(1, 7):
+        assert textes.count(f"R{n}") >= 2, f"R{n} : bulle ou entrée de registre manquante"
+    for lbl in ("Faible", "Moyenne", "Élevée", "Probabilité", "Gravité"):
+        assert lbl in textes
+    # Pleins des formes de la matrice : criticité (pleine ou teintée) + blanc des
+    # cartes, rien d'autre — une couleur d'identité d'axe y serait un contresens.
+    fills = set()
+    for s in pages:
+        for sh in s.shapes:
+            try:
+                if sh.fill.type == 1:  # MSO_FILL.SOLID
+                    fills.add(str(sh.fill.fore_color.rgb).upper())
+            except Exception:
+                pass
+    sem = (D.OK, D.GOLD, D.WARN)
+    permis = {c.lstrip("#").upper() for c in sem}
+    permis |= {D.melanger_blanc(c, 0.86).lstrip("#").upper() for c in sem}
+    permis |= {"FFFFFF"}
+    assert fills and fills <= permis, fills - permis
+    kpi = prs.slides[i_kpi]
+    kt = " ".join(sh.text_frame.text for sh in kpi.shapes if sh.has_text_frame)
+    assert kt.count("CIBLE / MESURE") == 5 and "Axe 1" in kt
+

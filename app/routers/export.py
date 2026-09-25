@@ -19,7 +19,7 @@ from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.orm import Session, selectinload
 
 from ..db import PPTX_TEMPLATES_DIR, get_session
-from ..models import Interview, Mission
+from ..models import RISK_CONTROL_TYPES, RISK_LEVELS, Interview, Mission
 from ..services.ai_common import api_key_env_name, is_configured
 from ..services.analyse_import import (
     AnalysisParseError,
@@ -34,13 +34,17 @@ from ..services.synthese_ai import (
     ai_precondition_error,
     generate_difficulties,
     generate_executive_summary,
+    generate_kpis,
+    generate_risks,
     generate_swot,
 )
 from ..services.synthese_ecriture import (
     apply_difficulties_result,
     apply_executive_summary_result,
     apply_global_synthesis_result,
+    apply_kpis_result,
     apply_recommendations_result,
+    apply_risks_result,
     apply_swot_result,
     get_or_create_executive_summary,
     get_or_create_global_synthesis,
@@ -104,6 +108,10 @@ def _synthese_context(db: Session, mission: Mission, error: str | None = None) -
         "swot": mission.swot,
         "executive_summary": mission.executive_summary,
         "difficulties": mission.difficulties,
+        "kpis": mission.kpis,
+        "risks": mission.risks,
+        "risk_levels": RISK_LEVELS,
+        "risk_control_types": RISK_CONTROL_TYPES,
         "axes": mission.recommendation_axes,
         # Axes d'etude configurables (2026-07-27) : l'onglet de parametrage,
         # les champs de la synthese et l'apercu sont tous rendus depuis cette
@@ -299,6 +307,58 @@ def generate_difficulties_view(
     )
 
 
+def _generate_liste_view(
+    request: Request, db: Session, mission_id: int, *, generer, appliquer,
+    manque_synthese: str, vide: str,
+):
+    """Patron commun des listes dérivées de la trajectoire (KPIs, risques) :
+    précondition IA + synthèse, génération depuis la synthèse ET les axes de
+    recommandation, jamais d'écrasement d'une liste affinée par un résultat vide
+    (même règle que les difficultés), puis ré-affichage de l'aperçu."""
+    mission = _get_mission(db, mission_id)
+    global_synthesis = mission.global_synthesis
+    error = ai_precondition_error(global_synthesis, manque_synthese)
+    if error is None:
+        try:
+            items = generer(
+                global_synthesis, axes_of(db, mission), list(mission.recommendation_axes)
+            )
+            if not items:
+                error = vide
+            else:
+                appliquer(mission, items)
+                db.commit()
+        except SynthesisAIError as exc:
+            error = str(exc)
+    return templates.TemplateResponse(
+        request, "synthese/apercu.html", _synthese_context(db, mission, error)
+    )
+
+
+@router.post("/missions/{mission_id}/kpis/generate")
+def generate_kpis_view(mission_id: int, request: Request, db: Session = Depends(get_session)):
+    """Génère les indicateurs de suivi (US9.27 b) depuis la synthèse globale et
+    les recommandations — l'onglet Indicateurs montre le résultat, éditable."""
+    return _generate_liste_view(
+        request, db, mission_id, generer=generate_kpis, appliquer=apply_kpis_result,
+        manque_synthese="Générez d'abord la synthèse globale — les indicateurs en découlent.",
+        vide=("La génération n'a produit aucun indicateur — liste inchangée. "
+              "Réessayez, ou vérifiez la synthèse globale."),
+    )
+
+
+@router.post("/missions/{mission_id}/risques/generate")
+def generate_risks_view(mission_id: int, request: Request, db: Session = Depends(get_session)):
+    """Génère la matrice risques-contrôles (US9.27 c) depuis la synthèse globale
+    et les recommandations — l'onglet Risques montre le résultat, éditable."""
+    return _generate_liste_view(
+        request, db, mission_id, generer=generate_risks, appliquer=apply_risks_result,
+        manque_synthese="Générez d'abord la synthèse globale — les risques en découlent.",
+        vide=("La génération n'a produit aucun risque — matrice inchangée. "
+              "Réessayez, ou vérifiez la synthèse globale."),
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Étape 4 — Export PowerPoint (respecte la sélection de slides si soumise)
 # --------------------------------------------------------------------------- #
@@ -316,6 +376,8 @@ async def export_pptx(
     verbatims: bool = False,
     axes_overview: bool = False,
     matrix: bool = False,
+    kpis: bool = False,
+    risques: bool = False,
     axis: list[int] = Query(default=[]),
 ):
     mission = _get_mission(db, mission_id)
@@ -336,6 +398,8 @@ async def export_pptx(
             include_verbatims=verbatims,
             include_axes_overview=axes_overview,
             include_matrix=matrix,
+            include_kpis=kpis,
+            include_risques=risques,
             include_axis_ids=set(axis),
         )
     else:

@@ -27,10 +27,13 @@ from ..models import (
     Mission,
     MissionDifficulty,
     MissionExecutiveSummary,
+    MissionKpi,
+    MissionRisk,
     MissionSwot,
     Recommendation,
     RecommendationAxis,
 )
+from .synthese_ai import _coerce_niveau
 
 SWOT_FIELDS = ("forces", "faiblesses", "opportunites", "menaces")
 EXEC_SUMMARY_FIELDS = ("headline", "points", "key_message")
@@ -145,6 +148,39 @@ def apply_difficulties_result(db: Session, mission: Mission, labels: list) -> No
         if text:
             items.append(MissionDifficulty(position=len(items), label=text))
     mission.difficulties = items
+
+
+def apply_kpis_result(mission: Mission, kpis: list[dict]) -> None:
+    """Remplace les indicateurs de suivi par la liste fournie (position = rang) —
+    même contrat que `apply_difficulties_result` (affectation de la collection :
+    delete-orphan sur les anciens, relation à jour en session)."""
+    items = []
+    for k in kpis:
+        libelle = (k.get("libelle") or "").strip()
+        if libelle:
+            items.append(MissionKpi(
+                position=len(items), libelle=libelle,
+                cible=(k.get("cible") or "").strip(), axe=(k.get("axe") or "").strip(),
+            ))
+    mission.kpis = items
+
+
+def apply_risks_result(mission: Mission, risks: list[dict]) -> None:
+    """Remplace la matrice risques-contrôles par la liste fournie (position = rang)."""
+    items = []
+    for r in risks:
+        risque = (r.get("risque") or "").strip()
+        if risque:
+            items.append(MissionRisk(
+                position=len(items), risque=risque,
+                # Même coercion bornée que la génération (0, « haut », 7… -> 1-3) :
+                # un appelant hors IA (import, script) ne doit pas écrire hors échelle.
+                gravite=_coerce_niveau(r.get("gravite")),
+                probabilite=_coerce_niveau(r.get("probabilite")),
+                controle=(r.get("controle") or "").strip(),
+                controle_type=r.get("controle_type") or "propose",
+            ))
+    mission.risks = items
 
 # --------------------------------------------------------------------------- #
 # Application en base d'un résultat de synthèse globale / recommandations —

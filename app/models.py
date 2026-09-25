@@ -127,6 +127,16 @@ class Mission(Base):
         cascade="all, delete-orphan",
         order_by="MissionDifficulty.position",
     )
+    kpis: Mapped[list[MissionKpi]] = relationship(
+        back_populates="mission",
+        cascade="all, delete-orphan",
+        order_by="MissionKpi.position",
+    )
+    risks: Mapped[list[MissionRisk]] = relationship(
+        back_populates="mission",
+        cascade="all, delete-orphan",
+        order_by="MissionRisk.position",
+    )
     synthesis_axes: Mapped[list[MissionSynthesisAxis]] = relationship(
         back_populates="mission",
         cascade="all, delete-orphan",
@@ -658,6 +668,83 @@ class MissionDifficulty(Base):
 
     mission: Mapped[Mission] = relationship(back_populates="difficulties")
     verbatim: Mapped[Verbatim | None] = relationship()
+
+
+class MissionKpi(Base):
+    """Indicateur de suivi d'une restitution (US9.27 b).
+
+    Liste ordonnée (`position`) de KPIs dérivés de la synthèse globale et des
+    recommandations : un libellé, une cible/mesure et, si pertinent, l'axe de
+    recommandation qu'il suit. L'axe est gardé en TEXTE (`axe`, son intitulé)
+    et non en clé étrangère : régénérer les recommandations supprime puis
+    recrée les axes (`apply_recommendations_result`) — une FK passerait à NULL
+    et perdrait le lien, l'intitulé survit et se ré-associe par titre au rendu.
+    Même forme que `MissionDifficulty` (liste de lignes éditables).
+    """
+
+    __tablename__ = "mission_kpis"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mission_id: Mapped[int] = mapped_column(
+        ForeignKey("missions.id", ondelete="CASCADE")
+    )
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    libelle: Mapped[str] = mapped_column(Text, default="")
+    cible: Mapped[str] = mapped_column(Text, default="")
+    axe: Mapped[str] = mapped_column(Text, default="")
+
+    mission: Mapped[Mission] = relationship(back_populates="kpis")
+
+
+# Échelle commune gravité / probabilité de la matrice risques-contrôles.
+RISK_LEVELS = {1: "Faible", 2: "Moyenne", 3: "Élevée"}
+
+
+def niveau_risque(v) -> int:
+    """Niveau borné 1-3 (2 si illisible) — lecture sûre d'une valeur en base."""
+    try:
+        return max(1, min(3, int(v)))
+    except (TypeError, ValueError):
+        return 2
+
+
+def criticite_risque(gravite, probabilite) -> int:
+    """Criticité 1-9 = gravité × probabilité bornées — SEULE définition, partagée
+    par `MissionRisk.criticite` et les cellules de la matrice du deck."""
+    return niveau_risque(gravite) * niveau_risque(probabilite)
+
+
+RISK_CONTROL_TYPES = {"existant": "Contrôle existant", "propose": "Mesure proposée"}
+
+
+class MissionRisk(Base):
+    """Risque de la matrice risques-contrôles d'une restitution (US9.27 c).
+
+    Un risque (`risque`), sa gravité et sa probabilité sur une échelle 1-3
+    (`RISK_LEVELS`) — qui le placent dans la matrice DESSINÉE du deck — et le
+    contrôle / la mesure qui le couvre (`controle`), existant ou proposé
+    (`controle_type`). Liste ordonnée, même forme que `MissionDifficulty`.
+    """
+
+    __tablename__ = "mission_risks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mission_id: Mapped[int] = mapped_column(
+        ForeignKey("missions.id", ondelete="CASCADE")
+    )
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    risque: Mapped[str] = mapped_column(Text, default="")
+    gravite: Mapped[int] = mapped_column(Integer, default=2)
+    probabilite: Mapped[int] = mapped_column(Integer, default=2)
+    controle: Mapped[str] = mapped_column(Text, default="")
+    controle_type: Mapped[str] = mapped_column(String(20), default="propose")
+
+    mission: Mapped[Mission] = relationship(back_populates="risks")
+
+    @property
+    def criticite(self) -> int:
+        """Gravité × probabilité (1-9) — ordre de lecture et couleur du repère."""
+        return criticite_risque(self.gravite, self.probabilite)
 
 
 class RecommendationAxis(Base):

@@ -208,3 +208,106 @@ def test_parcours_premiers_clics(serveur: str, nav: Navigateur) -> None:
     assert nav.url().rstrip("/").endswith("/missions"), nav.url()
     _sans_erreur(nav, "Supprimer la mission")
     assert "E2E parcours" not in nav.texte(), "la mission est toujours listée après Supprimer"
+
+
+# --------------------------------------------------------------------------- #
+# Indicateurs de suivi / matrice risques-contrôles (US9.27 b/c) : les nouveaux
+# POST (autosave htmx par ligne, génération IA) rejoués par de vrais clics.
+# --------------------------------------------------------------------------- #
+_SEED_SUIVI = r"""
+import sys
+from app.db import SessionLocal, init_db
+from app.models import GlobalSynthesis, Interview, Mission, MissionKpi, MissionRisk
+init_db()
+db = SessionLocal()
+m = Mission(name="E2E suivi")
+db.add(m); db.flush()
+db.add(Interview(mission_id=m.id, interviewee_name="Témoin", status="done"))
+db.add(GlobalSynthesis(mission_id=m.id, status="generated", points_amelioration="- Silos"))
+m.kpis = [MissionKpi(position=0, libelle="KPI initial", cible="")]
+m.risks = [MissionRisk(position=0, risque="Risque initial", gravite=2, probabilite=2)]
+db.commit()
+print(m.id, m.kpis[0].id, m.risks[0].id)
+"""
+
+_LIRE_SUIVI = r"""
+import sys
+from app.db import SessionLocal
+from app.models import MissionKpi, MissionRisk
+db = SessionLocal()
+k = db.get(MissionKpi, int(sys.argv[1])); r = db.get(MissionRisk, int(sys.argv[2]))
+print(repr((k.cible, r.gravite, r.controle_type)))
+"""
+
+
+def _python_sur_base(base_db: Path, code: str, *args: str) -> str:
+    import subprocess
+    import sys
+    env = dict(os.environ, APP_DB_PATH=str(base_db), PYTHONUTF8="1")
+    res = subprocess.run([sys.executable, "-c", code, *args], cwd=Path(__file__).resolve().parents[1],
+                         env=env, capture_output=True, text=True, timeout=60)
+    assert res.returncode == 0, res.stderr
+    return res.stdout.strip().splitlines()[-1]
+
+
+def _attendre_texte(nav: Navigateur, selecteur: str, attendu: str, delai_s: float = 10.0) -> None:
+    import json
+    import time
+    fin = time.monotonic() + delai_s
+    while time.monotonic() < fin:
+        if nav.evaluer(
+            "(function(){var e=document.querySelector(" + json.dumps(selecteur) + ");"
+            " return !!(e && e.textContent.indexOf(" + json.dumps(attendu) + ")>=0);})()"
+        ):
+            return
+        time.sleep(0.2)
+    raise AssertionError(f"« {attendu} » jamais apparu dans {selecteur}")
+
+
+def test_indicateurs_et_risques_autosave_et_generation(
+    tmp_path_factory: pytest.TempPathFactory, nav: Navigateur
+) -> None:
+    """Onglets Indicateurs / Risques de l'aperçu : saisie d'une cible (autosave
+    htmx POST /kpis/{id}/field), choix d'une gravité et d'un type de contrôle
+    (POST /risques/{id}/field), puis clic « Régénérer » (POST …/kpis/generate,
+    confirm() accepté) puis « Régénérer les risques » (POST …/risques/generate) —
+    Ollama injoignable exprès : la page doit rendre son
+    message d'erreur en 200, jamais un 4xx CSRF. Écritures relues en base."""
+    dossier = tmp_path_factory.mktemp("e2e-suivi")
+    base_db = dossier / "e2e.db"
+    mid, kid, rid = _python_sur_base(base_db, _SEED_SUIVI).split()
+    with serveur_uvicorn(dossier, OLLAMA_HOST="http://127.0.0.1:9") as base:
+        nav.naviguer(f"{base}/missions/{mid}/synthese/apercu")
+        _sans_erreur(nav, "Ouvrir l'aperçu")
+
+        nav.cliquer(".tab[data-tab='kpis']")
+        nav.remplir(f"textarea[hx-post='/kpis/{kid}/field'][hx-vals*='cible']", "90 % sous 6 mois")
+        _attendre_texte(nav, f"#kpi-saved-{kid}", "enregistré")
+        _sans_erreur(nav, "Autosave cible KPI")
+
+        nav.cliquer(".tab[data-tab='risques']")
+        nav.remplir(f"select[hx-post='/risques/{rid}/field'][hx-vals*='gravite']", "3")
+        _attendre_texte(nav, f"#risk-saved-{rid}", "enregistré")
+        nav.evaluer(f"document.getElementById('risk-saved-{rid}').textContent=''")
+        nav.remplir(f"select[hx-post='/risques/{rid}/field'][hx-vals*='controle_type']", "existant")
+        _attendre_texte(nav, f"#risk-saved-{rid}", "enregistré")
+        _sans_erreur(nav, "Autosave niveaux du risque")
+
+        assert _python_sur_base(base_db, _LIRE_SUIVI, kid, rid) == repr(
+            ("90 % sous 6 mois", 3, "existant"))
+
+        nav.cliquer(".tab[data-tab='kpis']")
+        nav.cliquer_et_attendre(f"form[action='/missions/{mid}/kpis/generate'] button[type=submit]")
+        _sans_erreur(nav, "Régénérer les indicateurs")
+        assert "⚠" in nav.texte(), "le message d'échec IA n'est pas rendu"
+
+        # Revue adversariale (P5) : le second POST de génération, « Régénérer les
+        # risques », cliqué lui aussi — TestClient reçoit un Origin injecté par le
+        # conftest, seul ce clic prouve le CSRF réel de cette route.
+        nav.cliquer(".tab[data-tab='risques']")
+        nav.cliquer_et_attendre(f"form[action='/missions/{mid}/risques/generate'] button[type=submit]")
+        _sans_erreur(nav, "Régénérer les risques")
+        assert "⚠" in nav.texte(), "le message d'échec IA (risques) n'est pas rendu"
+        # Ollama injoignable : la matrice existante n'est pas écrasée.
+        assert _python_sur_base(base_db, _LIRE_SUIVI, kid, rid) == repr(
+            ("90 % sous 6 mois", 3, "existant"))

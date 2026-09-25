@@ -16,9 +16,13 @@ from sqlalchemy.orm import Session
 
 from ..db import get_session
 from ..models import (
+    RISK_CONTROL_TYPES,
+    RISK_LEVELS,
     GlobalSynthesis,
     Mission,
     MissionDifficulty,
+    MissionKpi,
+    MissionRisk,
     MissionSynthesisAxis,
     Recommendation,
     RecommendationAxis,
@@ -570,6 +574,77 @@ def set_difficulty_verbatim(
     d.verbatim_id = vid
     db.commit()
     return HTMLResponse('<span class="saved">✓ verbatim lié</span>')
+
+
+# --------------------------------------------------------------------------- #
+# Indicateurs de suivi (US9.27 b) et matrice risques-contrôles (US9.27 c) :
+# autosave par ligne, même contrat que les difficultés (génération dans export.py).
+# --------------------------------------------------------------------------- #
+KPI_FIELDS = ("libelle", "cible", "axe")
+RISK_TEXT_FIELDS = ("risque", "controle")
+RISK_LEVEL_FIELDS = ("gravite", "probabilite")
+
+
+@router.post("/kpis/{kpi_id}/field")
+def save_kpi_field(
+    kpi_id: int,
+    field: str = Form(...),
+    value: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    if field not in KPI_FIELDS:
+        raise HTTPException(status_code=400, detail="Champ inconnu.")
+    k = db.get(MissionKpi, kpi_id)
+    if k is None:
+        raise HTTPException(status_code=404, detail="Indicateur introuvable.")
+    if field == "axe":
+        # Comme controle_type : seuls un axe réel de la mission, « aucun » (vide) ou
+        # la valeur déjà portée (option « hors axes actuels » de l'écran) passent.
+        permis = {a.title for a in k.mission.recommendation_axes} | {"", k.axe or ""}
+        if value not in permis:
+            raise HTTPException(status_code=400, detail="Axe inconnu pour cette mission.")
+    setattr(k, field, value)
+    db.commit()
+    hint = ""
+    if field in ("libelle", "cible"):
+        hint = _hint_span(f"fit-hint-kpi-{kpi_id}-{field}", f"kpi_{field}", value)
+    return HTMLResponse(f'<span class="saved">✓ enregistré</span>{hint}')
+
+
+@router.post("/risques/{risk_id}/field")
+def save_risk_field(
+    risk_id: int,
+    field: str = Form(...),
+    value: str = Form(""),
+    db: Session = Depends(get_session),
+):
+    r = db.get(MissionRisk, risk_id)
+    if r is None:
+        raise HTTPException(status_code=404, detail="Risque introuvable.")
+    hint = ""
+    if field in RISK_TEXT_FIELDS:
+        setattr(r, field, value)
+        prefixe = ""
+        if field == "controle":
+            prefixe = ("Contrôle existant : " if r.controle_type == "existant"
+                       else "Mesure proposée : ")
+        hint = _hint_span(f"fit-hint-risk-{risk_id}-{field}", f"risk_{field}", prefixe + value)
+    elif field in RISK_LEVEL_FIELDS:
+        try:
+            niveau = int(value)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Niveau invalide.") from exc
+        if niveau not in RISK_LEVELS:
+            raise HTTPException(status_code=400, detail="Niveau invalide (1 à 3).")
+        setattr(r, field, niveau)
+    elif field == "controle_type":
+        if value not in RISK_CONTROL_TYPES:
+            raise HTTPException(status_code=400, detail="Type de contrôle inconnu.")
+        r.controle_type = value
+    else:
+        raise HTTPException(status_code=400, detail="Champ inconnu.")
+    db.commit()
+    return HTMLResponse(f'<span class="saved">✓ enregistré</span>{hint}')
 
 
 @router.post("/executive-summary/{mission_id}/field")

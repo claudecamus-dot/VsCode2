@@ -57,6 +57,10 @@ OCTO_TEMPLATE_PATH = Path(__file__).resolve().parents[2] / "assets" / "template-
 # calculé sur les lignes réelles dans _new_slide).
 _TITLE_SIZE_MIN = D.TYPE["h3"]
 
+# Cotes des slides de suivi (slides_trajectoire._slide_kpis / _slide_matrice_risques).
+_KPI_CARD_W = (_W_IN - 2 * MARGIN - 2 * 0.2) / 3
+_RISK_TXT_W = (_W_IN - MARGIN - (MARGIN + 0.95 + 3.5 + 0.3)) - 2 * 0.14
+
 FIELD_SHAPE = {
     "objectif": dict(width_in=_LEFT_W, max_h_in=1.1),
     "acteurs": dict(width_in=_LEFT_W, max_h_in=0.5),
@@ -99,6 +103,15 @@ FIELD_SHAPE = {
     # 3 lignes par _slide_difficultes -> hint size_pt/max_lignes (honnête). Largeur
     # réduite du chip de rang à gauche (2*pad + rang_w 0.46 + gap 0.16 = 0.98).
     "difficulty_label": dict(width_in=_W_IN - 2 * (MARGIN + 0.3) - 0.98, size_pt=D.TYPE["body"], max_lignes=3),
+    # Indicateurs de suivi (US9.27 b) : carte de la grille 3×2 (cas le plus étroit
+    # de _slide_kpis) — libellé à droite du rang (0.34 + 0.1), cible pleine largeur
+    # de carte ; taille fixe small, tronqués à 2 lignes -> hint size_pt/max_lignes.
+    "kpi_libelle": dict(width_in=_KPI_CARD_W - 0.39 - 0.44, size_pt=D.TYPE["small"], max_lignes=2),
+    "kpi_cible": dict(width_in=_KPI_CARD_W - 0.39, size_pt=D.TYPE["small"], max_lignes=2),
+    # Matrice risques-contrôles (US9.27 c) : entrée du registre à droite de la grille
+    # (cf. _slide_matrice_risques), tiny, 2 lignes chacun.
+    "risk_risque": dict(width_in=_RISK_TXT_W, size_pt=D.TYPE["tiny"], max_lignes=2),
+    "risk_controle": dict(width_in=_RISK_TXT_W, size_pt=D.TYPE["tiny"], max_lignes=2),
 }
 
 def field_fit_hint(field_key: str, text: str) -> str:

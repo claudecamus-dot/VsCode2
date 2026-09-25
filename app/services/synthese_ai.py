@@ -10,6 +10,8 @@ un message lisible.
 """
 from __future__ import annotations
 
+import re
+
 from .ai_common import (
     AIError,
     call_ai_json,
@@ -874,3 +876,257 @@ def generate_difficulties(global_synthesis, axes=None) -> list:
         DIFFICULTES_SYSTEM, prompt, DIFFICULTES_SCHEMA, DIFFICULTES_JSON_HINT
     )
     return _clean_difficulties(data)
+
+
+# --------------------------------------------------------------------------- #
+# Indicateurs de suivi (US9.27 b) et matrice risques-contrôles (US9.27 c) :
+# deux listes dérivées de la synthèse globale ET des recommandations déjà
+# produites (un KPI suit un axe, un risque menace la trajectoire). Même patron
+# que les difficultés : un seul appel, liste ordonnée, types Ollama APLATIS
+# (cf. feedback-ollama-json-type-coercion-flatten-not-drop), repli clé anglaise.
+# --------------------------------------------------------------------------- #
+def _build_trajectoire_prompt(global_synthesis, axes=None, reco_axes=None) -> str:
+    """Matière des KPIs / risques : la synthèse (comme la SWOT) + les axes de
+    recommandation et les intitulés de leurs recos, quand ils existent."""
+    prompt = _build_reco_prompt(global_synthesis, axes)
+    lignes = []
+    for axis in reco_axes or []:
+        titre = (getattr(axis, "title", "") or "").strip()
+        if not titre:
+            continue
+        lignes.append(f"- Axe « {titre} »")
+        for r in getattr(axis, "recommendations", None) or []:
+            rt = (getattr(r, "title", "") or "").strip()
+            if rt:
+                lignes.append(f"    · {rt}")
+    if lignes:
+        prompt += "\n=== AXES DE RECOMMANDATION ===\n" + "\n".join(lignes) + "\n"
+    return prompt
+
+
+def _first_key(d: dict, *keys):
+    for k in keys:
+        if k in d and d[k] not in (None, ""):
+            return d[k]
+    return None
+
+
+def _items_list(data, *keys) -> list:
+    """La liste d'items d'une réponse, quelle que soit sa forme : clé attendue,
+    clé de repli (anglais…), liste nue, objet unique, ou objet à UNE seule clé
+    imprévue — jamais « génération réussie mais vide » par simple nom de clé."""
+    if isinstance(data, list):
+        return data
+    if not isinstance(data, dict):
+        return []
+    items = _first_key(data, *keys)
+    if items is None and len(data) == 1:
+        (items,) = data.values()
+    if isinstance(items, dict):
+        items = [items]
+    if not isinstance(items, list):
+        items = [items] if items else []
+    return items
+
+
+_SNAP_MIN = 4  # en deçà, une inclusion est une coïncidence (« Data », « SI »)
+
+
+def _snap_axe(value: str, axe_titres: list[str]) -> str:
+    """Ramène l'axe cité par le modèle à l'intitulé EXACT d'un axe de la mission :
+    égalité (casse/espaces) d'abord ; sinon inclusion de l'un dans l'autre, en
+    retenant la correspondance la PLUS LONGUE (pas la première de la liste), et
+    jamais sur un terme de moins de `_SNAP_MIN` caractères ; sinon tel quel."""
+    v = (value or "").strip()
+    if not v or not axe_titres:
+        return v
+    low = v.casefold()
+    for t in axe_titres:
+        if t.strip().casefold() == low:
+            return t
+    meilleurs = []
+    for t in axe_titres:
+        tl = t.strip().casefold()
+        commun = tl if tl in low else (low if low in tl else "")
+        if len(commun) >= _SNAP_MIN:
+            meilleurs.append((len(commun), -abs(len(tl) - len(low)), t))
+    if meilleurs:
+        return max(meilleurs, key=lambda m: (m[0], m[1]))[2]
+    return v
+
+
+KPIS_SYSTEM = (
+    "Tu es consultant·e senior en audit. À partir d'une synthèse transverse "
+    "d'entretiens et des axes de recommandation, propose 3 à 6 INDICATEURS DE SUIVI "
+    "(KPI) permettant de mesurer la mise en œuvre et l'effet des recommandations. "
+    "Pour chacun : un libellé court, une cible ou une modalité de mesure concrète "
+    "(valeur, fréquence, source), et l'axe de recommandation qu'il suit s'il y en a "
+    "un (reprends son intitulé exact, sinon laisse vide). Reste ancré dans la matière."
+)
+
+KPIS_JSON_HINT = (
+    "\nRéponds UNIQUEMENT par un objet JSON à la clé \"kpis\", une liste d'objets "
+    "{\"libelle\": chaîne, \"cible\": chaîne, \"axe\": chaîne}."
+)
+
+KPIS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "kpis": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "libelle": {"type": "string"},
+                    "cible": {"type": "string"},
+                    "axe": {"type": "string"},
+                },
+                "required": ["libelle", "cible", "axe"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["kpis"],
+    "additionalProperties": False,
+}
+
+
+def _clean_kpis(data, axe_titres=None) -> list[dict]:
+    """Coerce vers une liste de {libelle, cible, axe} à libellé non vide. Un item
+    CHAÎNE devient un libellé seul ; un champ liste/dict est aplati en une ligne."""
+    titres = [t for t in (axe_titres or []) if (t or "").strip()]
+    out = []
+    for it in _items_list(data, "kpis", "indicateurs", "indicators", "KPIs"):
+        if isinstance(it, dict):
+            libelle = _coerce_line(_first_key(it, "libelle", "libellé", "label",
+                                              "indicateur", "nom", "name", "kpi"))
+            cible = _coerce_line(_first_key(it, "cible", "target", "mesure",
+                                            "measure", "objectif", "valeur"))
+            axe = _coerce_line(_first_key(it, "axe", "axis", "axe_recommandation"))
+        else:
+            libelle, cible, axe = _coerce_line(it), "", ""
+        if libelle:
+            out.append({"libelle": libelle, "cible": cible, "axe": _snap_axe(axe, titres)})
+    return out
+
+
+def generate_kpis(global_synthesis, axes=None, reco_axes=None) -> list[dict]:
+    """Liste ordonnée de KPIs {libelle, cible, axe}. Lève SynthesisAIError."""
+    prompt = _build_trajectoire_prompt(global_synthesis, axes, reco_axes)
+    data = _call_claude(KPIS_SYSTEM, prompt, KPIS_SCHEMA, KPIS_JSON_HINT)
+    titres = [(getattr(a, "title", "") or "") for a in reco_axes or []]
+    return _clean_kpis(data, titres)
+
+
+RISQUES_SYSTEM = (
+    "Tu es consultant·e senior en audit. À partir d'une synthèse transverse "
+    "d'entretiens et des recommandations, identifie 3 à 8 RISQUES majeurs pour "
+    "l'organisation ou la trajectoire proposée. Pour chacun : le risque en une "
+    "phrase, sa gravité et sa probabilité notées 1 (faible), 2 (moyenne) ou 3 "
+    "(élevée), le contrôle ou la mesure qui le couvre, et si ce contrôle est "
+    "\"existant\" (déjà en place d'après la matière) ou \"propose\" (à mettre en "
+    "place). N'invente pas de faits absents de la matière."
+)
+
+RISQUES_JSON_HINT = (
+    "\nRéponds UNIQUEMENT par un objet JSON à la clé \"risques\", une liste d'objets "
+    "{\"risque\": chaîne, \"gravite\": entier 1-3, \"probabilite\": entier 1-3, "
+    "\"controle\": chaîne, \"controle_type\": \"existant\" ou \"propose\"}."
+)
+
+RISQUES_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "risques": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "risque": {"type": "string"},
+                    "gravite": {"type": "integer"},
+                    "probabilite": {"type": "integer"},
+                    "controle": {"type": "string"},
+                    "controle_type": {"type": "string", "enum": ["existant", "propose"]},
+                },
+                "required": ["risque", "gravite", "probabilite", "controle", "controle_type"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["risques"],
+    "additionalProperties": False,
+}
+
+# Ordre de test : « moyen » avant « bas »/« faible » n'importe pas, mais « élevé »
+# doit passer avant « faible » (« peu élevée » est rare, « faible » sans ambiguïté).
+_NIVEAU_MOTS = (
+    (3, ("élev", "eleve", "high", "fort", "haut", "critique", "majeur", "severe", "sévère")),
+    (1, ("faible", "low", "bas", "mineur", "minor", "rare")),
+    (2, ("moyen", "medium", "modér", "moder", "moderate")),
+)
+
+
+def _coerce_niveau(value, defaut: int = 2) -> int:
+    """Niveau 1-3 depuis ce qu'un modèle local renvoie vraiment : entier, flottant,
+    « 3 », « 3/3 », « élevée », « High », une liste ou un dict qui en contient un.
+    Une échelle 1-5 est ramenée à 1-3 (≥ 3 → 3). Illisible → `defaut`, jamais d'erreur."""
+    if isinstance(value, bool) or value is None:
+        return defaut
+    if isinstance(value, (int, float)):
+        n = int(round(value))
+    elif isinstance(value, str):
+        v = value.strip().casefold()
+        m = re.match(r"(\d+(?:[.,]\d+)?)", v)
+        if not m:
+            for niveau, mots in _NIVEAU_MOTS:
+                if any(mot in v for mot in mots):
+                    return niveau
+            return defaut
+        n = int(round(float(m.group(1).replace(",", "."))))
+    elif isinstance(value, dict):
+        inner = _first_key(value, "niveau", "valeur", "value", "score")
+        if inner is None:
+            inner = next(iter(value.values()), None)
+        return _coerce_niveau(inner, defaut)
+    elif isinstance(value, list):
+        return _coerce_niveau(value[0], defaut) if value else defaut
+    else:
+        return defaut
+    if n <= 0:
+        return defaut
+    return min(3, n)
+
+
+def _coerce_controle_type(value) -> str:
+    v = _coerce_line(value).casefold()
+    return "existant" if v.startswith(("exist", "en place", "actuel", "current")) else "propose"
+
+
+def _clean_risks(data) -> list[dict]:
+    """Coerce vers une liste de {risque, gravite, probabilite, controle,
+    controle_type} à risque non vide — champs texte aplatis, niveaux bornés 1-3."""
+    out = []
+    for it in _items_list(data, "risques", "risks", "matrice", "risques_controles"):
+        if isinstance(it, dict):
+            risque = _coerce_line(_first_key(it, "risque", "risk", "libelle", "label", "nom"))
+            gravite = _coerce_niveau(_first_key(it, "gravite", "gravité", "severity",
+                                                "impact", "severite"))
+            proba = _coerce_niveau(_first_key(it, "probabilite", "probabilité",
+                                              "probability", "likelihood", "occurrence"))
+            controle = _coerce_line(_first_key(it, "controle", "contrôle", "control",
+                                               "mesure", "mitigation", "controles"))
+            ctype = _coerce_controle_type(_first_key(it, "controle_type", "type",
+                                                     "statut", "status"))
+        else:
+            risque, gravite, proba, controle, ctype = _coerce_line(it), 2, 2, "", "propose"
+        if risque:
+            out.append({"risque": risque, "gravite": gravite, "probabilite": proba,
+                        "controle": controle, "controle_type": ctype})
+    return out
+
+
+def generate_risks(global_synthesis, axes=None, reco_axes=None) -> list[dict]:
+    """Liste ordonnée de risques de la matrice risques-contrôles. Lève SynthesisAIError."""
+    prompt = _build_trajectoire_prompt(global_synthesis, axes, reco_axes)
+    data = _call_claude(RISQUES_SYSTEM, prompt, RISQUES_SCHEMA, RISQUES_JSON_HINT)
+    return _clean_risks(data)

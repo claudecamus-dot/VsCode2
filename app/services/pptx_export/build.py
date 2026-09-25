@@ -38,7 +38,9 @@ from .slides_diagnostic import (
 )
 from .slides_trajectoire import (
     _slide_axes_overview,
+    _slide_kpis,
     _slide_matrice_effort_valeur,
+    _slide_matrice_risques,
     _slide_recommendation,
 )
 
@@ -64,6 +66,8 @@ def build_presentation(
     include_verbatims: bool = True,
     include_axes_overview: bool = True,
     include_matrix: bool = True,
+    include_kpis: bool = True,
+    include_risques: bool = True,
     include_axis_ids: set[int] | None = None,
     axes_etude=None,
 ) -> Presentation:
@@ -108,6 +112,8 @@ def build_presentation(
     executive_summary = mission.executive_summary
     difficulties = [d for d in mission.difficulties if (d.label or "").strip()]
     verbatims = mission.selected_verbatims
+    kpis = [k for k in mission.kpis if (k.libelle or "").strip()]
+    risks = [r for r in mission.risks if (r.risque or "").strip()]
     axes = list(mission.recommendation_axes)
     selected_axes = [a for a in axes if include_axis_ids is None or a.id in include_axis_ids]
 
@@ -138,6 +144,11 @@ def build_presentation(
         ch_sections[_CH_TRAJECTOIRE].append("Recommandations")
     if axes and include_matrix:
         ch_sections[_CH_TRAJECTOIRE].append("Matrice de priorisation")
+    # Suivi (US9.27) : après les recommandations — mesurer, puis maîtriser les risques.
+    if include_kpis and kpis:
+        ch_sections[_CH_TRAJECTOIRE].append("Indicateurs de suivi")
+    if include_risques and risks:
+        ch_sections[_CH_TRAJECTOIRE].append("Risques et contrôles")
 
     if include_sommaire and any(ch_sections):
         _slide_sommaire(prs, ch_sections)
@@ -191,6 +202,10 @@ def build_presentation(
                 # d'ensemble et les bulles de la matrice de priorisation.
                 _slide_recommendation(prs, axis, f"{i + 1}.{j + 1}", reco,
                                       accent=palette[i % len(palette)])
+        if include_kpis and kpis:
+            _slide_kpis(prs, kpis, axes, palette)
+        if include_risques and risks:
+            _slide_matrice_risques(prs, risks)
 
     # Garde-fou géométrique (US7.1) : un texte trop long ou un template client
     # aux dimensions inattendues peut faire déborder une forme de la slide —

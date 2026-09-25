@@ -28,6 +28,11 @@
    ligne vidée reste éditable). #}
 {% set diffs_shown = [] %}
 {% if difficulties %}{% for d in difficulties %}{% if (d.label or '').strip() %}{% set _ = diffs_shown.append(d) %}{% endif %}{% endfor %}{% endif %}
+{# Même filtre que build_presentation pour les KPIs / risques (libellé non vide). #}
+{% set kpis_shown = [] %}
+{% if kpis %}{% for k in kpis %}{% if (k.libelle or '').strip() %}{% set _ = kpis_shown.append(k) %}{% endif %}{% endfor %}{% endif %}
+{% set risks_shown = [] %}
+{% if risks %}{% for r in risks %}{% if (r.risque or '').strip() %}{% set _ = risks_shown.append(r) %}{% endif %}{% endfor %}{% endif %}
 
 {% if not has_content %}
 <div class="card empty">
@@ -83,6 +88,12 @@
       {% if axes %}
       <label class="pptx-check"><input type="checkbox" name="axes_overview" value="true" checked> Vue d'ensemble des axes</label>
       <label class="pptx-check"><input type="checkbox" name="matrix" value="true" checked> Matrice de priorisation (valeur / effort)</label>
+      {% endif %}
+      {% if kpis_shown %}
+      <label class="pptx-check"><input type="checkbox" name="kpis" value="true" checked> Indicateurs de suivi ({{ kpis_shown|length }})</label>
+      {% endif %}
+      {% if risks_shown %}
+      <label class="pptx-check"><input type="checkbox" name="risques" value="true" checked> Matrice risques-contrôles ({{ risks_shown|length }})</label>
       {% endif %}
     </div>
     {% if axes %}
@@ -169,6 +180,12 @@
     <button type="button" class="tab" data-tab="reco-{{ reco.id }}">{{ axis_index }}.{{ loop.index }}</button>
     {% endfor %}{% endfor %}
     {% endif %}
+    {% if (global_synthesis and global_synthesis.has_content) or kpis %}
+    <button type="button" class="tab" data-tab="kpis">Indicateurs</button>
+    {% endif %}
+    {% if (global_synthesis and global_synthesis.has_content) or risks %}
+    <button type="button" class="tab" data-tab="risques">Risques</button>
+    {% endif %}
   </div>
 
   <div class="tab-panels">
@@ -200,6 +217,8 @@
           {% if swot and swot.has_content %}{% set _ = sommaire_sections.append('Matrice SWOT') %}{% endif %}
           {% if mission.selected_verbatims %}{% set _ = sommaire_sections.append("Paroles d'acteurs") %}{% endif %}
           {% if axes %}{% set _ = sommaire_sections.append('Recommandations') %}{% set _ = sommaire_sections.append('Matrice de priorisation') %}{% endif %}
+          {% if kpis_shown %}{% set _ = sommaire_sections.append('Indicateurs de suivi') %}{% endif %}
+          {% if risks_shown %}{% set _ = sommaire_sections.append('Risques et contrôles') %}{% endif %}
           <div class="slide-sommaire">
             {% for label in sommaire_sections %}
             <div class="slide-sommaire-row"><span class="slide-sommaire-num">{{ '%02d'|format(loop.index) }}</span><span>{{ label }}</span></div>
@@ -548,6 +567,146 @@
       </section>
       {% endfor %}
     {% endfor %}
+    {% endif %}
+
+    {% if (global_synthesis and global_synthesis.has_content) or kpis %}
+    <section class="tab-panel two-col" data-panel="kpis">
+      <div class="deck-pane deck-pane-form">
+        <form method="post" action="/missions/{{ mission.id }}/kpis/generate" class="swot-generate"
+          data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
+          {% if kpis %}onsubmit="return confirm('Remplacer les indicateurs actuels par une nouvelle génération IA ? Vos modifications seront perdues.');"{% endif %}>
+          <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>
+            {% if kpis %}↻ Régénérer les indicateurs (IA){% else %}Générer les indicateurs de suivi (IA){% endif %}
+          </button>
+          {% if not ai_ready %}<span class="muted">Service IA indisponible ({{ api_key_env }}).</span>{% endif %}
+        </form>
+        {% if kpis %}
+        <p class="muted">Un indicateur par ligne : libellé, cible ou modalité de mesure, et l'axe de recommandation suivi. Vider le libellé retire l'indicateur du deck.</p>
+        <ol class="suivi-list">
+          {% for k in kpis %}
+          <li class="suivi-item kpi-item">
+            <label class="synth-field"><span>Indicateur</span>
+              <textarea name="value" rows="2" hx-post="/kpis/{{ k.id }}/field" hx-vals='{"field": "libelle"}'
+                hx-trigger="keyup changed delay:700ms, change, blur" hx-target="#kpi-saved-{{ k.id }}" hx-swap="innerHTML"
+                data-preview-target="preview-kpi-libelle-{{ k.id }}" data-preview-mode="text"
+                oninput="i2dLivePreview(this)">{{ k.libelle }}</textarea></label>
+            {{ fit_hint('fit-hint-kpi-' ~ k.id ~ '-libelle', 'kpi_libelle', k.libelle) }}
+            <label class="synth-field"><span>Cible / mesure</span>
+              <textarea name="value" rows="2" hx-post="/kpis/{{ k.id }}/field" hx-vals='{"field": "cible"}'
+                hx-trigger="keyup changed delay:700ms, change, blur" hx-target="#kpi-saved-{{ k.id }}" hx-swap="innerHTML"
+                data-preview-target="preview-kpi-cible-{{ k.id }}" data-preview-mode="text"
+                oninput="i2dLivePreview(this)">{{ k.cible }}</textarea></label>
+            {{ fit_hint('fit-hint-kpi-' ~ k.id ~ '-cible', 'kpi_cible', k.cible) }}
+            <label class="suivi-inline">Axe suivi :
+              <select name="value" hx-post="/kpis/{{ k.id }}/field" hx-vals='{"field": "axe"}'
+                hx-trigger="change" hx-target="#kpi-saved-{{ k.id }}" hx-swap="innerHTML">
+                <option value="">— aucun —</option>
+                {% set axe_connu = namespace(v=false) %}
+                {% for axis in axes %}
+                <option value="{{ axis.title }}" {% if k.axe == axis.title %}{% set axe_connu.v = true %}selected{% endif %}>{{ axis.title }}</option>
+                {% endfor %}
+                {% if k.axe and not axe_connu.v %}<option value="{{ k.axe }}" selected>{{ k.axe }} (hors axes actuels)</option>{% endif %}
+              </select>
+            </label>
+            <span class="saved" id="kpi-saved-{{ k.id }}"></span>
+          </li>
+          {% endfor %}
+        </ol>
+        {% else %}
+        <p class="muted">Lance la génération pour obtenir des indicateurs de suivi (dérivés de la synthèse globale et des recommandations), puis affine-les ici — ils s'intègrent à l'export PPT, après les recommandations.</p>
+        {% endif %}
+      </div>
+      <div class="deck-pane deck-pane-preview">
+        <div class="slide-preview-body">
+          <h3>Indicateurs de suivi</h3>
+          <div class="kpi-board">
+            {% for k in kpis_shown %}
+            {% set ai = namespace(i=-1) %}{% for axis in axes %}{% if axis.title == k.axe %}{% set ai.i = loop.index0 %}{% endif %}{% endfor %}
+            {% set accent = ppt_palette[ai.i % ppt_palette|length] if ai.i >= 0 else '#6b7280' %}
+            <div class="kpi-card" style="--slide-accent: {{ accent }};">
+              <p class="kpi-card-label"><span class="kpi-rank">{{ loop.index }}</span><span id="preview-kpi-libelle-{{ k.id }}">{{ k.libelle }}</span></p>
+              <p class="kpi-card-cible" id="preview-kpi-cible-{{ k.id }}">{{ k.cible }}</p>
+              {% if k.axe %}<span class="kpi-card-axe">{{ k.axe }}</span>{% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </section>
+    {% endif %}
+
+    {% if (global_synthesis and global_synthesis.has_content) or risks %}
+    <section class="tab-panel two-col" data-panel="risques">
+      <div class="deck-pane deck-pane-form">
+        <form method="post" action="/missions/{{ mission.id }}/risques/generate" class="swot-generate"
+          data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
+          {% if risks %}onsubmit="return confirm('Remplacer la matrice risques-contrôles actuelle par une nouvelle génération IA ? Vos modifications seront perdues.');"{% endif %}>
+          <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>
+            {% if risks %}↻ Régénérer les risques (IA){% else %}Générer la matrice risques-contrôles (IA){% endif %}
+          </button>
+          {% if not ai_ready %}<span class="muted">Service IA indisponible ({{ api_key_env }}).</span>{% endif %}
+        </form>
+        {% if risks %}
+        <p class="muted">Un risque par ligne, noté en gravité et probabilité (1 faible — 3 élevée), avec le contrôle qui le couvre. Vider le risque le retire du deck.</p>
+        <ol class="suivi-list">
+          {% for r in risks %}
+          <li class="suivi-item risk-item">
+            <label class="synth-field"><span>Risque</span>
+              <textarea name="value" rows="2" hx-post="/risques/{{ r.id }}/field" hx-vals='{"field": "risque"}'
+                hx-trigger="keyup changed delay:700ms, change, blur" hx-target="#risk-saved-{{ r.id }}" hx-swap="innerHTML">{{ r.risque }}</textarea></label>
+            {{ fit_hint('fit-hint-risk-' ~ r.id ~ '-risque', 'risk_risque', r.risque) }}
+            <div class="suivi-row">
+              <label class="suivi-inline">Gravité
+                <select name="value" hx-post="/risques/{{ r.id }}/field" hx-vals='{"field": "gravite"}'
+                  hx-trigger="change" hx-target="#risk-saved-{{ r.id }}" hx-swap="innerHTML">
+                  {% for n, lib in risk_levels.items() %}<option value="{{ n }}" {% if r.gravite == n %}selected{% endif %}>{{ n }} — {{ lib }}</option>{% endfor %}
+                </select></label>
+              <label class="suivi-inline">Probabilité
+                <select name="value" hx-post="/risques/{{ r.id }}/field" hx-vals='{"field": "probabilite"}'
+                  hx-trigger="change" hx-target="#risk-saved-{{ r.id }}" hx-swap="innerHTML">
+                  {% for n, lib in risk_levels.items() %}<option value="{{ n }}" {% if r.probabilite == n %}selected{% endif %}>{{ n }} — {{ lib }}</option>{% endfor %}
+                </select></label>
+              <label class="suivi-inline">Contrôle
+                <select name="value" hx-post="/risques/{{ r.id }}/field" hx-vals='{"field": "controle_type"}'
+                  hx-trigger="change" hx-target="#risk-saved-{{ r.id }}" hx-swap="innerHTML">
+                  {% for code, lib in risk_control_types.items() %}<option value="{{ code }}" {% if r.controle_type == code %}selected{% endif %}>{{ lib }}</option>{% endfor %}
+                </select></label>
+            </div>
+            <label class="synth-field"><span>Contrôle / mesure</span>
+              <textarea name="value" rows="2" hx-post="/risques/{{ r.id }}/field" hx-vals='{"field": "controle"}'
+                hx-trigger="keyup changed delay:700ms, change, blur" hx-target="#risk-saved-{{ r.id }}" hx-swap="innerHTML">{{ r.controle }}</textarea></label>
+            {{ fit_hint('fit-hint-risk-' ~ r.id ~ '-controle', 'risk_controle', (risk_control_types.get(r.controle_type, 'Mesure proposée') ~ ' : ' ~ r.controle) if r.controle else '') }}
+            <span class="saved" id="risk-saved-{{ r.id }}"></span>
+          </li>
+          {% endfor %}
+        </ol>
+        {% else %}
+        <p class="muted">Lance la génération pour obtenir une première matrice risques-contrôles (dérivée de la synthèse globale et des recommandations), puis ajuste gravité, probabilité et contrôles — elle s'intègre à l'export PPT.</p>
+        {% endif %}
+      </div>
+      <div class="deck-pane deck-pane-preview">
+        <div class="slide-preview-body">
+          <h3>Matrice des risques et contrôles</h3>
+          <p class="muted risk-preview-note">Aperçu à l'ouverture de la page — rechargez après avoir changé des niveaux.</p>
+          <div class="risk-preview">
+            <div class="risk-grid" role="img" aria-label="Matrice gravité (lignes, élevée en haut) par probabilité (colonnes, élevée à droite)">
+              {% for g in [3, 2, 1] %}{% for p in [1, 2, 3] %}
+              {% set score = g * p %}
+              <div class="risk-cell {% if score >= 6 %}risk-hi{% elif score >= 3 %}risk-mid{% else %}risk-lo{% endif %}">
+                {% for r in risks_shown %}{% if r.gravite == g and r.probabilite == p %}<span class="risk-pill">R{{ loop.index }}</span>{% endif %}{% endfor %}
+              </div>
+              {% endfor %}{% endfor %}
+            </div>
+            <p class="risk-axis muted">↑ Gravité · Probabilité →</p>
+            <ol class="risk-register">
+              {% for r in risks_shown %}
+              <li><strong>R{{ loop.index }}</strong> {{ r.risque }}{% if r.controle %}<br><span class="muted">{{ risk_control_types.get(r.controle_type, 'Mesure proposée') }} : {{ r.controle }}</span>{% endif %}</li>
+              {% endfor %}
+            </ol>
+          </div>
+        </div>
+      </div>
+    </section>
     {% endif %}
 
   </div>

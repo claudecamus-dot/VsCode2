@@ -1095,3 +1095,32 @@ textarea.htmx-request, input.htmx-request, select.htmx-request {
 .verbatim-card { margin: 0; border: 1px solid var(--border); border-left: 3px solid #138086; border-radius: 8px; padding: 8px 12px; }
 .verbatim-card-who { display: block; color: var(--muted); font-weight: 600; font-size: .85rem; }
 .verbatim-card p { margin: 2px 0 0; font-style: italic; }
+
+/* Indicateurs de suivi + matrice risques-contrôles (US9.27 b/c) — édition par ligne
+   et aperçu (cartes KPI, grille 3×3 gravité × probabilité), parité avec
+   _slide_kpis / _slide_matrice_risques. Couleurs de criticité = sémantiques
+   (vert / ambre / rouge), jamais les couleurs d'identité des axes. */
+.suivi-list { list-style: none; margin: 10px 0 0; padding: 0; display: flex; flex-direction: column; gap: 16px; }
+.suivi-item { border-left: 3px solid var(--border); padding-left: 10px; }
+.kpi-item { border-left-color: #2c5cc5; }
+.risk-item { border-left-color: #b3261e; }
+.suivi-row { display: flex; flex-wrap: wrap; gap: 8px 16px; margin: 6px 0; }
+.suivi-inline { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; color: var(--muted); }
+.suivi-inline select { max-width: 100%; }
+.kpi-item .suivi-inline { display: block; } .kpi-item .suivi-inline select { display: block; width: 100%; margin-top: 4px; }
+.kpi-board { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.kpi-card { border: 1px solid var(--border); border-left: 3px solid var(--slide-accent, #6b7280); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 4px; }
+.kpi-card-label { margin: 0; font-weight: 700; color: #0E2356; display: flex; gap: 6px; align-items: flex-start; }
+.kpi-rank { flex: none; width: 1.4em; height: 1.4em; border-radius: 50%; background: var(--slide-accent, #6b7280); color: #fff; font-size: .75rem; display: inline-flex; align-items: center; justify-content: center; }
+.kpi-card-cible { margin: 0; font-size: .9rem; color: #0E2356; }
+.kpi-card-cible:empty { display: none; }
+.kpi-card-axe { align-self: flex-start; font-size: .75rem; border: 1px solid var(--slide-accent, #6b7280); color: var(--slide-accent, #6b7280); border-radius: 999px; padding: 1px 8px; }
+.risk-preview-note { font-size: .8rem; margin: 0 0 6px; }
+.risk-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; max-width: 320px; }
+.risk-cell { min-height: 54px; border-radius: 4px; padding: 4px; display: flex; flex-wrap: wrap; gap: 4px; align-content: center; justify-content: center; }
+.risk-lo { background: #e3efe6; } .risk-lo .risk-pill { background: #1e6b34; }
+.risk-mid { background: #f6eedb; } .risk-mid .risk-pill { background: #8a6508; }
+.risk-hi { background: #f6e0de; } .risk-hi .risk-pill { background: #b3261e; }
+.risk-pill { color: #fff; font-size: .75rem; font-weight: 700; border-radius: 999px; padding: 2px 7px; }
+.risk-axis { font-size: .8rem; margin: 4px 0 8px; }
+.risk-register { margin: 0; padding-left: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; font-size: .9rem; }
