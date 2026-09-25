@@ -3,10 +3,48 @@
     "source": "hub de supervision VScode5, .claude/veille/veille.json",
     "projection": "entrees dont projets_concernes nomme VSCode2",
     "ne_pas_editer": "Fichier GENERE, en lecture seule : une correction faite ici sera ecrasee a la prochaine propagation. La veille s'ecrit AU HUB, ou elle est lue (section 3 du wiki) et arbitree. Une veille lancee depuis ce depot doit y etre remontee.",
-    "date": "2026-09-23"
+    "date": "2026-09-24"
   },
   "derniere_veille": "2026-09-23T12:00:00",
   "entrees": [
+    {
+      "titre": "microsoft/hve-core — skill PowerPoint python-pptx pilotée par YAML",
+      "url": "https://github.com/microsoft/hve-core/blob/main/.github/skills/experimental/powerpoint/SKILL.md",
+      "type": "skill",
+      "projets_concernes": [
+        "VSCode1",
+        "VSCode2",
+        "VSCode3",
+        "VSCode4"
+      ],
+      "pertinence": "Approche content.yaml + style.yaml pour découpler contenu et mise en forme des decks — alternative structurée à comparer avec nos générateurs pptx_deck maison avant d'écrire le prochain. [instruit le 2026-07-31] Verifie : MIT, 1 307 etoiles, pousse le jour meme — mais la skill PPT vit sous .github/skills/EXPERIMENTAL/powerpoint/, non stabilisee par Microsoft lui-meme. Son apport : content.yaml + style.yaml par slide, un mode dry-run (parse sans build) et un validate_geometry.py (marges, gaps, debordement, degagement du titre). ECARTE pour une migration de VSCode3/VSCode4 : les deux ont un generateur Python fonctionnel et deja arbitre le 2026-07-23, migrer serait une refonte sans point de douleur identifie (R1 : correction minimale > refonte). On perdrait ajuster_police (adaptation dynamique au texte reel, indispensable sur du contenu client variable), les 22 patterns de deck-design-library, et rien ne prouve que leur validateur capte les 7 defauts que pptx-verify chasse par rendu reel. SANS OBJET pour VSCode (COMOP Node.js, pas python-pptx). SEULE PISTE RETENUE : importer l'idee du mode dry-run dans pptx-deck. [ecarte le 2026-09-01 : Ecartee sur arbitrage utilisateur du 2026-09-01, apres 40 jours en statut etudie. La decision etait DEJA prise et tracee le 2026-07-31 (« INSTRUIT, MIGRATION ECARTEE ») : la skill PPT de hve-core vit sous .github/skills/EXPERIMENTAL/, non stabilisee par Microsoft lui-meme, et migrer VSCode3/VSCode4 vers un pipeline YAML serait une refonte sans point de douleur identifie — contre R1, correction minimale > refonte. Seul le STATUT etait reste 'etudie', ce qui faisait annoncer chaque matin comme en attente une trouvaille deja tranchee. C'est exactement la panne que le finding veille:trouvailles-dormantes denonce : une decision prise mais non reinjectee dans l'etat.]",
+      "date": "2026-07-23",
+      "statut": "ecarte"
+    },
+    {
+      "titre": "Dev Browser — l'agent vérifie son travail dans un vrai navigateur (Playwright + sandbox WASM)",
+      "url": "https://github.com/sawyerhood/dev-browser",
+      "type": "skill",
+      "projets_concernes": [
+        "VSCode1",
+        "VSCode2"
+      ],
+      "pertinence": "Skill/plugin qui donne à Claude Code un navigateur piloté (API Playwright + outils pixel/DOM, scripts en sandbox QuickJS WASM sans accès disque/réseau hôte) pour TESTER ce qu'il produit — la vérification réelle des écrans de VSCode1 (questionnaire web) et VSCode2 (FastAPI+HTMX) repose aujourd'hui sur des tests HTTP et des screenshots manuels ; à comparer avant d'écrire un harnais navigateur maison. [instruit le 2026-07-31] Depot identifie avec certitude : SawyerHood/dev-browser, MIT, 6 490 etoiles, dernier push 2026-07-15. Point important souvent mal lu : le sandbox QuickJS WASM restreint le SCRIPT ecrit par l'agent, pas le navigateur — Chrome est un process normal qui atteint localhost sans probleme. SANS OBJET pour VSCode1 : app/scripts/capture-screenshots.js pilote deja un vrai Chrome sur localhost:3000 via Puppeteer ; l'apport se reduirait a la surete du sandbox et a l'API Playwright. OBJET REEL pour VSCode2 : grep confirme AUCUN playwright/selenium/puppeteer dans son dossier tests/ — une app FastAPI verifiee par pytest seul, sans aucun controle de rendu en navigateur. Reserve avant adoption : cela ajoute une dependance Node a un projet Python pur, a isoler en outillage agent plutot qu'en dependance projet. [ecarte le 2026-09-01 : Ecartee sur arbitrage utilisateur du 2026-09-01, apres 34 jours en statut etudie — la plus ancienne attente du dispositif, annoncee chaque matin par le hook. L'instruction du 2026-07-31 avait deja fait le travail : le sandbox QuickJS WASM restreint le SCRIPT ecrit par l'agent, pas le navigateur, et la trouvaille est SANS OBJET pour VSCode1, qui pilote deja un vrai Chrome sur localhost:3000 via app/scripts/capture-screenshots.js. L'objet reel se limitait a VSCode2 (FastAPI+HTMX), sans point de douleur mesure a ce jour. Ecarter n'interdit rien : si la verification en navigateur devient un besoin reel sur VSCode2, elle se rouvre par un arbitrage neuf, sur un besoin constate plutot que sur une possibilite.]",
+      "date": "2026-07-29",
+      "statut": "ecarte"
+    },
+    {
+      "titre": "educlopez/ui-craft — skill de design engineering (anti-slop, heuristiques Nielsen + lois de design, accessibilité APCA) pour agents IA",
+      "url": "https://github.com/educlopez/ui-craft",
+      "type": "skill",
+      "projets_concernes": [
+        "VSCode1",
+        "VSCode2"
+      ],
+      "pertinence": "Vérifié à la source (API GitHub) : 317 étoiles, licence MIT, dernier push le 2026-09-03 (4 jours avant ce cycle) — vivant. 25 commandes slash organisées en 4 « rungs » + 2 agents de revue + serveur MCP, stack-agnostique (Tailwind, CSS Modules, styled-components, vanilla CSS, SFC Vue/Svelte/Astro). Couvre 43 règles anti-slop (gradients violet-cyan, glassmorphisme, cartes identiques, animations bounce), les 10 heuristiques de Nielsen + 6 lois de design (Fitts, Hick, Doherty, Cleveland-McGill, Miller, Tesler) scorées 1-5, et l'accessibilité (clavier, contraste APCA, ARIA, cibles tactiles, prefers-reduced-motion) — score composite 0-100 gâtable en CI. Confronté à l'état réel plutôt que supposé : VSCode1 (Express + HTML server-rendu, package.json vérifié — aucun React/Vue/Tailwind) et VSCode2 (FastAPI + Jinja2/HTMX, 43 templates .html vérifiés) sont les deux seules apps web de la flotte, et aucune n'a d'outillage de revue design/accessibilité — contrairement au volet PPT qui a deck-design-library + pptx-verify. Manque réel, pas une réinvention. Piste d'essai encadré plutôt qu'adoption directe : VSCode2 est le moins couvert (FastAPI+HTMX pur, aucun test de rendu visuel identifié dans tests/), à évaluer en premier si l'utilisateur arbitre un essai. [ADOPTE 2026-09-08, mandat utilisateur (« lance les actions pour les 2 trouvailles de veille ») : greffe en sous-ensemble reduit sur les DEUX cibles — skill revue-ui-web + sous-agents read-only design-reviewer/a11y-auditor, adaptes au canal de chacune (VSCode2 Jinja2/HTMX commit e516fe3, VSCode1 Express/HTML commit a16b17b). Rien d executable repris (MCP, scanner Node, commandes de build ecartes) ; les 43 regles transcrites depuis rules.mjs LU. Valide par un PASSAGE REEL sur VSCode1/resultats.html (serveur lance, page capturee via puppeteer-core du depot) qui a prouve par execution le defaut clavier des accordeons que la lecture seule laissait en doute — score 70/100 grade C (juge) — et a fait corriger 3 manques de la skill elle-meme (commit a280ee8). Correctifs d accessibilite NON appliques : R4, run distinct.]",
+      "date": "2026-09-07",
+      "statut": "adopte"
+    },
     {
       "titre": "BMAD-METHOD — v7 ANNONCEE (uv standard) — PAS sortie : derniere release v6.10.0",
       "url": "https://github.com/bmad-code-org/BMAD-METHOD/releases",
