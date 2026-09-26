@@ -287,6 +287,16 @@ def test_autosave_axe_perime_resoumis_reste_fixe(client) -> None:
         db.close()
 
 
+def test_coerce_niveau_rescale_les_notes_sur_5() -> None:
+    # « 2/5 » = modéré sur 5 → 1 sur l'échelle 1-3 (divergence YUI-2 : score03
+    # rescalait, niveau clampait). defaut non nul pour discriminer du repli.
+    assert synthese_ai._coerce_niveau("2/5", defaut=3) == 1
+    assert synthese_ai._coerce_niveau("4/5", defaut=3) == 2
+    assert synthese_ai._coerce_niveau("5/5", defaut=1) == 3
+    assert synthese_ai._coerce_niveau("3/3", defaut=1) == 3
+    assert synthese_ai._coerce_niveau("2", defaut=3) == 2
+
+
 def test_autosave_refuses_a_row_of_another_mission(client) -> None:
     # Onglet périmé : la page de la mission B poste l'id d'un KPI / risque de A.
     # La ligne de A ne doit jamais être modifiée (salle code-review-crew, VEX-1).

@@ -1081,13 +1081,19 @@ def _coerce_niveau(value, defaut: int = 2) -> int:
         n = int(round(value))
     elif isinstance(value, str):
         v = value.strip().casefold()
-        m = re.match(r"(\d+(?:[.,]\d+)?)", v)
+        m = re.match(r"(\d+(?:[.,]\d+)?)\s*(?:/\s*(\d+))?", v)
         if not m:
             for niveau, mots in _NIVEAU_MOTS:
                 if any(mot in v for mot in mots):
                     return niveau
             return defaut
-        n = int(round(float(m.group(1).replace(",", "."))))
+        n = float(m.group(1).replace(",", "."))
+        # Même mise à l'échelle qu'un « x/y » de _coerce_score03 : « 2/5 » vaut
+        # 1 (2·3/5 arrondi), pas 2 — divergence relevée par la salle (YUI-2).
+        sur = int(m.group(2)) if m.group(2) else 3
+        if sur and sur != 3:
+            n = n * 3 / sur
+        n = int(round(n))
     elif isinstance(value, dict):
         inner = _first_key(value, "niveau", "valeur", "value", "score")
         if inner is None:
