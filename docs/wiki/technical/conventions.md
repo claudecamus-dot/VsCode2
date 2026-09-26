@@ -63,3 +63,8 @@ agents: [onboarder, claude]
   — `CONFIRMÉ` · onboarder · 2026-06-30 · `app/*.py`
 - Fonctions helpers privées préfixées par `_`
   — `CONFIRMÉ` · onboarder · 2026-06-30 · `app/*.py`
+
+## Taille des changements
+
+- **Un commit = un sujet.** Au-delà de **400 lignes changées**, ou dès qu'un changement mêle plusieurs sujets non liés, le découper avant revue.
+  — `CONFIRMÉ` · adoption veille · 2026-09-26 · [Google eng-practices, *Small CLs*](https://google.github.io/eng-practices/review/developer/small-cls.html)
