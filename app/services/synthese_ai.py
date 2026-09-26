@@ -1091,9 +1091,14 @@ def _coerce_niveau(value, defaut: int = 2) -> int:
         # Même mise à l'échelle qu'un « x/y » de _coerce_score03 : « 2/5 » vaut
         # 1 (2·3/5 arrondi), pas 2 — divergence relevée par la salle (YUI-2).
         sur = int(m.group(2)) if m.group(2) else 3
+        brut = n
         if sur and sur != 3:
             n = n * 3 / sur
         n = int(round(n))
+        # « 1/6 » vaut 0.5, arrondi bancaire à 0 : un numérateur positif ne
+        # tombe pas sous le plancher 1 (sinon `defaut`, possiblement 3).
+        if brut > 0:
+            n = max(1, n)
     elif isinstance(value, dict):
         inner = _first_key(value, "niveau", "valeur", "value", "score")
         if inner is None:
@@ -1106,6 +1111,10 @@ def _coerce_niveau(value, defaut: int = 2) -> int:
     if n <= 0:
         return defaut
     return min(3, n)
+
+
+# Nom public (même convention que `snap_axe`) : synthese_ecriture l'importe.
+coerce_niveau = _coerce_niveau
 
 
 def _coerce_controle_type(value) -> str:

@@ -34,7 +34,7 @@ from ..models import (
     Recommendation,
     RecommendationAxis,
 )
-from .synthese_ai import _coerce_niveau, _coerce_score03
+from .synthese_ai import _coerce_score03, coerce_niveau
 
 SWOT_FIELDS = ("forces", "faiblesses", "opportunites", "menaces")
 EXEC_SUMMARY_FIELDS = ("headline", "points", "key_message")
@@ -176,8 +176,8 @@ def apply_risks_result(mission: Mission, risks: list[dict]) -> None:
                 position=len(items), risque=risque,
                 # Même coercion bornée que la génération (0, « haut », 7… -> 1-3) :
                 # un appelant hors IA (import, script) ne doit pas écrire hors échelle.
-                gravite=_coerce_niveau(r.get("gravite")),
-                probabilite=_coerce_niveau(r.get("probabilite")),
+                gravite=coerce_niveau(r.get("gravite")),
+                probabilite=coerce_niveau(r.get("probabilite")),
                 controle=(r.get("controle") or "").strip(),
                 controle_type=r.get("controle_type") or "propose",
             ))

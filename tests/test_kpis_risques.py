@@ -297,6 +297,14 @@ def test_coerce_niveau_rescale_les_notes_sur_5() -> None:
     assert synthese_ai._coerce_niveau("2", defaut=3) == 2
 
 
+def test_coerce_niveau_numerateur_positif_ne_tombe_pas_au_defaut() -> None:
+    # « 1/6 » = 0.5 après rescale, arrondi bancaire à 0 : avant, repli sur
+    # `defaut` (3 ici, discriminant). Plancher 1 dès que le numérateur est > 0.
+    assert synthese_ai.coerce_niveau("1/6", defaut=3) == 1
+    assert synthese_ai.coerce_niveau("0/5", defaut=3) == 3
+    assert synthese_ai.coerce_niveau("1/5", defaut=3) == 1
+
+
 def test_autosave_refuses_a_row_of_another_mission(client) -> None:
     # Onglet périmé : la page de la mission B poste l'id d'un KPI / risque de A.
     # La ligne de A ne doit jamais être modifiée (salle code-review-crew, VEX-1).
