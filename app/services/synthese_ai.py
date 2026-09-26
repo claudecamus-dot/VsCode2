@@ -10,6 +10,7 @@ un message lisible.
 """
 from __future__ import annotations
 
+import logging
 import re
 
 from .ai_common import (
@@ -19,6 +20,8 @@ from .ai_common import (
     is_configured,
     ollama_chunk_max_words,
 )
+
+logger = logging.getLogger(__name__)
 
 MAX_TOKENS = 2000
 
@@ -936,7 +939,11 @@ def _snap_axe(value: str, axe_titres: list[str]) -> str:
     """Ramène l'axe cité par le modèle à l'intitulé EXACT d'un axe de la mission :
     égalité (casse/espaces) d'abord ; sinon inclusion de l'un dans l'autre, en
     retenant la correspondance la PLUS LONGUE (pas la première de la liste), et
-    jamais sur un terme de moins de `_SNAP_MIN` caractères ; sinon tel quel."""
+    jamais sur un terme de moins de `_SNAP_MIN` caractères ; sinon tel quel.
+
+    Départage à longueur commune égale : le plus petit écart de longueur entre
+    l'intitulé et la valeur, puis, à égalité parfaite, le PREMIER de la liste
+    (ordre stable). Un warning nomme la valeur et les candidats ex aequo."""
     v = (value or "").strip()
     if not v or not axe_titres:
         return v
@@ -951,7 +958,14 @@ def _snap_axe(value: str, axe_titres: list[str]) -> str:
         if len(commun) >= _SNAP_MIN:
             meilleurs.append((len(commun), -abs(len(tl) - len(low)), t))
     if meilleurs:
-        return max(meilleurs, key=lambda m: (m[0], m[1]))[2]
+        choix = max(meilleurs, key=lambda m: (m[0], m[1]))
+        ex_aequo = [m[2] for m in meilleurs if m[0] == choix[0]]
+        if len(ex_aequo) >= 2:
+            logger.warning(
+                "snap_axe : %r rapproché de %r parmi des candidats ex aequo %r",
+                v, choix[2], ex_aequo,
+            )
+        return choix[2]
     return v
 
 

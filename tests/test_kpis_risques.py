@@ -499,3 +499,18 @@ def test_autosave_kpi_axe_hors_axes_actuels_resoumis_ok_autre_refuse(client) -> 
     assert client.post(f"/kpis/{kid}/field", data={"mission_id": mid, "field": "axe", "value": "Gouvernance data"}).status_code == 200
     assert client.post(f"/kpis/{kid}/field", data={"mission_id": mid, "field": "axe", "value": "Autre axe"}).status_code == 400
     assert client.post(f"/kpis/{kid}/field", data={"mission_id": mid, "field": "axe", "value": "Gouvernance renommée"}).status_code == 200
+
+
+@pytest.mark.parametrize(
+    ("titres", "attendu"),
+    [
+        (["Data Alpha", "Data Beta"], "Data Beta"),  # l'écart de longueur départage
+        (["Data Nord", "Data Ouest"], "Data Nord"),  # égalité parfaite : premier de la liste
+    ],
+)
+def test_snap_axe_ex_aequo_depart_documente_et_signale(caplog, titres, attendu) -> None:
+    with caplog.at_level("WARNING", logger="app.services.synthese_ai"):
+        resultat = synthese_ai.snap_axe("Data", titres)
+    assert resultat == attendu
+    avertis = [r.getMessage() for r in caplog.records if r.levelname == "WARNING"]
+    assert any(all(t in m for t in titres) and "Data" in m for m in avertis), avertis
