@@ -940,9 +940,9 @@ def _snap_axe(value: str, axe_titres: list[str]) -> str:
     v = (value or "").strip()
     if not v or not axe_titres:
         return v
-    low = v.casefold()
+    low = " ".join(v.split()).casefold()  # espaces internes normalisés (BOUNDARY-2)
     for t in axe_titres:
-        if t.strip().casefold() == low:
+        if " ".join(t.split()).casefold() == low:
             return t
     meilleurs = []
     for t in axe_titres:
@@ -953,6 +953,11 @@ def _snap_axe(value: str, axe_titres: list[str]) -> str:
     if meilleurs:
         return max(meilleurs, key=lambda m: (m[0], m[1]))[2]
     return v
+
+
+# Nom public du rapprochement — les routeurs n'importent pas de nom préfixé `_`
+# (convention du dépôt, relevée en contre-revue du correctif BOUNDARY-2).
+snap_axe = _snap_axe
 
 
 KPIS_SYSTEM = (

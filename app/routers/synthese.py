@@ -38,6 +38,7 @@ from ..services.synthese_ai import (
     ai_precondition_error,
     generate_recommendations,
     is_configured,
+    snap_axe,
 )
 from ..services.synthese_ecriture import (
     EXEC_SUMMARY_FIELDS,
@@ -611,9 +612,16 @@ def save_kpi_field(
     if field == "axe":
         # Comme controle_type : seuls un axe réel de la mission, « aucun » (vide) ou
         # la valeur déjà portée (option « hors axes actuels » de l'écran) passent.
-        permis = {a.title for a in k.mission.recommendation_axes} | {"", k.axe or ""}
-        if value not in permis:
-            raise HTTPException(status_code=400, detail="Axe inconnu pour cette mission.")
+        # La valeur déjà portée s'accepte à l'IDENTITÉ, AVANT tout rapprochement :
+        # resoumettre un axe périmé ne doit jamais snapper vers un autre axe réel
+        # (contre-revue du correctif). Sinon, rapprochement TOLÉRANT (casse,
+        # espaces) via snap_axe : après une régénération des axes,
+        # « gouvernance  data » retrouve « Gouvernance data » au lieu d'un 400
+        # ou d'un lien perdu (salle code-review-crew, BOUNDARY-2).
+        if value not in ("", k.axe or ""):
+            value = snap_axe(value, [a.title for a in k.mission.recommendation_axes])
+            if value not in {a.title for a in k.mission.recommendation_axes}:
+                raise HTTPException(status_code=400, detail="Axe inconnu pour cette mission.")
     setattr(k, field, value)
     db.commit()
     hint = ""

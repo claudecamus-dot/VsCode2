@@ -246,6 +246,47 @@ def test_autosave_rejects_bad_input(client, url_tpl, data, code) -> None:
     assert client.post(url_tpl.format(k=kid, r=rid), data=data).status_code == code
 
 
+def test_autosave_axe_tolere_casse_et_espaces(client) -> None:
+    # Après une régénération des axes, l'écran peut poster une variante de casse
+    # ou d'espaces internes de l'intitulé réel : rapprochée via _snap_axe, jamais
+    # un 400 ni un lien perdu (salle code-review-crew, BOUNDARY-2).
+    mid = _mission("Axe tolérant")
+    kid, _ = _ligne_kpi_et_risque(mid)
+    ok = client.post(f"/kpis/{kid}/field",
+                     data={"mission_id": mid, "field": "axe", "value": "gouvernance  DATA"})
+    assert ok.status_code == 200
+    db = SessionLocal()
+    try:
+        assert db.get(MissionKpi, kid).axe == "Gouvernance data"  # intitulé EXACT
+    finally:
+        db.close()
+    refus = client.post(f"/kpis/{kid}/field",
+                        data={"mission_id": mid, "field": "axe", "value": "Axe fantôme"})
+    assert refus.status_code == 400
+
+
+def test_autosave_axe_perime_resoumis_reste_fixe(client) -> None:
+    # Axe périmé (« Data », inclus dans l'axe réel « Gouvernance data ») : la
+    # resoumission à l'identique s'accepte SANS rapprochement — jamais snappée
+    # en silence vers un autre axe réel (contre-revue du correctif BOUNDARY-2).
+    mid = _mission("Axe périmé")
+    kid, _ = _ligne_kpi_et_risque(mid)
+    db = SessionLocal()
+    try:
+        db.get(MissionKpi, kid).axe = "Data"
+        db.commit()
+    finally:
+        db.close()
+    ok = client.post(f"/kpis/{kid}/field",
+                     data={"mission_id": mid, "field": "axe", "value": "Data"})
+    assert ok.status_code == 200
+    db = SessionLocal()
+    try:
+        assert db.get(MissionKpi, kid).axe == "Data"  # inchangé, pas « Gouvernance data »
+    finally:
+        db.close()
+
+
 def test_autosave_refuses_a_row_of_another_mission(client) -> None:
     # Onglet périmé : la page de la mission B poste l'id d'un KPI / risque de A.
     # La ligne de A ne doit jamais être modifiée (salle code-review-crew, VEX-1).
