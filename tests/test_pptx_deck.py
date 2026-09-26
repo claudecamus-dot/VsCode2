@@ -224,3 +224,17 @@ def test_trouver_cadre_layout_renvoie_none_si_aucun_preset_ne_matche() -> None:
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     add_forme(slide, "ellipse", 0, 0, 1, 1)
     assert trouver_cadre_layout(slide.shapes, "round2DiagRect") is None
+
+
+def test_mot_plus_long_que_la_ligne_compte_sur_plusieurs_lignes_et_se_tronque() -> None:
+    """Regression : un mot sans espace plus long que la largeur comptait pour UNE
+    ligne (garde `and cur` a cur == 0), donc tronquer_a_lignes le laissait intact
+    et verifier_debordements_texte ne voyait pas le debordement."""
+    from app.services.pptx_deck import estimer_lignes, tronquer_a_lignes
+
+    # 3 in a 12 pt -> cpl = int(3 * 11 * 10.5 / 12) = 28 ; ceil(300 / 28) = 11
+    assert estimer_lignes("A" * 300, 3.0, 12) == 11
+    assert estimer_lignes("ok " + "A" * 60, 3.0, 12) == 4  # "ok" puis 28+28+4
+    coupe = tronquer_a_lignes("A" * 300, 3.0, 12, 2)
+    assert coupe.endswith("…") and len(coupe) < 300
+    assert estimer_lignes(coupe, 3.0, 12) <= 2

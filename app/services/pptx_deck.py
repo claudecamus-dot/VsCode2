@@ -527,6 +527,9 @@ def _compte_lignes(texte, cpl):
                 cur = len(mot)
             else:
                 cur += ajout
+            while cpl > 0 and cur > cpl:  # mot plus long que la ligne : coupure forcee
+                n += 1
+                cur -= cpl
         total += n
     return total
 
