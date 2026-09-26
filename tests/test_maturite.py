@@ -190,9 +190,10 @@ def _ligne(mid: int) -> int:
 
 
 def test_autosave_score_and_justification(client) -> None:
-    lid = _ligne(_mission())
-    assert client.post(f"/maturites/{lid}/field", data={"field": "score", "value": "3"}).status_code == 200
-    rep = client.post(f"/maturites/{lid}/field", data={"field": "justification", "value": "Piloté"})
+    mid = _mission()
+    lid = _ligne(mid)
+    assert client.post(f"/maturites/{lid}/field", data={"mission_id": mid, "field": "score", "value": "3"}).status_code == 200
+    rep = client.post(f"/maturites/{lid}/field", data={"mission_id": mid, "field": "justification", "value": "Piloté"})
     assert rep.status_code == 200 and "fit-hint-mat-" in rep.text
     db = SessionLocal()
     try:
@@ -210,12 +211,13 @@ def test_autosave_score_and_justification(client) -> None:
     ({"field": "mission_id", "value": "1"}, 400),
 ])
 def test_autosave_rejects_bad_input(client, data, code) -> None:
-    lid = _ligne(_mission())
-    assert client.post(f"/maturites/{lid}/field", data=data).status_code == code
+    mid = _mission()
+    lid = _ligne(mid)
+    assert client.post(f"/maturites/{lid}/field", data={"mission_id": mid, **data}).status_code == code
 
 
 def test_autosave_unknown_row_404(client) -> None:
-    assert client.post("/maturites/999999/field", data={"field": "score", "value": "1"}).status_code == 404
+    assert client.post("/maturites/999999/field", data={"mission_id": 1, "field": "score", "value": "1"}).status_code == 404
 
 
 def test_apercu_tab_scale_checkbox_and_sommaire(client) -> None:

@@ -80,11 +80,19 @@ def _get_mission(db: Session, mission_id: int) -> Mission:
     return mission
 
 
-def _get_difficulty(db: Session, difficulty_id: int) -> MissionDifficulty:
-    d = db.get(MissionDifficulty, difficulty_id)
-    if d is None:
-        raise HTTPException(status_code=404, detail="Difficulté introuvable.")
-    return d
+def _ligne_de_la_mission(db: Session, modele, ligne_id: int, mission_id: int, libelle: str):
+    """Charge une ligne d'autosave (difficulté, KPI, risque, pilier) en exigeant
+    qu'elle appartienne à la mission que l'écran croit éditer (champ `mission_id`
+    posté par la page). Un onglet périmé qui poste un id recyclé n'écrit donc
+    jamais dans la ligne d'une autre mission : 404, rien n'est modifié."""
+    ligne = db.get(modele, ligne_id)
+    if ligne is None or ligne.mission_id != mission_id:
+        raise HTTPException(status_code=404, detail=f"{libelle} introuvable pour cette mission.")
+    return ligne
+
+
+def _get_difficulty(db: Session, difficulty_id: int, mission_id: int) -> MissionDifficulty:
+    return _ligne_de_la_mission(db, MissionDifficulty, difficulty_id, mission_id, "Difficulté")
 
 
 def _get_recommendation(db: Session, recommendation_id: int) -> Recommendation:
@@ -544,10 +552,11 @@ def save_swot_field(
 @router.post("/difficultes/{difficulty_id}/field")
 def save_difficulty_field(
     difficulty_id: int,
+    mission_id: int = Form(...),
     value: str = Form(""),
     db: Session = Depends(get_session),
 ):
-    d = _get_difficulty(db, difficulty_id)
+    d = _get_difficulty(db, difficulty_id, mission_id)
     d.label = value
     db.commit()
     hint = _hint_span(f"fit-hint-diff-{difficulty_id}", "difficulty_label", value)
@@ -557,13 +566,14 @@ def save_difficulty_field(
 @router.post("/difficultes/{difficulty_id}/verbatim")
 def set_difficulty_verbatim(
     difficulty_id: int,
+    mission_id: int = Form(...),
     verbatim_id: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Lie (ou délie) un verbatim à une difficulté — l'encadré citation de la slide.
     verbatim_id vide = aucun ; sinon validé contre les verbatims de la mission de la
     difficulté (jamais un verbatim d'une autre mission)."""
-    d = _get_difficulty(db, difficulty_id)
+    d = _get_difficulty(db, difficulty_id, mission_id)
     vid = None
     if verbatim_id.strip():
         try:
@@ -590,15 +600,14 @@ RISK_LEVEL_FIELDS = ("gravite", "probabilite")
 @router.post("/kpis/{kpi_id}/field")
 def save_kpi_field(
     kpi_id: int,
+    mission_id: int = Form(...),
     field: str = Form(...),
     value: str = Form(""),
     db: Session = Depends(get_session),
 ):
     if field not in KPI_FIELDS:
         raise HTTPException(status_code=400, detail="Champ inconnu.")
-    k = db.get(MissionKpi, kpi_id)
-    if k is None:
-        raise HTTPException(status_code=404, detail="Indicateur introuvable.")
+    k = _ligne_de_la_mission(db, MissionKpi, kpi_id, mission_id, "Indicateur")
     if field == "axe":
         # Comme controle_type : seuls un axe réel de la mission, « aucun » (vide) ou
         # la valeur déjà portée (option « hors axes actuels » de l'écran) passent.
@@ -616,13 +625,12 @@ def save_kpi_field(
 @router.post("/risques/{risk_id}/field")
 def save_risk_field(
     risk_id: int,
+    mission_id: int = Form(...),
     field: str = Form(...),
     value: str = Form(""),
     db: Session = Depends(get_session),
 ):
-    r = db.get(MissionRisk, risk_id)
-    if r is None:
-        raise HTTPException(status_code=404, detail="Risque introuvable.")
+    r = _ligne_de_la_mission(db, MissionRisk, risk_id, mission_id, "Risque")
     hint = ""
     if field in RISK_TEXT_FIELDS:
         setattr(r, field, value)
@@ -652,15 +660,14 @@ def save_risk_field(
 @router.post("/maturites/{maturite_id}/field")
 def save_maturite_field(
     maturite_id: int,
+    mission_id: int = Form(...),
     field: str = Form(...),
     value: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Autosave d'une ligne de la grille de maturité (incr.10 palier 3) : score
     0-3 validé (400 sinon), justification libre."""
-    m = db.get(MissionMaturite, maturite_id)
-    if m is None:
-        raise HTTPException(status_code=404, detail="Pilier introuvable.")
+    m = _ligne_de_la_mission(db, MissionMaturite, maturite_id, mission_id, "Pilier")
     hint = ""
     if field == "score":
         try:

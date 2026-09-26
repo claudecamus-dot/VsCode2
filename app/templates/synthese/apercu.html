@@ -183,7 +183,9 @@
 {{ fit_hint(hint_id, fit_key or field_name, value) }}
 {% endmacro %}
 
-<div class="deck-editor" data-tabs>
+{# mission_id hérité par TOUS les autosaves htmx de l'éditeur (hx-vals se fusionne
+   avec celui de chaque champ) : la route refuse une ligne d'une autre mission. #}
+<div class="deck-editor" data-tabs hx-vals='{"mission_id": {{ mission.id }}}'>
   <div class="tab-strip">
     <button type="button" class="tab" data-tab="title">Titre</button>
     <button type="button" class="tab" data-tab="sommaire">Sommaire</button>

@@ -213,13 +213,14 @@ def _ligne_kpi_et_risque(mid: int) -> tuple[int, int]:
 
 
 def test_autosave_kpi_and_risk_fields(client) -> None:
-    kid, rid = _ligne_kpi_et_risque(_mission())
-    assert client.post(f"/kpis/{kid}/field", data={"field": "cible", "value": "90 %"}).status_code == 200
-    assert client.post(f"/kpis/{kid}/field", data={"field": "axe", "value": "Gouvernance data"}).status_code == 200
-    rep = client.post(f"/risques/{rid}/field", data={"field": "controle", "value": "Revue"})
+    mid = _mission()
+    kid, rid = _ligne_kpi_et_risque(mid)
+    assert client.post(f"/kpis/{kid}/field", data={"mission_id": mid, "field": "cible", "value": "90 %"}).status_code == 200
+    assert client.post(f"/kpis/{kid}/field", data={"mission_id": mid, "field": "axe", "value": "Gouvernance data"}).status_code == 200
+    rep = client.post(f"/risques/{rid}/field", data={"mission_id": mid, "field": "controle", "value": "Revue"})
     assert "fit-hint-risk-" in rep.text
     for f, v in (("gravite", "3"), ("probabilite", "1"), ("controle_type", "existant")):
-        assert client.post(f"/risques/{rid}/field", data={"field": f, "value": v}).status_code == 200
+        assert client.post(f"/risques/{rid}/field", data={"mission_id": mid, "field": f, "value": v}).status_code == 200
     db = SessionLocal()
     try:
         k, r = db.get(MissionKpi, kid), db.get(MissionRisk, rid)
@@ -239,8 +240,28 @@ def test_autosave_kpi_and_risk_fields(client) -> None:
     ("/risques/999999/field", {"field": "risque", "value": "x"}, 404),
 ])
 def test_autosave_rejects_bad_input(client, url_tpl, data, code) -> None:
-    kid, rid = _ligne_kpi_et_risque(_mission())
+    mid = _mission()
+    kid, rid = _ligne_kpi_et_risque(mid)
+    data = {"mission_id": mid, **data}
     assert client.post(url_tpl.format(k=kid, r=rid), data=data).status_code == code
+
+
+def test_autosave_refuses_a_row_of_another_mission(client) -> None:
+    # Onglet périmé : la page de la mission B poste l'id d'un KPI / risque de A.
+    # La ligne de A ne doit jamais être modifiée (salle code-review-crew, VEX-1).
+    mid_a, mid_b = _mission("Mission A"), _mission("Mission B")
+    kid, rid = _ligne_kpi_et_risque(mid_a)
+    for url, field in ((f"/kpis/{kid}/field", "libelle"), (f"/risques/{rid}/field", "risque")):
+        refus = client.post(url, data={"mission_id": mid_b, "field": field, "value": "écrasé"})
+        assert refus.status_code == 404
+    db = SessionLocal()
+    try:
+        assert db.get(MissionKpi, kid).libelle == "K"
+        assert db.get(MissionRisk, rid).risque != "écrasé"
+    finally:
+        db.close()
+    ok = client.post(f"/kpis/{kid}/field", data={"mission_id": mid_a, "field": "libelle", "value": "K2"})
+    assert ok.status_code == 200
 
 
 def test_apercu_shows_tabs_checkboxes_and_sommaire(client) -> None:
@@ -396,10 +417,11 @@ def test_deck_ten_plus_long_risks_each_keeps_its_text() -> None:
 
 
 def test_autosave_kpi_axe_validated_against_mission_axes(client) -> None:
-    kid, _rid = _ligne_kpi_et_risque(_mission())
-    assert client.post(f"/kpis/{kid}/field", data={"field": "axe", "value": "Axe fantôme"}).status_code == 400
-    assert client.post(f"/kpis/{kid}/field", data={"field": "axe", "value": "Gouvernance data"}).status_code == 200
-    assert client.post(f"/kpis/{kid}/field", data={"field": "axe", "value": ""}).status_code == 200
+    mid = _mission()
+    kid, _rid = _ligne_kpi_et_risque(mid)
+    assert client.post(f"/kpis/{kid}/field", data={"mission_id": mid, "field": "axe", "value": "Axe fantôme"}).status_code == 400
+    assert client.post(f"/kpis/{kid}/field", data={"mission_id": mid, "field": "axe", "value": "Gouvernance data"}).status_code == 200
+    assert client.post(f"/kpis/{kid}/field", data={"mission_id": mid, "field": "axe", "value": ""}).status_code == 200
 
 
 def test_autosave_kpi_axe_hors_axes_actuels_resoumis_ok_autre_refuse(client) -> None:
@@ -408,13 +430,13 @@ def test_autosave_kpi_axe_hors_axes_actuels_resoumis_ok_autre_refuse(client) -> 
     valeur passe (200), toute autre valeur hors axes est refusée (400)."""
     mid = _mission()
     kid, _rid = _ligne_kpi_et_risque(mid)
-    assert client.post(f"/kpis/{kid}/field", data={"field": "axe", "value": "Gouvernance data"}).status_code == 200
+    assert client.post(f"/kpis/{kid}/field", data={"mission_id": mid, "field": "axe", "value": "Gouvernance data"}).status_code == 200
     db = SessionLocal()
     try:
         db.get(Mission, mid).recommendation_axes[0].title = "Gouvernance renommée"
         db.commit()
     finally:
         db.close()
-    assert client.post(f"/kpis/{kid}/field", data={"field": "axe", "value": "Gouvernance data"}).status_code == 200
-    assert client.post(f"/kpis/{kid}/field", data={"field": "axe", "value": "Autre axe"}).status_code == 400
-    assert client.post(f"/kpis/{kid}/field", data={"field": "axe", "value": "Gouvernance renommée"}).status_code == 200
+    assert client.post(f"/kpis/{kid}/field", data={"mission_id": mid, "field": "axe", "value": "Gouvernance data"}).status_code == 200
+    assert client.post(f"/kpis/{kid}/field", data={"mission_id": mid, "field": "axe", "value": "Autre axe"}).status_code == 400
+    assert client.post(f"/kpis/{kid}/field", data={"mission_id": mid, "field": "axe", "value": "Gouvernance renommée"}).status_code == 200

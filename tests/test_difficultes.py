@@ -168,7 +168,7 @@ def test_difficulty_label_autosave(
     did = db.scalars(select(MissionDifficulty.id).where(MissionDifficulty.mission_id == mid)).first()
     db.close()
 
-    resp = client.post(f"/difficultes/{did}/field", data={"value": "Difficulté corrigée"})
+    resp = client.post(f"/difficultes/{did}/field", data={"mission_id": mid, "value": "Difficulté corrigée"})
     assert resp.status_code == 200
     db = SessionLocal()
     try:
@@ -178,7 +178,7 @@ def test_difficulty_label_autosave(
 
 
 def test_difficulty_field_unknown_404(client: TestClient) -> None:
-    resp = client.post("/difficultes/999999/field", data={"value": "x"})
+    resp = client.post("/difficultes/999999/field", data={"mission_id": 1, "value": "x"})
     assert resp.status_code == 404
 
 
@@ -205,12 +205,12 @@ def test_difficulty_verbatim_link_and_reject_foreign(client: TestClient) -> None
         d = MissionDifficulty(mission_id=m.id, position=0, label="Difficulté")
         db.add(d)
         db.flush()
-        vid, did = v.id, d.id
+        vid, did, mid = v.id, d.id, m.id
         db.commit()
     finally:
         db.close()
 
-    resp = client.post(f"/difficultes/{did}/verbatim", data={"verbatim_id": str(vid)})
+    resp = client.post(f"/difficultes/{did}/verbatim", data={"mission_id": mid, "verbatim_id": str(vid)})
     assert resp.status_code == 200
     db = SessionLocal()
     try:
@@ -219,11 +219,11 @@ def test_difficulty_verbatim_link_and_reject_foreign(client: TestClient) -> None
         db.close()
 
     # Verbatim inexistant / d'une autre mission -> 400 (jamais lier un verbatim étranger).
-    resp = client.post(f"/difficultes/{did}/verbatim", data={"verbatim_id": "999999"})
+    resp = client.post(f"/difficultes/{did}/verbatim", data={"mission_id": mid, "verbatim_id": "999999"})
     assert resp.status_code == 400
 
     # Délier (vide) -> None.
-    resp = client.post(f"/difficultes/{did}/verbatim", data={"verbatim_id": ""})
+    resp = client.post(f"/difficultes/{did}/verbatim", data={"mission_id": mid, "verbatim_id": ""})
     assert resp.status_code == 200
     db = SessionLocal()
     try:
