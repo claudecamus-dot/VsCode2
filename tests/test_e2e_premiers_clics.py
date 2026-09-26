@@ -371,6 +371,51 @@ def test_grille_maturite_autosave_et_generation(
         assert _python_sur_base(base_db, _LIRE_MATURITE, lid) == repr((3, "Pratiques pilotées"))
 
 
+def test_apercu_risques_et_maturite_suit_la_saisie_sans_rechargement(
+    tmp_path_factory: pytest.TempPathFactory, nav: Navigateur
+) -> None:
+    """DANA-1 : l'aperçu des onglets Risques et Maturité suivait la saisie
+    seulement après rechargement (note « rechargez »), alors que Indicateurs
+    était en direct. Changer une gravité doit déplacer la bulle R1 et le texte
+    doit suivre dans le registre ; changer un score doit changer la jauge et le
+    libellé « n · Niveau » — dans la MÊME page (marqueur window survivant)."""
+    dossier = tmp_path_factory.mktemp("e2e-live")
+    base_db = dossier / "e2e.db"
+    seed = _SEED_MATURITE.replace(
+        "db.commit()",
+        "m.risks = [MissionRisk(position=0, risque='Risque initial', gravite=2, probabilite=2)]\ndb.commit()",
+    ).replace("print(m.id, m.maturites[0].id)", "print(m.id, m.maturites[0].id, m.risks[0].id)"
+              ).replace("MissionMaturite, Theme", "MissionMaturite, MissionRisk, Theme")
+    mid, lid, rid = _python_sur_base(base_db, seed).split()
+    bulle = ("(function(){var s=document.querySelector('[data-panel=risques] .risk-cell .risk-pill');"
+             " var c=s&&s.parentElement; return c?(c.dataset.g||'')+'/'+(c.dataset.p||'')+':'"
+             "+s.textContent:'aucune';})()")
+    jauge = ("(function(){var j=document.querySelector('[data-panel=maturite] .maturite-table .maturite-jauge');"
+             " return j.querySelectorAll('i.on').length+'|'+j.parentElement.querySelector('.maturite-lib')"
+             ".textContent.trim();})()")
+    with serveur_uvicorn(dossier, OLLAMA_HOST="http://127.0.0.1:9") as base:
+        nav.naviguer(f"{base}/missions/{mid}/synthese/apercu")
+        _sans_erreur(nav, "Ouvrir l'aperçu")
+        nav.evaluer("window.__meme_page = 1")
+        assert "rechargez" not in nav.texte()
+
+        nav.cliquer(".tab[data-tab='risques']")
+        assert nav.evaluer(bulle) == "2/2:R1"
+        nav.remplir(f"select[hx-post='/risques/{rid}/field'][hx-vals*='gravite']", "3")
+        assert nav.evaluer(bulle) == "3/2:R1"
+        nav.remplir(f"textarea[hx-post='/risques/{rid}/field'][hx-vals*='risque']", "Risque modifié")
+        assert "Risque modifié" in nav.evaluer("document.getElementById('risk-register').textContent")
+        _attendre_texte(nav, f"#risk-saved-{rid}", "enregistré")
+
+        nav.cliquer(".tab[data-tab='maturite']")
+        assert nav.evaluer(jauge).startswith("1|1 · ")
+        nav.remplir(f"select[hx-post='/maturites/{lid}/field'][hx-vals*='score']", "3")
+        assert nav.evaluer(jauge) == "3|3 · Maîtrisé"
+        _attendre_texte(nav, f"#mat-saved-{lid}", "enregistré")
+        assert nav.evaluer("window.__meme_page") == 1, "la page a été rechargée"
+        _sans_erreur(nav, "Aperçu en direct")
+
+
 # --------------------------------------------------------------------------- #
 # Deck d'exemple (US5.2) : téléverser, voir le plan extrait, retirer.
 # --------------------------------------------------------------------------- #

@@ -624,18 +624,20 @@
         {% if maturites %}
         <ol class="suivi-list">
           {% for m in maturites %}
-          <li class="suivi-item maturite-item">
+          <li class="suivi-item maturite-item" data-mat-id="{{ m.id }}">
             <div class="suivi-row">
               <strong class="maturite-pilier">{{ m.pilier }}</strong>
               <label class="suivi-inline">Score
                 <select name="value" hx-post="/maturites/{{ m.id }}/field" hx-vals='{"field": "score"}'
-                  hx-trigger="change" hx-target="#mat-saved-{{ m.id }}" hx-swap="innerHTML">
+                  hx-trigger="change" hx-target="#mat-saved-{{ m.id }}" hx-swap="innerHTML"
+                  data-mat-field="score" onchange="i2dLiveMaturite(this)">
                   {% for n, lib in maturite_niveaux.items() %}<option value="{{ n }}" {% if m.score == n %}selected{% endif %}>{{ n }} — {{ lib }}</option>{% endfor %}
                 </select></label>
             </div>
             <label class="synth-field"><span>Justification</span>
               <textarea name="value" rows="2" hx-post="/maturites/{{ m.id }}/field" hx-vals='{"field": "justification"}'
-                hx-trigger="keyup changed delay:700ms, change, blur" hx-target="#mat-saved-{{ m.id }}" hx-swap="innerHTML">{{ m.justification }}</textarea></label>
+                hx-trigger="keyup changed delay:700ms, change, blur" hx-target="#mat-saved-{{ m.id }}" hx-swap="innerHTML"
+                data-mat-field="justification" oninput="i2dLiveMaturite(this)">{{ m.justification }}</textarea></label>
             {{ fit_hint('fit-hint-mat-' ~ m.id, 'maturite_justification', m.justification) }}
             <span class="saved" id="mat-saved-{{ m.id }}"></span>
           </li>
@@ -648,15 +650,14 @@
       <div class="deck-pane deck-pane-preview">
         <div class="slide-preview-body">
           <h3>Grille de maturité par pilier</h3>
-          <p class="muted risk-preview-note">Aperçu à l'ouverture de la page — rechargez après avoir changé des scores.</p>
           <table class="maturite-table">
             <thead><tr><th>Pilier</th><th>Maturité</th><th>Justification</th></tr></thead>
             <tbody>
               {% for m in maturites_shown %}
-              <tr>
+              <tr id="preview-mat-{{ m.id }}">
                 <td class="maturite-pilier">{{ m.pilier }}</td>
                 <td><span class="maturite-jauge maturite-{{ m.score }}" aria-label="{{ m.score }} sur 3">{% for i in range(3) %}<i class="{{ 'on' if i < m.score else '' }}"></i>{% endfor %}</span> <span class="maturite-lib maturite-{{ m.score }}">{{ m.score }} · {{ m.niveau_label }}</span></td>
-                <td>{{ m.justification }}</td>
+                <td class="maturite-justif">{{ m.justification }}</td>
               </tr>
               {% endfor %}
             </tbody>
@@ -747,31 +748,36 @@
         <p class="muted">Un risque par ligne, noté en gravité et probabilité (1 faible — 3 élevée), avec le contrôle qui le couvre. Vider le risque le retire du deck.</p>
         <ol class="suivi-list">
           {% for r in risks %}
-          <li class="suivi-item risk-item">
+          <li class="suivi-item risk-item" data-risk-item>
             <label class="synth-field"><span>Risque</span>
               <textarea name="value" rows="2" hx-post="/risques/{{ r.id }}/field" hx-vals='{"field": "risque"}'
-                hx-trigger="keyup changed delay:700ms, change, blur" hx-target="#risk-saved-{{ r.id }}" hx-swap="innerHTML">{{ r.risque }}</textarea></label>
+                hx-trigger="keyup changed delay:700ms, change, blur" hx-target="#risk-saved-{{ r.id }}" hx-swap="innerHTML"
+                data-risk-field="risque" oninput="i2dLiveRisques(this)">{{ r.risque }}</textarea></label>
             {{ fit_hint('fit-hint-risk-' ~ r.id ~ '-risque', 'risk_risque', r.risque) }}
             <div class="suivi-row">
               <label class="suivi-inline">Gravité
                 <select name="value" hx-post="/risques/{{ r.id }}/field" hx-vals='{"field": "gravite"}'
-                  hx-trigger="change" hx-target="#risk-saved-{{ r.id }}" hx-swap="innerHTML">
+                  hx-trigger="change" hx-target="#risk-saved-{{ r.id }}" hx-swap="innerHTML"
+                  data-risk-field="gravite" onchange="i2dLiveRisques(this)">
                   {% for n, lib in risk_levels.items() %}<option value="{{ n }}" {% if r.gravite == n %}selected{% endif %}>{{ n }} — {{ lib }}</option>{% endfor %}
                 </select></label>
               <label class="suivi-inline">Probabilité
                 <select name="value" hx-post="/risques/{{ r.id }}/field" hx-vals='{"field": "probabilite"}'
-                  hx-trigger="change" hx-target="#risk-saved-{{ r.id }}" hx-swap="innerHTML">
+                  hx-trigger="change" hx-target="#risk-saved-{{ r.id }}" hx-swap="innerHTML"
+                  data-risk-field="probabilite" onchange="i2dLiveRisques(this)">
                   {% for n, lib in risk_levels.items() %}<option value="{{ n }}" {% if r.probabilite == n %}selected{% endif %}>{{ n }} — {{ lib }}</option>{% endfor %}
                 </select></label>
               <label class="suivi-inline">Contrôle
                 <select name="value" hx-post="/risques/{{ r.id }}/field" hx-vals='{"field": "controle_type"}'
-                  hx-trigger="change" hx-target="#risk-saved-{{ r.id }}" hx-swap="innerHTML">
+                  hx-trigger="change" hx-target="#risk-saved-{{ r.id }}" hx-swap="innerHTML"
+                  data-risk-field="controle_type" onchange="i2dLiveRisques(this)">
                   {% for code, lib in risk_control_types.items() %}<option value="{{ code }}" {% if r.controle_type == code %}selected{% endif %}>{{ lib }}</option>{% endfor %}
                 </select></label>
             </div>
             <label class="synth-field"><span>Contrôle / mesure</span>
               <textarea name="value" rows="2" hx-post="/risques/{{ r.id }}/field" hx-vals='{"field": "controle"}'
-                hx-trigger="keyup changed delay:700ms, change, blur" hx-target="#risk-saved-{{ r.id }}" hx-swap="innerHTML">{{ r.controle }}</textarea></label>
+                hx-trigger="keyup changed delay:700ms, change, blur" hx-target="#risk-saved-{{ r.id }}" hx-swap="innerHTML"
+                data-risk-field="controle" oninput="i2dLiveRisques(this)">{{ r.controle }}</textarea></label>
             {{ fit_hint('fit-hint-risk-' ~ r.id ~ '-controle', 'risk_controle', (risk_control_types.get(r.controle_type, 'Mesure proposée') ~ ' : ' ~ r.controle) if r.controle else '') }}
             <span class="saved" id="risk-saved-{{ r.id }}"></span>
           </li>
@@ -784,18 +790,17 @@
       <div class="deck-pane deck-pane-preview">
         <div class="slide-preview-body">
           <h3>Matrice des risques et contrôles</h3>
-          <p class="muted risk-preview-note">Aperçu à l'ouverture de la page — rechargez après avoir changé des niveaux.</p>
           <div class="risk-preview">
             <div class="risk-grid" role="img" aria-label="Matrice gravité (lignes, élevée en haut) par probabilité (colonnes, élevée à droite)">
               {% for g in [3, 2, 1] %}{% for p in [1, 2, 3] %}
               {% set score = g * p %}
-              <div class="risk-cell {% if score >= 6 %}risk-hi{% elif score >= 3 %}risk-mid{% else %}risk-lo{% endif %}">
+              <div data-g="{{ g }}" data-p="{{ p }}" class="risk-cell {% if score >= 6 %}risk-hi{% elif score >= 3 %}risk-mid{% else %}risk-lo{% endif %}">
                 {% for r in risks_shown %}{% if r.gravite == g and r.probabilite == p %}<span class="risk-pill">R{{ loop.index }}</span>{% endif %}{% endfor %}
               </div>
               {% endfor %}{% endfor %}
             </div>
             <p class="risk-axis muted">↑ Gravité · Probabilité →</p>
-            <ol class="risk-register">
+            <ol class="risk-register" id="risk-register">
               {% for r in risks_shown %}
               <li><strong>R{{ loop.index }}</strong> {{ r.risque }}{% if r.controle %}<br><span class="muted">{{ risk_control_types.get(r.controle_type, 'Mesure proposée') }} : {{ r.controle }}</span>{% endif %}</li>
               {% endfor %}
@@ -867,6 +872,71 @@ function i2dDiffCitation(el, id) {
     q.textContent = '';
     q.hidden = true;
   }
+}
+
+// Onglet Maturité : reflète en direct score (jauge + « n · Niveau ») et
+// justification sur la ligne d'aperçu (l'autosave passe en parallèle via hx-post).
+// La ligne n'existe que pour les piliers affichés (maturites_shown) : sinon no-op.
+function i2dLiveMaturite(el) {
+  var item = el.closest('[data-mat-id]');
+  if (!item) return;
+  var row = document.getElementById('preview-mat-' + item.dataset.matId);
+  if (!row) return;
+  if (el.dataset.matField === 'justification') {
+    row.querySelector('.maturite-justif').textContent = el.value.trim();
+    return;
+  }
+  var n = parseInt(el.value, 10) || 0;
+  var opt = el.options[el.selectedIndex];
+  var lib = opt ? opt.textContent.split(' — ').slice(1).join(' — ').trim() : '';
+  var jauge = row.querySelector('.maturite-jauge');
+  jauge.className = 'maturite-jauge maturite-' + n;
+  jauge.setAttribute('aria-label', n + ' sur 3');
+  jauge.querySelectorAll('i').forEach(function (b, i) { b.className = i < n ? 'on' : ''; });
+  var l = row.querySelector('.maturite-lib');
+  l.className = 'maturite-lib maturite-' + n;
+  l.textContent = n + ' · ' + lib;
+}
+
+// Onglet Risques : recalcule tout l'aperçu (bulles de la grille + registre) depuis
+// les éditeurs, avec la numérotation de build_presentation (risques à libellé non vide).
+function i2dLiveRisques(el) {
+  var panel = el.closest('[data-panel]') || document;
+  var cells = panel.querySelectorAll('.risk-cell[data-g]');
+  var reg = document.getElementById('risk-register');
+  if (!reg) return;
+  cells.forEach(function (c) { c.innerHTML = ''; });
+  reg.innerHTML = '';
+  var k = 0;
+  panel.querySelectorAll('[data-risk-item]').forEach(function (item) {
+    var f = function (name) { return item.querySelector('[data-risk-field="' + name + '"]'); };
+    var risque = f('risque').value.trim();
+    if (!risque) return;
+    k += 1;
+    var g = f('gravite').value, p = f('probabilite').value;
+    var cell = panel.querySelector('.risk-cell[data-g="' + g + '"][data-p="' + p + '"]');
+    if (cell) {
+      var pill = document.createElement('span');
+      pill.className = 'risk-pill';
+      pill.textContent = 'R' + k;
+      cell.appendChild(pill);
+    }
+    var li = document.createElement('li');
+    var st = document.createElement('strong');
+    st.textContent = 'R' + k;
+    li.appendChild(st);
+    li.appendChild(document.createTextNode(' ' + risque));
+    var ctrl = f('controle').value.trim();
+    if (ctrl) {
+      var t = f('controle_type');
+      li.appendChild(document.createElement('br'));
+      var sp = document.createElement('span');
+      sp.className = 'muted';
+      sp.textContent = t.options[t.selectedIndex].textContent.trim() + ' : ' + ctrl;
+      li.appendChild(sp);
+    }
+    reg.appendChild(li);
+  });
 }
 </script>
 {% endif %}

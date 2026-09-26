@@ -1117,7 +1117,6 @@ textarea.htmx-request, input.htmx-request, select.htmx-request {
 .kpi-card-cible { margin: 0; font-size: .9rem; color: #0E2356; }
 .kpi-card-cible:empty { display: none; }
 .kpi-card-axe { align-self: flex-start; font-size: .75rem; border: 1px solid var(--slide-accent, #6b7280); color: var(--slide-accent, #6b7280); border-radius: 999px; padding: 1px 8px; }
-.risk-preview-note { font-size: .8rem; margin: 0 0 6px; }
 .risk-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; max-width: 320px; }
 .risk-cell { min-height: 54px; border-radius: 4px; padding: 4px; display: flex; flex-wrap: wrap; gap: 4px; align-content: center; justify-content: center; }
 .risk-lo { background: #e3efe6; } .risk-lo .risk-pill { background: #1e6b34; }
