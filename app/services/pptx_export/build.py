@@ -12,6 +12,7 @@ from pptx.util import Inches
 
 from ...models import Mission
 from .. import pptx_deck as D
+from .archetypes import Archetype, normaliser_plan, plan_applicable
 from .base import _H_IN, _W_IN, OCTO_TEMPLATE_PATH, _clear_slides
 
 # Bas de dessin que les slides tenues au badge n° de page s'imposent
@@ -72,6 +73,7 @@ def build_presentation(
     include_maturite: bool = True,
     include_axis_ids: set[int] | None = None,
     axes_etude=None,
+    plan=None,
 ) -> Presentation:
     """`include_axis_ids=None` inclut les fiches de recommandation de tous les
     axes (comportement par défaut/rétrocompatible) ; un set (même vide)
@@ -130,78 +132,17 @@ def build_presentation(
     synthese_axes = (
         [a for a in _axes(axes_etude) if (gs.contenu(a.key) or "").strip()] if gs else []
     )
-    ch_sections: list[list[str]] = [[] for _ in _CHAPITRES]
-    if include_executive_summary and executive_summary and executive_summary.has_content:
-        ch_sections[_CH_RETENIR].append("Executive Summary")
-    if include_synthese and synthese_axes:
-        ch_sections[_CH_DIAGNOSTIC].append("Synthèse globale")
-    if include_difficultes and difficulties:
-        ch_sections[_CH_DIAGNOSTIC].append("Difficultés")
-    if include_swot and swot and swot.has_content:
-        ch_sections[_CH_DIAGNOSTIC].append("Matrice SWOT")
-    # Maturité par pilier (incr.10 palier 3) : clôt le diagnostic, après la SWOT.
-    if include_maturite and maturites:
-        ch_sections[_CH_DIAGNOSTIC].append("Maturité par pilier")
-    if include_verbatims and verbatims:
-        ch_sections[_CH_PAROLE].append("Paroles d'acteurs")
-    # « Recommandations » dès qu'il y a des axes à détailler (les fiches reco
-    # s'émettent indépendamment des toggles overview/matrice) OU la vue d'ensemble.
-    if (axes and include_axes_overview) or selected_axes:
-        ch_sections[_CH_TRAJECTOIRE].append("Recommandations")
-    if axes and include_matrix:
-        ch_sections[_CH_TRAJECTOIRE].append("Matrice de priorisation")
-    # Suivi (US9.27) : après les recommandations — mesurer, puis maîtriser les risques.
-    if include_kpis and kpis:
-        ch_sections[_CH_TRAJECTOIRE].append("Indicateurs de suivi")
-    if include_risques and risks:
-        ch_sections[_CH_TRAJECTOIRE].append("Risques et contrôles")
 
-    if include_sommaire and any(ch_sections):
-        _slide_sommaire(prs, ch_sections)
+    def _synthese() -> None:
+        # Une slide par AXE de la mission (2026-07-27) : les 5 rubriques étaient
+        # figées ici, un axe ajouté n'aurait jamais atteint le deck. Même liste
+        # que celle qui a décidé du sommaire (parité), et la `key` accompagne le
+        # libellé jusqu'à la slide : le visuel est indexé dessus, le libellé
+        # étant renommable (correctif 2026-07-28).
+        for axe in synthese_axes:
+            _slide_synthese_categorie(prs, axe.label, gs.contenu(axe.key), axe.key)
 
-    numero = 0
-
-    def _chapitre(ci: int) -> None:
-        nonlocal numero
-        numero += 1
-        label, color, scene, sous_titre = _CHAPITRES[ci]
-        _slide_chapitre(prs, numero, label, color, scene, sous_titre=sous_titre)
-
-    # Chapitre 1 — Ce qu'il faut retenir
-    if ch_sections[_CH_RETENIR]:
-        _chapitre(_CH_RETENIR)
-        _slide_executive_summary(prs, executive_summary)
-
-    # Chapitre 2 — Le diagnostic
-    if ch_sections[_CH_DIAGNOSTIC]:
-        _chapitre(_CH_DIAGNOSTIC)
-        if include_synthese:
-            # Une slide par AXE de la mission (2026-07-27) : les 5 rubriques étaient
-            # figées ici, un axe ajouté n'aurait jamais atteint le deck. Même liste
-            # que celle qui a décidé du sommaire (parité), et la `key` accompagne le
-            # libellé jusqu'à la slide : le visuel est indexé dessus, le libellé
-            # étant renommable (correctif 2026-07-28).
-            for axe in synthese_axes:
-                _slide_synthese_categorie(prs, axe.label, gs.contenu(axe.key), axe.key)
-        if include_difficultes and difficulties:
-            _slide_difficultes(prs, difficulties)
-        if include_swot and swot and swot.has_content:
-            _slide_swot(prs, swot)
-        if include_maturite and maturites:
-            _slide_maturite(prs, maturites)
-
-    # Chapitre 3 — La parole des équipes
-    if ch_sections[_CH_PAROLE]:
-        _chapitre(_CH_PAROLE)
-        _slide_verbatims(prs, verbatims)
-
-    # Chapitre 4 — La trajectoire proposée
-    if ch_sections[_CH_TRAJECTOIRE]:
-        _chapitre(_CH_TRAJECTOIRE)
-        if axes and include_axes_overview:
-            _slide_axes_overview(prs, axes, palette)
-        if axes and include_matrix:
-            _slide_matrice_effort_valeur(prs, axes, palette)
+    def _fiches() -> None:
         for i, axis in enumerate(axes):
             if axis not in selected_axes:
                 continue
@@ -210,10 +151,79 @@ def build_presentation(
                 # d'ensemble et les bulles de la matrice de priorisation.
                 _slide_recommendation(prs, axis, f"{i + 1}.{j + 1}", reco,
                                       accent=palette[i % len(palette)])
-        if include_kpis and kpis:
-            _slide_kpis(prs, kpis, axes, palette)
-        if include_risques and risks:
-            _slide_matrice_risques(prs, risks)
+
+    # Blocs de contenu dans l'ordre narratif PAR DÉFAUT : (archétype, chapitre,
+    # libellé du sommaire, présent ?, émetteur). Présent = même condition pour le
+    # sommaire et pour l'émission (parité). « Recommandations » dès qu'il y a des
+    # axes à détailler (les fiches s'émettent indépendamment des toggles
+    # overview/matrice) OU la vue d'ensemble ; maturité clôt le diagnostic
+    # (incr.10 palier 3) ; le suivi (US9.27) vient après les recommandations.
+    A = Archetype
+    blocs = [
+        (A.EXECUTIVE_SUMMARY, _CH_RETENIR, "Executive Summary",
+         include_executive_summary and bool(executive_summary)
+         and executive_summary.has_content,
+         lambda: _slide_executive_summary(prs, executive_summary)),
+        (A.SYNTHESE, _CH_DIAGNOSTIC, "Synthèse globale",
+         include_synthese and bool(synthese_axes), _synthese),
+        (A.DIFFICULTES, _CH_DIAGNOSTIC, "Difficultés",
+         include_difficultes and bool(difficulties),
+         lambda: _slide_difficultes(prs, difficulties)),
+        (A.SWOT, _CH_DIAGNOSTIC, "Matrice SWOT",
+         include_swot and bool(swot) and swot.has_content, lambda: _slide_swot(prs, swot)),
+        (A.MATURITE, _CH_DIAGNOSTIC, "Maturité par pilier",
+         include_maturite and bool(maturites), lambda: _slide_maturite(prs, maturites)),
+        (A.VERBATIMS, _CH_PAROLE, "Paroles d'acteurs",
+         include_verbatims and bool(verbatims), lambda: _slide_verbatims(prs, verbatims)),
+        (A.AXES, _CH_TRAJECTOIRE, "Recommandations",
+         include_axes_overview and bool(axes),
+         lambda: _slide_axes_overview(prs, axes, palette)),
+        (A.MATRICE_PRIORISATION, _CH_TRAJECTOIRE, "Matrice de priorisation",
+         include_matrix and bool(axes),
+         lambda: _slide_matrice_effort_valeur(prs, axes, palette)),
+        (A.FICHE_RECO, _CH_TRAJECTOIRE, "Recommandations", bool(selected_axes), _fiches),
+        (A.KPIS, _CH_TRAJECTOIRE, "Indicateurs de suivi",
+         include_kpis and bool(kpis), lambda: _slide_kpis(prs, kpis, axes, palette)),
+        (A.RISQUES, _CH_TRAJECTOIRE, "Risques et contrôles",
+         include_risques and bool(risks), lambda: _slide_matrice_risques(prs, risks)),
+    ]
+
+    # Plan d'un deck d'exemple (US5.2) : RÉORDONNE et FILTRE les blocs existants,
+    # n'en crée jamais. La couverture est TOUJOURS gardée (exception assumée au
+    # filtrage). Un bloc absent du plan est retiré ; sommaire et
+    # intercalaires ne sont gardés que si le plan les contient. Les sections d'un
+    # même chapitre restent contiguës (le chapitre prend le rang de sa première
+    # section) : sommaire, intercalaires et numéros suivent l'ordre réel.
+    intercalaires = True
+    plan_n = normaliser_plan(plan) if plan is not None else None
+    if plan_n is not None and not plan_applicable(plan_n):
+        logger.warning("build_presentation : plan sans archétype de contenu connu, ignoré")
+        plan_n = None
+    if plan_n is not None:
+        include_sommaire = include_sommaire and A.SOMMAIRE in plan_n
+        intercalaires = A.CHAPITRE in plan_n
+        blocs = sorted((b for b in blocs if b[0] in plan_n), key=lambda b: plan_n.index(b[0]))
+
+    blocs = [b for b in blocs if b[3]]
+    ordre_chapitres: list[int] = []
+    for b in blocs:
+        if b[1] not in ordre_chapitres:
+            ordre_chapitres.append(b[1])
+    ch_sections: list[list[str]] = [[] for _ in _CHAPITRES]
+    for b in blocs:
+        if b[2] not in ch_sections[b[1]]:
+            ch_sections[b[1]].append(b[2])
+
+    if include_sommaire and any(ch_sections):
+        _slide_sommaire(prs, ch_sections, ordre_chapitres)
+
+    for numero, ci in enumerate(ordre_chapitres, 1):
+        if intercalaires:
+            label, color, scene, sous_titre = _CHAPITRES[ci]
+            _slide_chapitre(prs, numero, label, color, scene, sous_titre=sous_titre)
+        for b in blocs:
+            if b[1] == ci:
+                b[4]()
 
     # Garde-fou géométrique (US7.1) : un texte trop long ou un template client
     # aux dimensions inattendues peut faire déborder une forme de la slide —

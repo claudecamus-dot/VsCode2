@@ -66,6 +66,9 @@ class Mission(Base):
     # Chemin (relatif à data/pptx_templates/) du template PPT client uploadé,
     # utilisé comme base pour l'export PPT (évol) — hérite thème/masters.
     pptx_template_path: Mapped[str | None] = mapped_column(String(500), default=None)
+    # Chemin (relatif à data/pptx_exemples/) du deck d'exemple uploadé (US5.2) :
+    # son plan d'archétypes réordonne/filtre les slides de l'export.
+    pptx_exemple_path: Mapped[str | None] = mapped_column(String(500), default=None)
     # Mission créée implicitement depuis l'écran d'entrée « entretien libre »
     # ou « entretien structuré » (incr.9) avant que son identité réelle ne
     # soit connue — nom provisoire, à compléter ou à rattacher à une mission

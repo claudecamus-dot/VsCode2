@@ -36,6 +36,11 @@ RECORDINGS_DIR.mkdir(exist_ok=True)
 PPTX_TEMPLATES_DIR = DATA_DIR / "pptx_templates"
 PPTX_TEMPLATES_DIR.mkdir(exist_ok=True)
 
+# Decks d'exemple uploadés (US5.2) : leur plan (suite d'archétypes) réordonne
+# et filtre les slides de l'export — même convention que PPTX_TEMPLATES_DIR.
+PPTX_EXEMPLES_DIR = DATA_DIR / "pptx_exemples"
+PPTX_EXEMPLES_DIR.mkdir(exist_ok=True)
+
 engine = create_engine(f"sqlite:///{DB_PATH}", echo=False)
 
 
@@ -84,7 +89,7 @@ def _add_missing_columns() -> None:
         },
         "trames": {"intro_text": "TEXT"},
         "questions": {"help_text": "TEXT"},
-        "missions": {"pptx_template_path": "TEXT", "is_draft": "BOOLEAN DEFAULT 0", "restitution_verbatim_ids": "JSON", "is_demo": "BOOLEAN DEFAULT 0"},
+        "missions": {"pptx_template_path": "TEXT", "pptx_exemple_path": "TEXT", "is_draft": "BOOLEAN DEFAULT 0", "restitution_verbatim_ids": "JSON", "is_demo": "BOOLEAN DEFAULT 0"},
         "interview_turns": {"section_title": "TEXT"},
         "interview_segment_jobs": {
             "text": "TEXT DEFAULT ''",

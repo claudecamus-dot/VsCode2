@@ -95,12 +95,17 @@ def _slide_title(prs: Presentation, mission: Mission, subtitle: str, date_str: s
     )
 
 
-def _slide_sommaire(prs: Presentation, ch_sections: list[list[str]]) -> None:
+def _slide_sommaire(prs: Presentation, ch_sections: list[list[str]],
+                    ordre: list[int] | None = None) -> None:
     """Sommaire quali (P2) : les chapitres AYANT du contenu, chacun avec sa pastille
     couleur + intitulé narratif + les sections qu'il regroupe (repère de navigation,
-    couleur reprise sur l'intercalaire) — au lieu d'une liste plate de sections."""
+    couleur reprise sur l'intercalaire) — au lieu d'une liste plate de sections.
+    `ordre` : indices de chapitre dans l'ordre RÉEL du deck (plan US5.2) ; sans
+    lui, l'ordre narratif par défaut."""
     slide, w_in, h_in, top = _new_slide(prs, "Sommaire")
-    active = [ci for ci, subs in enumerate(ch_sections) if subs]
+    if ordre is None:
+        ordre = list(range(len(ch_sections)))
+    active = [ci for ci in ordre if ch_sections[ci]]
     # Grille 2×2 de badges GOUTTE (teardrop) à contour — signature du sommaire des
     # decks OCTO réels (VSCode4) : numéro dans la goutte, intitulé narratif + sections
     # en regard. Remplissage colonne par colonne (01,02 à gauche ; 03,04 à droite).

@@ -60,8 +60,37 @@
       <button class="btn" type="submit">Utiliser ce template</button>
     </form>
   </div>
+  <div class="apercu-action" id="deck-exemple">
+    <div>
+      <strong>Deck d'exemple (optionnel)</strong>
+      {% if mission.pptx_exemple_path and plan_exemple %}
+      <p class="muted">✓ Deck d'exemple actif — l'export reprend son plan (ordre et sélection des slides, aucune slide nouvelle) :</p>
+      <ol class="plan-exemple">
+        {% for libelle in plan_exemple %}<li>{{ libelle }}</li>{% endfor %}
+      </ol>
+      <p class="muted plan-contrat">La couverture est toujours gardée ; les sections d'un même chapitre restent regroupées, le chapitre prenant la place de sa première section.</p>
+      {% elif mission.pptx_exemple_path %}
+      <p class="muted">⚠ Deck d'exemple illisible — l'export suit l'ordre par défaut. Remplacez-le ou retirez-le.</p>
+      {% else %}
+      <p class="muted">Aucun deck d'exemple — l'export suit l'ordre par défaut.</p>
+      {% endif %}
+    </div>
+    <div>
+      <form method="post" action="/missions/{{ mission.id }}/pptx-exemple" enctype="multipart/form-data" class="apercu-upload">
+        <input type="file" name="file" accept=".pptx" aria-label="Deck PowerPoint d'exemple" required>
+        <button class="btn" type="submit">{% if mission.pptx_exemple_path %}Remplacer le deck d'exemple{% else %}Utiliser ce deck d'exemple{% endif %}</button>
+      </form>
+      {% if mission.pptx_exemple_path %}
+      <form method="post" action="/missions/{{ mission.id }}/pptx-exemple/retirer" class="apercu-upload">
+        <button class="btn" type="submit">Retirer le deck d'exemple</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
 </section>
 
+{% macro hors_plan(arch) %}{% if arch in plan_exclus %} disabled{% else %} checked{% endif %}{% endmacro %}
+{% macro mention_hors_plan(arch) %}{% if arch in plan_exclus %} <span class="muted plan-hors">— hors du plan du deck d'exemple</span>{% endif %}{% endmacro %}
 <section class="card">
   <div class="card-head"><h2>Définition des slides</h2></div>
   <p class="muted">Choisis ce qui doit figurer dans l'export — tout est coché par défaut.</p>
@@ -71,41 +100,41 @@
         data-busy-label="⏳ Génération du deck en cours…" data-busy-release="8000">
     <input type="hidden" name="config_submitted" value="1">
     <div class="pptx-config-grid">
-      <label class="pptx-check"><input type="checkbox" name="sommaire" value="true" checked> Sommaire</label>
+      <label class="pptx-check"><input type="checkbox" name="sommaire" value="true"{{ hors_plan("sommaire") }}> Sommaire{{ mention_hors_plan("sommaire") }}</label>
       {% if executive_summary and executive_summary.has_content %}
-      <label class="pptx-check"><input type="checkbox" name="executive_summary" value="true" checked> Executive Summary</label>
+      <label class="pptx-check"><input type="checkbox" name="executive_summary" value="true"{{ hors_plan("executive_summary") }}> Executive Summary{{ mention_hors_plan("executive_summary") }}</label>
       {% endif %}
       {% if global_synthesis and global_synthesis.has_content %}
-      <label class="pptx-check"><input type="checkbox" name="synthese" value="true" checked> Synthèse globale (5 slides)</label>
+      <label class="pptx-check"><input type="checkbox" name="synthese" value="true"{{ hors_plan("synthese") }}> Synthèse globale (5 slides){{ mention_hors_plan("synthese") }}</label>
       {% endif %}
       {% if diffs_shown %}
-      <label class="pptx-check"><input type="checkbox" name="difficultes" value="true" checked> Difficultés ({{ diffs_shown|length }})</label>
+      <label class="pptx-check"><input type="checkbox" name="difficultes" value="true"{{ hors_plan("difficultes") }}> Difficultés ({{ diffs_shown|length }}){{ mention_hors_plan("difficultes") }}</label>
       {% endif %}
       {% if swot and swot.has_content %}
-      <label class="pptx-check"><input type="checkbox" name="swot" value="true" checked> Matrice SWOT</label>
+      <label class="pptx-check"><input type="checkbox" name="swot" value="true"{{ hors_plan("swot") }}> Matrice SWOT{{ mention_hors_plan("swot") }}</label>
       {% endif %}
       {% if maturites_shown %}
-      <label class="pptx-check"><input type="checkbox" name="maturite" value="true" checked> Maturité par pilier ({{ maturites_shown|length }})</label>
+      <label class="pptx-check"><input type="checkbox" name="maturite" value="true"{{ hors_plan("maturite") }}> Maturité par pilier ({{ maturites_shown|length }}){{ mention_hors_plan("maturite") }}</label>
       {% endif %}
       {% if mission.selected_verbatims %}
-      <label class="pptx-check"><input type="checkbox" name="verbatims" value="true" checked> Paroles d'acteurs ({{ mission.selected_verbatims|length }})</label>
+      <label class="pptx-check"><input type="checkbox" name="verbatims" value="true"{{ hors_plan("verbatims") }}> Paroles d'acteurs ({{ mission.selected_verbatims|length }}){{ mention_hors_plan("verbatims") }}</label>
       {% endif %}
       {% if axes %}
-      <label class="pptx-check"><input type="checkbox" name="axes_overview" value="true" checked> Vue d'ensemble des axes</label>
-      <label class="pptx-check"><input type="checkbox" name="matrix" value="true" checked> Matrice de priorisation (valeur / effort)</label>
+      <label class="pptx-check"><input type="checkbox" name="axes_overview" value="true"{{ hors_plan("axes") }}> Vue d'ensemble des axes{{ mention_hors_plan("axes") }}</label>
+      <label class="pptx-check"><input type="checkbox" name="matrix" value="true"{{ hors_plan("matrice_priorisation") }}> Matrice de priorisation (valeur / effort){{ mention_hors_plan("matrice_priorisation") }}</label>
       {% endif %}
       {% if kpis_shown %}
-      <label class="pptx-check"><input type="checkbox" name="kpis" value="true" checked> Indicateurs de suivi ({{ kpis_shown|length }})</label>
+      <label class="pptx-check"><input type="checkbox" name="kpis" value="true"{{ hors_plan("kpis") }}> Indicateurs de suivi ({{ kpis_shown|length }}){{ mention_hors_plan("kpis") }}</label>
       {% endif %}
       {% if risks_shown %}
-      <label class="pptx-check"><input type="checkbox" name="risques" value="true" checked> Matrice risques-contrôles ({{ risks_shown|length }})</label>
+      <label class="pptx-check"><input type="checkbox" name="risques" value="true"{{ hors_plan("risques") }}> Matrice risques-contrôles ({{ risks_shown|length }}){{ mention_hors_plan("risques") }}</label>
       {% endif %}
     </div>
     {% if axes %}
     <p class="muted pptx-config-subheading">Fiches de recommandation détaillées, par axe :</p>
     <div class="pptx-config-grid">
       {% for axis in axes %}
-      <label class="pptx-check"><input type="checkbox" name="axis" value="{{ axis.id }}" checked> {{ axis.title }} ({{ axis.recommendations|length }})</label>
+      <label class="pptx-check"><input type="checkbox" name="axis" value="{{ axis.id }}"{{ hors_plan("fiche_reco") }}> {{ axis.title }} ({{ axis.recommendations|length }}){{ mention_hors_plan("fiche_reco") }}</label>
       {% endfor %}
     </div>
     {% endif %}

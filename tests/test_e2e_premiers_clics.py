@@ -369,3 +369,55 @@ def test_grille_maturite_autosave_et_generation(
         _sans_erreur(nav, "Régénérer la grille de maturité")
         assert "⚠" in nav.texte(), "le message d'échec IA n'est pas rendu"
         assert _python_sur_base(base_db, _LIRE_MATURITE, lid) == repr((3, "Pratiques pilotées"))
+
+
+# --------------------------------------------------------------------------- #
+# Deck d'exemple (US5.2) : téléverser, voir le plan extrait, retirer.
+# --------------------------------------------------------------------------- #
+_SEED_APERCU = r"""
+from app.db import SessionLocal, init_db
+from app.models import GlobalSynthesis, Interview, Mission
+init_db()
+db = SessionLocal()
+m = Mission(name="E2E deck d'exemple")
+db.add(m); db.flush()
+db.add(Interview(mission_id=m.id, interviewee_name="Témoin", status="done"))
+db.add(GlobalSynthesis(mission_id=m.id, status="generated", points_amelioration="- Silos"))
+db.commit()
+print(m.id)
+"""
+
+_LIRE_EXEMPLE = r"""
+import sys
+from app.db import SessionLocal
+from app.models import Mission
+print(repr(SessionLocal().get(Mission, int(sys.argv[1])).pptx_exemple_path))
+"""
+
+
+def test_deck_exemple_televerser_puis_retirer(
+    tmp_path_factory: pytest.TempPathFactory, nav: Navigateur
+) -> None:
+    """Choix du fichier (DOM.setFileInputFiles, le sélecteur natif n'existant pas
+    en headless) puis CLIC réel sur « Utiliser ce deck d'exemple » (POST
+    multipart /pptx-exemple) : le plan extrait s'affiche ; puis clic sur
+    « Retirer le deck d'exemple » (POST …/retirer). Aucun 4xx CSRF, base relue."""
+    dossier = tmp_path_factory.mktemp("e2e-exemple")
+    base_db = dossier / "e2e.db"
+    mid = _python_sur_base(base_db, _SEED_APERCU)
+    exemple = Path(__file__).resolve().parents[1] / "docs" / "exemples" / "deck-restitution-exemple.pptx"
+    with serveur_uvicorn(dossier) as base:
+        nav.naviguer(f"{base}/missions/{mid}/synthese/apercu")
+        _sans_erreur(nav, "Ouvrir l'aperçu")
+        form = f"form[action='/missions/{mid}/pptx-exemple']"
+        nav.choisir_fichier(f"{form} input[type=file]", exemple)
+        nav.cliquer_et_attendre(f"{form} button[type=submit]")
+        _sans_erreur(nav, "Téléverser le deck d'exemple")
+        assert "Deck d'exemple actif" in nav.texte()
+        assert "Fiches recommandation" in nav.texte()
+        assert _python_sur_base(base_db, _LIRE_EXEMPLE, mid) == repr(f"{mid}.pptx")
+
+        nav.cliquer_et_attendre(f"form[action='/missions/{mid}/pptx-exemple/retirer'] button[type=submit]")
+        _sans_erreur(nav, "Retirer le deck d'exemple")
+        assert "Aucun deck d'exemple" in nav.texte()
+        assert _python_sur_base(base_db, _LIRE_EXEMPLE, mid) == "None"

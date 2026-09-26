@@ -1,0 +1,102 @@
+{
+ "source": "build_presentation sans plan, mission démo (scripts/seed_demo.py), code de 47aaed7 extrait par git archive",
+ "nb_slides": 24,
+ "slides": [
+  [
+   "couverture",
+   "DÉMO — Audit Data & Organisation"
+  ],
+  [
+   "sommaire",
+   "Sommaire"
+  ],
+  [
+   "chapitre",
+   "Ce qu'il faut retenir\nL'essentiel de la mission, en une page."
+  ],
+  [
+   "executive_summary",
+   "Executive Summary"
+  ],
+  [
+   "chapitre",
+   "Le diagnostic\nCe que les entretiens révèlent, sans détour."
+  ],
+  [
+   "synthese",
+   "Synthèse globale — Contexte"
+  ],
+  [
+   "synthese",
+   "Synthèse globale — Culture & ADN"
+  ],
+  [
+   "synthese",
+   "Synthèse globale — Forces & succès"
+  ],
+  [
+   "synthese",
+   "Synthèse globale — Points d'amélioration"
+  ],
+  [
+   "synthese",
+   "Synthèse globale — Aspirations (baguette magique)"
+  ],
+  [
+   "difficultes",
+   "Difficultés identifiées"
+  ],
+  [
+   "swot",
+   "Matrice SWOT"
+  ],
+  [
+   "maturite",
+   "Grille de maturité par pilier"
+  ],
+  [
+   "chapitre",
+   "La parole des équipes\nLes mots des acteurs, tels quels."
+  ],
+  [
+   "verbatims",
+   "Paroles d'acteurs"
+  ],
+  [
+   "chapitre",
+   "La trajectoire proposée\nOù aller, et par quoi commencer."
+  ],
+  [
+   "axes",
+   "Les recommandations sont construites autour de ces axes"
+  ],
+  [
+   "matrice_priorisation",
+   "Matrice de priorisation — valeur / effort"
+  ],
+  [
+   "fiche_reco",
+   "1.1 — Nommer des data owners par domaine"
+  ],
+  [
+   "fiche_reco",
+   "1.2 — Instaurer un comité data mensuel"
+  ],
+  [
+   "fiche_reco",
+   "2.1 — Généraliser les squads produit mixtes"
+  ],
+  [
+   "fiche_reco",
+   "2.2 — Mettre en place un langage data commun"
+  ],
+  [
+   "kpis",
+   "Indicateurs de suivi"
+  ],
+  [
+   "risques",
+   "Matrice des risques et contrôles"
+  ]
+ ]
+}

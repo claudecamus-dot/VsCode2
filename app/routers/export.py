@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Upl
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.orm import Session, selectinload
 
-from ..db import PPTX_TEMPLATES_DIR, get_session
+from ..db import PPTX_EXEMPLES_DIR, PPTX_TEMPLATES_DIR, get_session
 from ..models import MATURITE_NIVEAUX, RISK_CONTROL_TYPES, RISK_LEVELS, Interview, Mission
 from ..services.ai_common import api_key_env_name, is_configured
 from ..services.analyse_import import (
@@ -29,6 +29,14 @@ from ..services.analyse_import import (
 from ..services.mission_axes import axes_of
 from ..services.mission_export import build_export_markdown, slugify
 from ..services.pptx_export import build_presentation
+from ..services.pptx_export.archetypes import (
+    LIBELLES,
+    STRUCTURELS,
+    Archetype,
+    extraire_plan,
+    extraire_plan_fichier,
+    plan_applicable,
+)
 from ..services.synthese_ai import (
     SynthesisAIError,
     ai_precondition_error,
@@ -95,6 +103,24 @@ def _get_mission(db: Session, mission_id: int) -> Mission:
     return mission
 
 
+def _plan_exemple(mission: Mission) -> list | None:
+    """Plan d'archétypes du deck d'exemple de la mission (US5.2), ou None sans
+    deck d'exemple. Un fichier disparu ou devenu illisible ne casse ni l'écran
+    ni l'export : journalisé, et l'export retombe sur l'ordre par défaut."""
+    if not mission.pptx_exemple_path:
+        return None
+    chemin = PPTX_EXEMPLES_DIR / mission.pptx_exemple_path
+    try:
+        plan = extraire_plan_fichier(chemin)
+    except Exception:
+        logger.warning("Deck d'exemple illisible, plan ignoré (mission %s) : %s",
+                       mission.id, chemin, exc_info=True)
+        return None
+    # Même règle que l'upload : sans bloc de contenu, pas de plan (l'écran
+    # n'annonce alors pas un plan que l'export ignorerait).
+    return plan if plan_applicable(plan) else None
+
+
 def _synthese_context(db: Session, mission: Mission, error: str | None = None) -> dict:
     """Contexte de gabarit partagé par l'étape 1 (analyse — IA intégrée +
     export/import manuel) et l'étape 4 (export PPT) — toutes ont besoin de
@@ -103,6 +129,7 @@ def _synthese_context(db: Session, mission: Mission, error: str | None = None) -
     `_global_panel.html`), qui a besoin de `ai_ready`/`api_key_env`/
     `answer_count` comme la page synthèse globale elle-même."""
     material_by_theme = _all_theme_material(mission)
+    plan = _plan_exemple(mission)
     return {
         "mission": mission,
         "themes": mission.trame.themes if mission.trame else [],
@@ -122,6 +149,12 @@ def _synthese_context(db: Session, mission: Mission, error: str | None = None) -
         # liste — plus aucune rubrique n'est ecrite en dur dans un gabarit.
         "synthesis_axes": axes_of(db, mission),
         "error": error,
+        "plan_exemple": [LIBELLES[a] for a in (plan or [])],
+        # Cases « Définition des slides » que le plan écarte : rendues décochées
+        # et désactivées (arbitrage orchestrateur incr.8, réversible).
+        "plan_exclus": [a.value for a in Archetype
+                        if plan and a not in plan and a not in STRUCTURELS]
+                       + (["sommaire"] if plan and Archetype.SOMMAIRE not in plan else []),
         "ai_ready": is_configured(),
         "api_key_env": api_key_env_name(),
         "answer_count": _total_answer_count(material_by_theme),
@@ -446,7 +479,8 @@ async def export_pptx(
         prs = await asyncio.to_thread(
             build_presentation,
             mission, template_path=template_path,
-            axes_etude=axes_of(db, mission), **include_kwargs
+            axes_etude=axes_of(db, mission), plan=_plan_exemple(mission),
+            **include_kwargs
         )
         buf = io.BytesIO()
         prs.save(buf)
@@ -524,4 +558,59 @@ async def upload_pptx_template(
     mission.pptx_template_path = filename
     db.commit()
 
+    return RedirectResponse(f"/missions/{mission_id}/synthese/apercu", status_code=303)
+
+
+# --------------------------------------------------------------------------- #
+# Étape 4 — Deck d'exemple (US5.2) : son plan réordonne/filtre l'export
+# --------------------------------------------------------------------------- #
+@router.post("/missions/{mission_id}/pptx-exemple")
+async def upload_pptx_exemple(
+    mission_id: int,
+    request: Request,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_session),
+):
+    """Calque de l'upload de template : mêmes bornes ZIP, même validation par
+    python-pptx — mais 400 (et non 200) sur un fichier refusé."""
+    mission = _get_mission(db, mission_id)
+
+    def _refus(message: str):
+        return templates.TemplateResponse(
+            request, "synthese/apercu.html",
+            _synthese_context(db, mission, error=message), status_code=400,
+        )
+
+    if not (file.filename or "").lower().endswith(".pptx"):
+        return _refus("Deck d'exemple : un fichier .pptx est attendu.")
+    try:
+        content = await lire_upload_borne(file)
+        verifier_zip_borne(content)
+        plan = extraire_plan(io.BytesIO(content))
+    except UploadTropVolumineux as exc:
+        return _refus(str(exc))
+    except Exception:
+        return _refus("Deck d'exemple : fichier .pptx invalide ou corrompu.")
+    if not plan_applicable(plan):
+        return _refus("Deck d'exemple : aucune slide de contenu reconnue dans ce deck — "
+                      "rien à reprendre comme plan.")
+
+    filename = f"{mission_id}.pptx"
+    (PPTX_EXEMPLES_DIR / filename).write_bytes(content)
+    mission.pptx_exemple_path = filename
+    db.commit()
+    return RedirectResponse(f"/missions/{mission_id}/synthese/apercu", status_code=303)
+
+
+@router.post("/missions/{mission_id}/pptx-exemple/retirer")
+def retirer_pptx_exemple(mission_id: int, db: Session = Depends(get_session)):
+    """Retire le deck d'exemple : l'export retrouve l'ordre par défaut. Seul le
+    lien est défait (comme le template, jamais supprimé) : aucun effacement de
+    fichier dans ce routeur, que `test_audio_jamais_supprime` garde. Le fichier
+    `{id}.pptx` resté sur disque n'est relu que via `pptx_exemple_path`, et le
+    prochain envoi l'écrase."""
+    mission = _get_mission(db, mission_id)
+    if mission.pptx_exemple_path:
+        mission.pptx_exemple_path = None
+        db.commit()
     return RedirectResponse(f"/missions/{mission_id}/synthese/apercu", status_code=303)

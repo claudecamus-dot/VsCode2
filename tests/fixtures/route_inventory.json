@@ -417,6 +417,14 @@
   ],
   [
     "POST",
+    "/missions/{mission_id}/pptx-exemple"
+  ],
+  [
+    "POST",
+    "/missions/{mission_id}/pptx-exemple/retirer"
+  ],
+  [
+    "POST",
     "/missions/{mission_id}/pptx-template"
   ],
   [

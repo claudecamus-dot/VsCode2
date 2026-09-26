@@ -575,6 +575,17 @@ class Navigateur:
         )
         assert ok, f"champ introuvable : {selecteur}"
 
+    def choisir_fichier(self, selecteur: str, chemin: Path) -> None:
+        """Pose un fichier sur un `<input type=file>` comme le sélecteur natif
+        (DOM.setFileInputFiles) — la boîte de dialogue système n'existe pas en
+        headless ; la soumission, elle, reste un clic réel."""
+        racine = self._run(self._cmd("DOM.getDocument", depth=0))["root"]["nodeId"]
+        noeud = self._run(self._cmd("DOM.querySelector", nodeId=racine, selector=selecteur))
+        assert noeud.get("nodeId"), f"champ fichier introuvable : {selecteur}"
+        self._run(self._cmd("DOM.setFileInputFiles", files=[str(chemin)],
+                            nodeId=noeud["nodeId"]))
+        self.drainer()
+
     def _point_de_clic(self, selecteur: str) -> tuple[float, float]:
         """Centre de l'élément après l'avoir amené à l'écran — et la preuve
         que c'est bien lui (ou un de ses descendants) qui est sous ce point.
