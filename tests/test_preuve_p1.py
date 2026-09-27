@@ -353,3 +353,126 @@ def test_le_fichier_est_restaure_meme_quand_la_preuve_echoue(tmp_path):
     assert module.read_bytes() == MODULE.encode("utf-8"), (
         "l'outil a laisse le fichier mute : c'est le defaut qu'il doit empecher"
     )
+
+
+# --------------------------------------------------------------------------
+# Les deux refus que l'outil rendait en code 1, c'est-à-dire en PREUVE ECHOUEE
+# — la conclusion INVERSE. Un plantage de l'outil ne doit jamais ressembler à
+# un verdict (constat du 2026-09-27).
+# --------------------------------------------------------------------------
+
+# Une semence d'octets INDECODABLES en UTF-8, fabriquée par le test lui-même.
+# Sur cette machine le vrai octet vient d'un message Windows francisé (« Accès
+# refusé » dans un PytestCacheWarning) ; le fabriquer ici rend le test vrai sur
+# n'importe quelle machine, locale anglaise et CI Linux comprises.
+SEMENCE_BRUTE = b"SEMENCE-P1-\xe8\xe9-SEMENCE-P1\n"
+SEMENCE_VUE = "SEMENCE-P1-"
+
+# Le test du bac à sable écrit ces octets DIRECTEMENT dans le descripteur,
+# capture pytest suspendue : passer par `sys.stdout` les ferait décoder (et
+# remplacer) avant d'atteindre l'outil, et la semence ne traverserait rien.
+#
+# Dans fd 2 et non fd 1, pour une raison mesurée le 2026-09-27 : l'outil ne
+# réimprime que les 1500 DERNIERS caractères de `stdout + stderr`. Un `os.write`
+# est non tamponné là où l'afficheur pytest l'est, donc une semence posée sur
+# fd 1 arrive en TÊTE du stdout (position 0 sur 1848) et se fait couper par la
+# queue. Sur fd 2, `stderr` étant par ailleurs vide, elle est garantie dans la
+# fenêtre réimprimée.
+_SEMEUR = (
+    "import os\n"
+    f"SEMENCE = {SEMENCE_BRUTE!r}\n"
+    "def _semer(request):\n"
+    "    cap = request.config.pluginmanager.getplugin('capturemanager')\n"
+    "    cap.suspend_global_capture(in_=False)\n"
+    "    try:\n"
+    "        os.write(2, SEMENCE)\n"
+    "    finally:\n"
+    "        cap.resume_global_capture()\n"
+)
+
+
+def _lancer_avec_env(module: Path, test: Path, env_sup: dict[str, str],
+                     avant: str = AVANT, apres: str = APRES):
+    """Comme `_lancer`, mais en imposant des variables d'environnement.
+
+    `_lancer` n'en prend pas, et sa signature ne bouge pas : la preuve par
+    OBSERVATION DIRECTE des trois tests déjà rouges n'est recevable que si ce
+    fichier n'a subi AUCUNE suppression de ligne.
+    """
+    import os
+
+    marqueurs = test.parent / "marqueurs_env.txt"
+    marqueurs.write_text(avant + "\n" + SEPARATEUR + "\n" + apres, encoding="utf-8")
+    return subprocess.run(
+        [sys.executable, str(OUTIL), str(module), str(test),
+         "--hors-depot", "--marqueur-fichier", str(marqueurs)],
+        cwd=str(RACINE), capture_output=True, text=True,
+        encoding="utf-8", errors="replace", timeout=1800,
+        env={**os.environ, **env_sup},
+    )
+
+
+def test_une_sortie_pytest_INDECODABLE_ne_change_pas_le_verdict(tmp_path):
+    """L'outil RÉIMPRIME la sortie pytest, capturée en `errors="replace"` : un
+    octet indécodable y devient U+FFFD, qu'un stdout cp1252 ne sait pas encoder.
+    Le print levait UnicodeEncodeError et l'outil sortait en 1 — or 1 est
+    PREUVE ECHOUEE, soit « le test passe aussi sur le code d'avant », l'inverse
+    du refus qu'il devait rendre. Ici le test est DÉJÀ ROUGE : le verdict dû est
+    4, quoi que contienne la sortie.
+
+    `PYTHONIOENCODING=cp1252:strict` est imposé au fils pour que le défaut se
+    reproduise partout : sans lui, le test serait un no-op muet sur une machine
+    déjà en UTF-8 (donc sur la CI Linux).
+    """
+    module, test = _bac(
+        tmp_path, MODULE,
+        IMPORTE + _SEMEUR
+        + "def test_casse(request):\n"
+          "    _semer(request)\n"
+          "    assert double(3) == 7\n")
+    r = _lancer_avec_env(module, test, {"PYTHONIOENCODING": "cp1252:strict"})
+    sortie = r.stdout + r.stderr
+    assert r.returncode == DEJA_ROUGE, sortie
+    assert "DEJA ROUGE" in r.stdout, sortie
+    assert "Traceback" not in sortie, (
+        "l'outil a plante au lieu de rendre son refus : " + sortie
+    )
+    # META : la semence a-t-elle REELLEMENT traverse l'outil ? Sans cette
+    # assertion, le jour ou pytest change sa capture le test passerait au vert
+    # pour une mauvaise raison — sans jamais exercer le chemin indecodable.
+    assert SEMENCE_VUE in r.stdout, (
+        "la semence d'octets n'a pas atteint la sortie de l'outil : ce test "
+        "n'exerce plus rien\n" + sortie
+    )
+    assert "�" in r.stdout, (
+        "la semence est arrivee DECODABLE : le caractere de remplacement "
+        "U+FFFD, seul responsable du plantage cp1252, n'est pas dans la "
+        "sortie\n" + sortie
+    )
+
+
+def test_une_exception_INATTENDUE_rend_OUTILLAGE_et_jamais_un_verdict(tmp_path):
+    """Le commentaire « si `_corps` leve, on ne conclut rien » décrivait une
+    garde absente : il n'y avait qu'un `try/finally`, donc l'exception remontait
+    et l'interpréteur sortait en 1 — PREUVE ECHOUEE, la conclusion inverse.
+
+    L'exception est déclenchée DE L'EXTÉRIEUR, l'outil tournant en
+    sous-processus : le test du bac à sable supprime son propre module après être
+    passé au vert, et le contrôle de concurrence qui suit lève FileNotFoundError.
+    Aucune mutation n'a encore été posée : l'arbre reste intact.
+    """
+    module, test = _bac(
+        tmp_path, MODULE,
+        IMPORTE
+        + "import pathlib\n"
+          "def test_double():\n"
+          "    assert double(3) == 6\n"
+          "    pathlib.Path(__file__).parent.joinpath('sujet.py').unlink()\n")
+    r = _lancer(module, test)
+    sortie = r.stdout + r.stderr
+    assert r.returncode == OUTILLAGE, sortie
+    assert "exception inattendue" in r.stdout, sortie
+    assert "FileNotFoundError" in r.stdout, (
+        "la trace doit etre IMPRIMEE : un OUTILLAGE muet ne se diagnostique "
+        "pas\n" + sortie
+    )

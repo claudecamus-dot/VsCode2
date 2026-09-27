@@ -69,6 +69,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import traceback
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
@@ -231,6 +232,24 @@ def _traiter_la_sentinelle(restaurer: bool) -> int | None:
 
 
 def main() -> int:
+    # Windows : la console par défaut est cp1252. Cet outil REIMPRIME la sortie
+    # pytest capturee, et cette capture est decodee en `errors="replace"` : un
+    # octet indecodable y devient U+FFFD, qu'un stdout cp1252 ne sait pas
+    # encoder. Le print levait alors UnicodeEncodeError, l'outil sortait en 1 —
+    # or 1 est le code de PREUVE ECHOUEE, la conclusion INVERSE du refus. Cinq
+    # sites d'impression portent de la sortie capturee, chemin de succes inclus :
+    # la reconfiguration se fait donc ICI, une fois, avant tout print et avant
+    # `parse_args`. Meme idiome que compter_triage.py, log_usage.py,
+    # write_diagnostic.py, git_agents_inventory.py et log_run.py ; cet outil en
+    # etait le seul ecart. `errors="replace"` : la sortie d'un test n'est pas le
+    # verdict, mieux vaut un losange qu'un refus de conclure.
+    # (L'octet indecodable vient d'un message Windows francise — « Accès refusé »
+    # dans un PytestCacheWarning. Sur une machine en locale anglaise le defaut
+    # est present quand meme, simplement muet.)
+    for _flux in (sys.stdout, sys.stderr):
+        if hasattr(_flux, "reconfigure"):
+            _flux.reconfigure(encoding="utf-8", errors="replace")
+
     p = argparse.ArgumentParser(
         description="Prouve qu'un test de regression echoue sur le code d'avant.")
     p.add_argument("fichier", help="fichier a muter")
@@ -399,6 +418,18 @@ def main() -> int:
     verdict = OUTILLAGE  # si `_corps` leve, on ne conclut rien
     try:
         verdict = _corps()
+    except Exception:
+        # Le commentaire ci-dessus decrivait une garde ABSENTE : sans `except`,
+        # l'exception remontait et l'interpreteur sortait en 1, c'est-a-dire
+        # PREUVE ECHOUEE — un plantage de l'outil signait la conclusion inverse
+        # du refus. `Exception` et non `BaseException` : `_sortir` leve
+        # SystemExit(USAGE) et un KeyboardInterrupt doit remonter (le cas tue est
+        # couvert par la SENTINELLE, pas par ce bloc). La trace est IMPRIMEE :
+        # un OUTILLAGE muet ne se diagnostique pas.
+        verdict = OUTILLAGE
+        print("OUTILLAGE : l'outil a leve une exception inattendue — aucun "
+              "verdict n'est rendu.")
+        traceback.print_exc(file=sys.stdout)
     finally:
         if mutation_posee:
             try:
