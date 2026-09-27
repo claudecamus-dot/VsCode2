@@ -523,6 +523,43 @@ async def export_pptx(
 
 
 # --------------------------------------------------------------------------- #
+# Étape 4 — Uploads .pptx (template client, deck d'exemple) : préambule commun
+# --------------------------------------------------------------------------- #
+class PptxInvalide(Exception):
+    """Fichier .pptx refusé à l'upload. Porte le message destiné à l'écran : la
+    RÉPONSE (gabarit, code HTTP) reste le choix de la route, pas du préambule."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+        self.message = message
+
+
+async def _lire_pptx_upload(file: UploadFile, analyser, *, msg_extension: str,
+                            msg_invalide: str):
+    """Préambule COMMUN aux deux uploads .pptx : extension, bornes de taille et
+    de dépaquetage ZIP (partagées avec les autres uploads via `uploads.py`),
+    lecture des octets, puis `analyser(flux)` — la validation du CONTENU reste
+    propre à chaque route (python-pptx seul / extraction du plan).
+
+    Rend `(octets, résultat de l'analyse)` ou lève `PptxInvalide`. Les bornes
+    passent AVANT que python-pptx ne dépaquette (finding audit-technique
+    sécurité du 2026-09-04) : le .pptx est une archive ZIP, un fichier
+    « client » forgé pouvait faire exploser la RAM au dépaquetage."""
+    if not (file.filename or "").lower().endswith(".pptx"):
+        raise PptxInvalide(msg_extension)
+    try:
+        content = await lire_upload_borne(file)
+        verifier_zip_borne(content)
+        resultat = analyser(io.BytesIO(content))
+    except UploadTropVolumineux as exc:
+        # Message de la borne elle-même : il nomme le plafond dépassé.
+        raise PptxInvalide(str(exc)) from exc
+    except Exception as exc:
+        raise PptxInvalide(msg_invalide) from exc
+    return content, resultat
+
+
+# --------------------------------------------------------------------------- #
 # Étape 4 — Upload d'un template PPT client
 # --------------------------------------------------------------------------- #
 @router.post("/missions/{mission_id}/pptx-template")
@@ -533,33 +570,20 @@ async def upload_pptx_template(
     db: Session = Depends(get_session),
 ):
     mission = _get_mission(db, mission_id)
-    if not (file.filename or "").lower().endswith(".pptx"):
-        return templates.TemplateResponse(
-            request,
-            "synthese/apercu.html",
-            _synthese_context(db, mission, error="Un fichier .pptx est attendu."),
-        )
-
     try:
         from pptx import Presentation
 
-        # Bornes AVANT que python-pptx ne dépaquette (finding audit-technique
-        # securite du 2026-09-04) : le .pptx est une archive ZIP, un template
-        # « client » forgé pouvait faire exploser la RAM au dépaquetage.
-        content = await lire_upload_borne(file)
-        verifier_zip_borne(content)
-        Presentation(io.BytesIO(content))  # valide que le fichier est un vrai .pptx
-    except UploadTropVolumineux as exc:
-        return templates.TemplateResponse(
-            request,
-            "synthese/apercu.html",
-            _synthese_context(db, mission, error=str(exc)),
+        content, _ = await _lire_pptx_upload(
+            file,
+            lambda flux: Presentation(flux),  # valide que le fichier est un vrai .pptx
+            msg_extension="Un fichier .pptx est attendu.",
+            msg_invalide="Fichier .pptx invalide ou corrompu.",
         )
-    except Exception:
+    except PptxInvalide as exc:
         return templates.TemplateResponse(
             request,
             "synthese/apercu.html",
-            _synthese_context(db, mission, error="Fichier .pptx invalide ou corrompu."),
+            _synthese_context(db, mission, error=exc.message),
         )
 
     filename = f"{mission_id}.pptx"
@@ -590,16 +614,15 @@ async def upload_pptx_exemple(
             _synthese_context(db, mission, error=message), status_code=400,
         )
 
-    if not (file.filename or "").lower().endswith(".pptx"):
-        return _refus("Deck d'exemple : un fichier .pptx est attendu.")
     try:
-        content = await lire_upload_borne(file)
-        verifier_zip_borne(content)
-        plan = extraire_plan(io.BytesIO(content))
-    except UploadTropVolumineux as exc:
-        return _refus(str(exc))
-    except Exception:
-        return _refus("Deck d'exemple : fichier .pptx invalide ou corrompu.")
+        content, plan = await _lire_pptx_upload(
+            file,
+            extraire_plan,
+            msg_extension="Deck d'exemple : un fichier .pptx est attendu.",
+            msg_invalide="Deck d'exemple : fichier .pptx invalide ou corrompu.",
+        )
+    except PptxInvalide as exc:
+        return _refus(exc.message)
     if not plan_applicable(plan):
         return _refus("Deck d'exemple : aucune slide de contenu reconnue dans ce deck — "
                       "rien à reprendre comme plan.")
