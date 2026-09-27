@@ -580,10 +580,15 @@ async def upload_pptx_template(
             msg_invalide="Fichier .pptx invalide ou corrompu.",
         )
     except PptxInvalide as exc:
+        # 400 comme le deck d'exemple, comme interviews_creation/interviews_backup
+        # (arbitrage utilisateur 2026-09-26) : un fichier refusé n'est pas un
+        # succès. L'écran reste le même — le navigateur affiche le corps d'une
+        # 400 —, seul le code dit enfin la vérité aux appelants non humains.
         return templates.TemplateResponse(
             request,
             "synthese/apercu.html",
             _synthese_context(db, mission, error=exc.message),
+            status_code=400,
         )
 
     filename = f"{mission_id}.pptx"
@@ -605,7 +610,8 @@ async def upload_pptx_exemple(
     db: Session = Depends(get_session),
 ):
     """Calque de l'upload de template : mêmes bornes ZIP, même validation par
-    python-pptx — mais 400 (et non 200) sur un fichier refusé."""
+    python-pptx, même 400 sur un fichier refusé (harmonisé le 2026-09-27 ; ce
+    calque répondait déjà 400 quand l'upload de template rendait 200)."""
     mission = _get_mission(db, mission_id)
 
     def _refus(message: str):

@@ -1846,7 +1846,9 @@ def test_pptx_template_upload_and_reuse(client: TestClient) -> None:
         f"/missions/{mission_id}/pptx-template",
         files={"file": ("fake.pptx", b"not a real pptx", "application/octet-stream")},
     )
-    assert response.status_code == 200
+    # 400 depuis l'harmonisation des codes des 2 uploads .pptx (2026-09-27) :
+    # l'écran et le message sont les mêmes, le code ne dit plus « succès ».
+    assert response.status_code == 400
     assert "invalide" in response.text.lower() or "corrompu" in response.text.lower()
 
     # Fichier valide -> accepté, lié à la mission, réutilisé pour l'export.

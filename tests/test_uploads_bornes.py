@@ -242,8 +242,34 @@ def test_upload_template_pptx_refuse_le_zip_bomb(client: TestClient) -> None:
         f"/missions/{mission_id}/pptx-template",
         files={"file": ("piege.pptx", _zip_bomb(), "application/vnd.openxmlformats-officedocument.presentationml.presentation")},
     )
-    assert response.status_code == 200
+    # 400 depuis l'harmonisation des codes des 2 uploads .pptx (2026-09-27).
+    assert response.status_code == 400
     assert "compression anormal" in response.text or "décompressé dépasse" in response.text
+
+
+@pytest.mark.parametrize("route", ["pptx-template", "pptx-exemple"])
+@pytest.mark.parametrize(
+    ("fichier", "octets", "attendu_dans_la_page"),
+    [("notes.txt", b"hello", ".pptx est attendu"),
+     ("faux.pptx", b"not a real pptx", "invalide ou corrompu")],
+    ids=["mauvaise-extension", "octets-corrompus"],
+)
+def test_les_deux_uploads_pptx_refusent_en_400(
+    client: TestClient, route: str, fichier: str, octets: bytes,
+    attendu_dans_la_page: str,
+) -> None:
+    """Codes HTTP harmonisés (arbitrage utilisateur 2026-09-26) : les DEUX
+    uploads .pptx répondent 400 sur un fichier refusé, comme les imports
+    d'entretien et de trame — l'upload de template rendait 200 avec un message,
+    donc « succès » pour tout appelant qui lit le code. Le message reste visible
+    dans la page rendue : le corps de la 400 EST l'écran d'aperçu."""
+    mission_id = _creer_mission_avec_entretien(client, f"Mission 400 {route} {fichier}")
+    r = client.post(f"/missions/{mission_id}/{route}",
+                    files={"file": (fichier, octets, "application/octet-stream")})
+    assert r.status_code == 400
+    assert attendu_dans_la_page in r.text
+    # Le corps est bien l'écran d'aperçu, pas une page d'erreur générique ni du JSON.
+    assert "<h1>Export PPT</h1>" in r.text and "Erreur interne" not in r.text
 
 
 def test_import_trame_refuse_l_archive_a_entrees_innombrables(

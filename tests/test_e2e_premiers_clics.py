@@ -466,3 +466,34 @@ def test_deck_exemple_televerser_puis_retirer(
         _sans_erreur(nav, "Retirer le deck d'exemple")
         assert "Aucun deck d'exemple" in nav.texte()
         assert _python_sur_base(base_db, _LIRE_EXEMPLE, mid) == "None"
+
+
+def test_upload_template_refuse_affiche_l_ecran_et_son_message_en_400(
+    tmp_path_factory: pytest.TempPathFactory, nav: Navigateur
+) -> None:
+    """P5 sur le code HTTP harmonisé (2026-09-27) : « Utiliser ce template » avec
+    un fichier refusé répond désormais 400 et non 200. Le formulaire est un POST
+    multipart ordinaire (pas htmx), donc c'est le NAVIGATEUR qui rend le corps :
+    ce test prouve qu'il affiche bien l'écran d'aperçu porteur du message, et pas
+    une page d'erreur. Le 400 étant attendu ici, on l'assère au lieu d'appeler
+    `_sans_erreur` (qui refuse tout 4xx)."""
+    dossier = tmp_path_factory.mktemp("e2e-template-400")
+    base_db = dossier / "e2e.db"
+    mid = _python_sur_base(base_db, _SEED_APERCU)
+    mauvais = dossier / "notes.txt"
+    mauvais.write_text("ceci n'est pas un pptx", encoding="utf-8")
+    with serveur_uvicorn(dossier) as base:
+        nav.naviguer(f"{base}/missions/{mid}/synthese/apercu")
+        _sans_erreur(nav, "Ouvrir l'aperçu")
+        form = f"form[action='/missions/{mid}/pptx-template']"
+        nav.choisir_fichier(f"{form} input[type=file]", mauvais)
+        nav.cliquer_et_attendre(f"{form} button[type=submit]")
+        nav.drainer()
+        texte = nav.texte()
+        assert "Un fichier .pptx est attendu." in texte, texte[:400]
+        assert "Export PPT" in texte  # l'écran d'aperçu, pas une page d'erreur
+        assert "Origine non autorisée" not in texte and "Erreur interne" not in texte
+        assert not nav.exceptions, nav.exceptions
+        statuts = sorted(r["status"] for r in nav.erreurs_http()
+                         if r["url"].endswith("/pptx-template"))
+        assert statuts == [400], nav.erreurs_http()
