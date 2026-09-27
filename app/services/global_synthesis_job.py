@@ -75,7 +75,22 @@ def run_global_synthesis_job(mission_id: int) -> None:
         # lors de l'extraction du service — « à unifier lors d'un prochain
         # passage » — est ce que l'extraction devait justement supprimer : deux
         # endroits où corriger la même règle, dont un qu'on oublie.
-        apply_global_synthesis_result(global_synthesis, result)
+        if not apply_global_synthesis_result(global_synthesis, result):
+            # Résultat entièrement vide : rien d'écrit, `status` intact (la garde
+            # de régénération reste armée). Le job n'a pas de réponse HTTP où
+            # afficher quoi que ce soit — le SEUL canal vers l'écran est le
+            # couple `generation_status="error"` / `generation_error`, que le
+            # panneau (poll `/synthese/globale/status`, et rechargement de page)
+            # rend déjà comme le message `error`. On l'emprunte donc ici : sans
+            # lui, le consultant verrait la génération finir « idle » et son
+            # texte inchangé, sans savoir si elle a tourné.
+            global_synthesis.generation_status = "error"
+            global_synthesis.generation_error = (
+                "La génération n'a produit aucun contenu — synthèse globale "
+                "inchangée. Réessayez, ou vérifiez les réponses des entretiens."
+            )
+            db.commit()
+            return
         # Ces deux-là restent ICI : ils appartiennent au cycle de vie du JOB
         # (le suivi d'avancement interrogé par l'écran), pas à l'application
         # d'un résultat de synthèse — le chemin synchrone du router n'a pas de

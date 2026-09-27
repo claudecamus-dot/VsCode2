@@ -115,11 +115,36 @@ def get_or_create_swot(db: Session, mission: Mission) -> MissionSwot:
     return _get_or_create_1_1(db, mission, "swot", MissionSwot)
 
 
-def apply_swot_result(swot: MissionSwot, result: dict) -> None:
+def _resultat_entierement_vide(result: dict) -> bool:
+    """Un résultat IA qui ne porte AUCUN contenu exploitable.
+
+    Règle retenue (2026-09-27) : vide = TOUS les champs blancs, jamais « au
+    moins un champ blanc ». Une SWOT sans « menaces » ou un executive summary
+    sans « key_message » sont des générations parfaitement légitimes ; refuser
+    celles-là bloquerait le produit bien plus souvent que le défaut qu'on
+    corrige. C'est exactement la règle des listes (`_generate_liste_view` :
+    « aucun item »), transposée à un enregistrement à plusieurs champs — et
+    déjà celle qu'appliquait l'import d'analyse externe (`any(... .strip())`
+    dans `routers/export.py`), désormais écrite ICI une seule fois.
+    """
+    return not any(str(v or "").strip() for v in result.values())
+
+
+def apply_swot_result(swot: MissionSwot, result: dict) -> bool:
+    """Écrit les 4 quadrants, ou REFUSE d'écrire un résultat entièrement vide.
+
+    Rend True si quelque chose a été écrit, False sinon. Ne rien écrire est
+    la moitié du contrat ; l'autre moitié est de NE PAS toucher au `status` :
+    le repasser à "generated" désarmerait la garde de régénération
+    (`services/garde_edition.py`), qui lit `status == "edited"` — le consultant
+    perdrait son texte ET la protection contre la perte suivante."""
+    if _resultat_entierement_vide(result):
+        return False
     for field in SWOT_FIELDS:
         setattr(swot, field, result[field])
     swot.status = "generated"
     swot.generated_at = datetime.now(UTC)
+    return True
 
 
 def get_or_create_executive_summary(
@@ -130,11 +155,16 @@ def get_or_create_executive_summary(
 
 def apply_executive_summary_result(
     es: MissionExecutiveSummary, result: dict
-) -> None:
+) -> bool:
+    """Même contrat que `apply_swot_result` : rien d'écrit et `status` intact
+    quand le résultat est entièrement vide. Rend True si écrit."""
+    if _resultat_entierement_vide(result):
+        return False
     for field in EXEC_SUMMARY_FIELDS:
         setattr(es, field, result[field])
     es.status = "generated"
     es.generated_at = datetime.now(UTC)
+    return True
 
 def apply_difficulties_result(db: Session, mission: Mission, labels: list) -> None:
     """Remplace les difficultés de la mission par la liste ordonnée fournie
@@ -202,13 +232,24 @@ def apply_maturite_result(mission: Mission, lignes: list[dict]) -> None:
 # partagée entre la génération IA et l'import d'une analyse externe (évol),
 # qui produisent toutes deux exactement la même forme de résultat.
 # --------------------------------------------------------------------------- #
-def apply_global_synthesis_result(global_synthesis: GlobalSynthesis, result: dict) -> None:
+def apply_global_synthesis_result(global_synthesis: GlobalSynthesis, result: dict) -> bool:
+    """Même contrat que `apply_swot_result` : rien d'écrit et `status` intact
+    quand le résultat est entièrement vide. Rend True si écrit.
+
+    `_clean_global` rend TOUJOURS chaque clé d'axe, `""` comprise, donc un
+    modèle muet produisait ici un dict complet de chaînes vides qui écrasait
+    une synthèse écrite à la main — et la repassait à "generated", désarmant du
+    même coup la garde de régénération.
+    """
+    if _resultat_entierement_vide(result):
+        return False
     # `result` est deja borne aux cles d'axes par `_clean_global` ; on ecrit ce
     # qu'il porte, sans presumer des 5 rubriques historiques.
     for key, value in result.items():
         global_synthesis.set_contenu(key, value)
     global_synthesis.status = "generated"
     global_synthesis.generated_at = datetime.now(UTC)
+    return True
 
 
 def apply_recommendations_result(db: Session, mission: Mission, axes_data: list[dict]) -> None:

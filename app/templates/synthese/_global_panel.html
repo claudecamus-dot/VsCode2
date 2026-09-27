@@ -50,6 +50,20 @@
   {% endif %}
 
   {% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
+  {# Garde serveur de régénération (ADR 0001, étendue le 2026-09-27) : la synthèse
+     porte des modifications faites à la main (`status == "edited"`), qu'une
+     génération remplacerait. Le message est dans `error` ci-dessus ; ici le SEUL
+     moyen de passer outre, un repost EXPLICITE avec `confirmer=1`.
+     Bouton HTMX (et non un formulaire de page) : ce panneau est un fragment
+     échangé en place, comme le bouton « Régénérer » juste dessous.
+     Le MESSAGE reste ici, en tête du panneau ; l'ACTION, elle, vit en bas dans
+     `div.synth-actions`, à côté du bouton « Régénérer » (revue 2026-09-27) :
+     `hx-swap="outerHTML"` conserve la position de défilement, donc le consultant
+     qui vient de cliquer le bouton du BAS regarde toujours le bas. Un bouton de
+     confirmation placé ici, au-dessus de cinq textareas `rows="5"`, aurait été
+     hors écran — il venait d'accepter le `hx-confirm` et « rien ne se passe ».
+     C'est le mode de défaillance que le choix du 200 (plutôt que 400) existait
+     pour éviter, déplacé d'un cran. #}
   {% if not ai_ready %}
   <p class="muted ai-hint">⚠ <strong>Service IA indisponible</strong> : définissez la variable
     d'environnement <code>{{ api_key_env }}</code> pour activer la génération, ou utilisez
@@ -68,6 +82,13 @@
   {% endfor %}
 
   <div class="synth-actions">
+    {% if confirmation %}
+    <button class="btn btn-danger confirmation-regeneration" type="button"
+      hx-post="{{ confirmation.action }}" hx-vals='{"confirmer": "1"}'
+      hx-target="#global-synth-panel" hx-swap="outerHTML" hx-disabled-elt="this">
+      {{ confirmation.libelle }}
+    </button>
+    {% endif %}
     {% set can_generate = ai_ready and answer_count and not generating %}
     <button class="btn btn-primary" type="button"
       hx-post="/missions/{{ mission.id }}/synthese/globale/generate"

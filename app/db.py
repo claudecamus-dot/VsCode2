@@ -104,6 +104,23 @@ def _add_missing_columns() -> None:
         # Retranscription d'un entretien enregistré (2026-07-30) : plusieurs
         # tranches persistées à enchaîner. Pas de clause REFERENCES sur
         # `interview_id` ajoutée après coup (même compromis que ci-dessus).
+        # Drapeau « édité à la main » des trois listes de suivi (G, 2026-09-27) :
+        # la garde de régénération refuse d'écraser une ligne éditée sans
+        # confirmation. Migration ADDITIVE, donc les lignes déjà éditées AVANT
+        # elle se relisent à `edite = 0` — limite assumée, motivée dans
+        # `docs/adr/0001-garde-regeneration-lignes-editees.md` : la garde
+        # protège les éditions postérieures à la migration.
+        "mission_kpis": {"edite": "BOOLEAN DEFAULT 0"},
+        "mission_risks": {"edite": "BOOLEAN DEFAULT 0"},
+        "mission_maturites": {"edite": "BOOLEAN DEFAULT 0"},
+        # Extension aux autres surfaces régénérables (2026-09-27, arbitrage
+        # utilisateur « garde limitée à 3 surfaces sur 8 ») : mêmes colonne, même
+        # limite assumée. Les trois enregistrements UNIQUES (synthèse globale,
+        # SWOT, executive summary) n'apparaissent pas ici : leur marqueur est le
+        # `status = "edited"` qui existe déjà, aucune migration à faire.
+        "mission_difficulties": {"edite": "BOOLEAN DEFAULT 0"},
+        "recommendation_axes": {"edite": "BOOLEAN DEFAULT 0"},
+        "recommendations": {"edite": "BOOLEAN DEFAULT 0"},
         "audio_file_jobs": {
             "filenames": "JSON",
             "interview_id": "INTEGER",

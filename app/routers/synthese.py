@@ -30,6 +30,7 @@ from ..models import (
     RecommendationAxis,
 )
 from ..services.ai_common import api_key_env_name
+from ..services.garde_edition import garde_regeneration
 from ..services.global_synthesis_job import run_global_synthesis_job
 from ..services.mission_axes import axes_of, creer_axe, supprimer_axe
 from ..services.pptx_export import field_fit_hint
@@ -170,7 +171,8 @@ def global_synthese_view(
 
 
 def _global_panel_context(
-    request: Request, db: Session, mission: Mission, global_synthesis: GlobalSynthesis, error: str | None,
+    request: Request, db: Session, mission: Mission, global_synthesis: GlobalSynthesis,
+    error: str | None, confirmation: dict | None = None,
 ) -> dict:
     material_by_theme = _all_theme_material(mission)
     return {
@@ -181,6 +183,7 @@ def _global_panel_context(
         "ai_ready": is_configured(),
         "api_key_env": api_key_env_name(),
         "error": error,
+        "confirmation": confirmation,
         "answer_count": _total_answer_count(material_by_theme),
     }
 
@@ -216,6 +219,7 @@ def generate_global(
     request: Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_session),
+    confirmer: bool = Form(False),
 ):
     """Lance la génération en TÂCHE DE FOND (2026-09-04, finding
     audit-technique performance:critique) — le map-reduce peut dépasser
@@ -233,6 +237,7 @@ def generate_global(
     global_synthesis = get_or_create_global_synthesis(db, mission)
 
     error = None
+    confirmation = None
     if global_synthesis.generation_status == "running":
         pass  # confort d'affichage : rien à relancer, le panneau montre l'état.
     elif not is_configured():
@@ -246,6 +251,35 @@ def generate_global(
         error = "Aucune réponse saisie sur la mission — rien à synthétiser."
         if global_synthesis.generation_status == "error":
             _acquitter_erreur(db, global_synthesis)
+    elif (refus := garde_regeneration(
+            mission, surface="global_synthesis", confirmer=confirmer)) is not None:
+        # Garde d'édition (ADR 0001, étendue le 2026-09-27) : la synthèse porte
+        # des modifications faites à la main (`status == "edited"`) et le clic ne
+        # dit pas `confirmer=1` -> AUCUN jeton pris, AUCUNE tâche de fond lancée,
+        # aucun statut touché. Placée ici, donc APRÈS les préconditions (IA
+        # indisponible, aucune réponse, génération déjà en cours) : faire
+        # confirmer un remplacement pour répondre ensuite « rien à synthétiser »
+        # ferait valider une action impossible.
+        #
+        # Réponse en 200, et non en 400 comme les autres surfaces : ce panneau est
+        # un fragment HTMX (`hx-post` + `hx-swap="outerHTML"`), et htmx 2.0.3
+        # n'échange RIEN sur un 4xx (`responseHandling` par défaut :
+        # `{code:"[45]..", swap:false}`). Un 400 ici laisserait le consultant
+        # devant un écran inchangé, sans la demande de confirmation — une garde
+        # dont le refus est invisible est un bug. Le 400 des autres surfaces
+        # marche parce qu'elles postent un formulaire de page entière, dont le
+        # navigateur rend le corps quel que soit le statut.
+        error = refus["message"]
+        # `request.url.path` et non le chemin réécrit à la main, comme les deux
+        # autres dicts `confirmation` du dépôt : ce chemin EST celui de cette
+        # route, la seule qui puisse rendre ce refus. Réécrit en dur, il survivait
+        # à un déplacement de la route — la garde aurait continué de s'afficher et
+        # le bouton aurait posté dans le vide, et `test_route_inventory.py` fige la
+        # table des routes, pas cette chaîne.
+        confirmation = {
+            "action": str(request.url.path),
+            "libelle": refus["libelle"],
+        }
     else:
         # Prise de jeton ATOMIQUE, en base (audit-technique robustesse du
         # 2026-09-09) : le lire-puis-écrire Python d'avant était un TOCTOU —
@@ -306,7 +340,7 @@ def generate_global(
     return templates.TemplateResponse(
         request,
         "synthese/_global_panel.html",
-        _global_panel_context(request, db, mission, global_synthesis, error),
+        _global_panel_context(request, db, mission, global_synthesis, error, confirmation),
     )
 
 
@@ -405,9 +439,9 @@ def save_global_field(
         # plutot que d'ecrire une cle qui ne sera plus jamais lue.
         raise HTTPException(status_code=400, detail="Champ inconnu.")
     global_synthesis = get_or_create_global_synthesis(db, mission)
+    change = global_synthesis.contenu(field) != value
     global_synthesis.set_contenu(field, value)
-    if global_synthesis.has_content:
-        global_synthesis.status = "edited"
+    _marquer_statut_edite(global_synthesis, change)
     db.commit()
     badge = (
         f'<span class="badge badge-synth-{global_synthesis.status}" id="global-synth-status" '
@@ -447,7 +481,14 @@ def generate_recommendations_view(
     mission_id: int,
     request: Request,
     db: Session = Depends(get_session),
+    confirmer: bool = Form(False),
 ):
+    """Régénère l'arbre axes/recommandations depuis la synthèse globale.
+
+    Garde d'édition (ADR 0001, étendue le 2026-09-27) : un intitulé d'axe ou un
+    champ de recommandation retouché à la main marque son objet `edite` ; sans
+    `confirmer=1`, rien n'est généré et l'écran revient en 400 avec un bouton qui
+    repose la demande confirmée. La garde vient APRÈS la précondition IA."""
     mission = _get_mission(db, mission_id)
     global_synthesis = mission.global_synthesis
 
@@ -455,14 +496,21 @@ def generate_recommendations_view(
         global_synthesis,
         "Générez d'abord la synthèse globale — les recommandations en découlent.",
     )
+    confirmation = None
     if error is None:
-        try:
-            axes_data = generate_recommendations(global_synthesis, axes_of(db, mission))
-            apply_recommendations_result(db, mission, axes_data)
-            db.commit()
-            db.refresh(mission)
-        except SynthesisAIError as exc:
-            error = str(exc)
+        refus = garde_regeneration(
+            mission, surface="recommendations", confirmer=confirmer)
+        if refus is not None:
+            error = refus["message"]
+            confirmation = {"action": str(request.url.path), "libelle": refus["libelle"]}
+        else:
+            try:
+                axes_data = generate_recommendations(global_synthesis, axes_of(db, mission))
+                apply_recommendations_result(db, mission, axes_data)
+                db.commit()
+                db.refresh(mission)
+            except SynthesisAIError as exc:
+                error = str(exc)
 
     return templates.TemplateResponse(
         request,
@@ -475,7 +523,9 @@ def generate_recommendations_view(
             "ai_ready": is_configured(),
             "api_key_env": api_key_env_name(),
             "error": error,
+            "confirmation": confirmation,
         },
+        status_code=400 if confirmation else 200,
     )
 
 
@@ -487,14 +537,16 @@ def save_recommendation_field(
     db: Session = Depends(get_session),
 ):
     reco = _get_recommendation(db, recommendation_id)
+    # `_ecrire_et_marquer` : drapeau posé APRÈS validation et seulement si la
+    # valeur change (cf. son docstring) — la garde de régénération s'y appuie.
     if field in RECO_TEXT_FIELDS:
-        setattr(reco, field, value)
+        _ecrire_et_marquer(reco, field, value)
     elif field in RECO_SCORE_FIELDS:
         try:
             score = int(value)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="Score invalide.") from exc
-        setattr(reco, field, max(1, min(5, score)))
+        _ecrire_et_marquer(reco, field, max(1, min(5, score)))
     else:
         raise HTTPException(status_code=400, detail="Champ inconnu.")
     db.commit()
@@ -516,7 +568,7 @@ def save_axis_field(
     axis = _get_axis(db, axis_id)
     if field != "title":
         raise HTTPException(status_code=400, detail="Champ inconnu.")
-    axis.title = value
+    _ecrire_et_marquer(axis, "title", value)
     db.commit()
     hint = _hint_span(f"fit-hint-axis-{axis_id}", "axis_title", value)
     return HTMLResponse(f'<span class="saved">✓ enregistré</span>{hint}')
@@ -538,9 +590,9 @@ def save_swot_field(
         raise HTTPException(status_code=400, detail="Champ inconnu.")
     mission = _get_mission(db, mission_id)
     swot = get_or_create_swot(db, mission)
+    change = getattr(swot, field) != value
     setattr(swot, field, value)
-    if swot.has_content:
-        swot.status = "edited"
+    _marquer_statut_edite(swot, change)
     db.commit()
     badge = (
         f'<span class="badge badge-synth-{swot.status}" id="swot-status" '
@@ -558,7 +610,7 @@ def save_difficulty_field(
     db: Session = Depends(get_session),
 ):
     d = _get_difficulty(db, difficulty_id, mission_id)
-    d.label = value
+    _ecrire_et_marquer(d, "label", value)
     db.commit()
     hint = _hint_span(f"fit-hint-diff-{difficulty_id}", "difficulty_label", value)
     return HTMLResponse(f'<span class="saved">✓ enregistré</span>{hint}')
@@ -584,7 +636,10 @@ def set_difficulty_verbatim(
         if candidate not in {v.id for v in d.mission.all_verbatims}:
             raise HTTPException(status_code=400, detail="Verbatim inconnu pour cette mission.")
         vid = candidate
-    d.verbatim_id = vid
+    # Lier un verbatim est un travail à la main perdu à la régénération (les
+    # difficultés neuves naissent sans lien) : il marque la ligne, au même titre
+    # qu'un libellé retouché. Après validation, et seulement si le lien change.
+    _ecrire_et_marquer(d, "verbatim_id", vid)
     db.commit()
     return HTMLResponse('<span class="saved">✓ verbatim lié</span>')
 
@@ -596,6 +651,35 @@ def set_difficulty_verbatim(
 KPI_FIELDS = ("libelle", "cible", "axe")
 RISK_TEXT_FIELDS = ("risque", "controle")
 RISK_LEVEL_FIELDS = ("gravite", "probabilite")
+
+
+def _ecrire_et_marquer(ligne, champ: str, nouvelle) -> None:
+    """Écrit la valeur et ne pose `edite` QUE si elle change réellement (G,
+    2026-09-27, reprise de revue).
+
+    Les autosaves se déclenchent aussi sur `blur` : le modificateur `changed` de
+    `hx-trigger` ne porte que sur `keyup`, donc entrer dans un champ et en sortir
+    SANS rien taper poste la valeur inchangée. Marquer là-dessus annonçait « 8
+    lignes éditées seront remplacées » à qui avait seulement parcouru l'écran au
+    clavier — et un avertissement qui crie pour rien n'est plus lu le jour où il
+    a raison."""
+    if getattr(ligne, champ) != nouvelle:
+        setattr(ligne, champ, nouvelle)
+        ligne.edite = True
+
+
+def _marquer_statut_edite(enregistrement, change: bool) -> None:
+    """Pendant de `_ecrire_et_marquer` pour les trois enregistrements UNIQUES
+    (synthèse globale, SWOT, executive summary) : leur marqueur d'édition à la
+    main n'est pas un drapeau `edite` mais le `status` empty|generated|edited
+    qu'ils portent DÉJÀ, et que `apply_*_result` remet à `generated`.
+
+    Même condition que pour les lignes : seulement si la valeur a réellement
+    changé (l'autosave se déclenche aussi sur `blur`). `has_content` est
+    conservé — un enregistrement vidé de tout texte n'est pas « édité », il est
+    revenu à rien."""
+    if change and enregistrement.has_content:
+        enregistrement.status = "edited"
 
 
 @router.post("/kpis/{kpi_id}/field")
@@ -622,7 +706,11 @@ def save_kpi_field(
             value = snap_axe(value, [a.title for a in k.mission.recommendation_axes])
             if value not in {a.title for a in k.mission.recommendation_axes}:
                 raise HTTPException(status_code=400, detail="Axe inconnu pour cette mission.")
-    setattr(k, field, value)
+    # Ligne éditée à la main (G, 2026-09-27) : posé APRÈS validation — un champ
+    # refusé (400) ne marque rien — et SEULEMENT si la valeur change (cf.
+    # `_ecrire_et_marquer`). La régénération refusera d'écraser une ligne marquée
+    # sans confirmation ; le drapeau retombe seul à la recréation des lignes.
+    _ecrire_et_marquer(k, field, value)
     db.commit()
     hint = ""
     if field in ("libelle", "cible"):
@@ -641,7 +729,7 @@ def save_risk_field(
     r = _ligne_de_la_mission(db, MissionRisk, risk_id, mission_id, "Risque")
     hint = ""
     if field in RISK_TEXT_FIELDS:
-        setattr(r, field, value)
+        _ecrire_et_marquer(r, field, value)
         prefixe = ""
         if field == "controle":
             prefixe = ("Contrôle existant : " if r.controle_type == "existant"
@@ -654,11 +742,11 @@ def save_risk_field(
             raise HTTPException(status_code=400, detail="Niveau invalide.") from exc
         if niveau not in RISK_LEVELS:
             raise HTTPException(status_code=400, detail="Niveau invalide (1 à 3).")
-        setattr(r, field, niveau)
+        _ecrire_et_marquer(r, field, niveau)
     elif field == "controle_type":
         if value not in RISK_CONTROL_TYPES:
             raise HTTPException(status_code=400, detail="Type de contrôle inconnu.")
-        r.controle_type = value
+        _ecrire_et_marquer(r, "controle_type", value)
     else:
         raise HTTPException(status_code=400, detail="Champ inconnu.")
     db.commit()
@@ -684,9 +772,9 @@ def save_maturite_field(
             raise HTTPException(status_code=400, detail="Score invalide.") from exc
         if score not in MATURITE_NIVEAUX:
             raise HTTPException(status_code=400, detail="Score invalide (0 à 3).")
-        m.score = score
+        _ecrire_et_marquer(m, "score", score)
     elif field == "justification":
-        m.justification = value
+        _ecrire_et_marquer(m, "justification", value)
         hint = _hint_span(f"fit-hint-mat-{maturite_id}", "maturite_justification", value)
     else:
         raise HTTPException(status_code=400, detail="Champ inconnu.")
@@ -705,9 +793,9 @@ def save_executive_summary_field(
         raise HTTPException(status_code=400, detail="Champ inconnu.")
     mission = _get_mission(db, mission_id)
     es = get_or_create_executive_summary(db, mission)
+    change = getattr(es, field) != value
     setattr(es, field, value)
-    if es.has_content:
-        es.status = "edited"
+    _marquer_statut_edite(es, change)
     db.commit()
     badge = (
         f'<span class="badge badge-synth-{es.status}" id="es-status" '

@@ -24,6 +24,17 @@
 </p>
 
 {% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
+{# Garde serveur de régénération (ADR 0001, étendue le 2026-09-27) : un axe ou une
+   recommandation retouchés à la main seraient remplacés. Le message est dans
+   `error` ci-dessus ; ici le SEUL moyen de passer outre, un repost explicite avec
+   `confirmer=1`. Même bloc que `apercu.html`, jamais une fusion. #}
+{% if confirmation %}
+<form method="post" action="{{ confirmation.action }}" class="reco-generate confirmation-regeneration"
+  data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)">
+  <input type="hidden" name="confirmer" value="1">
+  <button class="btn btn-danger" type="submit">{{ confirmation.libelle }}</button>
+</form>
+{% endif %}
 {% if not ai_ready %}
 <p class="muted ai-hint">⚠ <strong>Service IA indisponible</strong> : définissez
   <code>{{ api_key_env }}</code> pour activer la génération, ou utilisez

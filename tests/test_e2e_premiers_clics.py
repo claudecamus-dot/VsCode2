@@ -112,11 +112,18 @@ def _creer_mission(nav: Navigateur, base: str, nom: str) -> str:
     return url
 
 
-def _sans_erreur(nav: Navigateur, etape: str) -> None:
+def _sans_erreur(nav: Navigateur, etape: str, *, sauf: tuple[str, ...] = ()) -> None:
     """Aucune erreur depuis le DÉBUT du parcours — après avoir ramassé ce qui
-    est encore sur la socket, sinon l'assertion lit un état périmé."""
+    est encore sur la socket, sinon l'assertion lit un état périmé.
+
+    `sauf` liste les chemins dont un 4xx est ATTENDU et déjà asséré sur place :
+    depuis la garde de régénération (G, 2026-09-27), un clic « Régénérer » sur une
+    liste éditée répond 400 exprès. Un tel refus reste une erreur réseau pour le
+    navigateur, il ne doit pas pour autant aveugler le reste du parcours."""
     nav.drainer()
-    assert not nav.erreurs(), f"{etape} : réponses en erreur {nav.erreurs()}"
+    inattendues = [r for r in nav.erreurs()
+                   if not any(str(r.get("url", "")).endswith(s) for s in sauf)]
+    assert not inattendues, f"{etape} : réponses en erreur {inattendues}"
     assert not nav.exceptions, f"{etape} : exceptions JS {nav.exceptions}"
     assert not nav.erreurs_cdp, f"{etape} : le pilote a reçu une erreur CDP {nav.erreurs_cdp}"
     assert "Origine non autorisée" not in nav.texte(), f"{etape} : 403 CSRF rendu à l'écran"
@@ -265,6 +272,24 @@ def _attendre_texte(nav: Navigateur, selecteur: str, attendu: str, delai_s: floa
     raise AssertionError(f"« {attendu} » jamais apparu dans {selecteur}")
 
 
+
+def _saisir_au_clavier(nav: Navigateur, selecteur: str, valeur: str) -> None:
+    """Saisie d'un champ dont l'autosave htmx écoute `keyup` (et pas `change`) :
+    les macros de la synthèse globale et de la SWOT portent
+    `hx-trigger="keyup changed delay:700ms, blur"`, là où les lignes KPI ajoutent
+    `change`. `nav.remplir` ne dispatche qu'`input`/`change` — il ne déclencherait
+    RIEN ici, et le test serait vert sans avoir rien enregistré. On termine donc
+    par un `keyup`, exactement ce que produit un utilisateur qui tape."""
+    import json
+    nav.remplir(selecteur, valeur)
+    ok = nav.evaluer(
+        "(function(){var e=document.querySelector(" + json.dumps(selecteur) + ");"
+        " if(!e) return false;"
+        " e.dispatchEvent(new KeyboardEvent('keyup',{bubbles:true,key:'a'}));"
+        " return true;})()"
+    )
+    assert ok, f"champ introuvable : {selecteur}"
+
 def test_indicateurs_et_risques_autosave_et_generation(
     tmp_path_factory: pytest.TempPathFactory, nav: Navigateur
 ) -> None:
@@ -299,7 +324,20 @@ def test_indicateurs_et_risques_autosave_et_generation(
 
         nav.cliquer(".tab[data-tab='kpis']")
         nav.cliquer_et_attendre(f"form[action='/missions/{mid}/kpis/generate'] button[type=submit]")
-        _sans_erreur(nav, "Régénérer les indicateurs")
+        # La cible vient d'être éditée : la garde serveur (G) refuse en 400 et
+        # demande confirmation AVANT toute génération. Le parcours passe donc par
+        # l'écran de confirmation, puis le clic qui l'accepte.
+        # Le STATUT est asséré, pas seulement le texte : le message de la garde
+        # passe par le même « ⚠ {{ error }} » que l'échec IA, donc un test qui ne
+        # regarde que le texte resterait vert sur une garde infranchissable.
+        assert [r["status"] for r in nav.erreurs_http()
+                if r["url"].endswith("/kpis/generate")] == [400], nav.erreurs_http()
+        assert "sera remplacée" in nav.texte(), nav.texte()[:300]
+        nav.cliquer_et_attendre("form.confirmation-regeneration button[type=submit]")
+        _sans_erreur(nav, "Régénérer les indicateurs", sauf=("/kpis/generate",))
+        # Le 2e POST, lui, n'a PAS été refusé : un seul 400 sur cette route.
+        assert [r["status"] for r in nav.erreurs_http()
+                if r["url"].endswith("/kpis/generate")] == [400], nav.erreurs_http()
         assert "⚠" in nav.texte(), "le message d'échec IA n'est pas rendu"
 
         # Revue adversariale (P5) : le second POST de génération, « Régénérer les
@@ -307,7 +345,14 @@ def test_indicateurs_et_risques_autosave_et_generation(
         # conftest, seul ce clic prouve le CSRF réel de cette route.
         nav.cliquer(".tab[data-tab='risques']")
         nav.cliquer_et_attendre(f"form[action='/missions/{mid}/risques/generate'] button[type=submit]")
-        _sans_erreur(nav, "Régénérer les risques")
+        assert [r["status"] for r in nav.erreurs_http()
+                if r["url"].endswith("/risques/generate")] == [400], nav.erreurs_http()
+        assert "sera remplacée" in nav.texte(), nav.texte()[:300]
+        nav.cliquer_et_attendre("form.confirmation-regeneration button[type=submit]")
+        _sans_erreur(nav, "Régénérer les risques",
+                     sauf=("/kpis/generate", "/risques/generate"))
+        assert [r["status"] for r in nav.erreurs_http()
+                if r["url"].endswith("/risques/generate")] == [400], nav.erreurs_http()
         assert "⚠" in nav.texte(), "le message d'échec IA (risques) n'est pas rendu"
         # Ollama injoignable : la matrice existante n'est pas écrasée.
         assert _python_sur_base(base_db, _LIRE_SUIVI, kid, rid) == repr(
@@ -366,7 +411,15 @@ def test_grille_maturite_autosave_et_generation(
         assert _python_sur_base(base_db, _LIRE_MATURITE, lid) == repr((3, "Pratiques pilotées"))
 
         nav.cliquer_et_attendre(f"form[action='/missions/{mid}/maturite/generate'] button[type=submit]")
-        _sans_erreur(nav, "Régénérer la grille de maturité")
+        # Score et justification viennent d'être édités : garde serveur (G) puis
+        # confirmation, comme pour les indicateurs et les risques.
+        assert [r["status"] for r in nav.erreurs_http()
+                if r["url"].endswith("/maturite/generate")] == [400], nav.erreurs_http()
+        assert "sera remplacée" in nav.texte(), nav.texte()[:300]
+        nav.cliquer_et_attendre("form.confirmation-regeneration button[type=submit]")
+        _sans_erreur(nav, "Régénérer la grille de maturité", sauf=("/maturite/generate",))
+        assert [r["status"] for r in nav.erreurs_http()
+                if r["url"].endswith("/maturite/generate")] == [400], nav.erreurs_http()
         assert "⚠" in nav.texte(), "le message d'échec IA n'est pas rendu"
         assert _python_sur_base(base_db, _LIRE_MATURITE, lid) == repr((3, "Pratiques pilotées"))
 
@@ -595,3 +648,199 @@ def test_onglet_perime_axe_variante_rapprochee_et_axe_disparu_refuse(
         assert "enregistré" not in nav.evaluer(
             f"document.getElementById('kpi-saved-{kid}').textContent")
         assert _python_sur_base(base_db, _LIRE_AXE_KPI, kid) == repr("Gouvernance data")
+
+
+def test_regenerer_apres_edition_passe_par_l_ecran_de_confirmation_serveur(
+    tmp_path_factory: pytest.TempPathFactory, nav: Navigateur
+) -> None:
+    """P5 de la garde G : le consultant édite une ligne (autosave htmx), puis clique
+    « Régénérer les indicateurs ». Le serveur REFUSE (400) et rend l'écran de
+    confirmation — la ligne éditée est toujours là — ; un second clic, sur le bouton
+    de confirmation, repose la demande avec `confirmer=1` et la génération a lieu
+    (Ollama injoignable exprès : elle échoue proprement, ce qui prouve qu'on est
+    bien passé de l'autre côté de la garde)."""
+    dossier = tmp_path_factory.mktemp("e2e-garde-regen")
+    base_db = dossier / "e2e.db"
+    mid, kid, _rid = _python_sur_base(base_db, _SEED_SUIVI).split()
+    with serveur_uvicorn(dossier, OLLAMA_HOST="http://127.0.0.1:9") as base:
+        nav.naviguer(f"{base}/missions/{mid}/synthese/apercu")
+        _sans_erreur(nav, "Ouvrir l'aperçu")
+        nav.cliquer(".tab[data-tab='kpis']")
+        nav.remplir(f"textarea[hx-post='/kpis/{kid}/field'][hx-vals*='cible']", "90 % à la main")
+        _attendre_texte(nav, f"#kpi-saved-{kid}", "enregistré")
+        _sans_erreur(nav, "Édition à la main de la cible")
+
+        # 1er clic : le confirm() JS est accepté par le pilote, et c'est le SERVEUR
+        # qui refuse ensuite — c'est là tout l'objet de la garde.
+        nav.cliquer_et_attendre(f"form[action='/missions/{mid}/kpis/generate'] button[type=submit]")
+        nav.drainer()
+        texte = nav.texte()
+        assert "1 ligne éditée à la main sera remplacée" in texte, texte[:500]
+        # La ligne éditée est toujours là (l'onglet Indicateurs n'est pas l'onglet
+        # actif au rechargement : on lit la valeur dans le DOM, pas l'innerText).
+        assert nav.evaluer(
+            "document.querySelector(\"textarea[hx-post='/kpis/" + kid
+            + "/field'][hx-vals*='cible']\").value") == "90 % à la main"
+        assert [r["status"] for r in nav.erreurs_http()
+                if r["url"].endswith("/kpis/generate")] == [400], nav.erreurs_http()
+
+        # 2e clic : la confirmation franchit la garde (génération tentée, Ollama KO).
+        nav.cliquer_et_attendre("form.confirmation-regeneration button[type=submit]")
+        nav.drainer()
+        texte = nav.texte()
+        assert "sera remplacée" not in texte, "la garde se redéclenche malgré la confirmation"
+        assert "⚠" in texte, "aucun message d'échec IA : la génération n'a pas été tentée"
+        assert not nav.exceptions, nav.exceptions
+
+
+# --------------------------------------------------------------------------- #
+# Garde de régénération étendue aux autres surfaces (2026-09-27) : P5 sur les DEUX
+# formes ajoutées, celles dont le mécanisme n'existait pas encore — une surface à
+# enregistrement UNIQUE marquée par `status == "edited"` (SWOT, page complète en
+# 400) et la synthèse globale, dont le panneau est un fragment HTMX (200 assumé,
+# parce que htmx n'échange rien sur un 4xx : seul un vrai navigateur le prouve).
+# --------------------------------------------------------------------------- #
+_SEED_GARDE_SURFACES = r"""
+from app.db import SessionLocal, init_db
+from app.models import (Answer, GlobalSynthesis, Interview, Mission, MissionSwot,
+                        Question, Theme, Trame)
+init_db()
+db = SessionLocal()
+m = Mission(name="E2E garde surfaces")
+db.add(m); db.flush()
+tr = Trame(mission_id=m.id); db.add(tr); db.flush()
+th = Theme(trame_id=tr.id, title="Gouvernance", position=0); db.add(th); db.flush()
+q = Question(theme_id=th.id, label="Comment décidez-vous ?", position=0)
+db.add(q); db.flush()
+iv = Interview(mission_id=m.id, interviewee_name="Témoin", status="done")
+db.add(iv); db.flush()
+# Une VRAIE réponse : le bouton « Régénérer » du panneau de synthèse globale est
+# désactivé tant que la mission n'a aucune réponse saisie.
+db.add(Answer(interview_id=iv.id, question_id=q.id, text="Les décisions remontent."))
+db.add(GlobalSynthesis(mission_id=m.id, status="generated", contexte="- C",
+                       points_amelioration="- Silos"))
+db.add(MissionSwot(mission_id=m.id, status="generated", forces="- F IA",
+                   faiblesses="- f", opportunites="- o", menaces="- m"))
+db.commit()
+print(m.id)
+"""
+
+_LIRE_GARDE_SURFACES = r"""
+import sys
+from app.db import SessionLocal
+from app.models import Mission
+db = SessionLocal()
+m = db.get(Mission, int(sys.argv[1]))
+print(repr((m.swot.forces, m.swot.status,
+            m.global_synthesis.contenu("contexte"), m.global_synthesis.status)))
+"""
+
+
+def test_garde_swot_editee_a_la_main_passe_par_la_confirmation(
+    tmp_path_factory: pytest.TempPathFactory, nav: Navigateur
+) -> None:
+    """SWOT : un quadrant retouché à la main met `status = "edited"`, et « Régénérer
+    la SWOT » est REFUSÉE en 400 avec l'écran de confirmation — le texte édité est
+    toujours dans le champ. Le second clic franchit la garde (Ollama injoignable
+    exprès : l'échec IA prouve qu'on est passé de l'autre côté).
+
+    Les STATUTS sont assérés, pas seulement les textes : le message de la garde
+    emprunte le même « ⚠ {{ error }} » que l'échec IA."""
+    dossier = tmp_path_factory.mktemp("e2e-garde-swot")
+    base_db = dossier / "e2e.db"
+    mid = _python_sur_base(base_db, _SEED_GARDE_SURFACES)
+    with serveur_uvicorn(dossier, OLLAMA_HOST="http://127.0.0.1:9") as base:
+        nav.naviguer(f"{base}/missions/{mid}/synthese/apercu")
+        _sans_erreur(nav, "Ouvrir l'aperçu")
+
+        nav.cliquer(".tab[data-tab='swot']")
+        _saisir_au_clavier(nav, f"textarea[hx-post='/swot/{mid}/field'][hx-vals*='forces']",
+                           "- Force écrite à la main")
+        _attendre_texte(nav, "#swot-saved-forces", "enregistré")
+        _sans_erreur(nav, "Autosave d'un quadrant SWOT")
+
+        # 1er clic : confirm() JS accepté par le pilote, c'est le SERVEUR qui refuse.
+        nav.cliquer_et_attendre(f"form[action='/missions/{mid}/swot/generate'] button[type=submit]")
+        nav.drainer()
+        texte = nav.texte()
+        assert "SWOT porte des modifications faites à la main" in texte, texte[:500]
+        assert [r["status"] for r in nav.erreurs_http()
+                if r["url"].endswith("/swot/generate")] == [400], nav.erreurs_http()
+        assert nav.evaluer(
+            "document.querySelector(\"textarea[hx-post='/swot/" + mid
+            + "/field'][hx-vals*='forces']\").value") == "- Force écrite à la main"
+
+        # 2e clic : la confirmation franchit la garde.
+        nav.cliquer_et_attendre("form.confirmation-regeneration button[type=submit]")
+        _sans_erreur(nav, "Régénérer la SWOT confirmée", sauf=("/swot/generate",))
+        texte = nav.texte()
+        assert "faites à la main" not in texte, "la garde se redéclenche malgré la confirmation"
+        assert "⚠" in texte, "aucun message d'échec IA : la génération n'a pas été tentée"
+        assert [r["status"] for r in nav.erreurs_http()
+                if r["url"].endswith("/swot/generate")] == [400], nav.erreurs_http()
+        # Ollama injoignable : la SWOT éditée n'a pas été écrasée.
+        import ast
+        etat = ast.literal_eval(_python_sur_base(base_db, _LIRE_GARDE_SURFACES, mid))
+        assert etat[0] == "- Force écrite à la main", etat
+        assert etat[1] == "edited", etat
+        assert not nav.exceptions, nav.exceptions
+
+
+def test_garde_synthese_globale_rend_sa_confirmation_dans_le_fragment_htmx(
+    tmp_path_factory: pytest.TempPathFactory, nav: Navigateur
+) -> None:
+    """Synthèse globale : la garde répond 200 et NON 400, parce que le panneau est
+    échangé par htmx (`hx-post` + `hx-swap="outerHTML"`) et que htmx 2.0.3
+    n'échange rien sur un 4xx — un 400 rendrait le refus invisible. C'est
+    exactement ce qu'un vrai navigateur prouve et qu'un TestClient ne voit pas :
+    ici on vérifie que la demande de confirmation APPARAÎT bien à l'écran, puis
+    qu'un clic dessus lance la génération (tâche de fond, Ollama injoignable)."""
+    dossier = tmp_path_factory.mktemp("e2e-garde-globale")
+    base_db = dossier / "e2e.db"
+    mid = _python_sur_base(base_db, _SEED_GARDE_SURFACES)
+    with serveur_uvicorn(dossier, OLLAMA_HOST="http://127.0.0.1:9") as base:
+        nav.naviguer(f"{base}/missions/{mid}/synthese/globale")
+        _sans_erreur(nav, "Ouvrir la synthèse globale")
+
+        _saisir_au_clavier(
+            nav, f"textarea[hx-post='/syntheses/globale/{mid}/field'][hx-vals*='contexte']",
+            "- Contexte écrit à la main")
+        _attendre_texte(nav, "#global-synth-saved", "enregistré")
+        _sans_erreur(nav, "Autosave de la synthèse globale")
+
+        # Clic « Régénérer » : hx-confirm accepté par le pilote, puis la garde.
+        nav.cliquer("#global-synth-panel .synth-actions button[hx-post]")
+        _attendre_texte(nav, "#global-synth-panel",
+                        "synthèse globale porte des modifications faites à la main")
+        # Aucun 4xx : la garde répond 200, sinon htmx n'aurait rien échangé et le
+        # message ci-dessus ne serait jamais apparu.
+        _sans_erreur(nav, "Garde de la synthèse globale")
+        assert nav.evaluer(
+            "document.querySelector(\"textarea[hx-post='/syntheses/globale/" + mid
+            + "/field'][hx-vals*='contexte']\").value") == "- Contexte écrit à la main"
+
+        # Le bouton de confirmation doit être DANS LE VIEWPORT, pas seulement dans
+        # le DOM (revue 2026-09-27) : `hx-swap="outerHTML"` conserve la position de
+        # défilement, donc le consultant regarde toujours le bas du panneau, là où
+        # se trouve le bouton « Régénérer » qu'il vient de cliquer. Tant que la
+        # confirmation était rendue en tête du panneau, au-dessus de cinq textareas
+        # `rows="5"`, elle était un écran plus haut : « j'ai confirmé et rien ne se
+        # passe ». `_attendre_texte` sur le panneau ne voyait pas ce défaut — c'est
+        # le même angle mort que celui reproché au TestClient, un cran plus haut.
+        rect = nav.evaluer(
+            "(function(){var b=document.querySelector('.confirmation-regeneration');"
+            "if(!b) return 'ABSENT';var r=b.getBoundingClientRect();"
+            "return [Math.round(r.top), Math.round(r.bottom), window.innerHeight].join('|');})()")
+        assert rect != "ABSENT", "aucun bouton de confirmation dans le DOM"
+        haut, bas, hauteur = (int(x) for x in rect.split("|"))
+        assert 0 <= haut and bas <= hauteur, (
+            f"bouton de confirmation hors du viewport : top={haut} bottom={bas} "
+            f"innerHeight={hauteur}")
+
+        # Clic de confirmation : la génération part (tâche de fond -> « en cours »).
+        nav.cliquer("button.confirmation-regeneration[hx-post]")
+        _attendre_texte(nav, "#global-synth-panel", "Génération")
+        _sans_erreur(nav, "Confirmation de la synthèse globale")
+        assert "faites à la main" not in nav.texte(), (
+            "la garde se redéclenche malgré la confirmation")
+        assert not nav.exceptions, nav.exceptions

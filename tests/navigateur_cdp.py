@@ -567,6 +567,20 @@ class Navigateur:
         return resultat.get("value")
 
     def remplir(self, selecteur: str, valeur: str) -> None:
+        """Pose une valeur dans un champ et dispatche `input` puis `change`.
+
+        PIÈGE À CONNAÎTRE (2026-09-27) : seuls ces deux événements sont émis,
+        JAMAIS `keyup`. Or plusieurs autosaves htmx du dépôt écoutent
+        `hx-trigger="keyup changed delay:700ms, blur"` SANS `change` — les macros
+        de la synthèse globale (`templates/synthese/_global_panel.html`) et les
+        quadrants SWOT / champs de l'aperçu (`templates/synthese/apercu.html`).
+        Sur ces champs, `remplir` n'envoie aucune requête : le test reste VERT en
+        n'ayant rien enregistré, et prouve donc l'inverse de ce qu'il annonce.
+
+        Pour ces champs, passer par `_saisir_au_clavier` de
+        `tests/test_e2e_premiers_clics.py`, qui ajoute le `keyup` final — ou
+        vérifier soi-même le `hx-trigger` du champ visé avant d'appeler ceci.
+        """
         ok = self.evaluer(
             "(function(){var e=document.querySelector(" + json.dumps(selecteur) + ");"
             " if(!e) return false; e.value=" + json.dumps(valeur) + ";"

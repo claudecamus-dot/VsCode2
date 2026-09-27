@@ -8,6 +8,28 @@
 
 <div class="capture-head"><div><h1>Export PPT</h1></div></div>
 
+{# Message d'erreur et demande de confirmation HORS de la case « aucun entretien »
+   (revue 2026-09-27) : une mission sans entretien peut très bien porter des lignes
+   éditées à la main (import, ou entretiens retirés ensuite), et les routes de
+   génération répondent 400 + `error` + `confirmation` quelle que soit cette case.
+   Tant qu'ils vivaient dans la branche `else`, ce 400 rendait un écran « Aucun
+   entretien pour l'instant » SANS message ni bouton de confirmation : le refus
+   était invisible et le consultant sans issue — exactement le scénario direct /
+   double envoi / onglet périmé que la garde prétend couvrir. Rendus ici, les deux
+   branches les portent, sans duplication. #}
+{% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
+{# Garde serveur de régénération (G, 2026-09-27) : des lignes éditées à la main
+   seraient remplacées. Le message est dans `error` ci-dessus ; ici le SEUL moyen
+   de passer outre, un repost explicite avec `confirmer=1`. Pas de fusion : le
+   résultat serait imprévisible pour le consultant. #}
+{% if confirmation %}
+<form method="post" action="{{ confirmation.action }}" class="swot-generate confirmation-regeneration"
+  data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)">
+  <input type="hidden" name="confirmer" value="1">
+  <button class="btn btn-danger" type="submit">{{ confirmation.libelle }}</button>
+</form>
+{% endif %}
+
 {% if not mission.interviews %}
   <div class="card empty">
     <p>Aucun entretien pour l'instant — saisis ou enregistre au moins un entretien avant de synthétiser.</p>
@@ -17,9 +39,7 @@
 {% set active = 'export_ppt' %}
 {% include "synthese/_nav.html" %}
 
-{% if error %}<p class="ai-error">⚠ {{ error }}</p>{% endif %}
-
-{% set has_content = (global_synthesis and global_synthesis.has_content) or axes %}
+{% set has_content =(global_synthesis and global_synthesis.has_content) or axes %}
 
 {# Difficultés RÉELLEMENT rendues au PPT : même filtre que build_presentation
    (`[d for d in mission.difficulties if (d.label or "").strip()]`). Défini AVANT la
@@ -70,7 +90,13 @@
       </ol>
       <p class="muted plan-contrat">La couverture est toujours gardée ; les sections d'un même chapitre restent regroupées, le chapitre prenant la place de sa première section.</p>
       {% elif mission.pptx_exemple_path %}
-      <p class="muted">⚠ Deck d'exemple illisible — l'export suit l'ordre par défaut. Remplacez-le ou retirez-le.</p>
+      {# « non exploité » et non « illisible » : les deux causes de `_plan_exemple`
+         (fichier cassé, ou deck qui s'ouvre très bien mais dont aucune slide de
+         contenu n'est reconnue) rendent None de la même façon. Dire « illisible »
+         à un consultant dont le deck s'ouvre dans PowerPoint le fait conclure que
+         l'application est cassée. Le diagnostic précis reste au journal serveur,
+         où les deux causes sont distinguées. #}
+      <p class="muted">⚠ Deck d'exemple non exploité — aucun plan de slides n'en a été reconnu (fichier illisible, ou deck sans slide de contenu identifiable). L'export suit l'ordre par défaut. Remplacez-le ou retirez-le.</p>
       {% else %}
       <p class="muted">Aucun deck d'exemple — l'export suit l'ordre par défaut.</p>
       {% endif %}
@@ -99,7 +125,7 @@
      « hors plan » ne rend jamais dans cet état). Même condition que l'encart
      « Deck d'exemple » plus haut, à la négation près. #}
   {% if mission.pptx_exemple_path and not plan_exemple %}
-  <p class="muted">Deck d'exemple illisible : toutes les slides ci-dessous sont proposées dans l'ordre par défaut — <a href="#deck-exemple">voir le deck d'exemple</a>.</p>
+  <p class="muted">Plan du deck d'exemple non reconnu : toutes les slides ci-dessous sont proposées dans l'ordre par défaut — <a href="#deck-exemple">voir le deck d'exemple</a>.</p>
   {% endif %}
   {# data-busy-release : l'export télécharge un fichier sans quitter la page —
      le bouton se libère seul une fois le deck vraisemblablement servi. #}

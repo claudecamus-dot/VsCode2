@@ -14,7 +14,16 @@ import asyncio
 import io
 import logging
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Query,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy.orm import Session, selectinload
 
@@ -26,6 +35,7 @@ from ..services.analyse_import import (
     decode_text_upload,
     parse_analysis_markdown,
 )
+from ..services.garde_edition import garde_regeneration
 from ..services.mission_axes import axes_of
 from ..services.mission_export import build_export_markdown, slugify
 from ..services.pptx_export import build_presentation
@@ -219,8 +229,10 @@ async def import_analyse(
         text = decode_text_upload(raw)
         parsed = parse_analysis_markdown(text, axes_of(db, mission))
 
-        if any((v or "").strip() for v in parsed["global_synthesis"].values()):
-            apply_global_synthesis_result(global_synthesis, parsed["global_synthesis"])
+        # La règle « un résultat entièrement vide n'écrase rien » vit désormais
+        # DANS `apply_global_synthesis_result` (2026-09-27) — une seule écriture,
+        # partagée avec la génération IA, au lieu de la copie locale qui était ici.
+        apply_global_synthesis_result(global_synthesis, parsed["global_synthesis"])
         if parsed["axes"]:
             apply_recommendations_result(db, mission, parsed["axes"])
         db.commit()
@@ -264,11 +276,17 @@ def apercu_view(mission_id: int, request: Request, db: Session = Depends(get_ses
 
 
 @router.post("/missions/{mission_id}/swot/generate")
-def generate_swot_view(mission_id: int, request: Request, db: Session = Depends(get_session)):
+def generate_swot_view(mission_id: int, request: Request, db: Session = Depends(get_session),
+                       confirmer: bool = Form(False)):
     """Génère la matrice SWOT à partir de la synthèse globale déjà produite (pas
     des réponses brutes, comme les recommandations), puis ré-affiche l'aperçu —
     l'onglet SWOT montre le résultat, éditable. Pré-condition : la synthèse
-    globale doit exister (la SWOT en découle)."""
+    globale doit exister (la SWOT en découle).
+
+    Garde d'édition (ADR 0001, étendue le 2026-09-27) : les 4 quadrants édités à
+    la main portent `status == "edited"` — marqueur DÉJÀ existant du modèle, remis
+    à `generated` par `apply_swot_result`. Sans `confirmer=1`, rien n'est généré.
+    Après la précondition IA, comme partout."""
     mission = _get_mission(db, mission_id)
     global_synthesis = mission.global_synthesis
     swot = get_or_create_swot(db, mission)
@@ -277,10 +295,22 @@ def generate_swot_view(mission_id: int, request: Request, db: Session = Depends(
         global_synthesis, "Générez d'abord la synthèse globale — la SWOT en découle."
     )
     if error is None:
+        refus = garde_regeneration(mission, surface="swot", confirmer=confirmer)
+        if refus is not None:
+            return _refus_de_garde(request, db, mission, refus)
+    if error is None:
         try:
             result = generate_swot(global_synthesis, axes_of(db, mission))
-            apply_swot_result(swot, result)
-            db.commit()
+            if not apply_swot_result(swot, result):
+                # Ne JAMAIS écraser une SWOT affinée par du vide — même règle
+                # que les listes. Et `status` reste `edited`, sinon la garde de
+                # régénération se désarmerait toute seule pour la fois suivante.
+                error = (
+                    "La génération n'a produit aucun contenu — SWOT inchangée. "
+                    "Réessayez, ou vérifiez la synthèse globale."
+                )
+            else:
+                db.commit()
         except SynthesisAIError as exc:
             error = str(exc)
 
@@ -291,11 +321,15 @@ def generate_swot_view(mission_id: int, request: Request, db: Session = Depends(
 
 @router.post("/missions/{mission_id}/executive-summary/generate")
 def generate_executive_summary_view(
-    mission_id: int, request: Request, db: Session = Depends(get_session)
+    mission_id: int, request: Request, db: Session = Depends(get_session),
+    confirmer: bool = Form(False),
 ):
     """Génère l'executive summary à partir de la synthèse globale déjà produite
     (comme la SWOT), puis ré-affiche l'aperçu — l'onglet Executive Summary montre
-    le résultat, éditable. Pré-condition : la synthèse globale doit exister."""
+    le résultat, éditable. Pré-condition : la synthèse globale doit exister.
+
+    Garde d'édition (ADR 0001, étendue le 2026-09-27) : même mécanisme que la
+    SWOT — `status == "edited"`, aucune colonne nouvelle."""
     mission = _get_mission(db, mission_id)
     global_synthesis = mission.global_synthesis
     es = get_or_create_executive_summary(db, mission)
@@ -305,10 +339,20 @@ def generate_executive_summary_view(
         "Générez d'abord la synthèse globale — l'executive summary en découle.",
     )
     if error is None:
+        refus = garde_regeneration(
+            mission, surface="executive_summary", confirmer=confirmer)
+        if refus is not None:
+            return _refus_de_garde(request, db, mission, refus)
+    if error is None:
         try:
             result = generate_executive_summary(global_synthesis, axes_of(db, mission))
-            apply_executive_summary_result(es, result)
-            db.commit()
+            if not apply_executive_summary_result(es, result):
+                error = (
+                    "La génération n'a produit aucun contenu — executive summary "
+                    "inchangé. Réessayez, ou vérifiez la synthèse globale."
+                )
+            else:
+                db.commit()
         except SynthesisAIError as exc:
             error = str(exc)
 
@@ -319,12 +363,18 @@ def generate_executive_summary_view(
 
 @router.post("/missions/{mission_id}/difficultes/generate")
 def generate_difficulties_view(
-    mission_id: int, request: Request, db: Session = Depends(get_session)
+    mission_id: int, request: Request, db: Session = Depends(get_session),
+    confirmer: bool = Form(False),
 ):
     """Génère la liste ordonnée des difficultés à partir de la synthèse globale
     (surtout points_amelioration), puis ré-affiche l'aperçu — l'onglet Difficultés
     montre le résultat, éditable, un verbatim liable par difficulté. Pré-condition :
-    la synthèse globale doit exister."""
+    la synthèse globale doit exister.
+
+    Garde d'édition (ADR 0001, étendue le 2026-09-27) : liste de lignes recréées,
+    donc drapeau `edite` par ligne comme les indicateurs — posé aussi bien par un
+    libellé retouché que par un verbatim lié à la main, les deux étant perdus à la
+    régénération."""
     mission = _get_mission(db, mission_id)
     global_synthesis = mission.global_synthesis
 
@@ -332,6 +382,11 @@ def generate_difficulties_view(
         global_synthesis,
         "Générez d'abord la synthèse globale — les difficultés en découlent.",
     )
+    if error is None:
+        refus = garde_regeneration(
+            mission, surface="difficulties", confirmer=confirmer)
+        if refus is not None:
+            return _refus_de_garde(request, db, mission, refus)
     if error is None:
         try:
             labels = generate_difficulties(global_synthesis, axes_of(db, mission))
@@ -353,17 +408,49 @@ def generate_difficulties_view(
     )
 
 
+def _refus_de_garde(request: Request, db: Session, mission, refus: dict):
+    """Écran d'aperçu de REFUS, en 400 : le message de la garde et le bouton qui
+    repose la même demande avec `confirmer=1`. Rien n'a été généré, rien n'a été
+    écrit. Partagé par les six surfaces qui rendent `apercu.html` (le formulaire
+    de confirmation y est déjà, en tête de page)."""
+    contexte = _synthese_context(db, mission, refus["message"])
+    contexte["confirmation"] = {
+        "action": str(request.url.path),
+        "libelle": refus["libelle"],
+    }
+    return templates.TemplateResponse(
+        request, "synthese/apercu.html", contexte, status_code=400)
+
+
 def _generate_liste_view(
     request: Request, db: Session, mission_id: int, *, generer, appliquer,
-    manque_synthese: str, vide: str,
+    manque_synthese: str, vide: str, surface: str, confirmer: bool = False,
 ):
     """Patron commun des listes dérivées de la trajectoire (KPIs, risques) :
     précondition IA + synthèse, génération depuis la synthèse ET les axes de
     recommandation, jamais d'écrasement d'une liste affinée par un résultat vide
-    (même règle que les difficultés), puis ré-affichage de l'aperçu."""
+    (même règle que les difficultés), puis ré-affichage de l'aperçu.
+
+    Garde de régénération (G, 2026-09-27) : si la surface `surface` porte des
+    lignes ÉDITÉES à la main et que le formulaire ne dit pas `confirmer=1`, rien
+    n'est généré — l'écran revient en 400 (même code que les uploads refusés
+    depuis l'harmonisation) avec le nombre de lignes en jeu et un bouton qui
+    repose la demande confirmée. Le `confirm()` JS ne protégeait rien côté
+    serveur : une requête directe, un double envoi ou un onglet périmé passaient
+    outre. Le registre et les trois formes de marqueur vivent dans
+    `services/garde_edition.py` ; `surface` est OBLIGATOIRE et doit y être
+    inscrite (KeyError sinon, jamais de mode « sans garde »).
+
+    La garde vient APRÈS la précondition IA : demander de confirmer le
+    remplacement d'une ligne éditée pour ensuite répondre « générez d'abord la
+    synthèse globale » ferait valider une action impossible (reprise de revue)."""
     mission = _get_mission(db, mission_id)
     global_synthesis = mission.global_synthesis
     error = ai_precondition_error(global_synthesis, manque_synthese)
+    if error is None:
+        refus = garde_regeneration(mission, surface=surface, confirmer=confirmer)
+        if refus is not None:
+            return _refus_de_garde(request, db, mission, refus)
     if error is None:
         try:
             items = generer(
@@ -382,7 +469,8 @@ def _generate_liste_view(
 
 
 @router.post("/missions/{mission_id}/kpis/generate")
-def generate_kpis_view(mission_id: int, request: Request, db: Session = Depends(get_session)):
+def generate_kpis_view(mission_id: int, request: Request, db: Session = Depends(get_session),
+                       confirmer: bool = Form(False)):
     """Génère les indicateurs de suivi (US9.27 b) depuis la synthèse globale et
     les recommandations — l'onglet Indicateurs montre le résultat, éditable."""
     return _generate_liste_view(
@@ -390,11 +478,13 @@ def generate_kpis_view(mission_id: int, request: Request, db: Session = Depends(
         manque_synthese="Générez d'abord la synthèse globale — les indicateurs en découlent.",
         vide=("La génération n'a produit aucun indicateur — liste inchangée. "
               "Réessayez, ou vérifiez la synthèse globale."),
+        surface="kpis", confirmer=confirmer,
     )
 
 
 @router.post("/missions/{mission_id}/risques/generate")
-def generate_risks_view(mission_id: int, request: Request, db: Session = Depends(get_session)):
+def generate_risks_view(mission_id: int, request: Request, db: Session = Depends(get_session),
+                        confirmer: bool = Form(False)):
     """Génère la matrice risques-contrôles (US9.27 c) depuis la synthèse globale
     et les recommandations — l'onglet Risques montre le résultat, éditable."""
     return _generate_liste_view(
@@ -402,11 +492,13 @@ def generate_risks_view(mission_id: int, request: Request, db: Session = Depends
         manque_synthese="Générez d'abord la synthèse globale — les risques en découlent.",
         vide=("La génération n'a produit aucun risque — matrice inchangée. "
               "Réessayez, ou vérifiez la synthèse globale."),
+        surface="risks", confirmer=confirmer,
     )
 
 
 @router.post("/missions/{mission_id}/maturite/generate")
-def generate_maturite_view(mission_id: int, request: Request, db: Session = Depends(get_session)):
+def generate_maturite_view(mission_id: int, request: Request, db: Session = Depends(get_session),
+                           confirmer: bool = Form(False)):
     """Génère la grille de maturité 0-3 par pilier (incr.10 palier 3) — les
     piliers sont les THÈMES de la trame ; sans thème, rien à évaluer."""
     mission = _get_mission(db, mission_id)
@@ -425,6 +517,7 @@ def generate_maturite_view(mission_id: int, request: Request, db: Session = Depe
         manque_synthese="Générez d'abord la synthèse globale — la grille de maturité en découle.",
         vide=("La génération n'a produit aucun score sur les thèmes de la trame — grille "
               "inchangée. Réessayez, ou vérifiez la synthèse globale."),
+        surface="maturites", confirmer=confirmer,
     )
 
 
@@ -555,6 +648,12 @@ async def _lire_pptx_upload(file: UploadFile, analyser, *, msg_extension: str,
         # Message de la borne elle-même : il nomme le plafond dépassé.
         raise PptxInvalide(str(exc)) from exc
     except Exception as exc:
+        # Journalisé AVANT d'être aplati en « invalide ou corrompu » : ce même
+        # message couvre un vrai fichier cassé, un MemoryError, une erreur disque
+        # ou un défaut de `analyser` — sans trace, les trois derniers passent pour
+        # une faute de l'utilisateur (reprise de revue du 2026-09-27).
+        logger.warning("Upload .pptx refusé (%s) : %s", file.filename, msg_invalide,
+                       exc_info=True)
         raise PptxInvalide(msg_invalide) from exc
     return content, resultat
 

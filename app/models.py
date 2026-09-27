@@ -464,6 +464,18 @@ class GlobalSynthesis(Base):
     # empty | generated | edited — état du CONTENU, orthogonal à
     # `generation_status` ci-dessous (une synthèse déjà "generated" peut avoir
     # une régénération "running" en cours).
+    # `status == "edited"` n'est PAS qu'un état de badge : c'est le MARQUEUR
+    # d'édition manuelle que lit la garde de régénération
+    # (`app/services/garde_edition.py`, ADR
+    # `docs/adr/0001-garde-regeneration-lignes-editees.md`). Les listes portent
+    # une colonne `edite` dédiée ; les trois enregistrements UNIQUES (synthèse
+    # globale, SWOT, executive summary) réutilisent ce `status`, exprès, pour ne
+    # pas dupliquer un état existant.
+    # Conséquence à ne pas défaire : ne poser "edited" que si la valeur CHANGE
+    # vraiment (`_marquer_statut_edite` dans `app/routers/synthese.py`). Les
+    # autosaves se déclenchent aussi sur `blur`, donc parcourir l'écran au
+    # clavier reposte des valeurs inchangées : marquer là-dessus réclamerait une
+    # confirmation à qui n'a rien touché — le faux positif corrigé le 2026-09-27.
     status: Mapped[str] = mapped_column(String(20), default="empty")
     # idle | running | error — génération IA en tâche de fond (2026-09-04,
     # finding audit-technique performance:critique). Le map-reduce peut
@@ -583,6 +595,18 @@ class MissionSwot(Base):
     opportunites: Mapped[str] = mapped_column(Text, default="")
     menaces: Mapped[str] = mapped_column(Text, default="")
     # empty | generated | edited
+    # `status == "edited"` n'est PAS qu'un état de badge : c'est le MARQUEUR
+    # d'édition manuelle que lit la garde de régénération
+    # (`app/services/garde_edition.py`, ADR
+    # `docs/adr/0001-garde-regeneration-lignes-editees.md`). Les listes portent
+    # une colonne `edite` dédiée ; les trois enregistrements UNIQUES (synthèse
+    # globale, SWOT, executive summary) réutilisent ce `status`, exprès, pour ne
+    # pas dupliquer un état existant.
+    # Conséquence à ne pas défaire : ne poser "edited" que si la valeur CHANGE
+    # vraiment (`_marquer_statut_edite` dans `app/routers/synthese.py`). Les
+    # autosaves se déclenchent aussi sur `blur`, donc parcourir l'écran au
+    # clavier reposte des valeurs inchangées : marquer là-dessus réclamerait une
+    # confirmation à qui n'a rien touché — le faux positif corrigé le 2026-09-27.
     status: Mapped[str] = mapped_column(String(20), default="empty")
     generated_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     updated_at: Mapped[datetime] = mapped_column(
@@ -629,6 +653,18 @@ class MissionExecutiveSummary(Base):
     points: Mapped[str] = mapped_column(Text, default="")
     key_message: Mapped[str] = mapped_column(Text, default="")
     # empty | generated | edited
+    # `status == "edited"` n'est PAS qu'un état de badge : c'est le MARQUEUR
+    # d'édition manuelle que lit la garde de régénération
+    # (`app/services/garde_edition.py`, ADR
+    # `docs/adr/0001-garde-regeneration-lignes-editees.md`). Les listes portent
+    # une colonne `edite` dédiée ; les trois enregistrements UNIQUES (synthèse
+    # globale, SWOT, executive summary) réutilisent ce `status`, exprès, pour ne
+    # pas dupliquer un état existant.
+    # Conséquence à ne pas défaire : ne poser "edited" que si la valeur CHANGE
+    # vraiment (`_marquer_statut_edite` dans `app/routers/synthese.py`). Les
+    # autosaves se déclenchent aussi sur `blur`, donc parcourir l'écran au
+    # clavier reposte des valeurs inchangées : marquer là-dessus réclamerait une
+    # confirmation à qui n'a rien touché — le faux positif corrigé le 2026-09-27.
     status: Mapped[str] = mapped_column(String(20), default="empty")
     generated_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
     updated_at: Mapped[datetime] = mapped_column(
@@ -673,6 +709,10 @@ class MissionDifficulty(Base):
     verbatim_id: Mapped[int | None] = mapped_column(
         ForeignKey("verbatims.id", ondelete="SET NULL"), default=None
     )
+    # Édition à la main par le consultant (garde de régénération, 2026-09-27) :
+    # même contrat que `MissionKpi.edite` — posé par l'autosave seulement si la
+    # valeur change, remis à faux sans code par la recréation des objets.
+    edite: Mapped[bool] = mapped_column(Boolean, default=False)
 
     mission: Mapped[Mission] = relationship(back_populates="difficulties")
     verbatim: Mapped[Verbatim | None] = relationship()
@@ -700,6 +740,11 @@ class MissionKpi(Base):
     libelle: Mapped[str] = mapped_column(Text, default="")
     cible: Mapped[str] = mapped_column(Text, default="")
     axe: Mapped[str] = mapped_column(Text, default="")
+    # Édition à la main par le consultant (G, 2026-09-27) : posé par les routes
+    # d'autosave, REMIS à faux sans code par la recréation delete-orphan des
+    # `apply_*_result` (les objets neufs naissent avec le défaut). Sert la garde
+    # de régénération, qui refuse d'écraser une ligne éditée sans confirmation.
+    edite: Mapped[bool] = mapped_column(Boolean, default=False)
 
     mission: Mapped[Mission] = relationship(back_populates="kpis")
 
@@ -746,6 +791,11 @@ class MissionRisk(Base):
     probabilite: Mapped[int] = mapped_column(Integer, default=2)
     controle: Mapped[str] = mapped_column(Text, default="")
     controle_type: Mapped[str] = mapped_column(String(20), default="propose")
+    # Édition à la main par le consultant (G, 2026-09-27) : posé par les routes
+    # d'autosave, REMIS à faux sans code par la recréation delete-orphan des
+    # `apply_*_result` (les objets neufs naissent avec le défaut). Sert la garde
+    # de régénération, qui refuse d'écraser une ligne éditée sans confirmation.
+    edite: Mapped[bool] = mapped_column(Boolean, default=False)
 
     mission: Mapped[Mission] = relationship(back_populates="risks")
 
@@ -787,6 +837,11 @@ class MissionMaturite(Base):
     pilier: Mapped[str] = mapped_column(Text, default="")
     score: Mapped[int] = mapped_column(Integer, default=0)
     justification: Mapped[str] = mapped_column(Text, default="")
+    # Édition à la main par le consultant (G, 2026-09-27) : posé par les routes
+    # d'autosave, REMIS à faux sans code par la recréation delete-orphan des
+    # `apply_*_result` (les objets neufs naissent avec le défaut). Sert la garde
+    # de régénération, qui refuse d'écraser une ligne éditée sans confirmation.
+    edite: Mapped[bool] = mapped_column(Boolean, default=False)
 
     mission: Mapped[Mission] = relationship(back_populates="maturites")
 
@@ -811,6 +866,10 @@ class RecommendationAxis(Base):
     )
     title: Mapped[str] = mapped_column(String(300))
     position: Mapped[int] = mapped_column(Integer, default=0)
+    # Édition à la main par le consultant (garde de régénération, 2026-09-27) :
+    # même contrat que `MissionKpi.edite` — posé par l'autosave seulement si la
+    # valeur change, remis à faux sans code par la recréation des objets.
+    edite: Mapped[bool] = mapped_column(Boolean, default=False)
 
     mission: Mapped[Mission] = relationship(back_populates="recommendation_axes")
     recommendations: Mapped[list[Recommendation]] = relationship(
@@ -841,6 +900,10 @@ class Recommendation(Base):
     plan_actions: Mapped[str] = mapped_column(Text, default="")
     resultats_attendus: Mapped[str] = mapped_column(Text, default="")
     position: Mapped[int] = mapped_column(Integer, default=0)
+    # Édition à la main par le consultant (garde de régénération, 2026-09-27) :
+    # même contrat que `MissionKpi.edite` — posé par l'autosave seulement si la
+    # valeur change, remis à faux sans code par la recréation des objets.
+    edite: Mapped[bool] = mapped_column(Boolean, default=False)
 
     axis: Mapped[RecommendationAxis] = relationship(back_populates="recommendations")
 

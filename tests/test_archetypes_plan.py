@@ -233,8 +233,15 @@ def test_deck_exemple_disparu_ne_casse_pas_l_export(client: TestClient) -> None:
     client.post(f"/missions/{mid}/pptx-exemple/retirer")
 
 
-_PHRASE_ILLISIBLE = ("Deck d'exemple illisible : toutes les slides ci-dessous sont "
-                     "proposées dans l'ordre par défaut")
+# Formulation VRAIE dans les DEUX cas de `_plan_exemple` : un deck peut s'ouvrir
+# parfaitement et ne livrer aucun plan reconnaissable. « illisible » était faux la
+# moitié du temps à l'écran (le journal serveur, lui, distingue les deux causes et
+# garde le mot pour le seul cas où il est exact).
+_PHRASE_PLAN_NON_RECONNU = ("Plan du deck d'exemple non reconnu : toutes les slides "
+                            "ci-dessous sont proposées dans l'ordre par défaut")
+# L'encart « Deck d'exemple » dit la même chose autrement (deux emplacements, deux
+# phrases distinctes) : lui aussi ne doit plus affirmer que le fichier est illisible.
+_PHRASE_ENCART_NON_EXPLOITE = "Deck d'exemple non exploité — aucun plan de slides n'en a été reconnu"
 
 
 def _deck_structure_seule() -> bytes:
@@ -254,28 +261,38 @@ def test_apercu_annonce_un_deck_exemple_sans_plan_et_logs_des_deux_causes(
     """Deck d'exemple posé mais sans plan : « Définition des slides » DIT que la
     liste n'est ni filtrée ni réordonnée, avec l'ancre vers l'encart du deck. La
     ligne est absente quand le plan existe, et les deux causes (fichier illisible
-    vs deck lisible sans slide de contenu) se distinguent au journal."""
+    vs deck lisible sans slide de contenu) se distinguent au journal.
+
+    Les DEUX phrases d'écran doivent rester vraies dans les deux cas : un deck qui
+    s'ouvre sans problème et ne livre simplement aucun plan ne doit pas s'entendre
+    dire qu'il est illisible (le consultant en conclut que l'app est cassée)."""
     mid = seed()
     client.post(f"/missions/{mid}/pptx-exemple",
                 files={"file": ("exemple.pptx", EXEMPLE.read_bytes(), "application/octet-stream")})
     page = client.get(f"/missions/{mid}/synthese/apercu").text
     assert 'id="deck-exemple"' in page  # l'ancre visée existe bien sur la page
-    assert _PHRASE_ILLISIBLE not in page  # plan présent : rien à annoncer
+    assert _PHRASE_PLAN_NON_RECONNU not in page  # plan présent : rien à annoncer
+    assert _PHRASE_ENCART_NON_EXPLOITE not in page
 
     # Cause 1 : fichier devenu illisible.
     (PPTX_EXEMPLES_DIR / f"{mid}.pptx").write_bytes(b"corrompu depuis")
     with caplog.at_level(logging.WARNING, logger="app.routers.export"):
         page = client.get(f"/missions/{mid}/synthese/apercu").text
-    assert _PHRASE_ILLISIBLE in page and 'href="#deck-exemple"' in page
+    assert _PHRASE_PLAN_NON_RECONNU in page and 'href="#deck-exemple"' in page
+    assert _PHRASE_ENCART_NON_EXPLOITE in page
     assert any("Deck d'exemple illisible" in r.getMessage() for r in caplog.records)
     assert not any("sans plan de contenu reconnu" in r.getMessage() for r in caplog.records)
 
-    # Cause 2 : deck lisible, mais aucune slide de contenu reconnue.
+    # Cause 2 : deck lisible, mais aucune slide de contenu reconnue. L'écran dit la
+    # même chose que pour la cause 1 — et n'affirme PAS que le fichier est illisible.
     caplog.clear()
     (PPTX_EXEMPLES_DIR / f"{mid}.pptx").write_bytes(_deck_structure_seule())
     with caplog.at_level(logging.WARNING, logger="app.routers.export"):
         page = client.get(f"/missions/{mid}/synthese/apercu").text
-    assert _PHRASE_ILLISIBLE in page
+    assert _PHRASE_PLAN_NON_RECONNU in page
+    assert _PHRASE_ENCART_NON_EXPLOITE in page
+    assert "Deck d'exemple illisible —" not in page
+    assert "Deck d'exemple illisible :" not in page
     assert any("sans plan de contenu reconnu" in r.getMessage() for r in caplog.records)
     assert not any("Deck d'exemple illisible" in r.getMessage() for r in caplog.records)
     client.post(f"/missions/{mid}/pptx-exemple/retirer")
