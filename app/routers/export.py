@@ -117,8 +117,17 @@ def _plan_exemple(mission: Mission) -> list | None:
                        mission.id, chemin, exc_info=True)
         return None
     # Même règle que l'upload : sans bloc de contenu, pas de plan (l'écran
-    # n'annonce alors pas un plan que l'export ignorerait).
-    return plan if plan_applicable(plan) else None
+    # n'annonce alors pas un plan que l'export ignorerait). Journalisé à part du
+    # cas « fichier illisible » ci-dessus : les deux rendent None et l'écran dit
+    # la même chose, mais le diagnostic n'est pas le même (fichier cassé vs deck
+    # lisible dont aucune slide de contenu n'a été reconnue).
+    if not plan_applicable(plan):
+        logger.warning(
+            "Deck d'exemple lisible mais sans plan de contenu reconnu, plan ignoré "
+            "(mission %s) : %s — archétypes reconnus : %s",
+            mission.id, chemin, [a.value for a in plan] or "aucun")
+        return None
+    return plan
 
 
 def _synthese_context(db: Session, mission: Mission, error: str | None = None) -> dict:

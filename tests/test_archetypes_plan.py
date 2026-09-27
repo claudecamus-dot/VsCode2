@@ -232,6 +232,54 @@ def test_deck_exemple_disparu_ne_casse_pas_l_export(client: TestClient) -> None:
     client.post(f"/missions/{mid}/pptx-exemple/retirer")
 
 
+_PHRASE_ILLISIBLE = ("Deck d'exemple illisible : toutes les slides ci-dessous sont "
+                     "proposées dans l'ordre par défaut")
+
+
+def _deck_structure_seule() -> bytes:
+    """Deck LISIBLE mais fait de seules slides de structure : `plan_applicable`
+    le refuse, donc `_plan_exemple` rend None pour l'autre raison."""
+    src = Presentation(str(EXEMPLE))
+    for i in reversed(range(len(src.slides))):
+        if i not in (0, 1, 2):
+            rid = src.slides._sldIdLst[i].rId
+            src.part.drop_rel(rid)
+            del src.slides._sldIdLst[i]
+    return _flux(src).getvalue()
+
+
+def test_apercu_annonce_un_deck_exemple_sans_plan_et_logs_des_deux_causes(
+        client: TestClient, caplog) -> None:
+    """Deck d'exemple posé mais sans plan : « Définition des slides » DIT que la
+    liste n'est ni filtrée ni réordonnée, avec l'ancre vers l'encart du deck. La
+    ligne est absente quand le plan existe, et les deux causes (fichier illisible
+    vs deck lisible sans slide de contenu) se distinguent au journal."""
+    mid = seed()
+    client.post(f"/missions/{mid}/pptx-exemple",
+                files={"file": ("exemple.pptx", EXEMPLE.read_bytes(), "application/octet-stream")})
+    page = client.get(f"/missions/{mid}/synthese/apercu").text
+    assert 'id="deck-exemple"' in page  # l'ancre visée existe bien sur la page
+    assert _PHRASE_ILLISIBLE not in page  # plan présent : rien à annoncer
+
+    # Cause 1 : fichier devenu illisible.
+    (PPTX_EXEMPLES_DIR / f"{mid}.pptx").write_bytes(b"corrompu depuis")
+    with caplog.at_level(logging.WARNING, logger="app.routers.export"):
+        page = client.get(f"/missions/{mid}/synthese/apercu").text
+    assert _PHRASE_ILLISIBLE in page and 'href="#deck-exemple"' in page
+    assert any("Deck d'exemple illisible" in r.getMessage() for r in caplog.records)
+    assert not any("sans plan de contenu reconnu" in r.getMessage() for r in caplog.records)
+
+    # Cause 2 : deck lisible, mais aucune slide de contenu reconnue.
+    caplog.clear()
+    (PPTX_EXEMPLES_DIR / f"{mid}.pptx").write_bytes(_deck_structure_seule())
+    with caplog.at_level(logging.WARNING, logger="app.routers.export"):
+        page = client.get(f"/missions/{mid}/synthese/apercu").text
+    assert _PHRASE_ILLISIBLE in page
+    assert any("sans plan de contenu reconnu" in r.getMessage() for r in caplog.records)
+    assert not any("Deck d'exemple illisible" in r.getMessage() for r in caplog.records)
+    client.post(f"/missions/{mid}/pptx-exemple/retirer")
+
+
 def test_chapitre_pas_de_faux_positif_sur_un_chiffre_court() -> None:
     """Repli de forme CHAPITRE : une slide de contenu portant « 12 » n'est pas un
     intercalaire ; l'intercalaire DESSINÉ (deck sans layout de marque) l'est."""

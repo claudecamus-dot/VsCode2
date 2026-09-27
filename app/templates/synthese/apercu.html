@@ -94,6 +94,13 @@
 <section class="card">
   <div class="card-head"><h2>Définition des slides</h2></div>
   <p class="muted">Choisis ce qui doit figurer dans l'export — tout est coché par défaut.</p>
+  {# Deck d'exemple posé mais sans plan exploitable : la liste ci-dessous n'est
+     filtrée ni réordonnée par personne, il faut le DIRE ici (la mention par case
+     « hors plan » ne rend jamais dans cet état). Même condition que l'encart
+     « Deck d'exemple » plus haut, à la négation près. #}
+  {% if mission.pptx_exemple_path and not plan_exemple %}
+  <p class="muted">Deck d'exemple illisible : toutes les slides ci-dessous sont proposées dans l'ordre par défaut — <a href="#deck-exemple">voir le deck d'exemple</a>.</p>
+  {% endif %}
   {# data-busy-release : l'export télécharge un fichier sans quitter la page —
      le bouton se libère seul une fois le deck vraisemblablement servi. #}
   <form method="get" action="/missions/{{ mission.id }}/export/pptx" class="pptx-config" id="pptx-config-form"
