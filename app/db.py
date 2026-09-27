@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -16,14 +17,19 @@ logger = logging.getLogger(__name__)
 # Chemin de la base, surchargeable via APP_DB_PATH (utilisé par les tests pour
 # pointer vers une base jetable et ne jamais toucher la base de dev/prod).
 _env_db_path = os.environ.get("APP_DB_PATH")
+# La base RÉELLE du développeur. Tout démarrage sur ce chemin est en lecture
+# seule côté schéma : aucun DDL altérant sans opt-in (`APP_DB_MIGRATE=1`).
+# Arbitrage 2026-09-27 : un `uvicorn --reload` oublié a migré `data/app.db`
+# deux fois à la simple édition de ce fichier, avant tout commit.
+_CHEMIN_PAR_DEFAUT = Path(__file__).resolve().parent.parent / "data" / "app.db"
 if _env_db_path:
     DB_PATH = Path(_env_db_path)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     DATA_DIR = DB_PATH.parent
 else:
-    DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+    DATA_DIR = _CHEMIN_PAR_DEFAUT.parent
     DATA_DIR.mkdir(exist_ok=True)
-    DB_PATH = DATA_DIR / "app.db"
+    DB_PATH = _CHEMIN_PAR_DEFAUT
 
 # Sauvegardes audio brutes des entretiens enregistrés (filet de sécurité) —
 # même dossier de données que la base, donc déjà couvert par `data/` dans
@@ -248,10 +254,68 @@ def _poser_index_uniques(conn, index_uniques) -> None:
             )
 
 
+COMMANDE_MIGRATION = (
+    'APP_DB_MIGRATE=1 .venv/Scripts/python.exe -c "from app.db import init_db; init_db()"'
+    "   (PowerShell : $env:APP_DB_MIGRATE='1'; "
+    '.venv/Scripts/python.exe -c "from app.db import init_db; init_db()")'
+)
+
+
+class SchemaEnRetard(RuntimeError):
+    """La base existante n'est pas au schéma des modèles et la migration n'est
+    pas autorisée implicitement sur ce chemin."""
+
+
+def _migration_autorisee() -> bool:
+    """Opt-in explicite, ou base qui n'est PAS la base réelle par défaut
+    (tests, bacs à sable : `APP_DB_PATH` vers un autre fichier)."""
+    if os.environ.get("APP_DB_MIGRATE") == "1":
+        return True
+    return Path(DB_PATH).resolve() != Path(_CHEMIN_PAR_DEFAUT).resolve()
+
+
+def ecarts_de_schema() -> list[str]:
+    """Vérification en LECTURE SEULE : colonnes des modèles et index uniques de
+    `_INDEX_UNIQUES` absents de la base. Vide si le schéma est à jour."""
+    ecarts: list[str] = []
+    with engine.connect() as conn:
+        for table in Base.metadata.tables.values():
+            presentes = {
+                row[1]
+                for row in conn.exec_driver_sql(f"PRAGMA table_info({table.name})")
+            }
+            if not presentes:
+                ecarts.append(f"table absente : {table.name}")
+                continue
+            ecarts.extend(
+                f"colonne {table.name}.{col.name}"
+                for col in table.columns
+                if col.name not in presentes
+            )
+        for nom, table, colonnes, _ordre in _INDEX_UNIQUES:
+            if not _index_unique_existe(conn, table, colonnes):
+                ecarts.append(f"index unique {nom} sur {table}")
+    return ecarts
+
+
 def init_db() -> None:
+    """Crée les tables manquantes (idempotent, indispensable sur base neuve),
+    puis VÉRIFIE le schéma. Le DDL altérant (ADD COLUMN, dédoublonnage + CREATE
+    UNIQUE INDEX) ne part que sur opt-in : `APP_DB_MIGRATE=1`, ou une base autre
+    que `data/app.db`. Sinon, un écart fait REFUSER le démarrage — une colonne
+    manquante casserait sinon la première requête en 500 sqlite cryptique."""
+    print(f"[app.db] base utilisée : {DB_PATH}", file=sys.stderr, flush=True)
     Base.metadata.create_all(engine)
-    _add_missing_columns()
-    _add_missing_indexes()
+    if _migration_autorisee():
+        _add_missing_columns()
+        _add_missing_indexes()
+    ecarts = ecarts_de_schema()
+    if ecarts:
+        raise SchemaEnRetard(
+            f"La base {DB_PATH} n'est pas au schéma de l'application "
+            f"({'; '.join(ecarts)}). Aucune migration implicite sur la base "
+            f"par défaut. Pour migrer, lancer : {COMMANDE_MIGRATION}"
+        )
 
 
 def get_session() -> Iterator[Session]:

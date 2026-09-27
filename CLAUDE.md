@@ -21,6 +21,12 @@ publique rend 503. Publiques : `/connexion` et `/static/**`, rien d'autre. Les t
 reçoivent des credentials par défaut via `tests/conftest.py` ; `tests/test_auth.py`
 les retire explicitement pour prouver le 401.
 
+Le démarrage **ne migre plus** `data/app.db` depuis le 2026-09-27 (`app/db.py`) : un
+`uvicorn --reload` oublié l'avait migrée deux fois à la simple édition de `db.py`.
+Après un changement de schéma, l'app REFUSE de démarrer (`SchemaEnRetard`, message avec
+la commande) : migrer une fois avec `APP_DB_MIGRATE=1`. Toute autre base (tests,
+`APP_DB_PATH`) migre comme avant. Ne jamais laisser un serveur `--reload` vivant.
+
 Sur Windows, ajouter `--basetemp` sur un dossier neuf si le teardown se plaint. Lancer
 l'app et regarder un écran : skill `run-dev-server` (un port vierge — un serveur sans
 `--reload` sert du code périmé).
