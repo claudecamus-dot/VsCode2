@@ -693,7 +693,7 @@
         "donnees"
       ],
       "decision": "ACCEPTE : migration sur OPT-IN EXPLICITE. Le demarrage cree les tables manquantes et VERIFIE le schema, mais n'altere plus rien ; _add_missing_columns et _add_missing_indexes ne partent que si APP_DB_MIGRATE=1 ou si APP_DB_PATH est pose (tests et bacs a sable inchanges, conftest pose deja APP_DB_PATH). A l'ecart, un message donne la commande mot pour mot. Ecarte : ne proteger que les operations destructives ; et la simple regle de conduite (non testable, n'empeche pas la recurrence). Ecarte aussi par la salle : Alembic ou tout framework de migration versionnee, une sauvegarde automatique avant DDL, un verrou inter-processus (disproportionne pour un mono-utilisateur local). A ecrire APRES que l'ecrivain du lot en cours ait libere app/db.py.",
-      "preuve_application": "en attente du commit de la migration opt-in"
+      "preuve_application": "commit 0493e30 — decision sur le chemin RESOLU (plus strict que la lettre de l'arbitrage : APP_DB_PATH=data/app.db ne migre pas)"
     },
     {
       "cible": "VSCode2:delete-de-dedoublonnage-au-demarrage-sans-trace-conservee",
