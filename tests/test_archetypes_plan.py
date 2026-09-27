@@ -19,6 +19,7 @@ from app.services.mission_axes import axes_of
 from app.services.pptx_export import build_presentation
 from app.services.pptx_export.archetypes import Archetype as A
 from app.services.pptx_export.archetypes import (
+    _taille_max_pt,
     classer_slide,
     extraire_plan,
     extraire_plan_fichier,
@@ -297,24 +298,63 @@ def test_chapitre_pas_de_faux_positif_sur_un_chiffre_court() -> None:
     assert classer_slide(prs.slides[-1]) is A.CHAPITRE
 
 
-def test_chapitre_pas_de_faux_positif_sur_une_carte_chiffre_cle() -> None:
-    """Carte chiffre-clé d'un deck client — « 12 » puis sa légende, dans cet ordre :
-    la règle « 2 textes dont le 1er est NN » ne suffit pas, le 2e texte doit
-    ressembler à un intitulé de chapitre. Sinon la carte est classée intercalaire et
-    sort du plan de contenu, ce qui fait disparaître des slides de l'export."""
+def _slide_deux_textes(prs, *paires) -> object:
+    """Slide « NN » + intitulé, chaque texte donné en (texte, [tailles pt]) — une
+    taille None laisse le run HÉRITER du layout, cas normal d'un gabarit client."""
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    for texte, tailles in paires:
+        tf = slide.shapes.add_textbox(0, 0, 100, 100).text_frame
+        morceaux = texte if isinstance(texte, tuple) else (texte,)
+        tf.text = morceaux[0]
+        for m in morceaux[1:]:
+            tf.paragraphs[0].add_run().text = m
+        for run, pt in zip(tf.paragraphs[0].runs, tailles):
+            if pt is not None:
+                run.font.size = Pt(pt)
+    return slide
+
+
+def test_chapitre_discrimine_sur_le_rapport_des_tailles() -> None:
+    """Repli de forme CHAPITRE : « NN » + intitulé se discrimine sur le RAPPORT
+    intitulé/nombre (intercalaire dessiné 20/44 ≈ 0.45 ; carte chiffre-clé
+    10.5/44 ≈ 0.24), et sur rien d'autre.
+
+    Remplace `test_chapitre_pas_de_faux_positif_sur_une_carte_chiffre_cle`, dont
+    les assertions encodaient la MAUVAISE règle : elles épinglaient des
+    heuristiques de capitalisation / longueur / ponctuation qui rejettent un
+    intercalaire client légitime (« vers une gouvernance partagée : »), et ses
+    deux cas fixaient des tailles explicites — donc elles ne voyaient pas que la
+    règle d'avant classait CHAPITRE une carte chiffre-clé à tailles héritées."""
     prs = Presentation()
-    blanc = prs.slide_layouts[6]
-    carte = prs.slides.add_slide(blanc)
-    for texte in ("12", "risques identifiés"):
-        carte.shapes.add_textbox(0, 0, 100, 100).text_frame.text = texte
+    # Carte chiffre-clé, tailles EXPLICITES : légende en petit corps → pas un
+    # intercalaire (rapport 10.5/44 ≈ 0.24).
+    carte = _slide_deux_textes(prs, ("12", [44]), ("Risques identifiés", [10.5]))
     assert classer_slide(carte) is None
-    # Même légende capitalisée : composée en petit corps, ce n'est pas un titre.
-    carte2 = prs.slides.add_slide(blanc)
-    for texte, pt in (("12", 44), ("Risques identifiés", 10.5)):
-        tf = carte2.shapes.add_textbox(0, 0, 100, 100).text_frame
-        tf.text = texte
-        tf.paragraphs[0].runs[0].font.size = Pt(pt)
-    assert classer_slide(carte2) is None
+    # Carte chiffre-clé aux tailles HÉRITÉES du layout : le cas que le test
+    # d'avant manquait. La règle d'avant court-circuitait à vrai (taille None) et
+    # classait CHAPITRE — une slide de contenu perdue à l'export.
+    heritee = _slide_deux_textes(prs, ("42", [None]), ("Entretiens menés", [None]))
+    assert classer_slide(heritee) is None
+    # Intercalaire client légitime : intitulé en minuscules, long, finissant par
+    # « : » — mais composé à l'échelle d'un titre. C'est un CHAPITRE.
+    client = _slide_deux_textes(
+        prs, ("03", [44]),
+        ("vers une gouvernance partagée des données et des usages métiers :", [20]))
+    assert classer_slide(client) is A.CHAPITRE
+    # Texte DUPLIQUÉ (deux formes portent le même intitulé, l'une à 8pt) : la
+    # mesure porte sur TOUTES les formes (max), pas sur la première rencontrée —
+    # sinon l'intercalaire est mesuré à 8pt et rejeté. Mesuré sur l'aide
+    # elle-même : côté `classer_slide`, une 3e forme fait déjà sortir la slide de
+    # la règle « exactement 2 textes ».
+    dup = _slide_deux_textes(prs, ("Le diagnostic", [8]), ("Le diagnostic", [20]))
+    assert _taille_max_pt(dup, "Le diagnostic") == 20
+    # ...et une seule forme non mesurable suffit à rendre la mesure inconnue.
+    mixte = _slide_deux_textes(prs, ("Le diagnostic", [8]), ("Le diagnostic", [None]))
+    assert _taille_max_pt(mixte, "Le diagnostic") is None
+    # Héritage PARTIEL (1er run hérité, 2e explicite à 8pt) : taille inconnue,
+    # on ne conclut pas — surtout pas « 8pt donc une carte ».
+    partiel = _slide_deux_textes(prs, ("05", [44]), (("Le diag", "nostic"), [None, 8]))
+    assert classer_slide(partiel) is None
     # Un vrai intercalaire DESSINÉ reste classé CHAPITRE.
     _slide_chapitre(prs, 2, "Le diagnostic", "#0E2356")
     assert classer_slide(prs.slides[-1]) is A.CHAPITRE

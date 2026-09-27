@@ -28,6 +28,11 @@ from pathlib import Path
 
 from pptx import Presentation
 
+# Échelle typographique du deck — « une seule source de verite » (pptx_deck) :
+# les tailles servant à reconnaître un archétype sont les MÊMES que celles qui
+# le dessinent. Pas de cycle : `pptx_deck` n'importe rien de ce paquet.
+from ..pptx_deck import TYPE as _TYPE
+
 logger = logging.getLogger(__name__)
 
 
@@ -138,43 +143,74 @@ def classer_slide(slide) -> Archetype | None:
         return Archetype.COUVERTURE
     # Intercalaire dessiné : exactement « NN » puis son intitulé, dans cet
     # ordre — une slide de contenu portant un chiffre court (« 12 ») n'y
-    # ressemble pas, son titre vient d'abord. Le 2e texte doit en plus RESSEMBLER
-    # à un intitulé de chapitre (cf. `_intitule_de_chapitre`) : « 12 » suivi de
-    # « risques identifiés » est une carte chiffre-clé, pas un intercalaire.
+    # ressemble pas, son titre vient d'abord. Le 2e texte doit en plus être
+    # composé à l'ÉCHELLE d'un titre face au nombre (cf.
+    # `_echelle_d_intercalaire`) : « 12 » suivi de « risques identifiés » en
+    # petit corps est une carte chiffre-clé, pas un intercalaire.
     if (len(normalises) == 2 and re.fullmatch(r"\d{2}", normalises[0])
-            and _intitule_de_chapitre(textes[1], slide)):
+            and _echelle_d_intercalaire(slide, textes[0], textes[1])):
         return Archetype.CHAPITRE
     return None
 
 
 def _taille_max_pt(slide, texte: str) -> float | None:
-    """Plus grande taille de police EXPLICITE des runs de la forme portant ce
-    texte, ou None si toutes l'héritent du layout (cas d'un gabarit client)."""
+    """Plus grande taille de police des runs des formes portant EXACTEMENT ce
+    texte, ou None si la taille n'est pas MESURABLE.
+
+    Deux choix explicites, chacun payant un défaut mesuré de la version d'avant :
+
+    - TOUTES les formes qui portent ce texte sont mesurées, et le maximum est
+      pris — la version d'avant rendait à la PREMIÈRE forme trouvée, donc un
+      titre dupliqué dans une forme cachée à 8pt faisait mesurer la mauvaise.
+    - une forme dont au moins un run n'a PAS de taille explicite n'est pas
+      mesurable : l'héritage du layout est la norme sur un gabarit client, et un
+      max calculé sur les seuls runs explicites vaut moins que rien (un titre
+      dont le 1er run hérite du 28pt du layout et le 2e est à 8pt rendait 8.0,
+      ni None ni une vraie taille). On rend None : inconnu, pas « petit »."""
+    tailles: list[float] = []
     for sh in slide.shapes:
         if not sh.has_text_frame or sh.text_frame.text != texte:
             continue
-        tailles = [r.font.size.pt for p in sh.text_frame.paragraphs
-                   for r in p.runs if r.font.size is not None]
-        return max(tailles) if tailles else None
-    return None
+        runs = [r for p in sh.text_frame.paragraphs for r in p.runs if r.text]
+        if not runs or any(r.font.size is None for r in runs):
+            return None
+        tailles.append(max(r.font.size.pt for r in runs))
+    return max(tailles) if tailles else None
 
 
-def _intitule_de_chapitre(texte: str, slide) -> bool:
-    """Le 2e texte d'un intercalaire dessiné est un TITRE de chapitre — comme
-    ceux que `_slide_chapitre` dessine (`slides_cadre.py`) : capitalisé, court,
-    sans ponctuation de phrase, et rendu à la taille d'un titre (20pt) quand la
-    taille est explicite. La légende d'une carte chiffre-clé échoue au moins un
-    de ces points : « risques identifiés » n'est pas capitalisée, et une légende
-    est composée en petit corps même capitalisée."""
-    brut = (texte or "").strip()
-    if not brut or len(brut.split()) > 8 or brut[-1] in ".!?:;":
+# Seuil de discrimination : le RAPPORT taille de l'intitulé / taille du nombre,
+# et non un seuil absolu en points (un gabarit client compose à sa propre
+# échelle). Les deux valeurs réelles encadrent le seuil, et elles sont DÉRIVÉES
+# de la table `TYPE` de `pptx_deck` — « une seule source de verite », que ce
+# module dupliquait avec un littéral 14 :
+# - intercalaire dessiné par `_slide_chapitre` : title / kpi = 20/44 ≈ 0.45 ;
+# - carte chiffre-clé : légende en small contre un nombre en kpi = 10.5/44 ≈ 0.24.
+# Le seuil est posé à mi-chemin des deux (≈ 0.35) : il laisse à chacune près de
+# la moitié de sa marge, plutôt que de coller à l'une des deux mesures.
+_RATIO_INTERCALAIRE = _TYPE["title"] / _TYPE["kpi"]
+_RATIO_CARTE_CHIFFRE = _TYPE["small"] / _TYPE["kpi"]
+_RATIO_MIN_INTERCALAIRE = (_RATIO_INTERCALAIRE + _RATIO_CARTE_CHIFFRE) / 2
+
+
+def _echelle_d_intercalaire(slide, numero: str, libelle: str) -> bool:
+    """« NN » + son intitulé sont-ils composés comme l'intercalaire que
+    `_slide_chapitre` dessine (`slides_cadre.py`), et non comme une carte
+    chiffre-clé ? Mesuré sur le RAPPORT des deux tailles (cf.
+    `_RATIO_MIN_INTERCALAIRE`) — aucune heuristique de capitalisation, de
+    longueur ni de ponctuation : un intercalaire client légitime porte des
+    intitulés en minuscules, longs, ou finissant par « : », et ces règles-là
+    coûtaient des intercalaires perdus à l'export.
+
+    CONSÉQUENCE ASSUMÉE : si l'une des deux tailles est HÉRITÉE du layout (le cas
+    normal d'un gabarit client), la fonction refuse de conclure et rend False.
+    Sur un tel deck, le repli de forme ne classe donc plus les intercalaires —
+    ils ne l'étaient que par chance, et un CHAPITRE à tort coûte plus cher (la
+    slide sort du plan de contenu, donc de l'export) qu'un CHAPITRE manquant."""
+    t_num = _taille_max_pt(slide, numero)
+    t_lib = _taille_max_pt(slide, libelle)
+    if t_num is None or t_lib is None or t_num <= 0:
         return False
-    premier = brut[0]
-    if not (premier.isupper() or not premier.isalpha()):
-        return False
-    taille = _taille_max_pt(slide, texte)
-    # Taille héritée du layout (gabarit client) : on ne conclut pas dessus.
-    return taille is None or taille >= 14
+    return t_lib / t_num >= _RATIO_MIN_INTERCALAIRE
 
 
 def extraire_plan(pptx_path) -> list[Archetype]:
