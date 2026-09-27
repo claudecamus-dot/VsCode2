@@ -138,10 +138,43 @@ def classer_slide(slide) -> Archetype | None:
         return Archetype.COUVERTURE
     # Intercalaire dessiné : exactement « NN » puis son intitulé, dans cet
     # ordre — une slide de contenu portant un chiffre court (« 12 ») n'y
-    # ressemble pas, son titre vient d'abord.
-    if len(normalises) == 2 and re.fullmatch(r"\d{2}", normalises[0]):
+    # ressemble pas, son titre vient d'abord. Le 2e texte doit en plus RESSEMBLER
+    # à un intitulé de chapitre (cf. `_intitule_de_chapitre`) : « 12 » suivi de
+    # « risques identifiés » est une carte chiffre-clé, pas un intercalaire.
+    if (len(normalises) == 2 and re.fullmatch(r"\d{2}", normalises[0])
+            and _intitule_de_chapitre(textes[1], slide)):
         return Archetype.CHAPITRE
     return None
+
+
+def _taille_max_pt(slide, texte: str) -> float | None:
+    """Plus grande taille de police EXPLICITE des runs de la forme portant ce
+    texte, ou None si toutes l'héritent du layout (cas d'un gabarit client)."""
+    for sh in slide.shapes:
+        if not sh.has_text_frame or sh.text_frame.text != texte:
+            continue
+        tailles = [r.font.size.pt for p in sh.text_frame.paragraphs
+                   for r in p.runs if r.font.size is not None]
+        return max(tailles) if tailles else None
+    return None
+
+
+def _intitule_de_chapitre(texte: str, slide) -> bool:
+    """Le 2e texte d'un intercalaire dessiné est un TITRE de chapitre — comme
+    ceux que `_slide_chapitre` dessine (`slides_cadre.py`) : capitalisé, court,
+    sans ponctuation de phrase, et rendu à la taille d'un titre (20pt) quand la
+    taille est explicite. La légende d'une carte chiffre-clé échoue au moins un
+    de ces points : « risques identifiés » n'est pas capitalisée, et une légende
+    est composée en petit corps même capitalisée."""
+    brut = (texte or "").strip()
+    if not brut or len(brut.split()) > 8 or brut[-1] in ".!?:;":
+        return False
+    premier = brut[0]
+    if not (premier.isupper() or not premier.isalpha()):
+        return False
+    taille = _taille_max_pt(slide, texte)
+    # Taille héritée du layout (gabarit client) : on ne conclut pas dessus.
+    return taille is None or taille >= 14
 
 
 def extraire_plan(pptx_path) -> list[Archetype]:

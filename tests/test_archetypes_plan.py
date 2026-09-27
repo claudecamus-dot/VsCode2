@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 from pptx import Presentation
+from pptx.util import Pt
 
 from app.db import PPTX_EXEMPLES_DIR, SessionLocal, init_db
 from app.main import app
@@ -244,6 +245,29 @@ def test_chapitre_pas_de_faux_positif_sur_un_chiffre_court() -> None:
     for texte in ("12", "entretiens menés", "sur 3 sites"):
         s2.shapes.add_textbox(0, 0, 100, 100).text_frame.text = texte
     assert classer_slide(s2) is None
+    _slide_chapitre(prs, 2, "Le diagnostic", "#0E2356")
+    assert classer_slide(prs.slides[-1]) is A.CHAPITRE
+
+
+def test_chapitre_pas_de_faux_positif_sur_une_carte_chiffre_cle() -> None:
+    """Carte chiffre-clé d'un deck client — « 12 » puis sa légende, dans cet ordre :
+    la règle « 2 textes dont le 1er est NN » ne suffit pas, le 2e texte doit
+    ressembler à un intitulé de chapitre. Sinon la carte est classée intercalaire et
+    sort du plan de contenu, ce qui fait disparaître des slides de l'export."""
+    prs = Presentation()
+    blanc = prs.slide_layouts[6]
+    carte = prs.slides.add_slide(blanc)
+    for texte in ("12", "risques identifiés"):
+        carte.shapes.add_textbox(0, 0, 100, 100).text_frame.text = texte
+    assert classer_slide(carte) is None
+    # Même légende capitalisée : composée en petit corps, ce n'est pas un titre.
+    carte2 = prs.slides.add_slide(blanc)
+    for texte, pt in (("12", 44), ("Risques identifiés", 10.5)):
+        tf = carte2.shapes.add_textbox(0, 0, 100, 100).text_frame
+        tf.text = texte
+        tf.paragraphs[0].runs[0].font.size = Pt(pt)
+    assert classer_slide(carte2) is None
+    # Un vrai intercalaire DESSINÉ reste classé CHAPITRE.
     _slide_chapitre(prs, 2, "Le diagnostic", "#0E2356")
     assert classer_slide(prs.slides[-1]) is A.CHAPITRE
 
