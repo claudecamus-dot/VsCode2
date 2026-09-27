@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-25
+updated: 2026-09-27
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -8,21 +8,21 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-09-25T14:00:35+02:00 · **93 sessions** (transcripts) · **302** invocations de skills · **275** lancements de sous-agents.
+Dernier scan : 2026-09-27T20:28:17+02:00 · **93 sessions** (transcripts) · **306** invocations de skills · **314** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
 | `agent-orchestrator` | projet | 64 | 2026-07-17 | 2026-09-25 |
-| `bmad-code-review` | BMAD | 48 | 2026-07-20 | 2026-09-16 |
-| `run-dev-server` | projet | 47 | 2026-07-03 | 2026-09-16 |
+| `bmad-code-review` | BMAD | 51 | 2026-07-20 | 2026-09-26 |
+| `run-dev-server` | projet | 47 | 2026-07-03 | 2026-09-26 |
 | `bmad-review-edge-case-hunter` | BMAD | 26 | 2026-07-20 | 2026-09-07 |
 | `agent-supervisor` | projet | 22 | 2026-07-18 | 2026-09-16 |
 | `bmad-review-adversarial-general` | BMAD | 19 | 2026-07-20 | 2026-09-07 |
 | `revue-increment` | projet | 17 | 2026-07-18 | 2026-09-16 |
-| `pptx-verify` | projet | 11 | 2026-07-03 | 2026-09-07 |
-| `bmad-party-mode` | BMAD | 9 | 2026-07-31 | 2026-09-16 |
+| `pptx-verify` | projet | 11 | 2026-07-03 | 2026-09-26 |
+| `bmad-party-mode` | BMAD | 10 | 2026-07-31 | 2026-09-26 |
 | `update-config` | (builtin/session) | 7 | 2026-07-03 | 2026-09-11 |
 | `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
@@ -49,9 +49,9 @@ Dernier scan : 2026-09-25T14:00:35+02:00 · **93 sessions** (transcripts) · **3
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 160 | 2026-07-15 | 2026-09-25 |
-| `Explore` | 51 | 2026-06-30 | 2026-09-25 |
-| `bmad-revue` | 40 | 2026-08-31 | 2026-09-16 |
+| `general-purpose` | 186 | 2026-07-15 | 2026-09-27 |
+| `Explore` | 63 | 2026-06-30 | 2026-09-26 |
+| `bmad-revue` | 41 | 2026-08-31 | 2026-09-25 |
 | `(defaut)` | 7 | 2026-07-21 | 2026-07-30 |
 | `Plan` | 4 | 2026-07-06 | 2026-09-25 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
@@ -176,10 +176,18 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 - **`scan_transcripts.py:mesure-non-fiable-faux-positif`** (2026-09-16) : TRANSMIS AU HUB, non applique localement (arbitrage utilisateur du 2026-09-16). Le drapeau "mesure non fiable" (63/90 transcripts references disparus du disque) desactive a perpetuite le volet agent-mort sur une premisse fausse -- state.json est cumulatif, un transcript efface APRES son scan ne coute aucun evenement. Message envoye a la session hub vscode5-supervision-projets-3f (msg_id 3cfe7db1) avec le correctif propose (n'avertir que si un fichier absent n'a jamais ete lu). A re-verifier a la prochaine propagation du kit.
 - **`flotte:succes-sans-marqueur-non-outille-sur-les-cibles`** (2026-09-16) : TRANSMIS AU HUB, non applique localement (arbitrage utilisateur du 2026-09-16). La regle de veille adoptee le 2026-09-08 (faux succes auto-declares) n'est outillee qu'au hub (scripts/scan_projets.py, hub-only) -- mesure locale a la main sur runs.jsonl VSCode2 : 20/82 succes (24%) sans marqueur de verification, jamais affiche. Message envoye a la session hub vscode5-supervision-projets-3f (msg_id 3cfe7db1) avec le correctif propose (porter la mesure dans scan_transcripts.py, canon distribue). A re-verifier a la prochaine propagation du kit.
 - **`VSCode2:ci-jamais-verifiee-faute-de-jeton`** (2026-09-22) : ACCEPTE + APPLIQUE (option A) : GH_TOKEN pose au niveau utilisateur du poste via gh auth token (compte claudecamus-dot, scopes repo/workflow/read:org/gist). Le garde-fou redevient operant sans une ligne de code. Les 11 commits du 16/09 restent a verifier manuellement une bonne fois (hors budget de cet arbitrage), mais tout futur push sera desormais controle.
+- **`VSCode2:upload-pptx-codes-http-divergents`** (2026-09-26) : ACCEPTE : harmoniser a 400 partout (recommandation de la salle atelier-dev, alignee sur interviews_creation/interviews_backup). Application : commit D2 du plan C:/tmp/salle_dev_decision.md, apres l'extraction pure D1.
+- **`VSCode2:regenerer-ecrase-editions-sans-garde-serveur`** (2026-09-26) : ACCEPTE (contre la reco 'plus tard') : garde serveur 'edite depuis generation' dans ce lot, cadrage mecanisme + ADR + contrat de preuve par la salle atelier-dev, code en dernier apres F.
+- **`VSCode2:classer-slide-repli-de-forme-faux-dans-les-deux-sens`** (2026-09-27) : ACCEPTE : discriminer par le RAPPORT des tailles (libelle/numero) et non par un seuil absolu, abandonner les heuristiques de capitalisation, de nombre de mots et de ponctuation, refuser de conclure quand les tailles sont heritees, et deriver les constantes de la table TYPE de pptx_deck.py au lieu de les dupliquer. Ecarte : revenir en arriere sur 689d97d (laisse le faux positif d'origine), et documenter les deux limites sans corriger (l'export perd des intercalaires sur un deck client reel).
+- **`VSCode2:garde-regeneration-limitee-a-3-surfaces-sur-8`** (2026-09-27) : ACCEPTE : etendre la garde aux 8 surfaces regenerables dans CE lot (et non garder les 3 tables en justifiant l'exclusion par ecrit). L'ADR doit couvrir les 8 sans exclusion inexpliquee. Constat leve par 2 lentilles de la salle code-review-crew, motif 'appliquer la lecon aux chemins freres'.
+- **`VSCode2:demarrage-execute-du-ddl-sur-la-base-par-defaut`** (2026-09-27) : ACCEPTE : migration sur OPT-IN EXPLICITE. Le demarrage cree les tables manquantes et VERIFIE le schema, mais n'altere plus rien ; _add_missing_columns et _add_missing_indexes ne partent que si APP_DB_MIGRATE=1 ou si APP_DB_PATH est pose (tests et bacs a sable inchanges, conftest pose deja APP_DB_PATH). A l'ecart, un message donne la commande mot pour mot. Ecarte : ne proteger que les operations destructives ; et la simple regle de conduite (non testable, n'empeche pas la recurrence). Ecarte aussi par la salle : Alembic ou tout framework de migration versionnee, une sauvegarde automatique avant DDL, un verrou inter-processus (disproportionne pour un mono-utilisateur local). A ecrire APRES que l'ecrivain du lot en cours ait libere app/db.py.
+- **`VSCode2:delete-de-dedoublonnage-au-demarrage-sans-trace-conservee`** (2026-09-27) : DIAGNOSTIC RENDU, aucune perte etablie. Faits mesures le 2026-09-27 sur une COPIE de data/app.db (lecture seule) : l'index uq_segment_job_tranche existe (pose le 2026-09-10 par 7355e29) et le DELETE partage SON garde-fou, donc il est unique par base ; les serveurs fantomes du 25-26/09 ont trouve l'index en place, saute le bloc, et n'ont rien supprime. Les positions manquantes de interview_segment_jobs forment un bloc CONTIGU [2..11], or un dedoublonnage ne peut pas creer de trou de position (la position survit dans la ligne gardee) : ce trou ne lui est pas imputable. 8 missions, 14 entretiens, 43 tranches (36 done, 7 failed sans resultat) intacts. NON DETERMINABLE : si le tout premier demarrage apres le 2026-09-10 a supprime des lignes reelles — aucun basicConfig dans app/, le warning partait sur le stderr d'un terminal ferme. NON ETABLI : que les donnees Meet de la mission 16 aient transite par cette table (l'import passe par audio_file_jobs).
+- **`VSCode2:worktrees-residuels-hors-depot`** (2026-09-27) : ACCEPTE : retrait par l'utilisateur, sans --force et sans contournement du garde-fou. Les deux anciens sont PROPRES (git status vide) et leurs HEAD sont des ancetres de main : rien d'unique n'y vit, donc --force est inutile et le hook n'a rien a refuser. Commandes proposees : git worktree remove C:/tmp/v2avant ; git worktree remove C:/tmp/wt_head ; git worktree prune. Ecarte explicitement : rm -rf suivi de prune, qui produit le meme effet destructeur en esquivant le garde-fou.
+- **`VSCode2:resultat-ia-vide-ecrase-les-enregistrements-uniques`** (2026-09-27) : ACCEPTE : corriger dans CE lot (et non tracer pour plus tard ni laisser tel quel). Defaut preexistant, releve par la lentille Boundary de la salle code-review-crew. Regle unique dans synthese_ecriture._resultat_entierement_vide : vide = TOUS les champs blancs, jamais un seul (une SWOT sans menaces est une generation legitime) — la regle des listes transposee, deja appliquee localement par l'import d'analyse externe, dont la copie a ete supprimee.
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
-_Diagnostic à jour — rien à signaler, tous les constats précédents ont été arbitrés._
+_Diagnostic ⚠️ à relancer (> 14 j) — rien à signaler, tous les constats précédents ont été arbitrés._
 
 _4 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un `re_challenge` avec des données nouvelles :_
 
@@ -190,7 +198,7 @@ _4 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir 
 
 ## Seuil de qualification — la mesure
 
-Depuis le 2026-09-11 : **181** demande(s) vue(s) hors commande slash (+ 60 slash), **7** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **4 %** des demandes orchestrées.
+Depuis le 2026-09-11 : **384** demande(s) vue(s) hors commande slash (+ 75 slash), **10** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **3 %** des demandes orchestrées.
 _Ce chiffre ne dit pas ce qui AURAIT dû être orchestré : le hook compte, il ne juge pas. Il donne le dénominateur qui manquait pour arbitrer le seuil sur données plutôt que sur habitude._
 
 ---
