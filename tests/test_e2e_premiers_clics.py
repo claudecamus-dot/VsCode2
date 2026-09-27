@@ -497,3 +497,101 @@ def test_upload_template_refuse_affiche_l_ecran_et_son_message_en_400(
         statuts = sorted(r["status"] for r in nav.erreurs_http()
                          if r["url"].endswith("/pptx-template"))
         assert statuts == [400], nav.erreurs_http()
+
+
+# --------------------------------------------------------------------------- #
+# Onglet PÉRIMÉ (constat F de l'atelier-dev) : les axes ont été régénérés/renommés
+# dans une autre session, l'onglet resté ouvert autosave encore l'ANCIEN intitulé.
+# Comportement documenté par 0f5bb4e (snap_axe) et gardé par cdef174 (identité
+# d'abord) — jamais rejoué dans un vrai navigateur jusqu'ici.
+# --------------------------------------------------------------------------- #
+_SEED_AXES_PERIMES = r"""
+from app.db import SessionLocal, init_db
+from app.models import (GlobalSynthesis, Interview, Mission, MissionKpi,
+                        RecommendationAxis)
+init_db()
+db = SessionLocal()
+m = Mission(name="E2E onglet perime")
+db.add(m); db.flush()
+db.add(Interview(mission_id=m.id, interviewee_name="Témoin", status="done"))
+db.add(GlobalSynthesis(mission_id=m.id, status="generated", points_amelioration="- Silos"))
+# L'onglet va rendre CES intitulés : une variante de casse et d'espaces de celui
+# qui survivra, et un axe qui aura disparu.
+m.recommendation_axes = [
+    RecommendationAxis(position=0, title="gouvernance  data"),
+    RecommendationAxis(position=1, title="Axe supprime ailleurs"),
+]
+m.kpis = [MissionKpi(position=0, libelle="Taux de conformité", cible="", axe="")]
+db.commit()
+print(m.id, m.kpis[0].id)
+"""
+
+# L'AUTRE session : les axes sont régénérés — le survivant reprend son intitulé
+# canonique, l'autre disparaît. L'onglet ouvert, lui, ne le sait pas.
+_REGENERER_AXES = r"""
+import sys
+from app.db import SessionLocal
+from app.models import Mission
+db = SessionLocal()
+m = db.get(Mission, int(sys.argv[1]))
+for a in list(m.recommendation_axes):
+    if a.title == "gouvernance  data":
+        a.title = "Gouvernance data"
+    else:
+        m.recommendation_axes.remove(a)
+db.commit()
+print([a.title for a in m.recommendation_axes])
+"""
+
+_LIRE_AXE_KPI = r"""
+import sys
+from app.db import SessionLocal
+from app.models import MissionKpi
+print(repr(SessionLocal().get(MissionKpi, int(sys.argv[1])).axe))
+"""
+
+
+def test_onglet_perime_axe_variante_rapprochee_et_axe_disparu_refuse(
+    tmp_path_factory: pytest.TempPathFactory, nav: Navigateur
+) -> None:
+    """Onglet resté ouvert pendant qu'une autre session régénère les axes :
+    l'autosave de l'axe poste l'intitulé PÉRIMÉ que le `<select>` porte encore.
+    Une variante de casse/espaces d'un axe réel est rapprochée (« gouvernance
+    data » → « Gouvernance data », écrit en base, « enregistré » à l'écran) ;
+    un axe qui ne correspond à AUCUN axe de la mission reste refusé (400 htmx,
+    rien d'écrit, aucune mention d'enregistrement). Ce que voit l'utilisateur ET
+    ce qui atterrit en base, pas seulement le code HTTP."""
+    import json
+    dossier = tmp_path_factory.mktemp("e2e-axes-perimes")
+    base_db = dossier / "e2e.db"
+    mid, kid = _python_sur_base(base_db, _SEED_AXES_PERIMES).split()
+    with serveur_uvicorn(dossier) as base:
+        nav.naviguer(f"{base}/missions/{mid}/synthese/apercu")
+        _sans_erreur(nav, "Ouvrir l'aperçu")
+        nav.cliquer(".tab[data-tab='kpis']")
+        select = f"select[hx-post='/kpis/{kid}/field'][hx-vals*='axe']"
+        # L'onglet porte bien les deux intitulés d'AVANT la régénération.
+        options = nav.evaluer(
+            "Array.from(document.querySelectorAll(" + json.dumps(select + " option")
+            + ")).map(function(o){return o.value;})")
+        assert "gouvernance  data" in options and "Axe supprime ailleurs" in options, options
+
+        # L'autre session régénère les axes. L'onglet ouvert n'est pas rechargé.
+        assert _python_sur_base(base_db, _REGENERER_AXES, mid) == repr(["Gouvernance data"])
+
+        # 1) Variante de casse/espaces d'un axe RÉEL : rapprochée, pas refusée.
+        nav.remplir(select, "gouvernance  data")
+        _attendre_texte(nav, f"#kpi-saved-{kid}", "enregistré")
+        _sans_erreur(nav, "Autosave de l'axe périmé rapproché")
+        assert _python_sur_base(base_db, _LIRE_AXE_KPI, kid) == repr("Gouvernance data")
+
+        # 2) Axe disparu de la mission : refusé, et la base garde la valeur snappée.
+        nav.evaluer(f"document.getElementById('kpi-saved-{kid}').textContent=''")
+        nav.remplir(select, "Axe supprime ailleurs")
+        nav.drainer()
+        refus = [r for r in nav.erreurs_http() if r["url"].endswith(f"/kpis/{kid}/field")]
+        assert [r["status"] for r in refus] == [400], nav.erreurs_http()
+        assert not nav.exceptions, nav.exceptions
+        assert "enregistré" not in nav.evaluer(
+            f"document.getElementById('kpi-saved-{kid}').textContent")
+        assert _python_sur_base(base_db, _LIRE_AXE_KPI, kid) == repr("Gouvernance data")
