@@ -271,7 +271,25 @@ def _migration_autorisee() -> bool:
     (tests, bacs à sable : `APP_DB_PATH` vers un autre fichier)."""
     if os.environ.get("APP_DB_MIGRATE") == "1":
         return True
-    return Path(DB_PATH).resolve() != Path(_CHEMIN_PAR_DEFAUT).resolve()
+    return not _est_la_base_par_defaut(Path(DB_PATH), Path(_CHEMIN_PAR_DEFAUT))
+
+
+def _est_la_base_par_defaut(chemin: Path, defaut: Path) -> bool:
+    """Vrai si `chemin` désigne le même FICHIER que `defaut`.
+
+    `samefile` (volume + index de fichier) quand les deux existent : un lien dur
+    ou une graphie `\\\\?\\C:\\...` comparent INÉGAUX par `resolve()` tout en
+    pointant la vraie base. Repli sur `resolve()` quand l'un manque (samefile
+    lève alors) : si la base par défaut n'existe pas encore, une graphie `\\\\?\\`
+    compare donc inégale et la migration est permise — bénin, aucune donnée
+    réelle à protéger. Toute autre erreur de comparaison : sens SÛR, on répond « c'est
+    la base par défaut » — donc pas de migration implicite."""
+    try:
+        if chemin.exists() and defaut.exists():
+            return os.path.samefile(chemin, defaut)
+        return chemin.resolve() == defaut.resolve()
+    except (OSError, ValueError):
+        return True
 
 
 def ecarts_de_schema() -> list[str]:

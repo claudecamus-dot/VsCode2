@@ -91,3 +91,42 @@ def test_index_unique_absent_fait_aussi_refuser(base_par_defaut):
         conn.exec_driver_sql(f"CREATE TABLE interview_segment_jobs ({colonnes})")
     with pytest.raises(RuntimeError, match="index unique uq_segment_job_tranche"):
         db.init_db()
+
+
+def _alias_de_la_base_par_defaut(tmp_path: Path, monkeypatch, alias: Path) -> None:
+    """`_CHEMIN_PAR_DEFAUT` sur un fichier jetable existant, `DB_PATH` sur une
+    AUTRE graphie du même fichier. Jamais la vraie base."""
+    defaut = tmp_path / "app.db"
+    monkeypatch.setattr(db, "_CHEMIN_PAR_DEFAUT", defaut, raising=False)
+    monkeypatch.setattr(db, "DB_PATH", alias)
+    monkeypatch.delenv("APP_DB_MIGRATE", raising=False)
+
+
+def test_un_LIEN_DUR_vers_la_base_par_defaut_ne_migre_pas(tmp_path, monkeypatch):
+    import os
+    defaut = tmp_path / "app.db"
+    defaut.write_bytes(b"")
+    lien = tmp_path / "autre" / "lien.db"
+    lien.parent.mkdir()
+    os.link(defaut, lien)
+    _alias_de_la_base_par_defaut(tmp_path, monkeypatch, lien)
+    assert db._migration_autorisee() is False
+
+
+def test_une_graphie_LONGUE_du_chemin_par_defaut_ne_migre_pas(tmp_path, monkeypatch):
+    import sys
+    if sys.platform != "win32":
+        pytest.skip("préfixe long (\\\\?\\) propre à Windows")
+    defaut = tmp_path / "app.db"
+    defaut.write_bytes(b"")
+    _alias_de_la_base_par_defaut(
+        tmp_path, monkeypatch, Path("\\\\?\\" + str(defaut.resolve())))
+    assert db._migration_autorisee() is False
+
+
+def test_un_AUTRE_fichier_existant_reste_migrable(tmp_path, monkeypatch):
+    (tmp_path / "app.db").write_bytes(b"")
+    autre = tmp_path / "bac.db"
+    autre.write_bytes(b"")
+    _alias_de_la_base_par_defaut(tmp_path, monkeypatch, autre)
+    assert db._migration_autorisee() is True
