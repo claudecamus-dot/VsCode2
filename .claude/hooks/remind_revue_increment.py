@@ -12,6 +12,7 @@ casser un démarrage de session.
 """
 import json
 import sys
+import threading
 
 REMINDER = (
     "Discipline qualité du projet (rappel systématique) : avant de considérer "
@@ -31,9 +32,31 @@ REMINDER = (
 )
 
 
+# --- bounded stdin read (anthropics/claude-code#87289) ---------------------
+# Claude Code does not enforce a hook's timeout while it is blocked reading
+# stdin: an unclosed pipe hangs the hook (and the launcher timeout does not
+# kill the child python.exe). Read in a daemon thread and give up after 5 s;
+# on timeout the existing fail-open path (no injection) applies.
+def _stdin_borne(delai: float = 5.0):
+    boite = {}
+
+    def _cible():
+        try:
+            boite["v"] = sys.stdin.read()
+        except BaseException:  # noqa: BLE001 - never raise from the reader
+            boite["v"] = None
+
+    fil = threading.Thread(target=_cible, daemon=True)
+    fil.start()
+    fil.join(delai)
+    if fil.is_alive() or boite.get("v") is None:
+        raise ValueError("stdin non recu")
+    return boite["v"]
+
+
 def main() -> None:
     try:
-        json.load(sys.stdin)
+        json.loads(_stdin_borne())
     except Exception:
         return
     print(json.dumps({

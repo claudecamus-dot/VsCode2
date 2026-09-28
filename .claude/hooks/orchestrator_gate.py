@@ -78,9 +78,54 @@ def journaliser(prompt: str, slash: bool) -> None:
               file=sys.stderr)
 
 
+
+# --- bounded stdin read (anthropics/claude-code#87289) -------------------------
+try:
+    sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    from _stdin_borne import lire_stdin_borne as _lsb
+except Exception:  # noqa: BLE001 - exported without the helper: still bounded
+    def _lsb(delai=5.0, flux=None):
+        import threading
+        f = flux if flux is not None else sys.stdin
+        boite = {}
+
+        def _c():
+            try:
+                boite["v"] = f.read()
+            except BaseException:  # noqa: BLE001
+                boite["v"] = None
+        t = threading.Thread(target=_c, daemon=True)
+        t.start()
+        t.join(delai)
+        return None if t.is_alive() else boite.get("v")
+
+
+def _stdin_borne(delai=5.0):
+    """Bounded stdin read: the payload, or None on timeout/error — the hook decides
+    (guard: fail-closed refusal; reminder: its existing fail-open path).
+    A hook may set a module-level ``_FLUX_STDIN`` (e.g. a raw fd 0 reader)."""
+    return _lsb(delai, globals().get("_FLUX_STDIN"))
+
+
+def _stdin_ou_fail_open(delai=5.0):
+    """Non-PreToolUse hook: no stdin within the bound lets the turn through
+    (fail-open, arbitration 2026-09-28: a rejected prompt / an end-of-turn loop
+    costs more than it protects), with one visible stderr line. ``os._exit``
+    skips interpreter shutdown while the reader thread is still blocked."""
+    v = _stdin_borne(delai)
+    if v is None:
+        _os = __import__("os")
+        nom = _os.path.splitext(_os.path.basename(__file__))[0]
+        try:
+            _os.write(2, f"{nom}: stdin non recu en {delai:g} s — fail-open\n".encode())
+        finally:
+            _os._exit(0)
+    return v
+
+
 def main() -> int:
     try:
-        data = json.load(sys.stdin)
+        data = json.loads(_stdin_ou_fail_open())
     except (ValueError, OSError):
         return 0
     brut = data.get("prompt") or ""

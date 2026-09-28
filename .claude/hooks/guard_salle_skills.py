@@ -84,13 +84,77 @@ def _salle_declaree(salle):
     return []
 
 
+
+# --- bounded stdin read (anthropics/claude-code#87289) -------------------------
+try:
+    sys.path.insert(0, __import__("os").path.dirname(__import__("os").path.abspath(__file__)))
+    from _stdin_borne import lire_stdin_borne as _lsb
+except Exception:  # noqa: BLE001 - exported without the helper: still bounded
+    def _lsb(delai=5.0, flux=None):
+        import threading
+        f = flux if flux is not None else sys.stdin
+        boite = {}
+
+        def _c():
+            try:
+                boite["v"] = f.read()
+            except BaseException:  # noqa: BLE001
+                boite["v"] = None
+        t = threading.Thread(target=_c, daemon=True)
+        t.start()
+        t.join(delai)
+        return None if t.is_alive() else boite.get("v")
+
+
+def _stdin_borne(delai=5.0):
+    """Bounded stdin read: the payload, or None on timeout/error — the hook decides
+    (guard: fail-closed refusal; reminder: its existing fail-open path).
+    A hook may set a module-level ``_FLUX_STDIN`` (e.g. a raw fd 0 reader)."""
+    return _lsb(delai, globals().get("_FLUX_STDIN"))
+
+
+class _Fd0:
+    """Raw fd 0 reader: a daemon thread blocked in BufferedReader.read crashes the
+    interpreter at shutdown (0xC0000005, measured); os.read holds no Python lock."""
+
+    def read(self):
+        morceaux = []
+        while True:
+            b = __import__("os").read(0, 65536)
+            if not b:
+                return b"".join(morceaux)
+            morceaux.append(b)
+
+
+_FLUX_STDIN = _Fd0()
+
+
+def _stdin_ou_refus(delai=5.0):
+    """Guard hook: no stdin within the bound is a prudent refusal (fail-closed).
+
+    Exit 2 blocks the tool call and shows stderr to Claude. ``os._exit`` skips
+    interpreter shutdown, which can crash (0xC0000005) while the reader thread
+    is still blocked — a crash code other than 2 would be a silent fail-open.
+    """
+    v = _stdin_borne(delai)
+    if v is None:
+        _os = __import__("os")
+        nom = _os.path.splitext(_os.path.basename(__file__))[0]
+        try:  # UTF-8 bytes on fd 2: the harness reads UTF-8, a cp1252 dash is mojibake
+            _os.write(2, (
+                f"{nom}: stdin non recu en {delai:g} s — refus prudent, relancer la commande\n").encode())
+        finally:
+            _os._exit(2)
+    return v
+
+
 def main() -> None:
     try:
         # Octets lus et décodés EXPLICITEMENT en UTF-8 : sous `py <script>` sur Windows,
         # stdin/stdout sont en cp1252 et le harnais parle UTF-8. La sortie, elle, est en
         # ASCII pur (`ensure_ascii` par défaut) : un `deny` qui sort en cp1252 est un
         # `deny` illisible (revue du 2026-09-02, reproduit : 0xab dans « »).
-        data = json.loads(sys.stdin.buffer.read().decode("utf-8", "replace"))
+        data = json.loads(_stdin_ou_refus().decode("utf-8", "replace"))
     except Exception:   # noqa: BLE001
         _laisser_passer()
 
