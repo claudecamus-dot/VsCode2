@@ -82,9 +82,20 @@ SANS_EFFET, RESTAURATION, OUTILLAGE, CONCURRENCE, INTERROMPUE = 5, 6, 7, 8, 9
 # exceptions ; il ne couvre pas un `taskkill`, un plantage de l'interpreteur ni
 # une coupure de courant. Cette trace, elle, survit : la preuve suivante la voit
 # et refuse de partir sur un depot reste sur le code d'avant (defaut n3, vu une
-# fois pour de vrai sur ce depot). Chemin FIXE, pour etre retrouvable sans rien
-# savoir du run qui l'a laissee.
-SENTINELLE = Path(tempfile.gettempdir()) / "preuve_p1_interrompue.json"
+# fois pour de vrai sur ce depot). Chemin FIXE par FICHIER CIBLE, pour etre
+# retrouvable sans rien savoir du run qui l'a laissee : la preuve suivante sur
+# le meme fichier la trouve avec le seul argument qu'elle a deja (le fichier).
+# Un chemin unique pour toute la machine (2026-09-28) faisait qu'une preuve en
+# cours sur X refusait, code 9, une preuve sur Y lancee a cote — deux preuves
+# sur deux fichiers n'ont rien a se dire. La trace d'avant ce changement,
+# SENTINELLE_HERITEE, reste honoree : une preuve interrompue par l'ancien outil
+# ne doit pas disparaitre avec lui.
+SENTINELLE_HERITEE = Path(tempfile.gettempdir()) / "preuve_p1_interrompue.json"
+
+
+def _sentinelle(cible: Path) -> Path:
+    cle = hashlib.sha1(str(cible.resolve()).encode("utf-8")).hexdigest()[:12]
+    return Path(tempfile.gettempdir()) / f"preuve_p1_interrompue_{cle}.json"
 
 # pytest : 0 = tout passe, 1 = des tests ont échoué. Tout le reste est un
 # problème d'OUTILLAGE (2 interrompu, 3 erreur interne, 4 usage, 5 aucun test
@@ -204,22 +215,33 @@ def _aux_fins_de_ligne(bloc: str, fin: str) -> str:
     return bloc.replace("\r\n", "\n").replace("\n", fin)
 
 
-def _traiter_la_sentinelle(restaurer: bool) -> int | None:
-    """None si la voie est libre, sinon le code de sortie à rendre."""
-    if not SENTINELLE.is_file():
+def _traiter_la_sentinelle(cible_demandee: Path, restaurer: bool) -> int | None:
+    """None si la voie est libre, sinon le code de sortie à rendre.
+
+    Deux traces peuvent parler : celle du fichier demande, et la trace heritee
+    (chemin unique d'avant le 2026-09-28). La premiere qui existe decide."""
+    for sentinelle in (_sentinelle(cible_demandee), SENTINELLE_HERITEE):
+        verdict = _traiter_une_sentinelle(sentinelle, restaurer)
+        if verdict is not None:
+            return verdict
+    return None
+
+
+def _traiter_une_sentinelle(sentinelle: Path, restaurer: bool) -> int | None:
+    if not sentinelle.is_file():
         return None
     try:
-        trace = json.loads(SENTINELLE.read_text(encoding="utf-8"))
+        trace = json.loads(sentinelle.read_text(encoding="utf-8"))
         cible = Path(trace["cible"])
         sauvegarde = Path(trace["sauvegarde"])
         attendue = trace["empreinte_depart"]
     except Exception as exc:
-        print(f"sentinelle illisible ({exc}) : {SENTINELLE}\n"
+        print(f"sentinelle illisible ({exc}) : {sentinelle}\n"
               "  la supprimer a la main apres avoir verifie l'arbre.")
         return INTERROMPUE
     if cible.is_file() and _empreinte(cible) == attendue:
         # La restauration avait eu lieu ; seule la trace est restee.
-        SENTINELLE.unlink(missing_ok=True)
+        sentinelle.unlink(missing_ok=True)
         print("sentinelle perimee retiree : le fichier etait deja restaure.")
         return None
     if restaurer:
@@ -232,12 +254,12 @@ def _traiter_la_sentinelle(restaurer: bool) -> int | None:
             print(f"RESTAURATION INCOMPLETE : {cible} ne correspond pas a son "
                   f"etat de depart. Sauvegarde : {sauvegarde}")
             return INTERROMPUE
-        SENTINELLE.unlink(missing_ok=True)
+        sentinelle.unlink(missing_ok=True)
         print(f"{cible} restaure depuis {sauvegarde} (octet pour octet).")
         return TENUE
     print(f"PREUVE PRECEDENTE INTERROMPUE : {cible} est probablement reste MUTE.\n"
           f"  sauvegarde  : {sauvegarde}\n"
-          f"  sentinelle  : {SENTINELLE}\n"
+          f"  sentinelle  : {sentinelle}\n"
           "Ce depot est peut-etre sur le code d'avant : une suite ou une revue "
           "jouee maintenant mesurerait la mauvaise version.\n"
           "  py scripts/preuve_p1.py --restaurer <fichier> <test> --avant x --apres y\n"
@@ -285,17 +307,19 @@ def main() -> int:
                    help="remet le fichier d'une preuve INTERROMPUE, puis sort")
     args = p.parse_args()
 
-    # AVANT tout : une preuve precedente a-t-elle laisse un fichier mute ?
+    demande = Path(args.fichier)
+    cible = (demande if demande.is_absolute() else (RACINE / demande)).resolve()
+
+    # AVANT tout : une preuve precedente a-t-elle laisse CE fichier mute ?
     # Partir sans regarder ferait mesurer la mauvaise version du code.
-    sentinelle = _traiter_la_sentinelle(args.restaurer)
-    if sentinelle is not None:
-        return sentinelle
+    refus = _traiter_la_sentinelle(cible, args.restaurer)
+    if refus is not None:
+        return refus
     if args.restaurer:
         print("rien a restaurer : aucune preuve interrompue.")
         return TENUE
+    sentinelle = _sentinelle(cible)
 
-    demande = Path(args.fichier)
-    cible = (demande if demande.is_absolute() else (RACINE / demande)).resolve()
     if not cible.is_file():
         print(f"ERREUR D'USAGE : fichier introuvable : {cible}")
         return USAGE
@@ -387,7 +411,7 @@ def main() -> int:
 
         # La sentinelle est posee AVANT la mutation : entre les deux, un crash
         # laisserait le fichier intact, ce qui est le bon sens de l'erreur.
-        SENTINELLE.write_text(json.dumps({
+        sentinelle.write_text(json.dumps({
             "cible": str(cible), "sauvegarde": str(sauvegarde),
             "empreinte_depart": empreinte_depart,
         }), encoding="utf-8")
@@ -455,7 +479,7 @@ def main() -> int:
             if restauree:
                 # La sentinelle ne part qu'une fois la restauration VERIFIEE :
                 # la retirer plus tot effacerait la seule trace utile.
-                SENTINELLE.unlink(missing_ok=True)
+                sentinelle.unlink(missing_ok=True)
                 print("restauration : OK (octet pour octet)")
             else:
                 print(f"RESTAURATION ECHOUEE : {cible} reste MUTE.\n"

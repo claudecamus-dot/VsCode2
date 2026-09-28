@@ -497,3 +497,51 @@ def test_une_sortie_LONGUE_garde_sa_TETE_et_sa_QUEUE(tmp_path):
     fin = r.stdout.rsplit("caractères omis", 1)[-1]
     assert "test_marqueur_de_queue" in fin, r.stdout[-3000:]
     assert "caractères omis …]" in r.stdout
+
+
+def _sentinelle_de(cible: Path) -> Path:
+    """Le chemin de la sentinelle d'un fichier, tel que l'outil le derive : un
+    nom FIXE par fichier cible (sha1 du chemin absolu resolu), pour qu'une preuve
+    interrompue sur X soit retrouvee par la preuve suivante sur X — et par elle
+    seule."""
+    cle = hashlib.sha1(str(cible.resolve()).encode("utf-8")).hexdigest()[:12]
+    return Path(tempfile.gettempdir()) / f"preuve_p1_interrompue_{cle}.json"
+
+
+def test_deux_preuves_sur_deux_fichiers_ne_se_bloquent_pas(tmp_path):
+    """Mesuré le 2026-09-28 : une sentinelle unique pour toute la machine faisait
+    qu'une preuve EN COURS sur X refusait (code 9) une preuve sur Y lancée à
+    côté, dans le même dépôt. La sentinelle est désormais propre au fichier
+    cible : une trace laissée sur A ne concerne pas B, mais bloque toujours A."""
+    import json
+
+    corps_test = IMPORTE + "def test_double():\n    assert double(3) == 6\n"
+    module_a, test_a = _bac(tmp_path / "a", MODULE, corps_test)
+    module_b, test_b = _bac(tmp_path / "b", MODULE, corps_test)
+    sauvegarde = tmp_path / "a_sujet.py.sauvegarde"
+    sauvegarde.write_bytes(MODULE.encode("utf-8"))
+    module_a.write_bytes(MODULE.replace(APRES, AVANT).encode("utf-8"))
+    sentinelle_a = _sentinelle_de(module_a)
+    sentinelle_a.write_text(json.dumps({
+        "cible": str(module_a), "sauvegarde": str(sauvegarde),
+        "empreinte_depart": hashlib.sha256(MODULE.encode("utf-8")).hexdigest(),
+    }), encoding="utf-8")
+    try:
+        r_b = _lancer(module_b, test_b)
+        assert r_b.returncode == TENUE, (
+            "une preuve interrompue sur A ne doit pas refuser B\n" + r_b.stdout + r_b.stderr)
+        assert "PREUVE PRECEDENTE INTERROMPUE" not in r_b.stdout
+        assert sentinelle_a.exists(), "la preuve sur B n'a pas a toucher la trace de A"
+
+        r_a = _lancer(module_a, test_a)
+        assert r_a.returncode == INTERROMPUE, (
+            "la preuve suivante sur A doit toujours etre refusee\n" + r_a.stdout + r_a.stderr)
+        assert "PREUVE PRECEDENTE INTERROMPUE" in r_a.stdout
+        assert module_a.read_bytes() != MODULE.encode("utf-8")
+
+        r_a2 = _lancer(module_a, test_a, extra=["--restaurer"])
+        assert r_a2.returncode == TENUE, r_a2.stdout + r_a2.stderr
+        assert module_a.read_bytes() == MODULE.encode("utf-8")
+        assert not sentinelle_a.exists(), "la sentinelle de A survit a la restauration"
+    finally:
+        sentinelle_a.unlink(missing_ok=True)
