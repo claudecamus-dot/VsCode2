@@ -919,3 +919,18 @@ def test_le_formulaire_de_connexion_connecte(serveur: str, nav: Navigateur) -> N
     # attendus et assérés sur place ; le POST du BON mot de passe, lui, est
     # prouvé par la redirection vers `/` asséré ci-dessus.
     _sans_erreur(nav, "Se connecter", sauf=("/missions", "/connexion"))
+
+
+def test_la_capture_du_harnais_rend_un_png_reel(
+    serveur: str, nav: Navigateur, tmp_path,
+) -> None:
+    """`Navigateur.capturer()` est le seul moyen de VOIR un écran depuis que
+    l'authentification est fermée (Edge `--screenshot` ouvre une session neuve
+    et ne ramène que la page de connexion). Un outil de vérification qui n'est
+    lui-même pas vérifié ne prouve rien (P2, revue 2026-09-28)."""
+    nav.naviguer(serveur + "/missions")
+    cible = nav.capturer(tmp_path / "missions.png")
+    octets = cible.read_bytes()
+    assert octets[:8] == b"\x89PNG\r\n\x1a\n", octets[:16]
+    # Une page rendue pèse plus qu'un PNG vide de quelques dizaines d'octets.
+    assert len(octets) > 5000, len(octets)

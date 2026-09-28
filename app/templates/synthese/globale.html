@@ -11,6 +11,14 @@
     <h1>Synthèse transverse <span class="pill pill-done">Vue consolidée — mission</span></h1>
     <div class="meta">
       <span>{{ interview_count }} entretien{{ interview_count|pluriel }}{% if libre_count %} (dont {{ libre_count }} libre{{ libre_count|pluriel }}){% endif %}</span>
+      {# Couverture déterministe (I1) : ce que la synthèse a RÉELLEMENT sous la
+         main, calculé par le code. Un constat dit « partagé » sur 2 entretiens
+         contributifs sur 9 doit pouvoir être contredit par ce chiffre. #}
+      {% set couv, tot = couverture_mission or (0, 0) %}
+      {% if tot %}
+      <span class="couverture{% if couv < tot %} couverture-partielle{% endif %}">
+        {{ couv }}/{{ tot }} entretien{{ tot|pluriel }} nourri{{ 'ssent' if tot > 1 else 't' }} la synthèse</span>
+      {% endif %}
     </div>
   </div>
 </div>
@@ -27,9 +35,40 @@
 <p class="muted">
   Agrège <strong>tous les entretiens de la mission</strong> — réponses des
   entretiens structurés, thème par thème, et répartition de chaque entretien
-  libre — en 5 catégories transverses. C'est la conclusion consolidée qui
+  libre — dans les <strong>{{ synthesis_axes|length }} axes d'étude</strong> de la mission.
+  C'est la conclusion consolidée qui
   alimente ensuite les recommandations, pas la contribution d'un entretien pris isolément.
 </p>
+
+{# Couverture par thème (I1) : déterministe, sans IA. Elle répond à la question
+   qui tue une restitution — « combien de personnes ont réellement dit ça ? » —
+   sur la seule maille où le code peut répondre sans juger : qui a répondu à au
+   moins une question du thème. Les entretiens libres n'y figurent pas : ils
+   n'ont pas de questions, les compter ferait baisser une couverture sans
+   qu'aucune réponse ne manque. #}
+{% if couverture_par_theme %}
+<div class="card">
+  <div class="card-head"><h2>Couverture par thème</h2>
+    <span class="muted">interviewés ayant répondu / entretiens structurés
+      (les entretiens libres n'ont pas de questions : ils sont hors de ce ratio)</span></div>
+  <ul class="couverture-liste">
+    {% for theme in themes %}
+      {% set rep, att = couverture_par_theme.get(theme.id, (0, 0)) %}
+      <li>
+        <span>{{ theme.title }}</span>
+        {# `att == 0` = rien à mesurer (thème sans question, ou mission sans
+           entretien structuré). Afficher « 0/0 » en vert ferait lire un vide
+           comme une couverture complète — revue 2026-09-28. #}
+        {% if not att %}
+        <span class="couverture couverture-neutre" title="Aucun entretien structuré à mesurer sur ce thème">—</span>
+        {% else %}
+        <span class="couverture{% if rep < att %} couverture-partielle{% endif %}">{{ rep }}/{{ att }}</span>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
 
 {% include "synthese/_global_panel.html" %}
 {% endif %}

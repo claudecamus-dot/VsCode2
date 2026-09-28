@@ -1168,3 +1168,14 @@ textarea.htmx-request, input.htmx-request, select.htmx-request {
   color: var(--danger); background: var(--danger-bg);
   border: 1px solid var(--danger-border); border-radius: 8px;
 }
+
+/* ---- Couverture déterministe (I1) ---- */
+.couverture { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--success-text); }
+.couverture-partielle { color: var(--warning-text); }
+.couverture-neutre { color: var(--muted); font-weight: 500; }
+.couverture-liste { list-style: none; margin: 0; padding: 0; }
+.couverture-liste li {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+  padding: 7px 0; border-bottom: 1px solid var(--border-subtle);
+}
+.couverture-liste li:last-child { border-bottom: 0; }

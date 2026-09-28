@@ -58,6 +58,7 @@ qui clique Supprimer).
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import shutil
@@ -541,6 +542,26 @@ class Navigateur:
         """À appeler avant toute assertion sur `reponses`/`exceptions` : ces
         listes ne se remplissent que pendant une lecture de la socket."""
         self._run(self._drainer())
+
+    def capturer(self, chemin: Path | str, *, page_entiere: bool = True) -> Path:
+        """Capture PNG de la page courante, rendue par CE navigateur.
+
+        C'est le seul moyen de VOIR un écran de l'app depuis que
+        l'authentification est fermée par défaut (2026-09-19) : le mode
+        `--screenshot` d'Edge ouvre une session neuve et ne sait porter ni
+        cookie ni en-tête, il ne ramène donc que la page de connexion. Ici la
+        session est déjà authentifiée (Bearer posé à l'init).
+        """
+        res = self._run(self._cmd(
+            "Page.captureScreenshot", format="png", captureBeyondViewport=page_entiere))
+        if "data" not in res:
+            # Sans ce garde, une commande CDP en echec sortait en KeyError nu —
+            # illisible dans le diagnostic d'un e2e casse (revue 2026-09-28).
+            raise RuntimeError(f"capture d'ecran refusee par le navigateur : {res}")
+        chemin = Path(chemin)
+        chemin.parent.mkdir(parents=True, exist_ok=True)
+        chemin.write_bytes(base64.b64decode(res["data"]))
+        return chemin
 
     def poser_entetes(self, entetes: dict[str, str]) -> None:
         """REMPLACE les en-têtes supplémentaires de la session ({} les retire

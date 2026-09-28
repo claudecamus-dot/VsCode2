@@ -14,6 +14,19 @@ from __future__ import annotations
 from ..models import Mission, Theme
 
 
+def _reponse_non_vide(answer) -> bool:
+    """Une réponse COMPTE si son texte ou sa valeur structurée porte autre
+    chose que des espaces.
+
+    Définition UNIQUE, volontairement partagée (revue 2026-09-28) : la matière
+    envoyée à la synthèse et le comptage de couverture doivent dire exactement
+    la même chose. Deux définitions équivalentes écrites séparément divergent
+    au premier changement — et un chiffre de couverture qui ne correspond plus
+    à ce que la synthèse a réellement lu est indéfendable en restitution.
+    """
+    return bool((answer.text or "").strip() or (answer.value or "").strip())
+
+
 def theme_material(mission: Mission, theme: Theme) -> tuple[dict, list]:
     """Réponses (par question) et verbatims du thème, tous entretiens confondus."""
     qids = {q.id for q in theme.questions}
@@ -23,8 +36,7 @@ def theme_material(mission: Mission, theme: Theme) -> tuple[dict, list]:
         ans = {a.question_id: a for a in iv.answers}
         for q in theme.questions:
             a = ans.get(q.id)
-            content = a and ((a.text or "").strip() or (a.value or "").strip())
-            if content:
+            if a is not None and _reponse_non_vide(a):
                 by_question.setdefault(q.id, []).append(
                     {
                         "interviewee": iv.interviewee_name,
@@ -120,9 +132,61 @@ def brouillons_contributifs(mission: Mission) -> list:
     for iv in mission.interviews:
         if iv.status == "done":
             continue
-        a_des_reponses = any(
-            (a.text or "").strip() or (a.value or "").strip() for a in iv.answers
-        )
+        a_des_reponses = any(_reponse_non_vide(a) for a in iv.answers)
         if a_des_reponses or (iv.mode == "libre" and iv.repartition):
             contributifs.append(iv)
     return contributifs
+
+
+def _interviews_structurees(mission: Mission) -> list:
+    """Entretiens censés couvrir la trame. Un entretien libre n'a pas de
+    questions : le compter au dénominateur d'un thème ferait baisser une
+    couverture sans qu'aucune réponse ne manque."""
+    return [iv for iv in mission.interviews if iv.mode != "libre"]
+
+
+def _a_repondu(interview, qids: set[int]) -> bool:
+    return any(
+        a.question_id in qids and _reponse_non_vide(a) for a in interview.answers
+    )
+
+
+def couverture_par_theme(mission: Mission) -> dict[int, tuple[int, int]]:
+    """`{theme_id: (répondants, attendus)}` — combien d'interviewés DISTINCTS
+    ont répondu à au moins une question du thème, sur le nombre d'entretiens
+    structurés de la mission (I1 du cadrage « restitution défendable »).
+
+    Comptage par identifiant d'entretien, JAMAIS par nom : deux interviewés
+    homonymes compteraient pour un seul. C'est le décompte déterministe qui
+    doit accompagner tout constat qualifié « consensus » — le jugement vient
+    du modèle, le chiffre vient d'ici.
+    """
+    if mission.trame is None:
+        return {}
+    structurees = _interviews_structurees(mission)
+    attendus = len(structurees)
+    couverture = {}
+    for theme in mission.trame.themes:
+        qids = {q.id for q in theme.questions}
+        if not qids:
+            # Thème sans question : rien à couvrir. (0, 0) le dit ; (0, N)
+            # l'aurait affiché comme un trou de couverture inexistant.
+            couverture[theme.id] = (0, 0)
+            continue
+        repondants = sum(1 for iv in structurees if _a_repondu(iv, qids))
+        couverture[theme.id] = (repondants, attendus)
+    return couverture
+
+
+def couverture_mission(mission: Mission) -> tuple[int, int]:
+    """`(contributifs, total)` sur la mission entière. Un entretien contribue
+    s'il porte au moins une réponse non vide, ou — en mode libre — une
+    répartition : c'est exactement la matière que reçoit la synthèse."""
+    contributifs = 0
+    for iv in mission.interviews:
+        if iv.mode == "libre":
+            if iv.repartition:
+                contributifs += 1
+        elif any(_reponse_non_vide(a) for a in iv.answers):
+            contributifs += 1
+    return contributifs, len(mission.interviews)

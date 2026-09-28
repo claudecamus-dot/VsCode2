@@ -56,6 +56,12 @@ from ..services.synthese_material import (
     brouillons_contributifs as _brouillons_contributifs,
 )
 from ..services.synthese_material import (
+    couverture_mission as _couverture_mission,
+)
+from ..services.synthese_material import (
+    couverture_par_theme as _couverture_par_theme,
+)
+from ..services.synthese_material import (
     libre_material as _libre_material,
 )
 from ..services.synthese_material import (
@@ -165,6 +171,11 @@ def global_synthese_view(
             "libre_count": len(material_libre),
             "libres_sans_analyse": _libres_sans_analyse(mission),
             "brouillons_contributifs": _brouillons_contributifs(mission),
+            # Couverture déterministe (I1) : calculée ici, PAS dans
+            # `_global_panel_context` — elle vit hors du fragment HTMX, donc
+            # aucun échange de panneau n'a à la recalculer.
+            "couverture_mission": _couverture_mission(mission),
+            "couverture_par_theme": _couverture_par_theme(mission),
             # Erreur d'une génération précédente, en LECTURE SEULE (contrairement
             # à generate_global, un chargement de page ne l'acquitte/n'efface
             # jamais) : sans ce champ, un rechargement après échec n'affichait
