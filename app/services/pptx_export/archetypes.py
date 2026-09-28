@@ -162,7 +162,9 @@ def _taille_max_pt(slide, texte: str) -> float | None:
     - TOUTES les formes qui portent ce texte sont mesurées, et le maximum est
       pris — la version d'avant rendait à la PREMIÈRE forme trouvée, donc un
       titre dupliqué dans une forme cachée à 8pt faisait mesurer la mauvaise.
-    - une forme dont au moins un run n'a PAS de taille explicite n'est pas
+    - la taille d'un run est sa taille EFFECTIVE, résolue le long de la chaîne
+      d'héritage (cf. `_taille_effective_pt`) ;
+    - une forme dont au moins un run n'a AUCUNE taille résoluble n'est pas
       mesurable : l'héritage du layout est la norme sur un gabarit client, et un
       max calculé sur les seuls runs explicites vaut moins que rien (un titre
       dont le 1er run hérite du 28pt du layout et le 2e est à 8pt rendait 8.0,
@@ -171,11 +173,120 @@ def _taille_max_pt(slide, texte: str) -> float | None:
     for sh in slide.shapes:
         if not sh.has_text_frame or sh.text_frame.text != texte:
             continue
-        runs = [r for p in sh.text_frame.paragraphs for r in p.runs if r.text]
-        if not runs or any(r.font.size is None for r in runs):
+        chaine = _chaine_lst_styles(slide, sh)
+        runs_pt: list[float | None] = []
+        for p in sh.text_frame.paragraphs:
+            p_pr = p._p.find(_A + "pPr")
+            niveau = _niveau(p_pr)
+            for r in p.runs:
+                if r.text:
+                    runs_pt.append(_taille_effective_pt(r, p_pr, niveau, chaine))
+        if not runs_pt or any(t is None for t in runs_pt):
             return None
-        tailles.append(max(r.font.size.pt for r in runs))
+        tailles.append(max(runs_pt))
     return max(tailles) if tailles else None
+
+
+# Résolution de la taille EFFECTIVE d'un run, que python-pptx n'expose pas
+# (`font.size` ne lit que le run). Chaîne suivie, du plus proche au plus loin :
+# run `a:rPr@sz` → paragraphe `a:pPr/a:defRPr@sz` → `a:lstStyle` de la forme →
+# (placeholder seulement) `a:lstStyle` du placeholder homologue du LAYOUT (même
+# idx, sinon même type) → STOP. Tailles XML en centièmes de point ; une valeur
+# illisible (`sz="12.5"`, `sz="abc"`) vaut « inconnue », jamais une exception.
+#
+# Seuls la slide et son LAYOUT disent quelque chose de la COMPOSITION de la
+# slide : un layout « Section Header » client déclare ses propres tailles sur
+# ses placeholders. Le MASTER, lui, est générique au gabarit entier — ni son
+# placeholder, ni `p:txStyles` (titleStyle / bodyStyle), ni `otherStyle`, ni
+# `p:defaultTextStyle` ne sont consultés. Même raison pour tous : ces défauts
+# s'appliquent à N'IMPORTE QUELLE paire titre + corps (44/32 dans le gabarit
+# python-pptx, rapport 0.73 ; 18/18 pour otherStyle, rapport 1) et feraient
+# conclure « intercalaire » sur une carte chiffre-clé posée dans des
+# placeholders ou une zone de texte non stylée — le faux positif, coûteux (la
+# slide sort du plan de contenu), que cette règle existe pour empêcher. Taille
+# non résolue avant le master → None → refus de conclure.
+_A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+_P = "{http://schemas.openxmlformats.org/presentationml/2006/main}"
+
+
+
+def _sz_pt(el) -> float | None:
+    sz = el.get("sz") if el is not None else None
+    if not sz:
+        return None
+    try:
+        return int(sz) / 100
+    except ValueError:  # deck fourni par l'utilisateur : illisible = inconnu
+        return None
+
+
+def _niveau(p_pr) -> int | None:
+    """Niveau de liste d'un paragraphe (0 par défaut) ; un `lvl` illisible rend
+    None : le niveau inconnu interdit de lire un lstStyle, le run reste alors
+    non résolu hors de ses tailles propres."""
+    if p_pr is None:
+        return 0
+    try:
+        return int(p_pr.get("lvl", "0"))
+    except ValueError:
+        return None
+
+
+def _sz_niveau(lst_style, niveau: int | None) -> float | None:
+    if lst_style is None or niveau is None:
+        return None
+    return _sz_pt(lst_style.find(f"{_A}lvl{niveau + 1}pPr/{_A}defRPr"))
+
+
+def _ph(el):
+    """`p:ph` d'une forme (élément lxml), ou None si ce n'est pas un placeholder."""
+    return el.find(f"{_P}nvSpPr/{_P}nvPr/{_P}ph")
+
+
+def _lst_style(el):
+    return el.find(f"{_P}txBody/{_A}lstStyle")
+
+
+def _ph_correspondant(arbre, type_ph: str, idx: str | None, par_idx: bool):
+    """Placeholder homologue dans le layout `arbre` : même idx d'abord
+    (layout), sinon même type."""
+    candidats = [sp for sp in arbre.iter(f"{_P}sp") if _ph(sp) is not None]
+    if par_idx and idx is not None:
+        for sp in candidats:
+            if _ph(sp).get("idx", "0") == idx:
+                return sp
+    for sp in candidats:
+        if _ph(sp).get("type", "obj") == type_ph:
+            return sp
+    return None
+
+
+def _chaine_lst_styles(slide, shape) -> list:
+    """lstStyle à consulter après le paragraphe, dans l'ordre d'héritage."""
+    el = shape._element
+    chaine = [_lst_style(el)]
+    ph = _ph(el)
+    if ph is None:
+        return chaine
+    type_ph = ph.get("type", "obj")
+    idx = ph.get("idx", "0")
+    layout = slide.slide_layout
+    if layout is not None:
+        sp = _ph_correspondant(layout._element, type_ph, idx, par_idx=True)
+        if sp is not None:
+            chaine.append(_lst_style(sp))
+    return chaine
+
+
+def _taille_effective_pt(run, p_pr, niveau: int | None, chaine: list) -> float | None:
+    t = _sz_pt(run._r.find(_A + "rPr"))
+    if t is None and p_pr is not None:
+        t = _sz_pt(p_pr.find(_A + "defRPr"))
+    for lst in chaine:
+        if t is not None:
+            break
+        t = _sz_niveau(lst, niveau)
+    return t
 
 
 # Seuil de discrimination : le RAPPORT taille de l'intitulé / taille du nombre,
@@ -201,11 +312,12 @@ def _echelle_d_intercalaire(slide, numero: str, libelle: str) -> bool:
     intitulés en minuscules, longs, ou finissant par « : », et ces règles-là
     coûtaient des intercalaires perdus à l'export.
 
-    CONSÉQUENCE ASSUMÉE : si l'une des deux tailles est HÉRITÉE du layout (le cas
-    normal d'un gabarit client), la fonction refuse de conclure et rend False.
-    Sur un tel deck, le repli de forme ne classe donc plus les intercalaires —
-    ils ne l'étaient que par chance, et un CHAPITRE à tort coûte plus cher (la
-    slide sort du plan de contenu, donc de l'export) qu'un CHAPITRE manquant."""
+    Une taille HÉRITÉE du LAYOUT (le cas normal d'un gabarit client) est
+    résolue par `_taille_max_pt` ; la chaîne s'arrête avant le master, générique
+    au gabarit (cf. le commentaire de `_sz_pt`). Si l'une des
+    deux reste INCONNUE à tous les niveaux, la fonction refuse de conclure et
+    rend False : un CHAPITRE à tort coûte plus cher (la slide sort du plan de
+    contenu, donc de l'export) qu'un CHAPITRE manquant."""
     t_num = _taille_max_pt(slide, numero)
     t_lib = _taille_max_pt(slide, libelle)
     if t_num is None or t_lib is None or t_num <= 0:

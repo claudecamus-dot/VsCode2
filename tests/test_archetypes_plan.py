@@ -377,6 +377,109 @@ def test_chapitre_discrimine_sur_le_rapport_des_tailles() -> None:
     assert classer_slide(prs.slides[-1]) is A.CHAPITRE
 
 
+_NS_A = "{http://schemas.openxmlformats.org/drawingml/2006/main}"
+
+
+def _poser_sz_layout(layout, idx_ph: int, sz: int) -> None:
+    """Pose `lvl1pPr/defRPr@sz` dans le lstStyle du placeholder `idx_ph` du
+    LAYOUT — la taille vient du gabarit, pas de la slide."""
+    from lxml import etree
+    lst = layout.placeholders[idx_ph]._element.txBody.find(_NS_A + "lstStyle")
+    for vieux in list(lst):
+        lst.remove(vieux)
+    lvl = etree.SubElement(lst, _NS_A + "lvl1pPr")
+    etree.SubElement(lvl, _NS_A + "defRPr").set("sz", str(sz))
+
+
+def _slide_placeholders(prs, numero: str, libelle: str, layout: int = 1):
+    """« NN » dans le titre, intitulé dans le corps, runs NUS (aucune taille sur
+    la slide) : tout vient du layout ou du master."""
+    slide = prs.slides.add_slide(prs.slide_layouts[layout])
+    slide.shapes.title.text_frame.text = numero
+    slide.placeholders[1].text_frame.text = libelle
+    for sh in slide.placeholders:
+        for r in (r for p in sh.text_frame.paragraphs for r in p.runs):
+            assert r.font.size is None
+    return slide
+
+
+def test_chapitre_tailles_heritees_du_gabarit_resolues() -> None:
+    """Intercalaire d'un gabarit client : tailles HÉRITÉES du LAYOUT, runs nus.
+    La règle d'avant refusait de conclure (None) et l'export perdait
+    l'intercalaire ; la taille portée par le layout est désormais résolue. Le
+    master, générique au gabarit, n'est PAS consulté (cf. `_sz_pt`)."""
+    # Tailles portées par les placeholders du LAYOUT : 20 / 44 ≈ 0.45.
+    prs = Presentation()
+    _poser_sz_layout(prs.slide_layouts[1], 0, 4400)
+    _poser_sz_layout(prs.slide_layouts[1], 1, 2000)
+    s = _slide_placeholders(prs, "01", "Le diagnostic")
+    assert _taille_max_pt(s, "01") == 44
+    assert _taille_max_pt(s, "Le diagnostic") == 20
+    assert classer_slide(s) is A.CHAPITRE
+    # Layout muet : les seules tailles sont celles du MASTER (titre 44, corps
+    # 32), valables pour toute paire titre + corps du gabarit — elles ne disent
+    # rien de CETTE slide. Non résolu → refus de conclure.
+    prs2 = Presentation()
+    s2 = _slide_placeholders(prs2, "02", "Les recommandations")
+    assert _taille_max_pt(s2, "Les recommandations") is None
+    assert classer_slide(s2) is None
+
+
+@pytest.mark.parametrize("layout", [1, 4, 0], ids=[
+    "title_and_content", "comparison", "title_slide"])
+def test_carte_chiffre_cle_placeholders_layout_muet_pas_chapitre(layout) -> None:
+    """Régression : carte chiffre-clé « 12 » + légende dans les placeholders
+    titre + corps d'un layout qui ne déclare AUCUNE taille. Remonter au master
+    (titleStyle 44 / bodyStyle 32, rapport 0.73) classait CHAPITRE et sortait la
+    slide du plan de contenu, donc de l'export."""
+    prs = Presentation()
+    s = _slide_placeholders(prs, "12", "risques identifies", layout=layout)
+    assert classer_slide(s) is None
+
+
+@pytest.mark.parametrize("attr,valeur", [
+    ("sz", "12.5"), ("sz", "abc"), ("lvl", "x")])
+def test_valeur_xml_illisible_ne_leve_pas(attr, valeur) -> None:
+    """Deck d'exemple fourni par l'utilisateur : une valeur XML illisible vaut
+    « inconnue » (None), jamais une exception."""
+    from lxml import etree
+    prs = Presentation()
+    s = _slide_placeholders(prs, "01", "Le diagnostic")
+    for sh in s.placeholders:
+        p = sh.text_frame.paragraphs[0]._p
+        if attr == "lvl":
+            p.get_or_add_pPr().set("lvl", valeur)
+        else:
+            r_pr = p.find(_NS_A + "r").find(_NS_A + "rPr")
+            if r_pr is None:
+                r_pr = etree.SubElement(p.find(_NS_A + "r"), _NS_A + "rPr")
+                p.find(_NS_A + "r").insert(0, r_pr)
+            r_pr.set("sz", valeur)
+    assert classer_slide(s) is None
+
+
+def test_carte_chiffre_cle_legende_heritee_petite_pas_chapitre() -> None:
+    """Symétrique : la légende hérite d'un PETIT corps du layout (10.5 contre 44)
+    — carte chiffre-clé, jamais CHAPITRE. Le layout prime sur le 32pt du master."""
+    prs = Presentation()
+    _poser_sz_layout(prs.slide_layouts[1], 0, 4400)
+    _poser_sz_layout(prs.slide_layouts[1], 1, 1050)
+    s = _slide_placeholders(prs, "12", "risques identifiés")
+    assert _taille_max_pt(s, "risques identifiés") == 10.5
+    assert classer_slide(s) is None
+
+
+def test_taille_irresoluble_reste_none() -> None:
+    """Aucun niveau de la chaîne ne porte de taille : None, jamais un défaut
+    inventé (qui rouvrirait le faux positif)."""
+    prs = Presentation()
+    for style in prs.slide_masters[0]._element.iter(_NS_A + "defRPr"):
+        style.attrib.pop("sz", None)
+    s = _slide_placeholders(prs, "01", "Le diagnostic")
+    assert _taille_max_pt(s, "01") is None
+    assert classer_slide(s) is None
+
+
 def test_extraire_plan_fichier_memoise_par_mtime(tmp_path, monkeypatch) -> None:
     import app.services.pptx_export.archetypes as mod
     chemin = tmp_path / "ex.pptx"
