@@ -53,7 +53,13 @@ from ..services.synthese_material import (
     all_theme_material as _all_theme_material,
 )
 from ..services.synthese_material import (
+    brouillons_contributifs as _brouillons_contributifs,
+)
+from ..services.synthese_material import (
     libre_material as _libre_material,
+)
+from ..services.synthese_material import (
+    libres_sans_analyse as _libres_sans_analyse,
 )
 from ..services.synthese_material import (
     total_answer_count as _total_answer_count,
@@ -157,6 +163,8 @@ def global_synthese_view(
             "interview_count": len(mission.interviews),
             "answer_count": _total_answer_count(material_by_theme),
             "libre_count": len(material_libre),
+            "libres_sans_analyse": _libres_sans_analyse(mission),
+            "brouillons_contributifs": _brouillons_contributifs(mission),
             # Erreur d'une génération précédente, en LECTURE SEULE (contrairement
             # à generate_global, un chargement de page ne l'acquitte/n'efface
             # jamais) : sans ce champ, un rechargement après échec n'affichait
@@ -185,6 +193,12 @@ def _global_panel_context(
         "error": error,
         "confirmation": confirmation,
         "answer_count": _total_answer_count(material_by_theme),
+        # Sans eux, le fragment HTMX rendait `libre_count` indéfini (falsy) :
+        # le bouton Générer redevenait grisé au premier échange sur une
+        # mission 100 % entretiens libres (2026-09-28).
+        "libre_count": len(_libre_material(mission)),
+        "libres_sans_analyse": _libres_sans_analyse(mission),
+        "brouillons_contributifs": _brouillons_contributifs(mission),
     }
 
 

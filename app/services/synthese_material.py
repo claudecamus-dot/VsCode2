@@ -98,3 +98,31 @@ def libre_material(mission: Mission) -> list[tuple]:
 
 def total_answer_count(material_by_theme: list[tuple[Theme, dict, list]]) -> int:
     return sum(answer_count(by_question) for _theme, by_question, _v in material_by_theme)
+
+
+def libres_sans_analyse(mission: Mission) -> list:
+    """Entretiens libres SANS répartition : invisibles de la synthèse globale
+    (`libre_material` les écarte), alors que l'écran de la mission les affiche
+    « Terminé ». Constat du 2026-09-28 sur missions réelles (16, 19, 22) :
+    « rien à synthétiser » sans aucun renvoi vers l'étape d'analyse manquante."""
+    return [
+        iv for iv in mission.interviews
+        if iv.mode == "libre" and not iv.repartition
+    ]
+
+
+def brouillons_contributifs(mission: Mission) -> list:
+    """Entretiens encore en brouillon dont la matière ENTRE malgré tout dans la
+    synthèse — `theme_material`/`libre_material` ne filtrent pas sur `status`
+    (comportement conservé : décision produit du 2026-09-28, signaler plutôt
+    qu'exclure en silence). Sert au bandeau d'avertissement du panneau."""
+    contributifs = []
+    for iv in mission.interviews:
+        if iv.status == "done":
+            continue
+        a_des_reponses = any(
+            (a.text or "").strip() or (a.value or "").strip() for a in iv.answers
+        )
+        if a_des_reponses or (iv.mode == "libre" and iv.repartition):
+            contributifs.append(iv)
+    return contributifs

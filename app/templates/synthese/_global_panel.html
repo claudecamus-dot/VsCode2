@@ -70,8 +70,25 @@
     l'<a href="/missions/{{ mission.id }}/export/interviews">export</a> pour lancer une analyse
     externe puis <a href="/missions/{{ mission.id }}/synthese/apercu">importez le résultat</a>.
     Vous pouvez aussi saisir la synthèse à la main ci-dessous.</p>
-  {% elif not answer_count %}
-  <p class="muted ai-hint">Aucune réponse saisie sur la mission pour l'instant — rien à synthétiser.</p>
+  {% elif not answer_count and not libre_count %}
+  <p class="muted ai-hint">Aucune réponse saisie ni entretien libre analysé sur la mission pour l'instant — rien à synthétiser.</p>
+  {% endif %}
+  {# Guidance (2026-09-28, missions réelles 16/19/22) : un entretien libre sans
+     répartition est INVISIBLE de la synthèse alors qu'il s'affiche « Terminé »
+     ailleurs — sans ce renvoi, l'écran disait « rien à synthétiser » sans
+     jamais nommer l'étape manquante. #}
+  {% if libres_sans_analyse %}
+  <p class="muted ai-hint">⚠ {{ libres_sans_analyse|length }} entretien{{ libres_sans_analyse|length|pluriel }}
+    libre{{ libres_sans_analyse|length|pluriel }} sans analyse — il{{ libres_sans_analyse|length|pluriel }} ne
+    compte{{ 'nt' if libres_sans_analyse|length > 1 else '' }} pas dans la synthèse tant que la répartition
+    n'est pas générée :
+    {% for iv in libres_sans_analyse %}<a href="/interviews/{{ iv.id }}/analyse">{{ iv.interviewee_name or 'entretien ' ~ iv.id }}</a>{{ ", " if not loop.last }}{% endfor %}.</p>
+  {% endif %}
+  {% if brouillons_contributifs %}
+  <p class="muted ai-hint">⚠ {{ brouillons_contributifs|length }} entretien{{ brouillons_contributifs|length|pluriel }}
+    en brouillon dont les réponses sont incluses dans la synthèse :
+    {% for iv in brouillons_contributifs %}{{ iv.interviewee_name or 'entretien ' ~ iv.id }}{{ ", " if not loop.last }}{% endfor %}
+    — finalisez-le{{ brouillons_contributifs|length|pluriel }} ou videz leurs réponses si c'est involontaire.</p>
   {% endif %}
 
   {# Un champ par AXE de la mission (2026-07-27) : les 5 rubriques étaient
@@ -89,17 +106,21 @@
       {{ confirmation.libelle }}
     </button>
     {% endif %}
-    {% set can_generate = ai_ready and answer_count and not generating %}
+    {# `or libre_count` (2026-09-28) : le serveur accepte une mission composée
+       uniquement d'entretiens libres analysés (generate_global refuse sur
+       answer_count == 0 ET material_libre vide) — le bouton restait pourtant
+       grisé, le gabarit ne comptant que les réponses structurées. #}
+    {% set can_generate = ai_ready and (answer_count or libre_count) and not generating %}
     <button class="btn btn-primary" type="button"
       hx-post="/missions/{{ mission.id }}/synthese/globale/generate"
       hx-target="#global-synth-panel" hx-swap="outerHTML"
       hx-disabled-elt="this"
       {% if global_synthesis.status != 'empty' %}hx-confirm="Remplacer la synthèse globale actuelle par une nouvelle génération IA ? Le contenu actuel de tous les axes sera perdu."{% endif %}
-      {% if not can_generate %}disabled title="{% if generating %}Génération déjà en cours{% elif not ai_ready %}Service IA indisponible — définissez {{ api_key_env }}{% else %}Aucune réponse saisie sur la mission{% endif %}"{% endif %}>
+      {% if not can_generate %}disabled title="{% if generating %}Génération déjà en cours{% elif not ai_ready %}Service IA indisponible — définissez {{ api_key_env }}{% else %}Aucune réponse saisie ni entretien libre analysé sur la mission{% endif %}"{% endif %}>
       <span class="htmx-indicator">⏳ </span>{{ '⏳ Génération en cours…' if generating else ('Générer (IA)' if global_synthesis.status == 'empty' else '↻ Régénérer (IA)') }}
     </button>
     <span id="global-synth-saved" class="saved"></span>
     {% if global_synthesis.generated_at %}<span class="muted">généré le {{ global_synthesis.generated_at.strftime('%d/%m %H:%M') }}</span>{% endif %}
-    <span class="muted">{{ answer_count }} réponse{{ answer_count|pluriel }} source</span>
+    <span class="muted">{{ answer_count }} réponse{{ answer_count|pluriel }} source{% if libre_count %} + {{ libre_count }} entretien{{ libre_count|pluriel }} libre{{ libre_count|pluriel }} analysé{{ libre_count|pluriel }}{% endif %}</span>
   </div>
 </section>
