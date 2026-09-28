@@ -62,10 +62,15 @@ CPI_PESSIMISTE = 10.7
 # CPI_LAYOUT : calibration de MISE EN PAGE (positions, pas, troncature), mesuree
 # au rendu reel (PowerPoint, police du theme OCTO : 57 car. sur 3.77 in a 9 pt,
 # soit >= 12.9 cpi ramenes a 10.5 pt ; valeur retenue 12.5). Les estimations
-# pessimistes (10.7, et le defaut 11.0 d'`estimer_lignes`) doublaient les
+# pessimistes (CPI_PESSIMISTE, et CPI_NOMINAL par defaut) doublaient les
 # hauteurs de mise en page : cartes et registre KPI a moitie vides, constate sur
 # PNG. Les BOITES de texte, elles, gardent CPI_PESSIMISTE (boites transparentes).
 CPI_LAYOUT = 12.5
+# CPI_NOMINAL : calibration NOMINALE, defaut des estimateurs generiques
+# (`estimer_lignes`, `ajuster_police`, `tronquer_a_lignes`) quand l'appelant ne
+# choisit ni CPI_PESSIMISTE (boites) ni CPI_LAYOUT (mise en page) : ni volontairement
+# basse, ni mesuree au rendu — entre les deux, a 10.5 pt.
+CPI_NOMINAL = 11.0
 
 # Palette des piliers : IDENTIQUE au radar web (radar-svg.js) pour que les
 # barres et le radar parlent le meme langage couleur.
@@ -552,7 +557,7 @@ def _compte_lignes(texte, cpl):
     return total
 
 
-def estimer_lignes(texte, largeur_in, taille_pt, cpi_ref=11.0, taille_ref=10.5):
+def estimer_lignes(texte, largeur_in, taille_pt, cpi_ref=CPI_NOMINAL, taille_ref=10.5):
     """Estime le nombre de lignes qu'occupera `texte` une fois reparti mot-a-mot
     sur `largeur_in` pouces a la taille de police `taille_pt`. Les caracteres par
     pouce sont derives de `cpi_ref` (calibre a `taille_ref` pt) par une regle de
@@ -565,7 +570,7 @@ def estimer_lignes(texte, largeur_in, taille_pt, cpi_ref=11.0, taille_ref=10.5):
 
 
 def ajuster_police(textes, largeur_in, taille_max, taille_min, budget_ok, pas=0.5,
-                   cpi_ref=11.0, taille_ref=10.5):
+                   cpi_ref=CPI_NOMINAL, taille_ref=10.5):
     """Adapte la taille de police a la longueur des phrases a restituer : cherche,
     par pas de `pas` pt entre `taille_max` et `taille_min`, la plus GRANDE taille
     telle que `budget_ok(taille, lignes_max)` soit vrai — ou `lignes_max` est le
@@ -588,7 +593,7 @@ def ajuster_police(textes, largeur_in, taille_max, taille_min, budget_ok, pas=0.
         taille = max(taille_min, round(taille - pas, 2))
 
 
-def tronquer_a_lignes(texte, largeur_in, taille_pt, max_lignes, cpi_ref=11.0,
+def tronquer_a_lignes(texte, largeur_in, taille_pt, max_lignes, cpi_ref=CPI_NOMINAL,
                       taille_ref=10.5):
     """Tronque `texte` (avec une ellipse finale) pour qu'il tienne dans
     `max_lignes` lignes une fois reparti sur `largeur_in` pouces a `taille_pt`.

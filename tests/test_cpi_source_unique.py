@@ -19,9 +19,16 @@ def test_verificateur_et_boites_partagent_le_cpi_pessimiste() -> None:
     assert slides_diagnostic._MAT_CPI_LAYOUT is D.CPI_LAYOUT
 
 
+def test_les_estimateurs_generiques_partagent_le_cpi_nominal() -> None:
+    for fonction in (D.estimer_lignes, D.ajuster_police, D.tronquer_a_lignes):
+        defaut = inspect.signature(fonction).parameters["cpi_ref"].default
+        assert defaut is D.CPI_NOMINAL, fonction.__name__
+    assert D.CPI_NOMINAL != D.CPI_PESSIMISTE and D.CPI_NOMINAL != D.CPI_LAYOUT
+
+
 def test_aucune_copie_litterale_des_cpi_hors_pptx_deck() -> None:
     racine = Path(D.__file__).resolve().parents[1]
-    motif = re.compile(r"(cpi\w*\s*=\s*|cpi_ref=)(10\.7|12\.5)\b", re.IGNORECASE)
+    motif = re.compile(r"(cpi\w*\s*=\s*|cpi_ref=)(10\.7|11\.0|12\.5)\b", re.IGNORECASE)
     fautifs = [
         f"{p}:{n}"
         for p in racine.rglob("*.py")
