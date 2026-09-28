@@ -543,6 +543,7 @@ async def export_pptx(
     db: Session = Depends(get_session),
     config_submitted: bool = False,
     sommaire: bool = False,
+    base_analyse: bool = False,
     executive_summary: bool = False,
     synthese: bool = False,
     difficultes: bool = False,
@@ -566,6 +567,7 @@ async def export_pptx(
     if config_submitted:
         include_kwargs = dict(
             include_sommaire=sommaire,
+            include_base_analyse=base_analyse,
             include_executive_summary=executive_summary,
             include_synthese=synthese,
             include_difficultes=difficultes,

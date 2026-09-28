@@ -555,3 +555,104 @@ def _slide_maturite(prs: Presentation, maturites) -> None:
             D.add_text(slide, lx + 0.16, ly, max(tw, boite), 0.22,
                        [(txt, {"size": t, "color": D.MUTED})])
             lx += 0.16 + tw + 0.22
+
+
+def _slide_base_analyse(prs: Presentation, couverture_mission, couverture_themes) -> None:
+    """« Base de l'analyse » — sur quelle matière REELLE repose le diagnostic.
+
+    Incrément I1 de `docs/reflexions/spec-restitution-defendable.md`. En
+    restitution, la question qui fait tomber un constat est « combien de
+    personnes ont dit ça ? ». Cette slide y répond par des chiffres CALCULÉS
+    (jamais produits par le modèle) : le ratio d'entretiens qui nourrissent
+    la synthèse, et la couverture thème par thème.
+
+    Formes transposées de `deck-design-library` (catalogue restitution) :
+    pattern 3 pour la carte-chiffre en accent plein — « un sur N en accent »,
+    le seul aplat de la slide — et pattern 15 pour les lignes à libellé propre,
+    ici une barre de proportion par thème plutôt qu'une échelle de niveaux.
+
+    `att == 0` (thème sans question, ou mission sans entretien structuré) rend
+    un tiret : afficher « 0/0 » avec une barre vide ferait lire un « rien à
+    mesurer » comme une couverture nulle, donc comme un défaut.
+    """
+    couv, total = couverture_mission
+    lignes = list(couverture_themes or [])
+    if not total and not lignes:
+        return
+
+    accent = (D.theme_colors(prs).get("accent3") or "#00D2DD")
+    s = D.TYPE["small"]
+    pad = 0.24
+    stat_w = 2.5
+    rh_min, rh_max = 0.34, 0.52
+
+    # Une page tant qu'il reste des thèmes ; le nombre de lignes par page vient
+    # de la place REELLE sous le titre, qui varie avec son repli (cf. _new_slide).
+    reste = lignes or [None]
+    page_k, pages_total = 0, None
+    while reste or page_k == 0:
+        page_k += 1
+        suffix = f" ({page_k}/{pages_total})" if pages_total and pages_total > 1 else ""
+        slide, w_in, h_in, top = _new_slide(prs, "Base de l'analyse" + suffix)
+        bas = h_in - 0.60
+        # Claim sous le titre (principe « titre = sujet, sous-titre = claim ») :
+        # il dit ce que la slide PROUVE, pas ce qu'elle montre.
+        D.add_text(slide, MARGIN + 0.3, top, w_in - 2 * (MARGIN + 0.3), 0.26,
+                   [("Chiffres calculés sur les entretiens de la mission — aucun n'est estimé.",
+                     {"size": s, "color": D.MUTED})])
+        top += 0.36
+        avail = max(0.0, bas - top)
+
+        # Carte-chiffre : l'unique aplat de la slide (hiérarchie n°1). Chiffre et
+        # libellé dans UNE boîte centrée : en deux boîtes calées sur une fraction
+        # de la hauteur, le 44 pt mordait sur son libellé (vu au rendu réel).
+        D.add_rect(slide, MARGIN + 0.3, top, stat_w, avail, fill=accent,
+                   rounded=True, radius=0.06)
+        ratio = f"{couv}/{total}" if total else "—"
+        D.add_text(
+            slide, MARGIN + 0.3 + 0.12, top + pad, stat_w - 0.24, avail - 2 * pad,
+            [(ratio, {"size": D.TYPE["kpi"], "bold": True, "color": "#ffffff"}),
+             ("entretiens nourrissent la synthèse",
+              {"size": s, "color": "#ffffff", "space_before": 6})],
+            anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER,
+        )
+
+        liste_l = MARGIN + 0.3 + stat_w + 0.3
+        liste_w = w_in - MARGIN - 0.3 - liste_l
+        D.add_card(slide, liste_l, top, liste_w, avail, accent)
+        D.add_text(slide, liste_l + pad, top + pad * 0.5, liste_w - 2 * pad, 0.3,
+                   [("Couverture par thème — interviewés ayant répondu "
+                     "/ entretiens structurés", {"size": D.TYPE["tiny"], "color": D.MUTED})])
+
+        y = top + pad * 0.5 + 0.34
+        dispo = max(0.0, (top + avail - pad) - y)
+        capacite = max(1, int(dispo // rh_min))
+        page = [x for x in reste[:capacite] if x is not None]
+        reste = reste[capacite:]
+        if pages_total is None:
+            pages_total = 1 + (len(reste) + capacite - 1) // capacite if reste else 1
+        rh = min(rh_max, dispo / max(1, len(page))) if page else rh_min
+        # Lignes centrées dans la carte : à `rh` plafonné, peu de thèmes
+        # laissaient un vide franc sous la dernière (vu au rendu réel).
+        y += max(0.0, (dispo - rh * len(page)) / 2)
+
+        lib_w = liste_w * 0.42
+        val_w = 0.62
+        bar_l = liste_l + pad + lib_w + 0.14
+        bar_w = max(0.3, (liste_l + liste_w - pad - val_w - 0.14) - bar_l)
+        for label, rep, att in page:
+            libelle = D.tronquer_a_lignes(str(label), lib_w, s, 1)
+            D.add_text(slide, liste_l + pad, y, lib_w, rh,
+                       [(libelle, {"size": s, "color": D.INK})], anchor=MSO_ANCHOR.MIDDLE)
+            if att:
+                D.add_hbar(slide, bar_l, y + rh / 2 - 0.055, bar_w, 0.11,
+                           rep / att, accent)
+                valeur, couleur = f"{rep}/{att}", D.INK
+            else:
+                valeur, couleur = "—", D.MUTED
+            D.add_text(slide, liste_l + liste_w - pad - val_w, y, val_w, rh,
+                       [(valeur, {"size": s, "bold": True, "color": couleur})],
+                       anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.RIGHT)
+            y += rh
+        if not reste:
+            break

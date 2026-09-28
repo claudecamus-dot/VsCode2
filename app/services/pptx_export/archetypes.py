@@ -37,7 +37,8 @@ logger = logging.getLogger(__name__)
 
 
 class Archetype(StrEnum):
-    COUVERTURE = "couverture"
+    COUVERTURE = "couverture"   # page de GARDE (ne pas confondre avec BASE_ANALYSE)
+    BASE_ANALYSE = "base_analyse"   # base probante : couverture des entretiens
     SOMMAIRE = "sommaire"
     CHAPITRE = "chapitre"
     EXECUTIVE_SUMMARY = "executive_summary"
@@ -89,6 +90,9 @@ _REGLES_TITRE: list[tuple[re.Pattern, Archetype]] = [
     # — le titre libre d'une reco peut contenir « maturité », « risques »…
     (re.compile(r"^\d+\.\d+\s*[—–-]"), Archetype.FICHE_RECO),
     (re.compile(r"^sommaire\b"), Archetype.SOMMAIRE),
+    # La page de GARDE se reconnait a son layout, bien avant d'arriver ici :
+    # ce motif ne peut donc pas la capter malgre le mot « analyse ».
+    (re.compile(r"^base de l'analyse\b"), Archetype.BASE_ANALYSE),
     (re.compile(r"^executive summary\b"), Archetype.EXECUTIVE_SUMMARY),
     (re.compile(r"^synthese globale\b"), Archetype.SYNTHESE),
     (re.compile(r"^difficultes\b"), Archetype.DIFFICULTES),

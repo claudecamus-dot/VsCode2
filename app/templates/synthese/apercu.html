@@ -137,6 +137,16 @@
       {% if executive_summary and executive_summary.has_content %}
       <label class="pptx-check"><input type="checkbox" name="executive_summary" value="true"{{ hors_plan("executive_summary") }}> Executive Summary{{ mention_hors_plan("executive_summary") }}</label>
       {% endif %}
+      {# Base probante (I1) : chiffres calculés par le code, sans aucune
+         génération IA — donc une condition à ELLE, `mission.interviews`, la
+         même que celle du build (`include_base_analyse and bool(mission.interviews)`).
+         Écrite d'abord DANS le bloc `executive_summary` ci-dessus (revue
+         2026-09-28) : la case disparaissait sans executive summary, et comme
+         une case absente n'est jamais soumise et que le paramètre vaut False
+         par défaut, la slide devenait INATTEIGNABLE pour ces missions. #}
+      {% if mission.interviews %}
+      <label class="pptx-check"><input type="checkbox" name="base_analyse" value="true"{{ hors_plan("base_analyse") }}> Base de l'analyse (couverture des entretiens){{ mention_hors_plan("base_analyse") }}</label>
+      {% endif %}
       {% if global_synthesis and global_synthesis.has_content %}
       <label class="pptx-check"><input type="checkbox" name="synthese" value="true"{{ hors_plan("synthese") }}> Synthèse globale (5 slides){{ mention_hors_plan("synthese") }}</label>
       {% endif %}

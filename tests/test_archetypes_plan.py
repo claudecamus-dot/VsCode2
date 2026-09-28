@@ -44,6 +44,9 @@ PLAN_EXEMPLE = [
 # le reproduire à l'identique.
 CLASSEMENT_DEMO = [
     A.COUVERTURE, A.SOMMAIRE, A.CHAPITRE, A.EXECUTIVE_SUMMARY, A.CHAPITRE,
+    # « Base de l'analyse » ouvre le diagnostic : sur quelle matiere il repose,
+    # avant ce qu'il dit (incr. I1, 2026-09-28).
+    A.BASE_ANALYSE,
     *[A.SYNTHESE] * 5, A.DIFFICULTES, A.SWOT, A.MATURITE, A.CHAPITRE, A.VERBATIMS,
     A.CHAPITRE, A.AXES, A.MATRICE_PRIORISATION, *[A.FICHE_RECO] * 4, A.KPIS, A.RISQUES,
 ]
@@ -99,10 +102,17 @@ def test_build_sans_plan_identique_au_build_actuel() -> None:
     """Fixture DORÉE : produite par le code d'avant US5.2 (47aaed7, extrait par
     `git archive`, jamais de checkout) — pas une liste écrite à la main."""
     dore = json.loads((FIXTURES / "deck_sans_plan_demo.json").read_text(encoding="utf-8"))
-    sans = _build()
+    # `include_base_analyse=False` : la slide « Base de l'analyse » (incr. I1,
+    # 2026-09-28) n'existait pas dans le code qui a PRODUIT cette fixture. La
+    # desactiver ici garde la fixture doree intacte — la reecrire a la main lui
+    # ferait perdre ce qui fait sa valeur (elle ne serait plus le temoin d'un
+    # code anterieur, mais une liste alignee sur le code courant).
+    sans = _build(include_base_analyse=False)
     assert len(sans.slides) == dore["nb_slides"]
     assert [[str(classer_slide(s)), t] for s, t in zip(sans.slides, _titres(sans))] == dore["slides"]
-    assert [classer_slide(s) for s in sans.slides] == CLASSEMENT_DEMO
+    assert [classer_slide(s) for s in sans.slides] == [
+        a for a in CLASSEMENT_DEMO if a is not A.BASE_ANALYSE
+    ]
 
 
 def test_fiche_reco_prime_sur_un_mot_cle_du_titre() -> None:
@@ -203,11 +213,14 @@ def test_upload_plan_affiche_export_reordonne_puis_retrait(client: TestClient) -
     assert "Deck d'exemple actif" in page and "Remplacer le deck d'exemple" in page
     assert page.index("Executive Summary</li>") < page.index("Fiches recommandation</li>")
 
-    # Le plan de l'exemple n'a ni maturité, ni KPIs, ni risques : filtrés.
+    # Le plan de l'exemple n'a ni maturité, ni KPIs, ni risques, ni base de
+    # l'analyse : filtrés. Un plan FILTRE, il ne crée jamais — un archétype
+    # ajouté au produit après le deck d'exemple reste donc absent.
     r = client.get(f"/missions/{mid}/export/pptx")
     assert r.status_code == 200
     got = [classer_slide(s) for s in Presentation(io.BytesIO(r.content)).slides]
-    assert got == [a for a in CLASSEMENT_DEMO if a not in (A.MATURITE, A.KPIS, A.RISQUES)]
+    assert got == [a for a in CLASSEMENT_DEMO
+                   if a not in (A.MATURITE, A.KPIS, A.RISQUES, A.BASE_ANALYSE)]
 
     r = client.post(f"/missions/{mid}/pptx-exemple/retirer", follow_redirects=False)
     assert r.status_code == 303
@@ -509,13 +522,15 @@ def test_cases_hors_plan_decochees_et_desactivees(client: TestClient) -> None:
     form = re.search(r'id="pptx-config-form".*?</form>', page, re.S).group(0)
     etat = {m.group(1): m.group(2).strip() for m in
             re.finditer(r'<input type="checkbox" name="(\w+)" value="true"\s*(checked|disabled)>', form)}
-    # Le plan de l'exemple n'a ni maturité, ni KPIs, ni risques.
+    # Le plan de l'exemple n'a ni maturité, ni KPIs, ni risques, ni base de
+    # l'analyse (archétype ajouté au produit après ce deck d'exemple).
     assert etat == {
-        "sommaire": "checked", "executive_summary": "checked", "synthese": "checked",
+        "sommaire": "checked", "executive_summary": "checked",
+        "base_analyse": "disabled", "synthese": "checked",
         "difficultes": "checked", "swot": "checked", "maturite": "disabled",
         "verbatims": "checked", "axes_overview": "checked", "matrix": "checked",
         "kpis": "disabled", "risques": "disabled",
     }
-    assert form.count("hors du plan du deck d'exemple") == 3
+    assert form.count("hors du plan du deck d'exemple") == 4
     assert "La couverture est toujours gardée" in page
     client.post(f"/missions/{mid}/pptx-exemple/retirer")

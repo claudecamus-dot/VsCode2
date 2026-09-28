@@ -892,3 +892,42 @@ def test_design_grille_maturite_table_semantique_et_legende() -> None:
     permis |= {D.TRACK.lstrip("#").upper(), D.LINE.lstrip("#").upper(), D.INK.lstrip("#").upper()}
     assert fills and fills <= permis, fills - permis
 
+
+
+def test_design_base_analyse_chiffre_et_libelle_ne_se_chevauchent_pas() -> None:
+    """Invariant P4 du defaut VU au rendu reel le 2026-09-28 : le ratio en 44 pt
+    et son libelle vivaient dans DEUX boites calees sur une fraction de la
+    hauteur de carte ; a l'ecran, le chiffre mordait sur le libelle. Ils sont
+    desormais deux paragraphes d'UNE boite centree.
+
+    L'invariant teste la CAUSE (une seule boite dans la carte-chiffre), pas le
+    symptome : deux boites qui se chevauchent au pixel pres ne se detectent pas
+    sans rendre le deck — la geometrie python-pptx n'y voyait rien."""
+    from pptx.util import Inches
+
+    def fill_hex(sh):
+        try:
+            return str(sh.fill.fore_color.rgb).upper()
+        except Exception:
+            return None
+
+    prs = _prs_complete()
+    slides = [s for s in prs.slides if _slide_titre(s).startswith("Base de l'analyse")]
+    assert slides, "la slide « Base de l'analyse » devrait etre emise"
+    slide = slides[0]
+    accent = (D.theme_colors(prs).get("accent3") or "#00D2DD").lstrip("#").upper()
+    aplats = [sh for sh in slide.shapes
+              if fill_hex(sh) == accent and sh.width > Inches(1.5)]
+    assert len(aplats) == 1, f"un seul aplat d'accent attendu, {len(aplats)} trouve(s)"
+    carte = aplats[0]
+    dedans = [
+        sh for sh in slide.shapes
+        if sh.has_text_frame and sh.text_frame.text.strip()
+        and carte.left <= sh.left and sh.left + sh.width <= carte.left + carte.width
+        and carte.top <= sh.top and sh.top + sh.height <= carte.top + carte.height
+    ]
+    assert len(dedans) == 1, (
+        "chiffre et libelle doivent tenir dans UNE boite centree, "
+        f"{len(dedans)} boites trouvees dans la carte-chiffre"
+    )
+    assert "nourrissent" in dedans[0].text_frame.text.lower()

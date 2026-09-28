@@ -12,6 +12,7 @@ from pptx.util import Inches
 
 from ...models import Mission
 from .. import pptx_deck as D
+from ..synthese_material import couverture_mission, couverture_par_theme
 from .archetypes import Archetype, normaliser_plan, plan_applicable
 from .base import _H_IN, _W_IN, OCTO_TEMPLATE_PATH, _clear_slides
 
@@ -32,6 +33,7 @@ from .slides_cadre import (
 )
 from .slides_diagnostic import (
     _slide_difficultes,
+    _slide_base_analyse,
     _slide_executive_summary,
     _slide_maturite,
     _slide_swot,
@@ -61,6 +63,7 @@ def build_presentation(
     mission: Mission,
     template_path: Path | None = None,
     include_sommaire: bool = True,
+    include_base_analyse: bool = True,
     include_executive_summary: bool = True,
     include_synthese: bool = True,
     include_difficultes: bool = True,
@@ -108,6 +111,17 @@ def build_presentation(
     # (une palette catégorielle reste plus lisible pour distinguer N axes).
     brand_accent = D.theme_colors(prs).get("accent1")
     palette = ([brand_accent] + D.PALETTE) if brand_accent else D.PALETTE
+
+    # Couverture déterministe (I1) : calculée par le CODE, jamais par le modèle.
+    # Calcul PARESSEUX (revue 2026-09-28) : deux parcours des entretiens pour
+    # des chiffres qu'un export sans cette slide n'affichera pas.
+    def _base_analyse():
+        par_theme = couverture_par_theme(mission)
+        _slide_base_analyse(
+            prs, couverture_mission(mission),
+            [(t.title, *par_theme.get(t.id, (0, 0)))
+             for t in (mission.trame.themes if mission.trame else [])],
+        )
 
     _slide_cover(prs, mission)
 
@@ -164,6 +178,9 @@ def build_presentation(
          include_executive_summary and bool(executive_summary)
          and executive_summary.has_content,
          lambda: _slide_executive_summary(prs, executive_summary)),
+        # Ouvre le diagnostic : sur quelle matière il repose, avant ce qu'il dit.
+        (A.BASE_ANALYSE, _CH_DIAGNOSTIC, "Base de l'analyse",
+         include_base_analyse and bool(mission.interviews), _base_analyse),
         (A.SYNTHESE, _CH_DIAGNOSTIC, "Synthèse globale",
          include_synthese and bool(synthese_axes), _synthese),
         (A.DIFFICULTES, _CH_DIAGNOSTIC, "Difficultés",
