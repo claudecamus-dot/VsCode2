@@ -245,7 +245,7 @@ def _slide_matrice_effort_valeur(prs: Presentation, axes: list,
         for i, axis in enumerate(axes):
             for j, r in enumerate(axis.recommendations):
                 item = D.tronquer_a_lignes(f"{i + 1}.{j + 1}  {r.title}", tw - 0.24, t_leg, lignes_leg)
-                besoin += D.estimer_lignes(item, tw - 0.24, t_leg, cpi_ref=10.7) * lh_leg + 0.03
+                besoin += D.estimer_lignes(item, tw - 0.24, t_leg, cpi_ref=D.CPI_PESSIMISTE) * lh_leg + 0.03
             besoin += 0.02
         if besoin <= dispo:
             break
@@ -272,7 +272,7 @@ def _slide_matrice_effort_valeur(prs: Presentation, axes: list,
         color = palette[i % len(palette)]
         for j, r in enumerate(axis.recommendations):
             item = D.tronquer_a_lignes(f"{i + 1}.{j + 1}  {r.title}", tw - 0.24, t_leg, lignes_leg)
-            h_item = D.estimer_lignes(item, tw - 0.24, t_leg, cpi_ref=10.7) * lh_leg
+            h_item = D.estimer_lignes(item, tw - 0.24, t_leg, cpi_ref=D.CPI_PESSIMISTE) * lh_leg
             if y + h_item > carte_bas - lpad:  # la carte, pas le bas de la slide
                 plein = True
                 break
@@ -413,10 +413,10 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
             slide, scx, sy, scw, strip_h,
             [("RÉSULTATS ATTENDUS", {"size": D.TYPE["tiny"], "bold": True,
                                      "color": D.MUTED, "space_after": 2}),
-             # cpi PESSIMISTE (10.7) : à l'estimation nominale un texte limite
+             # cpi PESSIMISTE (D.CPI_PESSIMISTE) : à l'estimation nominale un texte limite
              # (~180 car.) repassait à 3 lignes au vrai rendu et sortait du
              # bandeau — hors du champ des vérificateurs (ancre MIDDLE).
-             (D.tronquer_a_lignes(res_txt, scw, D.TYPE["small"], 2, cpi_ref=10.7),
+             (D.tronquer_a_lignes(res_txt, scw, D.TYPE["small"], 2, cpi_ref=D.CPI_PESSIMISTE),
               {"size": D.TYPE["small"], "color": D.INK})],
             anchor=MSO_ANCHOR.MIDDLE,
         )
@@ -436,14 +436,10 @@ _KPI_PAR_PAGE = 6
 _KPI_GAP = 0.2
 _KPI_PAD = 0.16
 _KPI_RANG_D = 0.34
-_KPI_CPI = 10.7  # hauteur PESSIMISTE des boîtes (filet verifier_debordements_texte)
-# Calibration de MISE EN PAGE (positions, hauteur des cartes/du registre), mesurée
-# au rendu réel (PowerPoint, police du thème OCTO) : 57 caractères tiennent sur
-# 3.77 in à 9 pt, soit ≥ 12.9 cpi ramenés à 10.5 pt. Les estimations 10.7 / 11.0
-# doublaient les hauteurs (cartes et registre à moitié vides, constaté sur PNG).
-# Troncature et espacement suivent cette calibration ; les BOÎTES de texte gardent
-# la hauteur pessimiste (filet verifier_debordements_texte, boîtes transparentes).
-_LAYOUT_CPI = 12.5
+_KPI_CPI = D.CPI_PESSIMISTE  # hauteur PESSIMISTE des boîtes (filet verifier_debordements_texte)
+# Calibration de MISE EN PAGE (positions, hauteur des cartes/du registre,
+# troncature) ; mesure et justification : commentaire de D.CPI_LAYOUT (pptx_deck).
+_LAYOUT_CPI = D.CPI_LAYOUT
 
 
 def _kpi_grille(n: int) -> tuple[int, int]:

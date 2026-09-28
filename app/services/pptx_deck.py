@@ -49,6 +49,24 @@ TYPE = {
     "kpi": 44, "kpi_unit": 16,
 }
 
+# --- Calibration de l'estimation du retour a la ligne (car./pouce a 10.5 pt) ---
+# Une seule source de verite, comme TYPE : dupliquees, une recalibration n'en
+# mettait a jour qu'une copie et le verificateur validait des boites dimensionnees
+# avec une AUTRE constante que celle qu'il controle (unifiees le 2026-09-28 :
+# CPI_PESSIMISTE et CPI_LAYOUT remplacent les copies locales de slides_trajectoire
+# et le defaut du verificateur).
+# CPI_PESSIMISTE : estimation volontairement basse (plus de lignes) — hauteur des
+# BOITES de texte ET filet `verifier_debordements_texte`. Les deux DOIVENT la
+# partager : c'est elle qui garantit qu'une boite dimensionnee passe le controle.
+CPI_PESSIMISTE = 10.7
+# CPI_LAYOUT : calibration de MISE EN PAGE (positions, pas, troncature), mesuree
+# au rendu reel (PowerPoint, police du theme OCTO : 57 car. sur 3.77 in a 9 pt,
+# soit >= 12.9 cpi ramenes a 10.5 pt ; valeur retenue 12.5). Les estimations
+# pessimistes (10.7, et le defaut 11.0 d'`estimer_lignes`) doublaient les
+# hauteurs de mise en page : cartes et registre KPI a moitie vides, constate sur
+# PNG. Les BOITES de texte, elles, gardent CPI_PESSIMISTE (boites transparentes).
+CPI_LAYOUT = 12.5
+
 # Palette des piliers : IDENTIQUE au radar web (radar-svg.js) pour que les
 # barres et le radar parlent le meme langage couleur.
 PALETTE = ["#2c5cc5", "#1e6b34", "#b3261e", "#b8860b", "#6a3d9a", "#138086"]
@@ -590,7 +608,7 @@ def tronquer_a_lignes(texte, largeur_in, taille_pt, max_lignes, cpi_ref=11.0,
     return tronque.rstrip(" ,;:.") + "…"
 
 
-def verifier_debordements_texte(prs, cpi_pessimiste=10.7, tolerance_in=0.15):
+def verifier_debordements_texte(prs, cpi_pessimiste=CPI_PESSIMISTE, tolerance_in=0.15):
     """Filet « le texte tient dans sa boîte » — complémentaire de
     verifier_geometrie (qui ne voit que les BORDS des formes, pas le rendu du
     texte dedans). Pour chaque zone de texte dessinée (wrap actif, ancrage TOP,

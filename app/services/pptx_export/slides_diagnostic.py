@@ -414,8 +414,8 @@ def _slide_verbatims(prs: Presentation, verbatims) -> None:
 # = SÉMANTIQUE du score (rouge → ambre → vert, jamais une couleur d'axe), légende
 # de l'échelle en pied de slide, pagination au-delà de ce qu'une page loge.
 # --------------------------------------------------------------------------- #
-_MAT_CPI_LAYOUT = 12.5  # calibration mesurée au rendu réel (cf. slides_trajectoire)
-_MAT_CPI_BOITE = 10.7   # hauteur pessimiste des boîtes (verifier_debordements_texte)
+_MAT_CPI_LAYOUT = D.CPI_LAYOUT  # calibration mesurée au rendu réel (cf. slides_trajectoire)
+_MAT_CPI_BOITE = D.CPI_PESSIMISTE  # hauteur pessimiste des boîtes (verifier_debordements_texte)
 # Colonnes (reprises par FIELD_SHAPE, base.py) : jauge au contenu = 3 segments
 # (0.22 + 0.05) + 0.06 + « 2 · Structuré » en small gras (~1.2 in pessimiste).
 _MAT_COL_PILIER = 2.5
