@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-27
+updated: 2026-09-28
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -8,13 +8,13 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-09-27T20:28:17+02:00 · **93 sessions** (transcripts) · **306** invocations de skills · **314** lancements de sous-agents.
+Dernier scan : 2026-09-28T11:55:33+02:00 · **94 sessions** (transcripts) · **308** invocations de skills · **326** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `agent-orchestrator` | projet | 64 | 2026-07-17 | 2026-09-25 |
+| `agent-orchestrator` | projet | 65 | 2026-07-17 | 2026-09-28 |
 | `bmad-code-review` | BMAD | 51 | 2026-07-20 | 2026-09-26 |
 | `run-dev-server` | projet | 47 | 2026-07-03 | 2026-09-26 |
 | `bmad-review-edge-case-hunter` | BMAD | 26 | 2026-07-20 | 2026-09-07 |
@@ -23,7 +23,7 @@ Dernier scan : 2026-09-27T20:28:17+02:00 · **93 sessions** (transcripts) · **3
 | `revue-increment` | projet | 17 | 2026-07-18 | 2026-09-16 |
 | `pptx-verify` | projet | 11 | 2026-07-03 | 2026-09-26 |
 | `bmad-party-mode` | BMAD | 10 | 2026-07-31 | 2026-09-26 |
-| `update-config` | (builtin/session) | 7 | 2026-07-03 | 2026-09-11 |
+| `update-config` | (builtin/session) | 8 | 2026-07-03 | 2026-09-28 |
 | `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
 | `bmad-brainstorming` | BMAD | 2 | 2026-09-16 | 2026-09-16 |
@@ -49,7 +49,7 @@ Dernier scan : 2026-09-27T20:28:17+02:00 · **93 sessions** (transcripts) · **3
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 186 | 2026-07-15 | 2026-09-27 |
+| `general-purpose` | 198 | 2026-07-15 | 2026-09-28 |
 | `Explore` | 63 | 2026-06-30 | 2026-09-26 |
 | `bmad-revue` | 41 | 2026-08-31 | 2026-09-25 |
 | `(defaut)` | 7 | 2026-07-21 | 2026-07-30 |
@@ -94,7 +94,7 @@ _Consommés en lisant/exécutant leurs `scripts/`, ou via un sous-agent qui les 
 
 ## TODO agents (constats automatiques)
 
-⚠️ **Mesure incomplète** — 63 transcript(s) sur 93 absent(s) du disque. Un `n=0` ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.
+⚠️ **Mesure incomplète** — 63 transcript(s) sur 94 absent(s) du disque. Un `n=0` ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.
 
 1. **Désinstaller les shims BMAD dépréciés** (21) : `bmad-checkpoint-preview`, `bmad-create-architecture`, `bmad-create-prd`, `bmad-create-story`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-edit-prd`, `bmad-editorial-review`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-generate-project-context`, `bmad-market-research`, `bmad-quick-dev`, `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-review-verification-gap`, `bmad-sprint-status`, `bmad-technical-research`, `bmad-validate-prd` — dépréciés par BMAD dans leur propre `description`, chacun avec son remplaçant ; le seul élagage qui ne repose pas sur notre mesure d'usage.
 2. **Skills projet sans usage** : `agent-securite` — vérifier pertinence et déclencheurs.
@@ -198,7 +198,7 @@ _4 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir 
 
 ## Seuil de qualification — la mesure
 
-Depuis le 2026-09-11 : **384** demande(s) vue(s) hors commande slash (+ 75 slash), **10** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **3 %** des demandes orchestrées.
+Depuis le 2026-09-11 : **426** demande(s) vue(s) hors commande slash (+ 80 slash), **13** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **3 %** des demandes orchestrées.
 _Ce chiffre ne dit pas ce qui AURAIT dû être orchestré : le hook compte, il ne juge pas. Il donne le dénominateur qui manquait pour arbitrer le seuil sur données plutôt que sur habitude._
 
 ---
