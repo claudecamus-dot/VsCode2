@@ -18,7 +18,6 @@ from fastapi import (
     APIRouter,
     Depends,
     File,
-    Form,
     HTTPException,
     Query,
     Request,
@@ -35,7 +34,7 @@ from ..services.analyse_import import (
     decode_text_upload,
     parse_analysis_markdown,
 )
-from ..services.garde_edition import garde_regeneration
+from ..services.garde_edition import CONFIRMER, garde_regeneration
 from ..services.mission_axes import axes_of
 from ..services.mission_export import build_export_markdown, slugify
 from ..services.pptx_export import build_presentation
@@ -277,7 +276,7 @@ def apercu_view(mission_id: int, request: Request, db: Session = Depends(get_ses
 
 @router.post("/missions/{mission_id}/swot/generate")
 def generate_swot_view(mission_id: int, request: Request, db: Session = Depends(get_session),
-                       confirmer: bool = Form(False)):
+                       confirmer: bool = CONFIRMER):
     """Génère la matrice SWOT à partir de la synthèse globale déjà produite (pas
     des réponses brutes, comme les recommandations), puis ré-affiche l'aperçu —
     l'onglet SWOT montre le résultat, éditable. Pré-condition : la synthèse
@@ -297,7 +296,7 @@ def generate_swot_view(mission_id: int, request: Request, db: Session = Depends(
     if error is None:
         refus = garde_regeneration(mission, surface="swot", confirmer=confirmer)
         if refus is not None:
-            return _refus_de_garde(request, db, mission, refus)
+            return _refus_de_garde(request, db, mission, refus, surface="swot")
     if error is None:
         try:
             result = generate_swot(global_synthesis, axes_of(db, mission))
@@ -322,7 +321,7 @@ def generate_swot_view(mission_id: int, request: Request, db: Session = Depends(
 @router.post("/missions/{mission_id}/executive-summary/generate")
 def generate_executive_summary_view(
     mission_id: int, request: Request, db: Session = Depends(get_session),
-    confirmer: bool = Form(False),
+    confirmer: bool = CONFIRMER,
 ):
     """Génère l'executive summary à partir de la synthèse globale déjà produite
     (comme la SWOT), puis ré-affiche l'aperçu — l'onglet Executive Summary montre
@@ -342,7 +341,7 @@ def generate_executive_summary_view(
         refus = garde_regeneration(
             mission, surface="executive_summary", confirmer=confirmer)
         if refus is not None:
-            return _refus_de_garde(request, db, mission, refus)
+            return _refus_de_garde(request, db, mission, refus, surface="executive_summary")
     if error is None:
         try:
             result = generate_executive_summary(global_synthesis, axes_of(db, mission))
@@ -364,7 +363,7 @@ def generate_executive_summary_view(
 @router.post("/missions/{mission_id}/difficultes/generate")
 def generate_difficulties_view(
     mission_id: int, request: Request, db: Session = Depends(get_session),
-    confirmer: bool = Form(False),
+    confirmer: bool = CONFIRMER,
 ):
     """Génère la liste ordonnée des difficultés à partir de la synthèse globale
     (surtout points_amelioration), puis ré-affiche l'aperçu — l'onglet Difficultés
@@ -386,7 +385,7 @@ def generate_difficulties_view(
         refus = garde_regeneration(
             mission, surface="difficulties", confirmer=confirmer)
         if refus is not None:
-            return _refus_de_garde(request, db, mission, refus)
+            return _refus_de_garde(request, db, mission, refus, surface="difficulties")
     if error is None:
         try:
             labels = generate_difficulties(global_synthesis, axes_of(db, mission))
@@ -408,14 +407,27 @@ def generate_difficulties_view(
     )
 
 
-def _refus_de_garde(request: Request, db: Session, mission, refus: dict):
+# Onglet de l'aperçu (`data-tab`) qui porte chaque surface : le fragment est
+# ajouté à l'`action` du formulaire de confirmation, comme à celle des boutons de
+# génération. Le navigateur conserve le fragment de l'action dans l'URL du
+# document rendu par le POST, donc tabs.js rouvre CET onglet au chargement au lieu
+# du premier (prouvé en vrai navigateur, test_e2e_premiers_clics). Une surface
+# absente d'ici lève KeyError : jamais de retour muet au premier onglet.
+_ONGLET_APERCU = {
+    "swot": "swot", "executive_summary": "executive-summary",
+    "difficulties": "difficultes", "kpis": "kpis", "risks": "risques",
+    "maturites": "maturite",
+}
+
+
+def _refus_de_garde(request: Request, db: Session, mission, refus: dict, *, surface: str):
     """Écran d'aperçu de REFUS, en 400 : le message de la garde et le bouton qui
     repose la même demande avec `confirmer=1`. Rien n'a été généré, rien n'a été
     écrit. Partagé par les six surfaces qui rendent `apercu.html` (le formulaire
     de confirmation y est déjà, en tête de page)."""
     contexte = _synthese_context(db, mission, refus["message"])
     contexte["confirmation"] = {
-        "action": str(request.url.path),
+        "action": f"{request.url.path}#{_ONGLET_APERCU[surface]}",
         "libelle": refus["libelle"],
     }
     return templates.TemplateResponse(
@@ -450,7 +462,7 @@ def _generate_liste_view(
     if error is None:
         refus = garde_regeneration(mission, surface=surface, confirmer=confirmer)
         if refus is not None:
-            return _refus_de_garde(request, db, mission, refus)
+            return _refus_de_garde(request, db, mission, refus, surface=surface)
     if error is None:
         try:
             items = generer(
@@ -470,7 +482,7 @@ def _generate_liste_view(
 
 @router.post("/missions/{mission_id}/kpis/generate")
 def generate_kpis_view(mission_id: int, request: Request, db: Session = Depends(get_session),
-                       confirmer: bool = Form(False)):
+                       confirmer: bool = CONFIRMER):
     """Génère les indicateurs de suivi (US9.27 b) depuis la synthèse globale et
     les recommandations — l'onglet Indicateurs montre le résultat, éditable."""
     return _generate_liste_view(
@@ -484,7 +496,7 @@ def generate_kpis_view(mission_id: int, request: Request, db: Session = Depends(
 
 @router.post("/missions/{mission_id}/risques/generate")
 def generate_risks_view(mission_id: int, request: Request, db: Session = Depends(get_session),
-                        confirmer: bool = Form(False)):
+                        confirmer: bool = CONFIRMER):
     """Génère la matrice risques-contrôles (US9.27 c) depuis la synthèse globale
     et les recommandations — l'onglet Risques montre le résultat, éditable."""
     return _generate_liste_view(
@@ -498,7 +510,7 @@ def generate_risks_view(mission_id: int, request: Request, db: Session = Depends
 
 @router.post("/missions/{mission_id}/maturite/generate")
 def generate_maturite_view(mission_id: int, request: Request, db: Session = Depends(get_session),
-                           confirmer: bool = Form(False)):
+                           confirmer: bool = CONFIRMER):
     """Génère la grille de maturité 0-3 par pilier (incr.10 palier 3) — les
     piliers sont les THÈMES de la trame ; sans thème, rien à évaluer."""
     mission = _get_mission(db, mission_id)

@@ -97,6 +97,20 @@ par ligne.
   `generate_global` (synthese.py). S'il existe au moins un élément édité et que le
   formulaire ne porte pas `confirmer=1`, **rien n'est généré** : l'écran revient
   avec le message et un bouton qui repose la même demande avec `confirmer=1`.
+- **Seul `"1"` confirme** (depuis le 2026-09-28). `confirmer` est lu comme une
+  CHAÎNE par `_lire_confirmer`, dans `app/services/garde_edition.py` (exposé aux
+  huit routes par `CONFIRMER = Depends(_lire_confirmer)`). Auparavant typé
+  `bool`, le champ acceptait aussi `true`/`on`/`yes` via pydantic, et une valeur
+  non interprétable (`confirmer=2`, `oui`) rendait un 422 JSON brut au
+  consultant. Désormais toute autre valeur que `"1"` est un refus ordinaire :
+  l'écran de la garde s'affiche, rien n'est généré.
+- **L'action du formulaire porte le fragment de l'onglet** (`…/generate#risques`,
+  et `_ONGLET_APERCU` dans `export.py` pour l'action de confirmation) : le
+  navigateur conserve le fragment de l'action dans l'URL du document rendu par
+  le POST, donc l'aperçu rouvre l'onglet d'où part la demande. Prouvé en vrai
+  navigateur pour l'onglet Risques (`tests/test_e2e_premiers_clics.py`) ; la
+  cohérence des trois copies du nom d'onglet est tenue par
+  `test_nom_d_onglet_identique_dans_ses_trois_copies`.
 - **Code HTTP : 400 pour sept surfaces, 200 pour la synthèse globale.** Les sept
   premières postent un formulaire de page entière, dont le navigateur rend le
   corps quel que soit le statut — le 400 est donc le même code que les uploads

@@ -30,7 +30,7 @@ from ..models import (
     RecommendationAxis,
 )
 from ..services.ai_common import api_key_env_name
-from ..services.garde_edition import garde_regeneration
+from ..services.garde_edition import CONFIRMER, garde_regeneration
 from ..services.global_synthesis_job import run_global_synthesis_job
 from ..services.mission_axes import axes_of, creer_axe, supprimer_axe
 from ..services.pptx_export import field_fit_hint
@@ -219,7 +219,7 @@ def generate_global(
     request: Request,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_session),
-    confirmer: bool = Form(False),
+    confirmer: bool = CONFIRMER,
 ):
     """Lance la génération en TÂCHE DE FOND (2026-09-04, finding
     audit-technique performance:critique) — le map-reduce peut dépasser
@@ -481,7 +481,7 @@ def generate_recommendations_view(
     mission_id: int,
     request: Request,
     db: Session = Depends(get_session),
-    confirmer: bool = Form(False),
+    confirmer: bool = CONFIRMER,
 ):
     """Régénère l'arbre axes/recommandations depuis la synthèse globale.
 

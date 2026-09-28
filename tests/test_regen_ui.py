@@ -111,12 +111,38 @@ def test_forms_generation_portent_busy_label(client: TestClient) -> None:
     # doit porter data-busy-label sur sa balise <form …> (les chemins htmx
     # hx-post ont leur propre indicateur, hors périmètre).
     import re
+    trouves = 0
+    confirmations: set[str] = set()
     for tpl in TEMPLATES.rglob("*.html"):
         src = tpl.read_text(encoding="utf-8")
-        for m in re.finditer(r"<form\b[^>]*action=\"[^\"]*/generate\"[^>]*>", src, re.S):
+        # `(?:#[^"]*)?` : les formulaires de l'aperçu portent le fragment de leur
+        # onglet (`…/generate#risques`) pour rouvrir l'onglet après le POST. Sans
+        # lui, 6 formulaires sur 8 sortaient de l'inventaire et le test restait
+        # VERT sans plus les vérifier (mesuré le 2026-09-28 : 2 inventoriés au
+        # lieu de 8).
+        for m in re.finditer(r"<form\b[^>]*action=\"[^\"]*/generate(?:#[^\"]*)?\"[^>]*>", src, re.S):
             assert "data-busy-label=" in m.group(0), (
                 f"{tpl.name} : form de génération sans data-busy-label — {m.group(0)[:90]}…"
             )
+            trouves += 1
+        # Le formulaire de CONFIRMATION de la garde poste vers
+        # `{{ confirmation.action }}` : il ne contient jamais `/generate` en
+        # clair, l'inventaire ci-dessus ne le voit pas. Même exigence busy.
+        for m in re.finditer(r"<form\b[^>]*action=\"\{\{ confirmation\.action \}\}\"[^>]*>", src, re.S):
+            assert "data-busy-label=" in m.group(0), (
+                f"{tpl.name} : form de confirmation de la garde sans data-busy-label"
+            )
+            confirmations.add(tpl.name)
+    # Plancher de COMPTE : l'inventaire est déjà tombé en silence à 2 formulaires
+    # sur 8 et restait vert (2026-09-28). Une variation de syntaxe doit échouer,
+    # pas passer sur rien.
+    assert trouves >= 8, (
+        f"{trouves} form(s) …/generate inventorié(s), 8 attendus au moins : "
+        "la regex ne voit plus une syntaxe d'action"
+    )
+    assert {"apercu.html", "recommandations.html"} <= confirmations, (
+        f"formulaires de confirmation de la garde inventoriés : {sorted(confirmations)}"
+    )
     # export_import.html régénère aussi les axes : même confirm destructif que
     # recommandations.html (trou trouvé par la revue adversariale).
     exp = (TEMPLATES / "synthese" / "export_import.html").read_text(encoding="utf-8")

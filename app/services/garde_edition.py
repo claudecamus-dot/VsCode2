@@ -25,9 +25,15 @@ non par goût de l'uniformité :
    seul, en ajouter un second aurait dupliqué un état. Effet de bord utile : un
    contenu SAISI à la main sans génération préalable (`empty` -> `edited`) est
    protégé lui aussi, ce qu'un drapeau posé à la génération n'aurait pas couvert.
+
+Couplage web assumé : le module porte aussi le parseur HTTP du champ de
+formulaire `confirmer` (`_lire_confirmer` / `CONFIRMER`, d'où l'import de
+`fastapi.Depends` et `Form`) — un seul parseur pour les huit routes gardées.
 """
 from collections.abc import Callable
 from dataclasses import dataclass
+
+from fastapi import Depends, Form
 
 
 @dataclass(frozen=True)
@@ -137,3 +143,17 @@ def garde_regeneration(mission, *, surface: str, confirmer: bool) -> dict | None
     if not n or confirmer:
         return None
     return {"message": s.message(n), "libelle": s.libelle}
+
+
+def _lire_confirmer(confirmer: str = Form("")) -> bool:
+    """Seul `confirmer=1` -- la valeur que pose le bouton de confirmation -- vaut
+    confirmation. Lu comme CHAÎNE : typé `bool`, le champ laissait FastAPI répondre
+    un 422 JSON brut (`bool_parsing`) sur `confirmer=2` ou `confirmer=oui`, page
+    montrée telle quelle au consultant. Toute autre valeur (`true` compris) est un
+    refus ordinaire : la garde se déclenche et rend son écran, rien n'est généré."""
+    return confirmer.strip() == "1"
+
+
+# Défaut partagé des HUIT routes de génération gardées (`confirmer: bool =
+# CONFIRMER`) : un seul parseur, pas huit copies.
+CONFIRMER = Depends(_lire_confirmer)

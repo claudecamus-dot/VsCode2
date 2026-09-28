@@ -592,7 +592,7 @@ def test_synthese_globale_sans_confirmer_ne_lance_rien(
     # Le bouton repose sur CETTE route (`request.url.path`, comme les deux autres
     # dicts `confirmation`) : assertion vraie avant comme après ce refactor, c'est
     # justement ce qui établit que le chemin rendu est identique.
-    assert ('hx-post="/missions/%d/synthese/globale/generate"' % ids["mid"]) in r.text
+    assert f'hx-post="/missions/{ids["mid"]}/synthese/globale/generate"' in r.text
     assert lancees == [], "une génération a été lancée alors que rien ne devait l'être"
     db = SessionLocal()
     try:
@@ -837,6 +837,54 @@ def test_refus_de_garde_visible_meme_sans_entretien(
         db.close()
 
 
+@pytest.mark.parametrize("valeur", ["2", "oui", "", "0", "true"])
+def test_confirmer_non_explicite_rend_l_ecran_de_la_garde_pas_un_json_422(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, valeur: str
+) -> None:
+    """`confirmer: bool = Form(False)` faisait répondre à FastAPI un 422 JSON brut
+    (`bool_parsing`) sur `confirmer=2` ou `confirmer=oui` — une page JSON montrée à
+    un consultant. Seul `confirmer=1` (la valeur que pose le bouton) vaut
+    confirmation : toute autre valeur est un refus ordinaire, rendu par la garde,
+    et rien n'est généré. `true` compris : pydantic l'acceptait, la garde non —
+    la direction sûre, une confirmation qui ne ressemble pas au bouton n'en est pas une."""
+    mid, _kid = _mission_sans_entretien_avec_kpis_edites(f"Garde confirmer={valeur!r}")
+    appels = []
+    monkeypatch.setattr(export_routes, "generate_kpis",
+                        lambda *a, **k: appels.append(1) or [])
+
+    r = client.post(f"/missions/{mid}/kpis/generate", data={"confirmer": valeur})
+
+    assert r.status_code == 400, (r.status_code, r.text[:200])
+    assert "text/html" in r.headers["content-type"], r.headers["content-type"]
+    assert "1 ligne éditée à la main sera remplacée" in r.text
+    assert appels == []
+
+
+def test_confirmer_non_explicite_sur_les_recommandations(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Même règle sur la surface servie par `synthese.py` : un seul parseur pour les
+    huit routes, pas huit copies."""
+    ids = _mission_complete("garde reco confirmer=2")
+    r = client.post(f"/recommandations/axes/{ids['axe']}/field",
+                    data={"field": "title", "value": "Axe à la main"})
+    assert r.status_code == 200, r.text
+    appels = []
+    monkeypatch.setattr(synthese_routes, "generate_recommendations",
+                        lambda *a, **k: appels.append(1) or _RECO_GENEREE)
+
+    r = client.post(f"/missions/{ids['mid']}/recommandations/generate",
+                    data={"confirmer": "2"})
+    assert r.status_code == 400, (r.status_code, r.text[:200])
+    assert "1 élément édité à la main sera remplacé" in r.text
+    assert appels == []
+
+    r = client.post(f"/missions/{ids['mid']}/recommandations/generate",
+                    data={"confirmer": "1"})
+    assert r.status_code == 200, r.status_code
+    assert appels == [1]
+
+
 # --------------------------------------------------------------------------- #
 # Un résultat IA ENTIÈREMENT VIDE n'écrase rien (2026-09-27, ajout arbitré).
 #
@@ -996,3 +1044,43 @@ def test_synthese_globale_non_vide_est_bien_ecrite_par_le_job(
         assert gs.generation_error is None
     finally:
         db.close()
+
+
+def _verifier_onglets(apercu: str, onglets_de_garde: dict) -> list[str]:
+    """Écarts entre les trois copies du nom d'onglet : `data-tab` des onglets,
+    fragment `…/generate#X` des formulaires, valeurs de `_ONGLET_APERCU`.
+    Rend la liste des défauts (vide = cohérent)."""
+    import re
+
+    onglets = set(re.findall(r'data-tab="([^"{]+)"', apercu))
+    defauts = [
+        f"_ONGLET_APERCU[{surface!r}] = {onglet!r} : aucun data-tab de ce nom"
+        for surface, onglet in onglets_de_garde.items() if onglet not in onglets
+    ]
+    fragments = re.findall(r'action="[^"]*/generate#([^"]+)"', apercu)
+    defauts += [
+        f"formulaire …/generate#{frag} : aucun data-tab de ce nom"
+        for frag in fragments if frag not in onglets
+    ]
+    if not fragments:
+        defauts.append("aucun formulaire …/generate#onglet trouvé : regex périmée ?")
+    return defauts
+
+
+def test_nom_d_onglet_identique_dans_ses_trois_copies() -> None:
+    """Le nom d'onglet est écrit trois fois (data-tab, fragment de l'action des
+    formulaires de génération, `_ONGLET_APERCU` pour l'action de confirmation).
+    Renommer un onglet en oubliant une copie ramène le consultant, en silence,
+    sur le premier onglet ; seul l'onglet Risques a un e2e. Ce test lie les
+    trois copies (revue du 2026-09-28)."""
+    apercu = (Path(__file__).resolve().parents[1] / "app" / "templates"
+              / "synthese" / "apercu.html").read_text(encoding="utf-8")
+    defauts = _verifier_onglets(apercu, export_routes._ONGLET_APERCU)
+    assert not defauts, "\n".join(defauts)
+    # Le contrôle discrimine : une valeur pointée vers un onglet inexistant, ou
+    # un fragment renommé, sont signalés par leur nom.
+    faux = dict(export_routes._ONGLET_APERCU, risks="risques-renomme")
+    assert any("risques-renomme" in d for d in _verifier_onglets(apercu, faux))
+    assert any("swot-x" in d for d in _verifier_onglets(
+        apercu.replace("/generate#swot", "/generate#swot-x"),
+        export_routes._ONGLET_APERCU))

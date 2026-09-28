@@ -324,7 +324,7 @@
     {% if (global_synthesis and global_synthesis.has_content) or (executive_summary and executive_summary.has_content) %}
     <section class="tab-panel two-col" data-panel="executive-summary">
       <div class="deck-pane deck-pane-form">
-        <form method="post" action="/missions/{{ mission.id }}/executive-summary/generate" class="swot-generate"
+        <form method="post" action="/missions/{{ mission.id }}/executive-summary/generate#executive-summary" class="swot-generate"
           data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
           {% if executive_summary and executive_summary.has_content %}onsubmit="return confirm('Remplacer cet executive summary par une nouvelle génération IA ? Vos modifications manuelles seront perdues.');"{% endif %}>
           <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>
@@ -359,7 +359,7 @@
     {% if (global_synthesis and global_synthesis.has_content) or difficulties %}
     <section class="tab-panel two-col" data-panel="difficultes">
       <div class="deck-pane deck-pane-form">
-        <form method="post" action="/missions/{{ mission.id }}/difficultes/generate" class="swot-generate"
+        <form method="post" action="/missions/{{ mission.id }}/difficultes/generate#difficultes" class="swot-generate"
           data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
           {% if difficulties %}onsubmit="return confirm('Remplacer la liste actuelle des difficultés par une nouvelle génération IA ? Les libellés et liens citation seront perdus.');"{% endif %}>
           <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>
@@ -420,7 +420,7 @@
     {% if (global_synthesis and global_synthesis.has_content) or (swot and swot.has_content) %}
     <section class="tab-panel two-col" data-panel="swot">
       <div class="deck-pane deck-pane-form">
-        <form method="post" action="/missions/{{ mission.id }}/swot/generate" class="swot-generate"
+        <form method="post" action="/missions/{{ mission.id }}/swot/generate#swot" class="swot-generate"
           data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
           {% if swot and swot.has_content %}onsubmit="return confirm('Remplacer le contenu actuel des 4 quadrants SWOT par une nouvelle génération IA ? Vos modifications manuelles seront perdues.');"{% endif %}>
           <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>
@@ -645,7 +645,7 @@
     {% if ((global_synthesis and global_synthesis.has_content) and themes) or maturites %}
     <section class="tab-panel two-col" data-panel="maturite">
       <div class="deck-pane deck-pane-form">
-        <form method="post" action="/missions/{{ mission.id }}/maturite/generate" class="swot-generate"
+        <form method="post" action="/missions/{{ mission.id }}/maturite/generate#maturite" class="swot-generate"
           data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
           {% if maturites %}onsubmit="return confirm('Remplacer la grille de maturité actuelle par une nouvelle génération IA ? Vos modifications seront perdues.');"{% endif %}>
           <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>
@@ -705,7 +705,7 @@
     {% if (global_synthesis and global_synthesis.has_content) or kpis %}
     <section class="tab-panel two-col" data-panel="kpis">
       <div class="deck-pane deck-pane-form">
-        <form method="post" action="/missions/{{ mission.id }}/kpis/generate" class="swot-generate"
+        <form method="post" action="/missions/{{ mission.id }}/kpis/generate#kpis" class="swot-generate"
           data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
           {% if kpis %}onsubmit="return confirm('Remplacer les indicateurs actuels par une nouvelle génération IA ? Vos modifications seront perdues.');"{% endif %}>
           <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>
@@ -771,7 +771,7 @@
     {% if (global_synthesis and global_synthesis.has_content) or risks %}
     <section class="tab-panel two-col" data-panel="risques">
       <div class="deck-pane deck-pane-form">
-        <form method="post" action="/missions/{{ mission.id }}/risques/generate" class="swot-generate"
+        <form method="post" action="/missions/{{ mission.id }}/risques/generate#risques" class="swot-generate"
           data-busy-label="⏳ Génération IA en cours… (peut prendre quelques minutes)"
           {% if risks %}onsubmit="return confirm('Remplacer la matrice risques-contrôles actuelle par une nouvelle génération IA ? Vos modifications seront perdues.');"{% endif %}>
           <button class="btn btn-primary" type="submit" {% if not ai_ready %}disabled{% endif %}>

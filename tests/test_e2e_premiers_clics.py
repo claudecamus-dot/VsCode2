@@ -323,7 +323,7 @@ def test_indicateurs_et_risques_autosave_et_generation(
             ("90 % sous 6 mois", 3, "existant"))
 
         nav.cliquer(".tab[data-tab='kpis']")
-        nav.cliquer_et_attendre(f"form[action='/missions/{mid}/kpis/generate'] button[type=submit]")
+        nav.cliquer_et_attendre(f"form[action^='/missions/{mid}/kpis/generate'] button[type=submit]")
         # La cible vient d'être éditée : la garde serveur (G) refuse en 400 et
         # demande confirmation AVANT toute génération. Le parcours passe donc par
         # l'écran de confirmation, puis le clic qui l'accepte.
@@ -344,7 +344,7 @@ def test_indicateurs_et_risques_autosave_et_generation(
         # risques », cliqué lui aussi — TestClient reçoit un Origin injecté par le
         # conftest, seul ce clic prouve le CSRF réel de cette route.
         nav.cliquer(".tab[data-tab='risques']")
-        nav.cliquer_et_attendre(f"form[action='/missions/{mid}/risques/generate'] button[type=submit]")
+        nav.cliquer_et_attendre(f"form[action^='/missions/{mid}/risques/generate'] button[type=submit]")
         assert [r["status"] for r in nav.erreurs_http()
                 if r["url"].endswith("/risques/generate")] == [400], nav.erreurs_http()
         assert "sera remplacée" in nav.texte(), nav.texte()[:300]
@@ -410,7 +410,7 @@ def test_grille_maturite_autosave_et_generation(
         _sans_erreur(nav, "Autosave maturité")
         assert _python_sur_base(base_db, _LIRE_MATURITE, lid) == repr((3, "Pratiques pilotées"))
 
-        nav.cliquer_et_attendre(f"form[action='/missions/{mid}/maturite/generate'] button[type=submit]")
+        nav.cliquer_et_attendre(f"form[action^='/missions/{mid}/maturite/generate'] button[type=submit]")
         # Score et justification viennent d'être édités : garde serveur (G) puis
         # confirmation, comme pour les indicateurs et les risques.
         assert [r["status"] for r in nav.erreurs_http()
@@ -672,7 +672,7 @@ def test_regenerer_apres_edition_passe_par_l_ecran_de_confirmation_serveur(
 
         # 1er clic : le confirm() JS est accepté par le pilote, et c'est le SERVEUR
         # qui refuse ensuite — c'est là tout l'objet de la garde.
-        nav.cliquer_et_attendre(f"form[action='/missions/{mid}/kpis/generate'] button[type=submit]")
+        nav.cliquer_et_attendre(f"form[action^='/missions/{mid}/kpis/generate'] button[type=submit]")
         nav.drainer()
         texte = nav.texte()
         assert "1 ligne éditée à la main sera remplacée" in texte, texte[:500]
@@ -690,6 +690,47 @@ def test_regenerer_apres_edition_passe_par_l_ecran_de_confirmation_serveur(
         texte = nav.texte()
         assert "sera remplacée" not in texte, "la garde se redéclenche malgré la confirmation"
         assert "⚠" in texte, "aucun message d'échec IA : la génération n'a pas été tentée"
+        assert not nav.exceptions, nav.exceptions
+
+
+_ONGLET_ACTIF = "(function(){var t=document.querySelector('.deck-editor .tab.active');" \
+                "return t ? t.dataset.tab : 'AUCUN';})()"
+
+
+def test_refus_puis_confirmation_de_la_garde_gardent_l_onglet_du_consultant(
+    tmp_path_factory: pytest.TempPathFactory, nav: Navigateur
+) -> None:
+    """Le consultant travaille sur l'onglet Risques (pas le premier), édite un
+    contrôle, clique « Régénérer » : le 400 de la garde re-rend `apercu.html`.
+    Sans fragment dans l'URL du document, tabs.js activait le PREMIER onglet
+    (Titre) : bannière visible, mais l'écran de travail perdu — et de même après
+    la confirmation. Le fragment porté par l'`action` des formulaires (génération
+    ET confirmation) est conservé par le navigateur dans l'URL du document
+    résultant d'un POST : c'est CE comportement que seul un vrai navigateur prouve."""
+    dossier = tmp_path_factory.mktemp("e2e-garde-onglet")
+    base_db = dossier / "e2e.db"
+    mid, _kid, rid = _python_sur_base(base_db, _SEED_SUIVI).split()
+    with serveur_uvicorn(dossier, OLLAMA_HOST="http://127.0.0.1:9") as base:
+        nav.naviguer(f"{base}/missions/{mid}/synthese/apercu")
+        nav.cliquer(".tab[data-tab='risques']")
+        nav.remplir(f"select[hx-post='/risques/{rid}/field'][hx-vals*='controle_type']", "existant")
+        _attendre_texte(nav, f"#risk-saved-{rid}", "enregistré")
+
+        nav.cliquer_et_attendre(
+            f"form[action^='/missions/{mid}/risques/generate'] button[type=submit]")
+        nav.drainer()
+        assert [r["status"] for r in nav.erreurs_http()
+                if "/risques/generate" in r["url"]] == [400], nav.erreurs_http()
+        assert "sera remplacée" in nav.texte(), nav.texte()[:300]
+        assert nav.evaluer(_ONGLET_ACTIF) == "risques", (
+            f"après le refus, onglet actif = {nav.evaluer(_ONGLET_ACTIF)} ; url = {nav.url()}")
+
+        nav.cliquer_et_attendre("form.confirmation-regeneration button[type=submit]")
+        nav.drainer()
+        assert "sera remplacée" not in nav.texte(), "la garde se redéclenche malgré la confirmation"
+        assert "⚠" in nav.texte(), "la génération n'a pas été tentée"
+        assert nav.evaluer(_ONGLET_ACTIF) == "risques", (
+            f"après la confirmation, onglet actif = {nav.evaluer(_ONGLET_ACTIF)} ; url = {nav.url()}")
         assert not nav.exceptions, nav.exceptions
 
 
@@ -760,7 +801,7 @@ def test_garde_swot_editee_a_la_main_passe_par_la_confirmation(
         _sans_erreur(nav, "Autosave d'un quadrant SWOT")
 
         # 1er clic : confirm() JS accepté par le pilote, c'est le SERVEUR qui refuse.
-        nav.cliquer_et_attendre(f"form[action='/missions/{mid}/swot/generate'] button[type=submit]")
+        nav.cliquer_et_attendre(f"form[action^='/missions/{mid}/swot/generate'] button[type=submit]")
         nav.drainer()
         texte = nav.texte()
         assert "SWOT porte des modifications faites à la main" in texte, texte[:500]
