@@ -82,4 +82,12 @@ async def entetes_securite(request, call_next):
     response = await call_next(request)
     for nom, valeur in ENTETES.items():
         response.headers.setdefault(nom, valeur)
+    if request.url.path.startswith("/static/"):
+        # Sans Cache-Control, StaticFiles ne pose que ETag/Last-Modified : le
+        # navigateur applique alors un cache HEURISTIQUE et resert sa copie sans
+        # revalider. Constaté le 2026-09-28 : page de connexion restylée, Chrome
+        # affichait l'ancien app.css (classes .login-* absentes) alors que le
+        # serveur servait le neuf. `no-cache` = revalidation à chaque
+        # chargement (304 via ETag), jamais de copie périmée.
+        response.headers.setdefault("Cache-Control", "no-cache")
     return response

@@ -97,3 +97,16 @@ def test_le_css_et_le_js_locaux_restent_servis(client: TestClient) -> None:
         reponse = client.get(chemin)
         assert reponse.status_code == 200, chemin
         assert reponse.headers["X-Content-Type-Options"] == "nosniff"
+
+
+def test_les_statiques_sont_revalides_a_chaque_chargement(client: TestClient) -> None:
+    """Sans Cache-Control, Chrome resert une copie heuristique d'app.css sans
+    revalider : page de connexion restylée le 2026-09-28, affichée avec l'ancien
+    CSS alors que le serveur servait le neuf (TestClient et un profil Edge
+    vierge n'ont pas de cache, donc aucun autre test ne pouvait le voir)."""
+    response = client.get("/static/app.css")
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-cache"
+    assert "etag" in response.headers
+    revalide = client.get("/static/app.css", headers={"If-None-Match": response.headers["etag"]})
+    assert revalide.status_code == 304
