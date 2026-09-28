@@ -166,3 +166,22 @@ def test_un_jeton_de_session_expire_ne_vaut_plus() -> None:
     assert not jeton_valide(MOT_DE_PASSE, signer(MOT_DE_PASSE, int(time.time()) - 1))
     # Jeton signe avec un AUTRE secret : rotation du mot de passe = revocation.
     assert not jeton_valide(MOT_DE_PASSE, signer("autre-secret", int(time.time()) + 60))
+
+
+def test_page_de_connexion_porte_la_charte() -> None:
+    # La page ne derive pas de base.html : sans ce lien, elle retombait en
+    # style navigateur brut (styles inline, hors charte).
+    client = _client_anonyme()
+    page = client.get("/connexion").text
+    assert '<link rel="stylesheet" href="/static/app.css">' in page
+    assert 'class="login-card"' in page
+    assert 'class="btn btn-primary login-submit"' in page
+    assert ' style="' not in page  # l'attribut, pas toute sous-chaîne (revue 2026-09-28)
+    assert ".login-card" in client.get("/static/app.css").text
+    erreur = client.post(
+        "/connexion",
+        data={"mot_de_passe": "pas-le-bon"},
+        headers={"origin": "http://testserver"},
+    ).text
+    assert 'role="alert" class="login-error"' in erreur
+    assert 'aria-invalid="true"' in erreur

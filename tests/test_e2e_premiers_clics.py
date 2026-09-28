@@ -885,3 +885,37 @@ def test_garde_synthese_globale_rend_sa_confirmation_dans_le_fragment_htmx(
         assert "faites à la main" not in nav.texte(), (
             "la garde se redéclenche malgré la confirmation")
         assert not nav.exceptions, nav.exceptions
+
+
+def test_le_formulaire_de_connexion_connecte(serveur: str, nav: Navigateur) -> None:
+    """Le tout premier clic d'une session : saisir le mot de passe et cliquer
+    « Se connecter ». Tout le reste du fichier contourne ce formulaire par le
+    Bearer du harnais — restylé le 2026-09-28 (charte), il n'était couvert par
+    aucun clic réel (P5)."""
+    nav.poser_entetes({})  # visiteur anonyme : sans ça, le Bearer connecterait
+    nav.naviguer(serveur + "/missions")
+    # Défaut fermé : la navigation anonyme rend la page de connexion (401).
+    assert nav.evaluer("!!document.querySelector('.login-card')"), \
+        "page de connexion attendue pour un anonyme"
+    # D'abord le chemin d'erreur (revue 2026-09-28) : un mauvais mot de passe
+    # rend l'encadré d'erreur et marque le champ — prouvé par un clic réel,
+    # pas seulement en TestClient (tests/test_auth.py).
+    nav.remplir("#mot_de_passe", "pas-le-bon")
+    nav.cliquer_et_attendre("form[action='/connexion'] button[type=submit]")
+    assert nav.evaluer("!!document.querySelector('.login-error')"), \
+        "encadré d'erreur absent après un mauvais mot de passe"
+    assert nav.evaluer(
+        "document.getElementById('mot_de_passe').getAttribute('aria-invalid') === 'true'"
+    ), "champ non marqué aria-invalid après un mauvais mot de passe"
+
+    nav.remplir("#mot_de_passe", os.environ["APP_AUTH_PASSWORD"])
+    nav.cliquer_et_attendre("form[action='/connexion'] button[type=submit]")
+    assert nav.url().rstrip("/") == serveur.rstrip("/"), nav.url()
+    nav.naviguer(serveur + "/missions")
+    assert not nav.evaluer("!!document.querySelector('.login-card')"), \
+        "toujours sur la page de connexion après Se connecter"
+    assert "Missions" in nav.texte()
+    # Les 401 de l'atterrissage anonyme et du mauvais mot de passe sont
+    # attendus et assérés sur place ; le POST du BON mot de passe, lui, est
+    # prouvé par la redirection vers `/` asséré ci-dessus.
+    _sans_erreur(nav, "Se connecter", sauf=("/missions", "/connexion"))

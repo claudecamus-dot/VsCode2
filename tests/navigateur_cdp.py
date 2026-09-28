@@ -542,6 +542,14 @@ class Navigateur:
         listes ne se remplissent que pendant une lecture de la socket."""
         self._run(self._drainer())
 
+    def poser_entetes(self, entetes: dict[str, str]) -> None:
+        """REMPLACE les en-têtes supplémentaires de la session ({} les retire
+        tous). Sert au parcours de connexion : le harnais pose un Bearer à
+        l'init (voir __init__), or prouver que le FORMULAIRE connecte exige un
+        navigateur anonyme — avec le Bearer, la page s'ouvrirait même si le
+        formulaire était cassé."""
+        self._run(self._cmd("Network.setExtraHTTPHeaders", headers=entetes))
+
     def naviguer(self, url: str) -> None:
         avant = self._chargements
         res = self._run(self._cmd("Page.navigate", url=url))

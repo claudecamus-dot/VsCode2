@@ -1143,3 +1143,28 @@ textarea.htmx-request, input.htmx-request, select.htmx-request {
 .maturite-2 i.on { background: #6fa77d; } .maturite-3 i.on { background: #1e6b34; }
 .maturite-lib { font-weight: 700; white-space: nowrap; } .maturite-lib.maturite-0 { color: #b3261e; } .maturite-lib.maturite-1 { color: #8a6508; }
 .maturite-lib.maturite-2, .maturite-lib.maturite-3 { color: #1e6b34; }
+
+/* ---- Page de connexion (seule page hors base.html) ---- */
+.login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; box-sizing: border-box; }
+.login-card {
+  width: 100%; max-width: 380px; box-sizing: border-box;
+  background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); border-top: 4px solid var(--accent);
+  padding: 32px 28px 28px;
+}
+.login-brand { margin: 0 0 20px; font-weight: 700; font-size: 1.05rem; color: var(--accent); }
+.login-card h1 { margin-bottom: 6px; }
+.login-intro { margin: 0 0 20px; font-size: .9rem; }
+.login-card label { margin-bottom: 6px; }
+.login-card input[type=password] {
+  display: block; width: 100%; box-sizing: border-box; margin-bottom: 18px;
+  font: inherit; color: var(--text); padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--panel);
+}
+.login-card input[aria-invalid=true] { border-color: var(--danger); }
+.login-submit { width: 100%; padding: 11px 14px; font-size: .95rem; }
+.login-error {
+  margin: 0 0 16px; padding: 10px 12px; font-size: .9rem;
+  color: var(--danger); background: var(--danger-bg);
+  border: 1px solid var(--danger-border); border-radius: 8px;
+}
