@@ -178,15 +178,35 @@ def couverture_par_theme(mission: Mission) -> dict[int, tuple[int, int]]:
     return couverture
 
 
-def couverture_mission(mission: Mission) -> tuple[int, int]:
-    """`(contributifs, total)` sur la mission entière. Un entretien contribue
-    s'il porte au moins une réponse non vide, ou — en mode libre — une
-    répartition : c'est exactement la matière que reçoit la synthèse."""
-    contributifs = 0
+def interviews_contributifs(mission: Mission) -> list:
+    """Entretiens qui nourrissent RÉELLEMENT la synthèse : au moins une réponse
+    non vide, ou — en mode libre — une répartition. C'est exactement la matière
+    que reçoit le modèle.
+
+    Définition UNIQUE : le ratio de mission (I1) et le dénominateur des
+    constats (I2) en dérivent tous deux — deux définitions écrites séparément
+    divergeraient, et deux chiffres voisins se contrediraient à l'écran."""
+    contributifs = []
     for iv in mission.interviews:
         if iv.mode == "libre":
             if iv.repartition:
-                contributifs += 1
+                contributifs.append(iv)
         elif any(_reponse_non_vide(a) for a in iv.answers):
-            contributifs += 1
-    return contributifs, len(mission.interviews)
+            contributifs.append(iv)
+    return contributifs
+
+
+def couverture_mission(mission: Mission) -> tuple[int, int]:
+    """`(contributifs, total)` sur la mission entière."""
+    return len(interviews_contributifs(mission)), len(mission.interviews)
+
+
+def consensus_non_etaye(nb_porteurs: int, nb_exploites: int) -> bool:
+    """Un « consensus » porté par la MOITIÉ OU MOINS des entretiens exploités.
+
+    C'est le risque produit que le cadrage I2 nomme en premier : un consensus
+    affirmé sur 2 interviewés sur 9. Le constat reste enregistré tel quel — le
+    consultant peut avoir une raison — mais l'écran et le deck le SIGNALENT au
+    lieu de le laisser passer pour une mesure. Majorité STRICTE, en entiers
+    (2N > M) : pas de flottant, et 2 sur 4 n'est pas un consensus."""
+    return nb_exploites > 0 and 2 * nb_porteurs <= nb_exploites

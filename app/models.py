@@ -12,11 +12,13 @@ from datetime import UTC, date, datetime
 from sqlalchemy import (
     JSON,
     Boolean,
+    Column,
     Date,
     DateTime,
     ForeignKey,
     Integer,
     String,
+    Table,
     Text,
     UniqueConstraint,
 )
@@ -129,6 +131,11 @@ class Mission(Base):
         back_populates="mission",
         cascade="all, delete-orphan",
         order_by="MissionDifficulty.position",
+    )
+    constats: Mapped[list[MissionConstat]] = relationship(
+        back_populates="mission",
+        cascade="all, delete-orphan",
+        order_by="MissionConstat.position",
     )
     kpis: Mapped[list[MissionKpi]] = relationship(
         back_populates="mission",
@@ -1091,3 +1098,56 @@ class AudioFileJob(Base):
     blocks: Mapped[list] = mapped_column(JSON, default=list)
     error: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+# --- Constats qualifiés (incrément I2, 2026-09-28) ---------------------------
+# Un constat porte sur un AXE d'étude (seul grain commun aux entretiens
+# structurés ET libres — la trame n'existe pas en mode libre) et se qualifie
+# `consensus` ou `ecart`. Il désigne EXPLICITEMENT les entretiens qui le
+# portent : c'est cette liste, et non un jugement du modèle, qui donne le
+# décompte « N sur M ». Voir docs/reflexions/spec-restitution-defendable.md.
+
+CONSTAT_TYPES = ("consensus", "ecart")
+CONSTAT_TYPE_LABELS = {"consensus": "Consensus", "ecart": "Écart important"}
+
+# Association constat <-> entretiens porteurs. Table NEUVE : `create_all` la
+# crée avec ses REFERENCES ... ON DELETE CASCADE complètes (le piège des FK
+# sans cascade ne vise que les colonnes ajoutées par ALTER TABLE). Supprimer un
+# entretien retire donc sa ligne ici, sans orphelin qu'un id SQLite réutilisé
+# viendrait réadopter.
+constat_interviews = Table(
+    "constat_interviews",
+    Base.metadata,
+    Column("constat_id", ForeignKey("mission_constats.id", ondelete="CASCADE"),
+           primary_key=True),
+    Column("interview_id", ForeignKey("interviews.id", ondelete="CASCADE"),
+           primary_key=True),
+)
+
+
+class MissionConstat(Base):
+    """Constat de restitution qualifié consensus / écart, rattaché aux
+    entretiens qui le portent (arbitrage utilisateur du 2026-09-28 : les
+    recommandations naissent des consensus et des écarts importants issus de
+    l'agrégation de tous les entretiens)."""
+
+    __tablename__ = "mission_constats"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    mission_id: Mapped[int] = mapped_column(
+        ForeignKey("missions.id", ondelete="CASCADE")
+    )
+    axe_key: Mapped[str] = mapped_column(String(64), default="")
+    type: Mapped[str] = mapped_column(String(20), default="consensus")
+    libelle: Mapped[str] = mapped_column(Text, default="")
+    position: Mapped[int] = mapped_column(Integer, default=0)
+    # Garde de régénération (même contrat que MissionDifficulty.edite) : un
+    # constat saisi ou retouché à la main ne sera jamais écrasé par une future
+    # proposition IA sans confirmation explicite.
+    edite: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    mission: Mapped[Mission] = relationship(back_populates="constats")
+    interviews: Mapped[list[Interview]] = relationship(
+        secondary=constat_interviews, order_by="Interview.id"
+    )
+
