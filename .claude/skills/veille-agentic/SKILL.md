@@ -1,6 +1,6 @@
 ---
 name: veille-agentic
-description: Agent de veille agentic à trois volets — (1) explore la partie publique de GitHub (et sources associées) pour repérer agents, sous-agents, skills, rules, playbooks ou frameworks pertinents pour les projets supervisés ; (2) surveille les référentiels documentaires des providers IA (Anthropic/Claude Code, OpenAI, Mistral, GitHub…) pour repérer les PRATIQUES agentic recommandées, en dériver des règles d'analyse (référentiel criteres-pratiques.md) et des actions correctives arbitrables sur la flotte ; (3) suit la littérature scientifique (préprints arXiv/OpenReview, actes relus par les pairs ACL/PMLR/NeurIPS/ICLR/ICML, journaux JMLR/Nature MI, labos), en qualifiant TOUJOURS le niveau de revue par les pairs et en n'adoptant un chiffre publié qu'une fois reproduit sur la flotte. Trouvailles dans .claude/veille/veille.json (rendues dans la section 3 du wiki). Cadence : tous les 3 jours (hook SessionStart) ou manuel. À charger quand l'utilisateur demande une veille, quand le hook la signale périmée, ou avant de créer un agent/skill maison.
+description: "Agent de veille agentic à trois volets — (1) explore la partie publique de GitHub ET des places de marché de skills/agents (skills.sh et équivalents) pour repérer agents, sous-agents, skills, rules, playbooks ou frameworks pertinents pour les projets supervisés — y compris en vérification de reprise avant de créer ou adapter un agent/skill maison, pour un besoin identifié ou futur ; (2) surveille les référentiels documentaires des providers IA (Anthropic/Claude Code, OpenAI, Mistral, GitHub…) pour repérer les PRATIQUES agentic recommandées, en dériver des règles d'analyse (référentiel criteres-pratiques.md) et des actions correctives arbitrables sur la flotte ; (3) suit la littérature scientifique (préprints arXiv/OpenReview, actes relus par les pairs ACL/PMLR/NeurIPS/ICLR/ICML, journaux JMLR/Nature MI, labos), en qualifiant TOUJOURS le niveau de revue par les pairs et en n'adoptant un chiffre publié qu'une fois reproduit sur la flotte. Trouvailles dans .claude/veille/veille.json (rendues dans la section 3 du wiki). Cadence : tous les 3 jours (hook SessionStart) ou manuel. À charger quand l'utilisateur demande une veille, quand le hook la signale périmée, ou avant de créer un agent/skill maison."
 ---
 
 # veille-agentic — veille écosystème + pratiques providers
@@ -42,9 +42,22 @@ requêtes efficaces :
 
 - `github claude code skills collection <thème>` / `awesome claude code`
 - `github claude code subagents <besoin du moment>`
+- [skills.sh](https://www.skills.sh/) (et places de marché équivalentes de skills/agents
+  Claude Code) — chercher explicitement une reprise possible **avant toute création**
+  d'un agent/skill maison (§ trigger ci-dessous), pas seulement en veille de fond :
+  un besoin déjà couvert publiquement, mieux maintenu, ne se réécrit pas ici.
 - `BMAD-METHOD release notes` / repo `bmad-code-org/BMAD-METHOD` (releases récentes)
 - `github python-pptx <problème rencontré récemment>`
 - Suivre aussi les trouvailles précédentes en statut `nouveau`/`etudie` (leur repo a-t-il bougé ?)
+
+**Vérification de reprise avant création/adaptation** — trigger explicite, distinct de la
+cadence de fond : dès qu'un besoin (identifié maintenant, ou anticipé pour plus tard) fait
+envisager un agent ou une skill maison, passer d'abord par `skills.sh` et GitHub avant
+d'écrire quoi que ce soit. Trois issues possibles, à qualifier dans la trouvaille
+(`pertinence`) : **reprise telle quelle** (l'existant couvre le besoin, l'adopter plutôt que
+créer), **reprise adaptée** (l'existant couvre l'essentiel, à ajuster au périmètre du
+projet — cadrer l'écart précisément), ou **rien de pertinent trouvé** (la création reste
+justifiée, le dire explicitement plutôt que créer sans avoir cherché).
 
 Règles : sources **publiques** uniquement, jamais d'exécution de code téléchargé pendant
 la veille, jamais d'installation — la veille observe et qualifie, l'adoption est un

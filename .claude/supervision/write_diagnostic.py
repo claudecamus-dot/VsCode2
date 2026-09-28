@@ -289,6 +289,31 @@ def main(argv) -> int:
         print(f"write_diagnostic : JSON invalide ({exc})")
         return 1
     findings = diag.get("findings") if isinstance(diag, dict) else None
+    # PASSE SANS CONSTAT (2026-09-24). Un projet sain ne pouvait pas enregistrer sa passe
+    # d'etage 2 : liste vide refusee, donc la cadence (14 j) restait en retard sur
+    # VSCode/VSCode1/VSCode4 alors que la passe du jour les avait verifies (tests, lint,
+    # git) — seule issue offerte : inventer un constat. `rien_a_signaler` date la passe
+    # sans toucher aux constats existants, et sa justification subit le MEME controle
+    # de preuve mesuree qu'un constat : « tout va bien » en prose ne passe pas.
+    rien = str(diag.get("rien_a_signaler") or "").strip() if isinstance(diag, dict) else ""
+    if isinstance(findings, list) and not findings and rien:
+        if not _preuve_mesuree(rien):
+            print(f"write_diagnostic : rien_a_signaler NON MESURE — « {rien[:160]} »\n"
+                  "  Citer les commandes rejouees et leurs chiffres (tests, lint, git).")
+            return 1
+        anciens, _date_precedente, avertissement = _precedent()
+        if avertissement:
+            print(avertissement)
+        maintenant = datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+        out = {"generated": maintenant, "findings": anciens,
+               "passe_sans_constat": {"date": maintenant, "preuve": rien}}
+        tmp = DIAGNOSTIC_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump(out, fh, ensure_ascii=False, indent=2)
+        os.replace(tmp, DIAGNOSTIC_PATH)
+        print(f"write_diagnostic : passe sans constat enregistree ({len(anciens)} constat(s) "
+              f"existant(s) conserve(s)) -> {DIAGNOSTIC_PATH}")
+        return 0
     if not isinstance(findings, list) or not findings:
         print("write_diagnostic : un objet {\"findings\": [...]} non vide est attendu")
         return 1

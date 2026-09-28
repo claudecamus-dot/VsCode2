@@ -9,7 +9,25 @@ en silence : une invocation non journalisée est signalée sur stderr.
 import datetime
 import json
 import os
+import re
 import sys
+
+# Forme deja utilisee par l'orchestrateur dans le brief d'une salle : « BUDGET : 45 min ».
+_RE_BUDGET = re.compile(r"BUDGET\s*:\s*(\d+)\s*min", re.IGNORECASE)
+
+
+def _budget_declare(prompt):
+    """Budget en minutes lu dans le brief, ou None si absent/illisible."""
+    if not isinstance(prompt, str):
+        return None
+    trouve = _RE_BUDGET.search(prompt)
+    if not trouve:
+        return None
+    try:
+        valeur = int(trouve.group(1))
+    except ValueError:
+        return None
+    return valeur if valeur > 0 else None
 
 # Windows : la console par defaut est cp1252 — un payload de hook accentué lu tel quel
 # part en mojibake dans le journal. Mesuré sur le fichier réel : 57 lignes sur 233
@@ -96,6 +114,13 @@ def main() -> int:
         or (None if tool == "Skill" else "(defaut)"),
         "description": tool_input.get("description"),
     }
+    # Budget declare dans le brief (« BUDGET : <n> min », forme deja utilisee par
+    # l'orchestrateur) : capture au LANCEMENT, seul instant ou le prompt complet de la
+    # salle est disponible dans le payload PreToolUse. convergence.py le relit depuis
+    # le journal, ne re-parse jamais tool_input lui-meme.
+    budget_min = _budget_declare(tool_input.get("prompt"))
+    if budget_min is not None:
+        entry["budget_min"] = budget_min
     # Le `tool_response` d'un Agent porte la comptabilite reelle, mesuree sur payload
     # reel le 2026-09-20 (sonde jetable). DEUX formes, selon le mode :
     #  - premier plan  : status 'completed'      + totalTokens / totalToolUseCount /

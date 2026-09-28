@@ -1,6 +1,6 @@
 ---
 name: audit-technique
-description: Audit qualitatif du code d'un projet de la flotte sur 4 dimensions qui exigent de LIRE le code — robustesse, performance, risque technique, failles de sécurité — et écrit le verdict dans .claude/audits/<projet>.json (rendu dans la section « Pratiques, couverture & risques » du wiki de supervision, étage qualitatif). À lancer sur demande (« audit technique de VSCodeN », « niveau de sécurité/robustesse/perf/risque de X ») — pas à chaque scan : c'est un audit facturé qui lit du code réel, contrairement à l'étage déterministe du scanner (0 token) qui ne mesure que la présence de dispositifs.
+description: "Audit qualitatif du code d'un projet de la flotte sur 4 dimensions qui exigent de LIRE le code — robustesse, performance, risque technique, failles de sécurité — et écrit le verdict dans .claude/audits/<projet>.json (rendu dans la section « Pratiques, couverture & risques » du wiki de supervision, étage qualitatif). À lancer sur demande (« audit technique de VSCodeN », « niveau de sécurité/robustesse/perf/risque de X ») — pas à chaque scan : c'est un audit facturé qui lit du code réel, contrairement à l'étage déterministe du scanner (0 token) qui ne mesure que la présence de dispositifs."
 ---
 
 # audit-technique — l'étage qualitatif de la supervision

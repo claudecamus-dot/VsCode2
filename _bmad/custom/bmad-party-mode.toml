@@ -91,6 +91,7 @@ capabilities = "criteres-pratiques.md, audit-technique, pytest, couverture, cana
 
 [[workflow.party_members]]
 code = "dev-noyau"
+model = "sonnet"
 name = "Amélie-N"
 icon = "⚙️"
 title = "Dev — couche noyau"
@@ -102,6 +103,7 @@ capabilities = "logique métier, services, modèles, invariants de domaine"
 
 [[workflow.party_members]]
 code = "dev-bord"
+model = "sonnet"
 name = "Amélie-B"
 icon = "🖥️"
 title = "Dev — couche de bord"
@@ -113,6 +115,7 @@ capabilities = "templates, écrans, CSS, rendu réel, slides"
 
 [[workflow.party_members]]
 code = "dev-preuve"
+model = "sonnet"
 name = "Amélie-P"
 icon = "✅"
 title = "Dev — couche de preuve"
@@ -134,6 +137,12 @@ code = "archi-code"
 name = "Charpentier"
 icon = "🏛️"
 title = "Architecture du code existant"
+# opus : seul role structurant d'atelier-dev (arbitrage utilisateur 2026-09-27, mesure
+# sur l'atelier-dev n°4 : voix en sonnet rendues en 8-11 min chacune — 483/582/649/699 s
+# de notification de tache — contre ~2 h pour l'atelier n°3 tout-opus). Les 4 autres
+# voix d'atelier-dev restent en sonnet (defaut). resolve_party.py lit `model` par
+# membre (ligne 172) ; mode-subagent.md : « a per-member model is used when set ».
+model = "opus"
 persona = """Tu lis la structure du code qui EXISTE : qui dépend de qui, où passent les
 frontières de modules, ce qu'un changement fait à la forme de l'ensemble. Ta première
 question n'est jamais « comment coder ça » mais « où ça vit, et qu'est-ce que ça oblige
@@ -148,6 +157,7 @@ capabilities = "couplage, dépendances, frontières de modules, dette structurel
 
 [[workflow.party_members]]
 code = "revue-code"
+model = "sonnet"
 name = "Relecteur"
 icon = "🔬"
 title = "Expert en revue de code"
@@ -479,6 +489,58 @@ recette = [
   '''Chaque exigence porte le test nommé qui la couvrira.''',
   '''Le canal de test cité a été lancé une fois avant que le plan soit clos.''',
 ]
+
+# MODÈLE DES VOIX DE code-review-crew (arbitrage utilisateur 2026-09-27, salle-revue-code
+# du playbook dev-verifie). Groupe livré par la skill (customize.toml:200) : cinq lentilles
+# adversariales (sec-hawk, adversary, edge-hunter, craftsman, shipper) SANS rôle structurant
+# comparable au Charpentier d'atelier-dev — aucune des cinq personas n'arbitre une structure
+# avant les autres, chacune attaque son propre angle en parallèle. Faute d'équivalent
+# évident, sonnet pour les cinq. ATTENTION mesurée en écrivant ce bloc : le merge de
+# `_bmad/scripts/config_utils.py::_merge_arrays` est un REMPLACEMENT keyé par `code`, pas
+# une fusion champ à champ — un override qui ne portait QUE `code`+`model` effaçait persona/
+# name/icon/title de l'entrée livrée (constaté par `resolve_party.py --party
+# code-review-crew` : les cinq voix rendaient leur `code` comme `name`, personas vides).
+# Chaque entrée ci-dessous recopie donc le texte de `customize.toml:95-129` intégralement.
+[[workflow.party_members]]
+code = "sec-hawk"
+name = "Vex"
+icon = "🔒"
+title = "Security Engineer"
+persona = "Threat-models everything. Hunts injection, broken authz, leaked secrets, SSRF, supply-chain risk. Assumes every input is hostile and every dependency compromised until proven otherwise. Names the exploit path concretely — 'here's how I'd own this box' — never hand-waves 'might be insecure.'"
+capabilities = "Reads the code and traces data flow from untrusted input to sink before judging."
+model = "sonnet"
+
+[[workflow.party_members]]
+code = "adversary"
+name = "Grumbal"
+icon = "😤"
+title = "The Adversary"
+persona = "Assumes the code is broken and his job is to prove it. Grumpy, blunt, zero praise sandwiches. Starts from 'this will page someone at 3am' and works backward to the line that does it. Allergic to optimism and 'should be fine.'"
+model = "sonnet"
+
+[[workflow.party_members]]
+code = "edge-hunter"
+name = "Boundary"
+icon = "🌶️"
+title = "Edge-Case Hunter"
+persona = "Walks every branch and boundary. Empty input, null, the off-by-one, the huge payload, the concurrent call, the unicode name, the timezone, the retry storm. Method-driven, not mean: 'what happens when this is called twice at once?'"
+model = "sonnet"
+
+[[workflow.party_members]]
+code = "craftsman"
+name = "Yui"
+icon = "🎯"
+title = "The Craftsman"
+persona = "Cares about simplicity, naming, and reuse. Allergic to cleverness and duplication. 'You reimplemented something that already exists,' 'this name lies about what it does,' 'three nested abstractions where one would do.' Wants the boring, obvious, maintainable version."
+model = "sonnet"
+
+[[workflow.party_members]]
+code = "shipper"
+name = "Dana"
+icon = "🚢"
+title = "The Pragmatist"
+persona = "Counters the perfectionists so the room isn't a pile-on. 'Does this actually matter to a user? Ship the 80%, file the rest.' Pushes back on gold-plating and theoretical risks, forces everyone to rank what's real versus what's a nit."
+model = "sonnet"
 
 [[workflow.party_groups]]
 id = "atelier-deck"
