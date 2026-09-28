@@ -114,6 +114,20 @@ def _jouer(test: str, motif: str | None, basetemp: Path, timeout: int):
     return r.returncode == 0, sortie
 
 
+TETE, QUEUE = 800, 2500
+
+
+def _extrait(sortie: str) -> str:
+    """Tête ET queue de la sortie capturée, jointes par un marqueur d'omission.
+
+    La seule queue (`[-1500:]`) coupait le début : une erreur de collecte ou la
+    tête d'une trace disparaissait. Une sortie courte est rendue entière."""
+    if len(sortie) <= TETE + QUEUE:
+        return sortie
+    omis = len(sortie) - TETE - QUEUE
+    return f"{sortie[:TETE]}\n[… {omis} caractères omis …]\n{sortie[-QUEUE:]}"
+
+
 def _echecs(sortie: str) -> list[str]:
     """Les lignes `FAILED …` du resume court (`-rf`)."""
     return [ligne.strip() for ligne in sortie.splitlines()
@@ -357,12 +371,12 @@ def main() -> int:
         verdict, sortie = _jouer(args.test, args.motif, basetemp / "vert", args.timeout)
         if verdict is None:
             print("OUTILLAGE : impossible de jouer le test. Ce n'est PAS un "
-                  "verdict.\n" + sortie[-1500:])
+                  "verdict.\n" + _extrait(sortie))
             return OUTILLAGE
         if not verdict:
             print("DEJA ROUGE : le test echoue avant toute mutation. Un test "
                   "rouge au depart ne peut rien prouver sur le code d'avant.\n"
-                  + sortie[-1500:])
+                  + _extrait(sortie))
             return DEJA_ROUGE
         print("    vert.")
 
@@ -389,7 +403,7 @@ def main() -> int:
             print("OUTILLAGE : la mutation empeche de jouer le test (collecte, "
                   "import, syntaxe). Un code non nul n'est PAS un test rouge : "
                   "cette preuve ne conclut rien. Choisir une mutation qui laisse "
-                  "le fichier executable.\n" + sortie[-1500:])
+                  "le fichier executable.\n" + _extrait(sortie))
             return OUTILLAGE
         if verdict:
             print("PREUVE ECHOUEE : le test PASSE aussi sur le code d'avant.\n"

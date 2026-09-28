@@ -476,3 +476,24 @@ def test_une_exception_INATTENDUE_rend_OUTILLAGE_et_jamais_un_verdict(tmp_path):
         "la trace doit etre IMPRIMEE : un OUTILLAGE muet ne se diagnostique "
         "pas\n" + sortie
     )
+
+
+def test_une_sortie_LONGUE_garde_sa_TETE_et_sa_QUEUE(tmp_path):
+    """Le refus réimprimait `sortie[-1500:]` : la seule queue. Une erreur de
+    collecte ou la tête d'une trace disparaissait — une graine placée en tête
+    d'une sortie de 1848 caractères a failli rendre un test muet. La tête
+    (source du test, où vit `MARQUEUR-DE-TETE`) et la queue (résumé final, qui
+    porte le nom du test) doivent TOUTES DEUX atteindre la sortie de l'outil,
+    avec le compte explicite de ce qui est omis au milieu."""
+    corps = (IMPORTE
+             + "def test_marqueur_de_queue():\n"
+             + "    # MARQUEUR-DE-TETE\n"
+             + "    assert double(3) == 7, 'y' * 6000\n")
+    module, test = _bac(tmp_path, MODULE, corps)
+    r = _lancer(module, test)
+    assert r.returncode == DEJA_ROUGE, r.stdout + r.stderr
+    assert "MARQUEUR-DE-TETE" in r.stdout, r.stdout[:3000]
+    assert "failed" in r.stdout.rsplit("MARQUEUR-DE-TETE", 1)[-1]
+    fin = r.stdout.rsplit("caractères omis", 1)[-1]
+    assert "test_marqueur_de_queue" in fin, r.stdout[-3000:]
+    assert "caractères omis …]" in r.stdout
