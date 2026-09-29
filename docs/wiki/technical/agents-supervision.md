@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-28
+updated: 2026-09-29
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -8,27 +8,27 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-09-28T22:34:24+02:00 · **95 sessions** (transcripts) · **318** invocations de skills · **348** lancements de sous-agents.
+Dernier scan : 2026-09-29T10:07:34+02:00 · **95 sessions** (transcripts) · **323** invocations de skills · **369** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
 | `agent-orchestrator` | projet | 66 | 2026-07-17 | 2026-09-28 |
-| `bmad-code-review` | BMAD | 56 | 2026-07-20 | 2026-09-28 |
-| `run-dev-server` | projet | 48 | 2026-07-03 | 2026-09-28 |
+| `bmad-code-review` | BMAD | 58 | 2026-07-20 | 2026-09-29 |
+| `run-dev-server` | projet | 49 | 2026-07-03 | 2026-09-29 |
 | `bmad-review-edge-case-hunter` | BMAD | 26 | 2026-07-20 | 2026-09-07 |
 | `agent-supervisor` | projet | 22 | 2026-07-18 | 2026-09-16 |
 | `bmad-review-adversarial-general` | BMAD | 19 | 2026-07-20 | 2026-09-07 |
 | `revue-increment` | projet | 17 | 2026-07-18 | 2026-09-16 |
+| `bmad-party-mode` | BMAD | 11 | 2026-07-31 | 2026-09-29 |
 | `pptx-verify` | projet | 11 | 2026-07-03 | 2026-09-26 |
-| `bmad-party-mode` | BMAD | 10 | 2026-07-31 | 2026-09-26 |
 | `update-config` | (builtin/session) | 8 | 2026-07-03 | 2026-09-28 |
 | `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
+| `bmad-review` | BMAD | 3 | 2026-09-15 | 2026-09-29 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
 | `veille-agentic` | projet | 3 | 2026-09-08 | 2026-09-28 |
 | `bmad-brainstorming` | BMAD | 2 | 2026-09-16 | 2026-09-16 |
-| `bmad-review` | BMAD | 2 | 2026-09-15 | 2026-09-16 |
 | `deck-design-library` | projet | 2 | 2026-07-28 | 2026-09-28 |
 | `deck-design-review` | projet | 2 | 2026-07-22 | 2026-07-28 |
 | `pptx-deck` | projet | 2 | 2026-07-02 | 2026-07-03 |
@@ -50,9 +50,9 @@ Dernier scan : 2026-09-28T22:34:24+02:00 · **95 sessions** (transcripts) · **3
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 213 | 2026-07-15 | 2026-09-28 |
-| `Explore` | 64 | 2026-06-30 | 2026-09-28 |
-| `bmad-revue` | 46 | 2026-08-31 | 2026-09-28 |
+| `general-purpose` | 229 | 2026-07-15 | 2026-09-29 |
+| `Explore` | 65 | 2026-06-30 | 2026-09-29 |
+| `bmad-revue` | 50 | 2026-08-31 | 2026-09-29 |
 | `(defaut)` | 7 | 2026-07-21 | 2026-07-30 |
 | `Plan` | 4 | 2026-07-06 | 2026-09-25 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
@@ -185,6 +185,8 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 - **`VSCode2:delete-de-dedoublonnage-au-demarrage-sans-trace-conservee`** (2026-09-27) : DIAGNOSTIC RENDU, aucune perte etablie. Faits mesures le 2026-09-27 sur une COPIE de data/app.db (lecture seule) : l'index uq_segment_job_tranche existe (pose le 2026-09-10 par 7355e29) et le DELETE partage SON garde-fou, donc il est unique par base ; les serveurs fantomes du 25-26/09 ont trouve l'index en place, saute le bloc, et n'ont rien supprime. Les positions manquantes de interview_segment_jobs forment un bloc CONTIGU [2..11], or un dedoublonnage ne peut pas creer de trou de position (la position survit dans la ligne gardee) : ce trou ne lui est pas imputable. 8 missions, 14 entretiens, 43 tranches (36 done, 7 failed sans resultat) intacts. NON DETERMINABLE : si le tout premier demarrage apres le 2026-09-10 a supprime des lignes reelles — aucun basicConfig dans app/, le warning partait sur le stderr d'un terminal ferme. NON ETABLI : que les donnees Meet de la mission 16 aient transite par cette table (l'import passe par audio_file_jobs).
 - **`VSCode2:worktrees-residuels-hors-depot`** (2026-09-27) : ACCEPTE : retrait par l'utilisateur, sans --force et sans contournement du garde-fou. Les deux anciens sont PROPRES (git status vide) et leurs HEAD sont des ancetres de main : rien d'unique n'y vit, donc --force est inutile et le hook n'a rien a refuser. Commandes proposees : git worktree remove C:/tmp/v2avant ; git worktree remove C:/tmp/wt_head ; git worktree prune. Ecarte explicitement : rm -rf suivi de prune, qui produit le meme effet destructeur en esquivant le garde-fou.
 - **`VSCode2:resultat-ia-vide-ecrase-les-enregistrements-uniques`** (2026-09-27) : ACCEPTE : corriger dans CE lot (et non tracer pour plus tard ni laisser tel quel). Defaut preexistant, releve par la lentille Boundary de la salle code-review-crew. Regle unique dans synthese_ecriture._resultat_entierement_vide : vide = TOUS les champs blancs, jamais un seul (une SWOT sans menaces est une generation legitime) — la regle des listes transposee, deja appliquee localement par l'import d'analyse externe, dont la copie a ete supprimee.
+- **`veille:silence-is-endorsement-2609-20211`** (2026-09-29) : ACCEPTE + APPLIQUE 2026-09-29 (VSCode2 c406f38) : audit du relais joue ; regle canon statut_preuve adoptee au hub VSCode5, propagation par sync_dispositif (a verifier a la reception)
+- **`veille:htmx-claude-skill`** (2026-09-29) : ACCEPTE (instruit) 2026-09-29 (VSCode2 c406f38) : rien a greffer - deja couvert ; jeton CSRF cache contraire au garde Origin/Referer arbitre ; entree veille passee en ecarte
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
@@ -199,7 +201,7 @@ _4 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir 
 
 ## Seuil de qualification — la mesure
 
-Depuis le 2026-09-11 : **472** demande(s) vue(s) hors commande slash (+ 82 slash), **18** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **4 %** des demandes orchestrées.
+Depuis le 2026-09-11 : **540** demande(s) vue(s) hors commande slash (+ 88 slash), **19** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **4 %** des demandes orchestrées.
 _Ce chiffre ne dit pas ce qui AURAIT dû être orchestré : le hook compte, il ne juge pas. Il donne le dénominateur qui manquait pour arbitrer le seuil sur données plutôt que sur habitude._
 
 ---
