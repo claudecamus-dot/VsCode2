@@ -53,6 +53,17 @@ def apply_constats_import(db: Session, mission: Mission, constats: list[dict]) -
         par_nom.setdefault(_cle_nom(iv.interviewee_name), []).append(iv)
 
     gardes = [c for c in mission.constats if c.edite]
+    # Les liens reco -> constat portés par un constat qu'on va supprimer :
+    # la CASCADE les efface, et un réimport limité à `## CONSTATS` (recos non
+    # réécrites) laisserait les fiches sans « Fondée sur » ni alerte (revue
+    # 2026-09-29). On les note par (axe, libellé, type) pour les reposer.
+    liens = {}
+    for axe in mission.recommendation_axes:
+        for reco in axe.recommendations:
+            perdus = [(c.axe_key, _cle_nom(c.libelle), c.type, c.libelle)
+                      for c in reco.constats if not c.edite]
+            if perdus:
+                liens[reco] = perdus
     for c in list(mission.constats):
         if not c.edite:
             mission.constats.remove(c)
@@ -87,6 +98,31 @@ def apply_constats_import(db: Session, mission: Mission, constats: list[dict]) -
         mission.constats.append(constat)
         position += 1
     db.flush()
+    _reposer_liens_recos(mission, liens)
+
+
+def _reposer_liens_recos(mission: Mission, liens: dict) -> None:
+    """Relie chaque reco aux constats recréés de même (axe, libellé, type) ;
+    ceux que le nouveau fichier ne contient plus restent visibles en clair dans
+    `constats_non_rattaches` (l'écran alerte) au lieu de disparaître."""
+    par_cle = {(c.axe_key, _cle_nom(c.libelle), c.type): c for c in mission.constats}
+    for reco, perdus in liens.items():
+        gardes = [c for c in reco.constats if c in mission.constats]
+        deja = {_cle_nom(x) for x in reco.constats_non_rattaches.split(";") if x.strip()}
+        introuvables = []
+        for axe_key, cle, type_, libelle in perdus:
+            nouveau = par_cle.get((axe_key, cle, type_))
+            if nouveau is None:
+                if cle not in deja:
+                    introuvables.append(libelle)
+                    deja.add(cle)
+            elif nouveau not in gardes:
+                gardes.append(nouveau)
+        reco.constats = gardes
+        if introuvables:
+            reco.constats_non_rattaches = "; ".join(
+                [x.strip() for x in reco.constats_non_rattaches.split(";") if x.strip()]
+                + introuvables)
 
 
 def lier_aux_constats(recommandation, libelles: list[str], mission: Mission) -> None:
@@ -143,6 +179,11 @@ def texte_fondee_sur(reco, lignes: dict[int, dict]) -> str:
     for c in getattr(reco, "constats", None) or []:
         ligne = lignes.get(c.id)
         type_ = CONSTAT_TYPE_LABELS.get(c.type, c.type)
-        compte = f", {ligne['n']}/{ligne['m']}" if ligne else ""
+        if ligne and ligne["non_etaye"]:
+            # Même signal que l'écran : un consensus à 2 sur 9 ne part pas chez
+            # le client comme une mesure (risque produit n°1 de la spec, l.137).
+            type_ += " non étayé"
+        # Sans entretien exploité (M=0), l'écran masque le compte : le deck aussi.
+        compte = f", {ligne['n']}/{ligne['m']}" if ligne and ligne["m"] else ""
         morceaux.append(f"{c.libelle} ({type_}{compte})")
     return " ; ".join(morceaux)

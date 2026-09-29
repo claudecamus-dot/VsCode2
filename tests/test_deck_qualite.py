@@ -1003,10 +1003,11 @@ def test_fiche_reco_sans_constat_ne_pose_pas_la_rubrique() -> None:
 
 
 def test_fiche_reco_pleine_ne_perd_pas_les_constats_et_ne_deborde_pas() -> None:
-    """Cas extrême (titre long, objectif au max) : le plancher de 2.0in de la
-    carte plan réduit le bandeau, voire le reverse en fin de plan (la slide de
-    suite est alors le repli prévu). Rien n'est perdu, rien ne sort du cadre —
-    mesuré : sans plancher, carte plan de hauteur NÉGATIVE (export refusé)."""
+    """Cas extrême (titre long, objectif au max) : la note « FONDÉE SUR » est
+    reversée en fin de plan si elle dépasse 2 lignes (la slide de suite est
+    alors le repli prévu). Rien n'est perdu, rien ne sort du cadre. Il n'existe
+    PAS de plancher de hauteur sur la carte plan : l'assertion géométrique
+    garde qu'aucune carte ne devienne négative ou hors cadre."""
     long = ("Créer un mécanisme régulier et légitime pour arbitrer les priorités, "
             "valider les règles communes et rendre visibles les décisions data. ") * 3
     titre = ("Mettre en place une gouvernance des données décisionnelle, outillée et "
@@ -1021,3 +1022,56 @@ def test_fiche_reco_pleine_ne_perd_pas_les_constats_et_ne_deborde_pas() -> None:
     assert "La DSI ne se sent pas associée (Écart important, 1/3)" in tout
     assert D.verifier_debordements_texte(prs) == []
     assert D.verifier_geometrie(prs) == []
+
+
+def _mission_reco_un_constat(porteurs: int, contributifs: bool = True) -> int:
+    """Reco citant UN consensus porté par `porteurs` entretiens sur 3 ; si
+    `contributifs` est faux, aucun entretien n'a de matière (M = 0)."""
+    from app.models import MissionConstat
+    db = SessionLocal()
+    try:
+        m = Mission(name="Audit qualité — Fiche non étayée"); db.add(m); db.flush()
+        rep = {"contexte": "Vu."} if contributifs else {}
+        ivs = [Interview(mission_id=m.id, interviewee_name=n, mode="libre",
+                         status="done", repartition=rep)
+               for n in ("Alix", "Bao", "Chloé")]
+        db.add_all(ivs); db.flush()
+        cons = MissionConstat(mission_id=m.id, axe_key="contexte", type="consensus",
+                              libelle="Les arbitrages remontent au COMEX",
+                              position=0, interviews=ivs[:porteurs])
+        db.add(cons); db.flush()
+        ax = RecommendationAxis(mission_id=m.id, title="Axe 1", position=0)
+        db.add(ax); db.flush()
+        db.add(Recommendation(
+            axis_id=ax.id, position=0, title="Instaurer une gouvernance data",
+            objectif="Arbitrer.", acteurs="CDO", valeur=4, complexite=2,
+            proposition_valeur="Décider plus vite.", plan_actions="- Un mandat",
+            resultats_attendus="- Moins d'escalades.", constats=[cons]))
+        db.commit()
+        return m.id
+    finally:
+        db.close()
+
+
+def _texte_fiche(mission_id: int) -> str:
+    db = SessionLocal()
+    try:
+        prs = build_presentation(db.get(Mission, mission_id))
+    finally:
+        db.close()
+    return " ".join(_textes(s) for s in prs.slides if _slide_titre(s).startswith("1.1"))
+
+
+def test_fiche_reco_signale_un_consensus_non_etaye() -> None:
+    """Revue 2026-09-29 : « Consensus, 1/3 » partait chez le client sans le
+    signal que l'écran porte — le risque produit n°1 de la spec."""
+    assert "(Consensus non étayé, 1/3)" in _texte_fiche(_mission_reco_un_constat(1))
+    # Une majorité stricte n'est pas signalée.
+    tout = _texte_fiche(_mission_reco_un_constat(2))
+    assert "(Consensus, 2/3)" in tout and "non étayé" not in tout
+
+
+def test_fiche_reco_sans_entretien_exploite_n_affiche_pas_zero_sur_zero() -> None:
+    """M = 0 : l'écran masque le compte, le deck aussi (pas de « , 0/0 »)."""
+    tout = _texte_fiche(_mission_reco_un_constat(0, contributifs=False))
+    assert "FONDÉE SUR" in tout and "0/0" not in tout

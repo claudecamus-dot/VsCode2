@@ -649,3 +649,43 @@ def test_un_libelle_porte_par_un_consensus_et_un_ecart_lie_les_deux() -> None:
         assert sorted(c.type for c in reco.constats) == ["consensus", "ecart"]
     finally:
         db.close()
+
+
+_CONSTATS_SEULS_MD = """## CONSTATS
+
+### Contexte
+- [consensus] Croissance subie (Alix, Bao)
+"""
+
+
+def _reco_de(mission_id: int):
+    from app.models import Recommendation
+    return SessionLocal().query(Recommendation).join(Recommendation.axis).filter_by(
+        mission_id=mission_id).one()
+
+
+def test_un_reimport_des_seuls_constats_garde_les_liens_des_recos() -> None:
+    """Revue 2026-09-29 : réimporter `## CONSTATS` sans les recos supprimait les
+    constats, la CASCADE effaçait recommendation_constats et la fiche perdait
+    son « Fondée sur » sans alerte."""
+    mission_id, _ = _mission_avec_entretiens("Reimport lie", ["Alix", "Bao", "Chris"])
+    client = TestClient(app)
+    assert _importer(client, mission_id, _RECO_MD).status_code == 303
+    assert _importer(client, mission_id, _CONSTATS_SEULS_MD).status_code == 303
+    reco = _reco_de(mission_id)
+    assert [c.libelle for c in reco.constats] == ["Croissance subie"]
+    assert reco.constats_non_rattaches == "Constat fantôme"
+
+
+def test_un_reimport_qui_retire_un_constat_cite_l_annonce_a_l_ecran() -> None:
+    mission_id, _ = _mission_avec_entretiens("Reimport perdu", ["Alix", "Bao", "Chris"])
+    client = TestClient(app)
+    assert _importer(client, mission_id, _RECO_MD).status_code == 303
+    autre = ("## CONSTATS\n\n### Contexte\n"
+             "- [écart] Vision du cap (Chris)\n")
+    assert _importer(client, mission_id, autre).status_code == 303
+    reco = _reco_de(mission_id)
+    assert reco.constats == []
+    assert "Croissance subie" in reco.constats_non_rattaches
+    page = client.get(f"/missions/{mission_id}/recommandations").text
+    assert "Constat introuvable dans la mission" in page and "Croissance subie" in page

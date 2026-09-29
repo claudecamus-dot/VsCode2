@@ -327,7 +327,7 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
     # bandeau (h_in-0.60) et le bord ; le n° de page est à droite. Deux lignes
     # `tiny` au plus ; au-delà (ou sans place) le texte est reversé en fin de
     # plan, jamais tronqué. Sans constat cité, rien (0in).
-    fs_w = w_in - 2 * MARGIN - 0.2
+    fs_w = w_in - 2 * MARGIN - 0.2 - pad - lis  # largeur RÉELLE du texte rendu
     fs_txt = f"FONDÉE SUR : {fondee_sur}"
     fs_reverse = bool(fondee_sur) and (
         not a_resultats
@@ -437,8 +437,8 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
     # ---- Note de source « FONDÉE SUR » (I2), au pied de la slide ----
     if fondee_sur and not fs_reverse:
         D.add_text(
-            slide, MARGIN + pad + lis, h_in - 0.60 + 0.05, fs_w - pad - lis, 0.42,
-            [(D.tronquer_a_lignes(fs_txt, fs_w - pad - lis, D.TYPE["tiny"], 2,
+            slide, MARGIN + pad + lis, h_in - 0.60 + 0.05, fs_w, 0.42,
+            [(D.tronquer_a_lignes(fs_txt, fs_w, D.TYPE["tiny"], 2,
                                   cpi_ref=D.CPI_PESSIMISTE),
               {"size": D.TYPE["tiny"], "color": D.MUTED})],
             anchor=MSO_ANCHOR.TOP,
