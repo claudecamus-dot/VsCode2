@@ -529,3 +529,123 @@ def test_un_constat_edite_masque_les_deux_lectures_du_fichier() -> None:
         db.close()
 
 
+
+
+# --- Tranche 3 : lien recommandation -> constats -----------------------------
+
+_RECO_MD = """## CONSTATS
+
+### Contexte
+- [consensus] Croissance subie (Alix, Bao)
+- [écart] Vision du cap (Chris)
+
+## RECOMMANDATIONS
+
+#### Axe 1 : Piloter la croissance
+
+##### Recommandation 1.1 : Instaurer un comité de pilotage
+- Objectif : Reprendre la main
+- Constats : Croissance subie ; Constat fantôme
+"""
+
+
+def test_la_puce_constats_est_facultative_et_lue_en_liste() -> None:
+    axes = parse_analysis_markdown(_RECO_MD)["axes"]
+    assert axes[0]["recommendations"][0]["constats"] == [
+        "Croissance subie", "Constat fantôme"]
+    sans = parse_analysis_markdown(
+        "## RECOMMANDATIONS\n\n#### Axe 1 : A\n\n##### Recommandation 1.1 : R\n"
+        "- Objectif : O\n")["axes"]
+    assert "constats" not in sans[0]["recommendations"][0]
+
+
+def test_une_reco_importee_est_liee_a_ses_constats_et_l_ecran_le_dit() -> None:
+    """Constats et recos dans le MÊME fichier : les constats doivent être
+    écrits avant, sinon la reco ne trouve rien à quoi se rattacher."""
+    from app.models import Recommendation
+
+    mission_id, _ = _mission_avec_entretiens("Reco liée", ["Alix", "Bao", "Chris"])
+    client = TestClient(app)
+    assert _importer(client, mission_id, _RECO_MD).status_code == 303
+    db = SessionLocal()
+    try:
+        reco = db.query(Recommendation).join(Recommendation.axis).filter_by(
+            mission_id=mission_id).one()
+        assert [c.libelle for c in reco.constats] == ["Croissance subie"]
+        assert reco.constats_non_rattaches == "Constat fantôme"
+    finally:
+        db.close()
+    page = client.get(f"/missions/{mission_id}/recommandations").text
+    assert "Part de : Croissance subie — Consensus, 2/3" in page
+    assert "Constat introuvable dans la mission : Constat fantôme" in page
+
+
+def test_supprimer_un_constat_retire_le_lien_de_la_reco() -> None:
+    from app.models import Recommendation
+
+    mission_id, _ = _mission_avec_entretiens("Lien cascade", ["Alix", "Bao"])
+    _importer(TestClient(app), mission_id, _RECO_MD)
+    db = SessionLocal()
+    try:
+        reco_id = db.query(Recommendation).join(Recommendation.axis).filter_by(
+            mission_id=mission_id).one().id
+        constat_id = db.query(MissionConstat).filter_by(
+            mission_id=mission_id, libelle="Croissance subie").one().id
+    finally:
+        db.close()
+    with engine.begin() as conn:
+        conn.execute(text("DELETE FROM mission_constats WHERE id = :c"), {"c": constat_id})
+    with engine.connect() as conn:
+        restants = conn.execute(text(
+            "SELECT COUNT(*) FROM recommendation_constats WHERE recommendation_id = :r"),
+            {"r": reco_id}).scalar()
+    assert restants == 0
+
+
+def test_le_gabarit_demande_la_puce_constats_sous_chaque_reco() -> None:
+    from app.services.mission_export import build_export_markdown
+
+    mission_id, _ = _mission_avec_entretiens("Gabarit reco", ["Alix"])
+    db = SessionLocal()
+    try:
+        gabarit = build_export_markdown(db.get(Mission, mission_id))
+    finally:
+        db.close()
+    recos = gabarit.split("## RECOMMANDATIONS", 1)[1]
+    import re as _re
+    titres = _re.findall(r"^##### Recommandation", recos, _re.MULTILINE)
+    assert titres and recos.count("- Constats : ") == len(titres)
+    # Gabarit NON rempli réimporté : puce vide, aucun lien, aucune erreur.
+    for axe in parse_analysis_markdown(gabarit)["axes"]:
+        for reco in axe["recommendations"]:
+            assert reco.get("constats", []) == []
+
+
+def test_un_libelle_commencant_par_un_tiret_garde_son_tiret() -> None:
+    """Revue du 2026-09-29 : `lstrip("-")` retirait TOUS les tirets de tête,
+    donc « -30 % de délai » ne retrouvait plus son constat."""
+    axes = parse_analysis_markdown(
+        "## RECOMMANDATIONS\n\n#### Axe 1 : A\n\n##### Recommandation 1.1 : R\n"
+        "- Constats : -30 % de délai ; Autre\n  - Troisième\n")["axes"]
+    assert axes[0]["recommendations"][0]["constats"] == [
+        "-30 % de délai", "Autre", "Troisième"]
+
+
+def test_un_libelle_porte_par_un_consensus_et_un_ecart_lie_les_deux() -> None:
+    """Contrat écrit dans le docstring de `lier_aux_constats`, jamais testé."""
+    from app.models import Recommendation
+
+    mission_id, _ = _mission_avec_entretiens("Deux constats", ["Alix", "Bao"])
+    _importer(TestClient(app), mission_id,
+              "## CONSTATS\n\n### Contexte\n"
+              "- [consensus] Le legacy freine (Alix)\n"
+              "- [écart] Le legacy freine (Bao)\n\n"
+              "## RECOMMANDATIONS\n\n#### Axe 1 : A\n\n##### Recommandation 1.1 : R\n"
+              "- Constats : Le legacy freine\n")
+    db = SessionLocal()
+    try:
+        reco = db.query(Recommendation).join(Recommendation.axis).filter_by(
+            mission_id=mission_id).one()
+        assert sorted(c.type for c in reco.constats) == ["consensus", "ecart"]
+    finally:
+        db.close()

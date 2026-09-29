@@ -111,6 +111,20 @@
         <span id="reco-saved-{{ reco.id }}-title" class="saved"></span>
       </label>
 
+      {# I2 : ce qui MOTIVE la reco. Le décompte vient du code (même calcul que
+         « Constats par axe »), jamais du texte importé. #}
+      {% if reco.constats or reco.constats_non_rattaches %}
+      <ul class="reco-constats">
+        {% for c in reco.constats %}{% set ligne = lignes_constat.get(c.id) %}
+        <li>Part de : {{ c.libelle }} — {{ constat_type_labels.get(c.type, c.type) }}{% if ligne and ligne.m %}, {{ ligne.n }}/{{ ligne.m }}{% endif %}
+          {% if ligne and ligne.non_etaye %}<span class="constat-alerte">Consensus non étayé</span>{% endif %}</li>
+        {% endfor %}
+        {% if reco.constats_non_rattaches %}
+        <li class="constat-alerte">Constat introuvable dans la mission : {{ reco.constats_non_rattaches }}</li>
+        {% endif %}
+      </ul>
+      {% endif %}
+
       <div class="reco-meta">
         <label>Objectif
           <textarea name="value" rows="2"

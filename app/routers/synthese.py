@@ -484,6 +484,16 @@ def save_global_field(
 # Recommandations (évol) : dérivées de la synthèse globale déjà générée,
 # regroupées en quelques axes transverses à la mission (pas un axe par thème).
 # --------------------------------------------------------------------------- #
+def _lignes_constat(mission) -> dict[int, dict]:
+    """`{constat_id: ligne}` (décompte N/M, alerte) pour le « Part de : » des
+    fiches reco — le même calcul que l'écran « Constats par axe »."""
+    return {
+        ligne["constat"].id: ligne
+        for lignes in constats_par_axe(mission).values()
+        for ligne in lignes
+    }
+
+
 @router.get("/missions/{mission_id}/recommandations")
 def recommendations_view(
     mission_id: int,
@@ -501,6 +511,8 @@ def recommendations_view(
             "global_synthesis": mission.global_synthesis,
             "ai_ready": is_configured(),
             "api_key_env": api_key_env_name(),
+            "lignes_constat": _lignes_constat(mission),
+            "constat_type_labels": CONSTAT_TYPE_LABELS,
         },
     )
 
@@ -551,6 +563,8 @@ def generate_recommendations_view(
             "global_synthesis": mission.global_synthesis,
             "ai_ready": is_configured(),
             "api_key_env": api_key_env_name(),
+            "lignes_constat": _lignes_constat(mission),
+            "constat_type_labels": CONSTAT_TYPE_LABELS,
             "error": error,
             "confirmation": confirmation,
         },

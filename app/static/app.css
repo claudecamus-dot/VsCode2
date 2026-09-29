@@ -795,6 +795,7 @@ input[type=text].turn-section-input:placeholder-shown {
 }
 .axis-title-input:hover, .axis-title-input:focus { border-color: var(--border); }
 .reco-meta { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 10px; }
+.reco-constats { list-style: none; margin: 4px 0 10px; padding: 0; color: var(--muted); font-size: .9em; }
 .reco-meta label, .reco-meta > div { flex: 1; min-width: 140px; font-size: .85rem; font-weight: 600; }
 .reco-meta textarea, .reco-meta input, .reco-meta select {
   display: block; width: 100%; font: inherit; font-weight: 400; margin-top: 4px;

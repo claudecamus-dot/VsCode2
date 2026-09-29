@@ -89,6 +89,29 @@ def apply_constats_import(db: Session, mission: Mission, constats: list[dict]) -
     db.flush()
 
 
+def lier_aux_constats(recommandation, libelles: list[str], mission: Mission) -> None:
+    """Rattache une reco aux constats de la mission désignés par leur LIBELLÉ.
+
+    Un libellé porté par plusieurs constats (consensus ET écart, ou deux
+    axes) les lie tous : les deux lectures motivent la reco. Un libellé
+    inconnu n'est pas inventé : il reste en clair dans
+    `constats_non_rattaches`, que l'écran affiche."""
+    par_libelle: dict[str, list[MissionConstat]] = {}
+    for c in mission.constats:
+        par_libelle.setdefault(_cle_nom(c.libelle), []).append(c)
+    lies, inconnus = [], []
+    for libelle in libelles:
+        trouves = par_libelle.get(_cle_nom(libelle), [])
+        if not trouves:
+            if _cle_nom(libelle) not in {_cle_nom(x) for x in inconnus}:
+                inconnus.append(libelle)
+        for c in trouves:
+            if c not in lies:
+                lies.append(c)
+    recommandation.constats = lies
+    recommandation.constats_non_rattaches = "; ".join(inconnus)
+
+
 def constats_par_axe(mission: Mission) -> dict[str, list[dict]]:
     """`{axe_key: [{constat, porteurs, n, m, non_etaye}]}` dans l'ordre des
     positions. `non_etaye` ne vaut que pour un consensus."""

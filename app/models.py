@@ -912,8 +912,16 @@ class Recommendation(Base):
     # même contrat que `MissionKpi.edite` — posé par l'autosave seulement si la
     # valeur change, remis à faux sans code par la recréation des objets.
     edite: Mapped[bool] = mapped_column(Boolean, default=False)
+    # I2 tranche 3 : libellés de constats cités à l'import que la mission ne
+    # connaît pas. Gardés en clair pour l'écran, comme `noms_non_rattaches`.
+    constats_non_rattaches: Mapped[str] = mapped_column(Text, default="", server_default="")
 
     axis: Mapped[RecommendationAxis] = relationship(back_populates="recommendations")
+    # Les constats qui MOTIVENT la reco (I2) — la table vit plus bas, avec
+    # `MissionConstat`.
+    constats: Mapped[list[MissionConstat]] = relationship(
+        secondary="recommendation_constats", order_by="MissionConstat.position"
+    )
 
     @property
     def status_label(self) -> str:
@@ -1126,6 +1134,18 @@ constat_interviews = Table(
 )
 
 
+# Reco <-> constats qui la motivent. Table NEUVE, CASCADE des deux côtés :
+# supprimer une reco (régénération) ou un constat (réimport) retire le lien.
+recommendation_constats = Table(
+    "recommendation_constats",
+    Base.metadata,
+    Column("recommendation_id", ForeignKey("recommendations.id", ondelete="CASCADE"),
+           primary_key=True),
+    Column("constat_id", ForeignKey("mission_constats.id", ondelete="CASCADE"),
+           primary_key=True),
+)
+
+
 class MissionConstat(Base):
     """Constat de restitution qualifié consensus / écart, rattaché aux
     entretiens qui le portent (arbitrage utilisateur du 2026-09-28 : les
@@ -1150,7 +1170,7 @@ class MissionConstat(Base):
     # mission (inconnus ou homonymes). Ils ne comptent pas dans le décompte —
     # mais l'écran les montre : une personne perdue en silence ferait baisser
     # « N sur M » sans que personne ne sache pourquoi.
-    noms_non_rattaches: Mapped[str] = mapped_column(Text, default="")
+    noms_non_rattaches: Mapped[str] = mapped_column(Text, default="", server_default="")
 
     mission: Mapped[Mission] = relationship(back_populates="constats")
     interviews: Mapped[list[Interview]] = relationship(

@@ -265,4 +265,13 @@ def apply_recommendations_result(db: Session, mission: Mission, axes_data: list[
         db.add(axis)
         db.flush()
         for rpos, reco in enumerate(axis_data["recommendations"]):
-            db.add(Recommendation(axis_id=axis.id, position=rpos, **reco))
+            # `constats` (I2) n'est pas une colonne : des libellés à rattacher
+            # aux constats DÉJÀ en base — l'import les écrit avant les recos.
+            reco = dict(reco)
+            libelles = reco.pop("constats", None)
+            recommandation = Recommendation(axis_id=axis.id, position=rpos, **reco)
+            if libelles:
+                from .constats import lier_aux_constats
+
+                lier_aux_constats(recommandation, libelles, mission)
+            db.add(recommandation)

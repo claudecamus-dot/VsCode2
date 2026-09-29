@@ -233,9 +233,11 @@ async def import_analyse(
         # DANS `apply_global_synthesis_result` (2026-09-27) — une seule écriture,
         # partagée avec la génération IA, au lieu de la copie locale qui était ici.
         apply_global_synthesis_result(global_synthesis, parsed["global_synthesis"])
+        # Constats AVANT recos : une reco désigne ses constats par libellé
+        # (`- Constats :`), ils doivent exister quand elle est écrite.
+        apply_constats_import(db, mission, parsed["constats"])
         if parsed["axes"]:
             apply_recommendations_result(db, mission, parsed["axes"])
-        apply_constats_import(db, mission, parsed["constats"])
         db.commit()
     except (AnalysisParseError, UploadTropVolumineux) as exc:
         # Deux exceptions PORTEUSES d'un message écrit pour l'utilisateur (le

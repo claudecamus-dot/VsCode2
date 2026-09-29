@@ -63,6 +63,8 @@ RECO_FIELD_PREFIXES = [
     ("plan d’action", "plan_actions"),
     ("résultats attendus", "resultats_attendus"),
     ("resultats attendus", "resultats_attendus"),
+    # I2 tranche 3, FACULTATIF : libellés des constats qui motivent la reco.
+    ("constats", "constats"),
 ]
 
 _H2_RE = re.compile(r"^##\s+(.+)$", re.MULTILINE)
@@ -171,6 +173,15 @@ def _parse_recommendation_block(title: str, block: str) -> dict:
             buffer.append(stripped)
     flush()
 
+    # Clé posée SEULEMENT si la puce existe : un import sans elle garde
+    # exactement la forme d'avant (`_FILLED_ANALYSIS` inchangé). Séparateur
+    # « ; » ou retour à la ligne — un libellé de constat peut contenir une
+    # virgule.
+    if "constats" in fields:
+        # Seule la PUCE « - » d'une ligne de continuation tombe : un libellé
+        # qui commence lui-même par un tiret doit rester retrouvable.
+        libelles = (re.sub(r"^-\s+", "", p.strip()) for p in re.split(r"[;\n]", fields["constats"]))
+        fields["constats"] = [lib for lib in libelles if lib]
     return fields
 
 

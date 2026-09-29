@@ -126,7 +126,9 @@ def _add_missing_columns() -> None:
         # `status = "edited"` qui existe déjà, aucune migration à faire.
         "mission_difficulties": {"edite": "BOOLEAN DEFAULT 0"},
         "recommendation_axes": {"edite": "BOOLEAN DEFAULT 0"},
-        "recommendations": {"edite": "BOOLEAN DEFAULT 0"},
+        "recommendations": {"edite": "BOOLEAN DEFAULT 0",
+                            # I2 tranche 3
+                            "constats_non_rattaches": "TEXT DEFAULT ''"},
         "audio_file_jobs": {
             "filenames": "JSON",
             "interview_id": "INTEGER",

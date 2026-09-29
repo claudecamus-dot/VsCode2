@@ -185,7 +185,10 @@ def build_export_markdown(mission: Mission, axes=None) -> str:
         "champs ci-dessous — Valeur et Complexité alimenteront une matrice "
         "effort/valeur, restituée comme un slide dédié dans le PPT final. "
         "Répète le bloc `##### Recommandation` pour chaque recommandation, "
-        "et le bloc `#### Axe` pour chaque axe.",
+        "et le bloc `#### Axe` pour chaque axe. "
+        "La puce « Constats » (facultative) reprend, séparés par « ; », les "
+        "libellés EXACTS des constats de la rubrique ## CONSTATS qui motivent "
+        "la recommandation.",
         "",
         "Avant le détail par axe, tu peux rédiger ici une **synthèse en "
         "3 à 5 puces** de l'ensemble des recommandations (priorités, ce "
@@ -205,6 +208,7 @@ def build_export_markdown(mission: Mission, axes=None) -> str:
         "- Proposition de valeur : ",
         "- Plan d'actions : ",
         "- Résultats attendus : ",
+        "- Constats : ",
         "",
         "##### Recommandation 1.2 : <titre>",
         "- Objectif : ",
@@ -214,6 +218,7 @@ def build_export_markdown(mission: Mission, axes=None) -> str:
         "- Proposition de valeur : ",
         "- Plan d'actions : ",
         "- Résultats attendus : ",
+        "- Constats : ",
         "",
         "#### Axe 2 : <titre de l'axe>",
         "",
@@ -225,6 +230,7 @@ def build_export_markdown(mission: Mission, axes=None) -> str:
         "- Proposition de valeur : ",
         "- Plan d'actions : ",
         "- Résultats attendus : ",
+        "- Constats : ",
         "",
     ]
 
