@@ -27,6 +27,22 @@ def _reponse_non_vide(answer) -> bool:
     return bool((answer.text or "").strip() or (answer.value or "").strip())
 
 
+def repartition_non_vide(iv) -> bool:
+    """Un entretien LIBRE est analysé si sa répartition porte au moins une
+    catégorie non vide. Tester le dict seul comptait `{"contexte": ""}` —
+    une analyse IA qui n'a rien trouvé (cas réel : mission 16, audio sans
+    parole) — comme de la matière, dans la synthèse ET dans « N sur M ».
+
+    Même contrat que `_reponse_non_vide` : définition unique, lue par les
+    quatre sites qui décident si un entretien libre nourrit la synthèse."""
+    if iv.mode != "libre" or not isinstance(iv.repartition, dict):
+        return False
+    return any(
+        (v.strip() if isinstance(v, str) else v)
+        for v in iv.repartition.values()
+    )
+
+
 def theme_material(mission: Mission, theme: Theme) -> tuple[dict, list]:
     """Réponses (par question) et verbatims du thème, tous entretiens confondus."""
     qids = {q.id for q in theme.questions}
@@ -104,7 +120,7 @@ def libre_material(mission: Mission) -> list[tuple]:
     `material_by_theme` dans `generate_global_synthesis`."""
     return [
         (iv, iv.repartition) for iv in mission.interviews
-        if iv.mode == "libre" and iv.repartition
+        if repartition_non_vide(iv)
     ]
 
 
@@ -119,7 +135,7 @@ def libres_sans_analyse(mission: Mission) -> list:
     « rien à synthétiser » sans aucun renvoi vers l'étape d'analyse manquante."""
     return [
         iv for iv in mission.interviews
-        if iv.mode == "libre" and not iv.repartition
+        if iv.mode == "libre" and not repartition_non_vide(iv)
     ]
 
 
@@ -133,7 +149,7 @@ def brouillons_contributifs(mission: Mission) -> list:
         if iv.status == "done":
             continue
         a_des_reponses = any(_reponse_non_vide(a) for a in iv.answers)
-        if a_des_reponses or (iv.mode == "libre" and iv.repartition):
+        if a_des_reponses or repartition_non_vide(iv):
             contributifs.append(iv)
     return contributifs
 
@@ -189,7 +205,7 @@ def interviews_contributifs(mission: Mission) -> list:
     contributifs = []
     for iv in mission.interviews:
         if iv.mode == "libre":
-            if iv.repartition:
+            if repartition_non_vide(iv):
                 contributifs.append(iv)
         elif any(_reponse_non_vide(a) for a in iv.answers):
             contributifs.append(iv)

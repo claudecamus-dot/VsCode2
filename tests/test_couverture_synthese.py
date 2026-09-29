@@ -236,3 +236,31 @@ def test_l_ecran_affiche_la_couverture(client: TestClient) -> None:
     assert "1/2" in page                                   # le thème
     assert "2/3 entretiens nourrissent la synthèse" in page  # la mission
     assert "couverture-partielle" in page
+
+
+def test_une_repartition_aux_valeurs_vides_n_est_pas_de_la_matiere() -> None:
+    """Mission 16 (audio sans parole) : l'analyse IA rend `{"contexte": ""}`.
+    Tester le dict seul le comptait comme contributif, l'envoyait au modèle
+    et l'excluait des « libres sans analyse ». Trouvé par la salle
+    code-review-crew du 2026-09-29, corrigé sur les quatre sites."""
+    from app.services.synthese_material import (
+        brouillons_contributifs,
+        libre_material,
+        libres_sans_analyse,
+    )
+
+    mission = _mission("Répartition vide")
+    _entretien(mission.id, "Alix", mode="libre", repartition={"contexte": "Vu."})
+    vide = _entretien(mission.id, "Bao", mode="libre",
+                      repartition={"contexte": "", "aspirations": "   "})
+    db = SessionLocal()
+    try:
+        m = db.get(Mission, mission.id)
+        db.get(Interview, vide).status = "draft"
+        db.commit()
+        assert couverture_mission(m) == (1, 2)
+        assert [iv.interviewee_name for iv, _ in libre_material(m)] == ["Alix"]
+        assert [iv.interviewee_name for iv in libres_sans_analyse(m)] == ["Bao"]
+        assert brouillons_contributifs(m) == []
+    finally:
+        db.close()
