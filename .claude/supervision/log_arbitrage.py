@@ -387,17 +387,29 @@ def main(argv=None) -> int:
 
     if os.environ.get("AGENT_SUPERVISION_SKIP_SCAN"):
         return 0   # tests : la regeneration du wiki n'est pas leur objet
-    try:
-        r = subprocess.run([sys.executable, "-X", "utf8", SCAN_SCRIPT, "--no-refresh"],
-                           cwd=ROOT, capture_output=True, text=True,
-                           encoding="utf-8", timeout=60)
-        print(r.stdout.strip())
-        if r.returncode != 0:
-            print(r.stderr.strip(), file=sys.stderr)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        print(f"log_arbitrage : wiki non regenere ({exc}) — relancer le scan "
-              f"({SCAN_SCRIPT})", file=sys.stderr)
+    regenerer_wiki_detache()
     return 0
+
+
+def regenerer_wiki_detache():
+    """Lance le scan (140-156 s mesures) SANS l'attendre : l'ancien timeout de 60 s
+    echouait a chaque arbitrage. Sortie vers un log ; fail-open."""
+    log = os.path.join(ROOT, ".claude", "supervision", "regen_wiki.log")
+    try:
+        fh = open(log, "w", encoding="utf-8")
+        # CREATE_NO_WINDOW, jamais DETACHED_PROCESS (constat utilisateur 2026-09-24 :
+        # rafales de fenetres) : un parent sans console fait ouvrir une fenetre a chaque
+        # git/gh du scan enfant ; une console cachee est heritee par tous.
+        flags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) |             getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        subprocess.Popen([sys.executable, "-X", "utf8", SCAN_SCRIPT, "--no-refresh"],
+                         cwd=ROOT, stdout=fh, stderr=subprocess.STDOUT,
+                         stdin=subprocess.DEVNULL, creationflags=flags)
+        fh.close()
+        print(f"log_arbitrage : wiki en cours de regeneration en arriere-plan "
+              f"(journal : {log})")
+    except OSError as exc:
+        print(f"log_arbitrage : wiki non regenere ({exc}) - relancer le scan "
+              f"({SCAN_SCRIPT})", file=sys.stderr)
 
 
 if __name__ == "__main__":

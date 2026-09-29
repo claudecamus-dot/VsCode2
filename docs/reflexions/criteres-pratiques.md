@@ -66,6 +66,8 @@ RÉELS sur le livrable) + les caractéristiques qualité ISO 25010 comme axes de
 | Tests en CI (pas seulement en local) | ✅ (CI VSCode1) |
 | Seuil de couverture gaté (une fois la mesure stabilisée) | ⬜ (décision différée volontairement : mesurer d'abord) |
 | Tests de non-régression sur bug corrigé | ⬜ (non détectable automatiquement — discipline à documenter dans conventions) |
+| **P5 — Tout clic utilisateur corrigé est rejoué dans un navigateur RÉEL** (test e2e qui clique comme l'utilisateur, pas un appel d'API qui contourne l'UI) | ⬜ — aucune fonction du scan ne le mesure : le marqueur puppeteer/playwright du critère « artefact réel » prouve la présence d'un e2e, pas qu'un clic corrigé y soit rejoué. Mesurable par relecture seulement. Référence : `VSCode2/CLAUDE.md` règle P5 + `VSCode2/tests/test_e2e_premiers_clics.py`. Source : finding `flotte:regle-p5-clic-navigateur-reel-a-generaliser`, reprise acceptée le 2026-09-28 |
+| **Inventaire de routes figé** : un test rapide gèle la surface publique (méthode, chemin) du serveur ; rouge si une route disparaît ou apparaît sans mise à jour consciente | ⬜ — non mesuré par le scan (présence d'un test nommé, pas une propriété lue à froid). Présent sur VSCode2 (`tests/test_route_inventory.py`, `app.openapi()`) et au hub depuis le 2026-09-28 (`tests/test_serve_wiki_routes.py`, serveur `http.server` réel sur port éphémère). Source : finding `flotte:inventaire-de-routes-fige-a-generaliser` |
 
 | Garde-fou livré avec son test → **mutation de sa propre source**, au moins un mutant tué, documenté dans le commit | ⬜ — **non outillable par le scan, et c'est définitif** : la mutation exige une EXÉCUTION, aucune lecture à froid ne peut la constater. Critère de **revue** : inscrit comme étape de la skill `revue-increment` (§ 3) le 2026-09-19, relisible après coup par le marqueur « mutant tué » dans les notes de run. Motif : 4 gardes vertes et contournables le 2026-09-09, 6 gardes vertes par construction le 2026-09-19 |
 
@@ -249,6 +251,57 @@ et produit un chiffre qu'aucune commande ne reproduit, ce que R6 interdit. Ce qu
 retenu de la grille, c'est sa **structure de preuve** — preuve, risque, impact,
 recommandation, propriétaire, échéance — dont le volet A rend les deux derniers champs
 effectifs.
+
+---
+
+## Référentiel d'évaluation v2 (kit « Évaluation des pratiques »)
+
+Arbitré le 2026-09-28 (barème v2). 23 critères par projet, en deux référentiels,
+chacun détecté par une fonction de `scripts/detection_generique.py` (C1 : le ✅ nomme
+cette fonction) ; les textes pédagogiques complets (définition, ce qu'on regarde,
+pourquoi, ce que la note permet / ne permet pas de conclure) sont les docstrings de ces
+fonctions, rendus dans l'onglet « Référentiel » de `docs/evaluation-agentic.html`.
+Liste générée depuis `evaluation_agentic.BAREMES` le 2026-09-28, pas écrite à la main ;
+renumérotée le 2026-09-29 dans l'ordre de lecture arbitré (groupes de
+`detection_generique.GROUPES`, codes attribués dans cet ordre — lot 9).
+
+### A — Pratiques de développement (13)
+
+| Groupe | Code | Critère | Mesure | Source publique |
+| --- | --- | --- | --- | --- |
+| Besoin et conception | A1 | Backlog présent et user stories bien formées | ✅ `epics_us_bien_formees()` | Scrum Guide 2020, « Product Backlog » ; B. Wake, 2003 (grille INVEST) |
+| Besoin et conception | A2 | Critères d'acceptation | ✅ `criteres_acceptance()` | D. North, « Introducing BDD », 2006 |
+| Besoin et conception | A3 | Décisions de conception tracées | ✅ `decisions_conception_tracees()` | M. Nygard, « Documenting Architecture Decisions », 2011 ; adr.github.io |
+| Développement | A4 | Traçabilité de la demande au livrable | ✅ `tracabilite_demande_livrable()` | Conventional Commits, pied « Refs » ; GitHub/GitLab, « closing keywords » |
+| Développement | A5 | Code documenté | ✅ `code_documente()` | PEP 257 |
+| Développement | A6 | Analyseur statique configuré | ✅ `linter_configure()` | Google, « Software Engineering at Google », chap. 20 |
+| Développement | A7 | Revue avant intégration par une autre personne | ✅ `revue_avant_integration()` | Google Engineering Practices, « Code Review » |
+| Développement | A8 | Hygiène de sécurité de base | ✅ `securite_base()` | OWASP Top 10, A07 ; GitHub, « secret scanning » |
+| Tests et livraison | A9 | Tests automatisés | ✅ `tests_automatises()` | Google, « Software Engineering at Google », chap. 11 |
+| Tests et livraison | A10 | Tests et code évoluent ensemble | ✅ `co_evolution_tests()` | K. Beck, « Test-Driven Development by Example » ; DORA, test automation |
+| Tests et livraison | A11 | Mesure de couverture configurée | ✅ `couverture_configuree()` | documentation coverage.py, Istanbul, JaCoCo |
+| Tests et livraison | A12 | Résultat final exercé par le canal de l'utilisateur | ✅ `test_artefact_reel()` | M. Fowler, « TestPyramid » ; « Broad Stack Test » |
+| Tests et livraison | A13 | Intégration et livraison continues | ✅ `integration_continue()` | DORA, « Continuous integration », « Continuous delivery » |
+
+### B — Pratiques agentic (10)
+
+| Groupe | Code | Critère | Mesure | Source publique |
+| --- | --- | --- | --- | --- |
+| Cadrer | B1 | Cadre agentic versionné | ✅ `cadre_agentic_versionne()` | Anthropic, « Claude Code best practices » ; agents.md |
+| Cadrer | B2 | Gestion des prompts comme des artefacts — note fondée sur des déclarations | ✅ `gestion_prompts()` | OpenAI, « Evals » ; Anthropic, « Create strong empirical evaluations » |
+| Cadrer | B3 | Politique de modèle et d'effort déclarée — note fondée sur des déclarations | ✅ `politique_modele_effort()` | Anthropic, « Choosing a model » |
+| Borner | B4 | Garde-fous et réversibilité du travail des agents | ✅ `garde_fous_agentic()` | OWASP Top 10 for Agentic Applications, « excessive agency » ; Anthropic, « Claude Code security » |
+| Borner | B5 | Niveau d'orchestration agentic (échelle à 5 niveaux) — note fondée sur des déclarations | ✅ `niveau_orchestration()` | Anthropic, « Building effective agents », 2024 |
+| Exécuter | B6 | Solution agentic maîtrisée (critère conditionnel : « non applicable » sans dépendance LLM) | ✅ `solution_agentic_maitrisee()` | OWASP Top 10 for LLM Applications, LLM01, LLM05, LLM10 |
+| Exécuter | B7 | Blocages du dispositif agentic tracés | ✅ `blocages_traces()` | Google SRE Book, chap. 15, « Postmortem Culture » |
+| Livrer et valider | B8 | Conformité des résultats à la demande — note fondée sur des déclarations | ✅ `conformite_resultats()` | DORA, « change failure rate », par analogie |
+| Livrer et valider | B9 | Validation humaine tracée après livraison | ✅ `validation_humaine_tracee()` | Scrum Guide 2020, « Definition of Done » ; ISO/IEC 25010, adéquation fonctionnelle |
+| Améliorer | B10 | Amélioration continue du cadre agentic | ✅ `amelioration_continue()` | Anthropic, « Claude Code best practices » : faire évoluer CLAUDE.md ; Scrum Guide 2020, « Sprint Retrospective » |
+
+Hors notation, relevant d'un audit : qualités I/N/V/E d'INVEST (A1), maîtrise réelle
+d'une solution embarquant un LLM (B6). Les anciens axes propres au hub (reprises, refus
+de gardes, salles, tokens) sortent du référentiel : bloc « dispositif » informatif, jamais
+noté.
 
 ---
 

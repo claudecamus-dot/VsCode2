@@ -18,6 +18,7 @@ mesure ; cet étage **qualifie** — et l'humain tranche. Sortie unique :
   erreur, reprise, correction utilisateur, revert git). Un ressenti n'est pas un
   diagnostic — c'est le garde-fou anti-auto-complaisance (le LLM évalue des actions
   produites par le même modèle).
+- **Constat non reproduit** : l'écrire avec `"statut_preuve": "hypothese"` (ou `"a_verifier"`) plutôt que l'abandonner — `write_diagnostic.py` l'accepte sans chiffre et le scan l'affiche étiqueté, jamais comme affirmé.
 - **5 constats max**, priorisés — un rapport que personne ne lit rejoint les skills
   jamais utilisés.
 - Le diagnostic **propose**, il n'applique rien : pas de désinstallation, pas de

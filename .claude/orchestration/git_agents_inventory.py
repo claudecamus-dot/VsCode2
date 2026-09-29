@@ -138,6 +138,8 @@ def render(inv: dict) -> str:
 def main(argv) -> int:
     if hasattr(sys.stdout, "reconfigure"):  # console Windows en cp1252 sinon
         sys.stdout.reconfigure(encoding="utf-8")
+    if hasattr(sys.stderr, "reconfigure"):
+        sys.stderr.reconfigure(encoding="utf-8")
     inv = inventaire()
     if "--json" in argv:
         print(json.dumps(inv, ensure_ascii=False, indent=1))

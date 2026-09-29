@@ -151,7 +151,7 @@ et c'est précisément ce que tu dois montrer.
   une donnée réelle qui ne rentre pas dans le cas prévu, un état incohérent après
   deux actions ordinaires) et les défauts UX/UI (ce qui ne se trouve pas, ce qui
   ne se comprend pas, ce qui ne ressemble pas au reste). Consigne où tu hésites.
-- **Deux passes explicites sur chaque écran ou sortie regardés**, en plus de la
+- **Trois passes explicites sur chaque écran ou sortie regardés**, en plus de la
   promenade — elles ne se font pas « au passage », elles se font :
   1. **Relecture des textes visibles** : titres, libellés, boutons, messages
      d'erreur, infobulles, contenus générés. Fautes d'orthographe, d'accord, de
@@ -168,6 +168,28 @@ et c'est précisément ce que tu dois montrer.
      élément hors cadre, icône ou image manquante, contraste insuffisant (WCAG 2.2
      1.4.3), police ou couleur qui ne suit pas le reste. Chaque coquille : où,
      quel état, capture ou description exacte.
+  3. **Composition, architecture de l'information, cohérence entre vues** —
+     une capture se regarde pour sa COMPOSITION, pas seulement pour ses erreurs
+     (cas d'école du 2026-09-29 ci-dessous). Checklist, à chaque capture :
+     - **Composition** (Gestalt proximité/alignement ; Nielsen #8 design
+       esthétique et minimaliste) : un bloc de texte confiné à une fraction de
+       la largeur alors qu'un filet, une bordure ou un conteneur voisin prend
+       toute la largeur ; une zone vide > ~25 % de la largeur à côté d'un bloc ;
+       des bords gauches de blocs empilés qui ne s'alignent pas ; des blocs
+       empilés de largeurs incohérentes entre eux. Chaque constat : où, quelle
+       largeur approximative (en % de la page), à quoi il devrait s'aligner.
+     - **Architecture de l'information** : pour CHAQUE liste ou tableau, écris
+       le principe d'ordre qu'un lecteur attendrait (cycle de vie — ex. conception
+       > développement > tests —, dépendance, fréquence, importance) puis dis si
+       l'ordre affiché le suit. Un ordre sans principe identifiable est un défaut
+       (`gênant`), même si chaque ligne est juste.
+     - **Cohérence entre vues** (Nielsen #4 cohérence et standards) : quand les
+       mêmes entités apparaissent dans plusieurs onglets ou vues, dresse un petit
+       tableau `entité | vue A (rang, groupe, libellé) | vue B | …` et signale tout
+       écart d'ordre, de regroupement, de libellé ou de largeur de mise en page.
+  **« Pas de débordement » ne suffit JAMAIS à écrire « lisibilité conforme »** :
+  ce verdict exige la passe 3 faite et écrite. Sans elle, écris « lisibilité :
+  débordement vérifié, composition non vérifiée ».
 - **N'utilise qu'un serveur déjà en écoute que tu n'as pas démarré.** Tu ne
   démarres, ne redémarres, ne purges AUCUN service du dépôt. Si une étape exige un
   service qui ne tourne pas, écris « non vérifié au rendu » et continue.
@@ -180,6 +202,21 @@ et c'est précisément ce que tu dois montrer.
 - **Regarde le livrable produit**, ne te contente pas du code de sortie. Un `exit 0`
   n'est pas un deck utilisable : ouvre l'artefact avec l'outil dont l'utilisateur se
   sert réellement (un parseur tolérant n'est pas une preuve).
+
+### Cas d'école — ce que la passe 3 doit attraper (2026-09-29)
+
+Revue de `docs/evaluation-agentic.html` (hub, servie en `localhost:8765`) :
+l'agent a écrit « Lisibilité 1500/900 px — CONFORME (pas de débordement) ».
+L'utilisateur humain a vu ensuite, sur la même page, quatre défauts manqués :
+1. texte d'en-tête confiné à ~la moitié de la largeur sous un filet pleine largeur ;
+2. l'encadré « Comment lire cette page » s'arrête à ~60 %, grande zone vide à droite ;
+3. critères des tableaux dans un ordre sans logique de lecture (le tableau dev
+   devait suivre conception > développement > tests) ;
+4. onglets « Écarts » et « Référentiel » incohérents avec « Résultats » (ordre,
+   regroupement, largeur).
+Cause : captures regardées pour chercher des erreurs, jamais pour juger la
+composition, l'ordre ou la cohérence entre onglets. Si ta revue d'une page ne
+serait pas capable de trouver ces quatre-là, elle n'est pas finie.
 
 ### 3. Rendre compte sur trois axes, puis nommer les frictions
 
@@ -273,6 +310,11 @@ COQUILLES GRAPHIQUES: <nombre relevé, ou "aucune sur les N écrans/états balay
 - où: <écran / sortie>
   état: <nominal | vide | erreur | débordement | fenêtre étroite | artefact ouvert dans <outil>>
   ce qui est cassé: <texte tronqué / chevauchement / alignement / élément hors cadre / image manquante / contraste (WCAG 2.2 1.4.3) / police-couleur hors charte>
+
+COMPOSITION / ORDRE / COHERENCE: <passe 3 — obligatoire pour tout verdict de lisibilité>
+- composition: <où, bloc vs filet/conteneur, zone vide en % de largeur, bords gauches, largeurs empilées — ou "aucun écart sur N captures">
+- ordre: <liste/tableau> → principe attendu: <cycle de vie | dépendance | fréquence | importance> → suivi | arbitraire
+- cohérence entre vues: <tableau entité | vue A | vue B — écarts d'ordre, groupe, libellé, largeur>
 
 MAQUETTES CONFRONTEES: <source(s) : chemin + date — ou "Information insuffisante : aucune maquette ni spec UX trouvée">
 - écran: <nom>

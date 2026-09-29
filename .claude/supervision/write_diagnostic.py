@@ -39,6 +39,12 @@ Schéma attendu : {"findings": [{"categorie", "titre", "preuve", ...}]}
     passe-droit sur une décision humaine. Il exige une `cible` — exigence que la `cible`
     requise non vide ci-dessus couvre déjà pour tout finding : pas de second contrôle,
     une branche qui ne peut pas s'atteindre n'est pas un garde-fou.
+  - statut_preuve (str, optionnel, défaut `mesure` — posé par CE script s'il manque) :
+    `mesure` | `a_verifier` | `hypothese`. Seul `mesure` exige une preuve MESURÉE
+    (`_preuve_mesuree`). Un constat non reproduit s'écrit avec `hypothese` (ou
+    `a_verifier`) : il entre au registre COMME tel, au lieu d'être refusé — donc perdu,
+    pas rétrogradé (audit du 2026-09-29, trouvaille de veille « Silence Is
+    Endorsement »). Le scan le rend préfixé de son statut, jamais comme affirmé.
   - proposition (str, optionnel — incrément C « challenger ») : le changement concret
     proposé (nouveau déclencheur de skill, contrat de playbook amendé, désinstallation…),
     en une phrase ou un mini-diff inline. Rendue dans le wiki avec le constat ;
@@ -119,6 +125,8 @@ CATEGORIES = (
 # trace. Repris de VSCode2 avec le registre à état : les deux vont ensemble, puisque
 # c'est le report des non-arbitrés qui fait monter le total.
 MAX_FINDINGS = 5
+# Statut de preuve d'un constat (cf. docstring). `mesure` est le defaut retro-compatible.
+STATUTS_PREUVE = ("mesure", "a_verifier", "hypothese")
 
 # ECHEANCE D'UN CONSTAT (volet gouvernance, 2026-09-20). Mesure qui fixe la valeur, faite
 # par script sur arbitrages.json + diagnostic.json (jamais en ouvrant les fichiers) : sur
@@ -342,13 +350,22 @@ def main(argv) -> int:
         # sert. Le controle porte sur ce qui est ECRIT DANS CETTE PASSE, jamais sur
         # les findings REPORTES du diagnostic precedent (ceux-la sont deja stockes,
         # les refuser retroactivement ferait perdre des constats ouverts).
-        if not _preuve_mesuree(str(f.get("preuve") or "")):
+        statut = f.setdefault("statut_preuve", "mesure")
+        if statut not in STATUTS_PREUVE:
+            print(f"write_diagnostic : finding #{i} statut_preuve invalide "
+                  f"(attendu : {' | '.join(STATUTS_PREUVE)} ; recu : {statut!r})")
+            return 1
+        # Un constat declare `hypothese`/`a_verifier` est ACCEPTE sans chiffre : son
+        # statut le dit, et le scan l'affiche. Le refuser le faisait disparaitre.
+        if statut == "mesure" and not _preuve_mesuree(str(f.get("preuve") or "")):
             print(f"write_diagnostic : finding #{i} preuve NON MESUREE — "
                   f"« {str(f.get('preuve'))[:160]} »\n"
                   "  Une preuve doit porter un chiffre (compte, sha, date, nombre de "
                   "tests) ou une commande rejouable (grep, pytest, git, py, --check). "
                   "Une phrase d'opinion n'ancre pas un constat : va mesurer, puis "
-                  "reecris la preuve avec la commande qui l'a produite.")
+                  "reecris la preuve avec la commande qui l'a produite. Non "
+                  "reproductible : ecrire \"statut_preuve\": \"hypothese\" (ou "
+                  "\"a_verifier\") plutot que d'abandonner le constat.")
             return 1
         if not str(f.get("cible") or "").strip():
             print(f"write_diagnostic : finding #{i} sans cible "

@@ -46,6 +46,7 @@ def capturer(timeout_s: int = TIMEOUT_S) -> tuple[bool, str]:
             capture_output=True,
             text=True,
             encoding="utf-8",
+            errors="replace",
             timeout=timeout_s,
         )
     except FileNotFoundError:
