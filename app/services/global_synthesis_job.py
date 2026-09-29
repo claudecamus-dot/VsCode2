@@ -18,8 +18,8 @@ import logging
 
 from ..db import SessionLocal
 from ..models import GlobalSynthesis, Mission
-from .mission_axes import axes_of
 from .constats import apply_constats_ia
+from .mission_axes import axes_of
 from .synthese_ai import SynthesisAIError, generate_constats, generate_global_synthesis
 from .synthese_ecriture import apply_global_synthesis_result
 from .synthese_material import all_theme_material, libre_material

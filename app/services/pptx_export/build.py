@@ -33,8 +33,8 @@ from .slides_cadre import (
     _slide_sommaire,
 )
 from .slides_diagnostic import (
-    _slide_difficultes,
     _slide_base_analyse,
+    _slide_difficultes,
     _slide_executive_summary,
     _slide_maturite,
     _slide_swot,
