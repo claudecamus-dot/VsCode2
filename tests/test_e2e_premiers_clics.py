@@ -521,6 +521,52 @@ def test_deck_exemple_televerser_puis_retirer(
         assert _python_sur_base(base_db, _LIRE_EXEMPLE, mid) == "None"
 
 
+_SEED_CONSTATS = r"""
+from app.db import SessionLocal, init_db
+from app.models import Interview, Mission
+init_db()
+db = SessionLocal()
+m = Mission(name="E2E constats")
+db.add(m); db.flush()
+for nom in ("Alix", "Bao", "Chris"):
+    db.add(Interview(mission_id=m.id, interviewee_name=nom, mode="libre",
+                     status="done", repartition={"contexte": "Vu."}))
+db.commit()
+print(m.id)
+"""
+
+
+def test_importer_une_analyse_avec_constats_les_affiche(
+    tmp_path_factory: pytest.TempPathFactory, nav: Navigateur
+) -> None:
+    """I2 : choix du fichier puis CLIC réel sur « Importer l'analyse » (POST
+    multipart /import/analyse). La redirection mène à la synthèse globale, qui
+    montre les constats avec leur décompte et leurs alertes. Mission sans
+    synthèse : pas de confirm() natif sur le formulaire."""
+    dossier = tmp_path_factory.mktemp("e2e-constats")
+    base_db = dossier / "e2e.db"
+    mid = _python_sur_base(base_db, _SEED_CONSTATS)
+    analyse = dossier / "analyse.md"
+    analyse.write_text(
+        "## CONSTATS\n\n### Contexte\n"
+        "- [consensus] Croissance subie (Alix, Bao)\n"
+        "- [écart] Vision du cap (Chris, Inconnu)\n",
+        encoding="utf-8",
+    )
+    with serveur_uvicorn(dossier) as base:
+        nav.naviguer(f"{base}/missions/{mid}/synthese/export-import")
+        _sans_erreur(nav, "Ouvrir l'import")
+        nav.cliquer("[data-tab='manuel']")   # le formulaire vit dans l'onglet « Manuel »
+        form = f"form[action='/missions/{mid}/import/analyse']"
+        nav.choisir_fichier(f"{form} input[type=file]", analyse)
+        nav.cliquer_et_attendre(f"{form} button[type=submit]")
+        _sans_erreur(nav, "Importer l'analyse avec constats")
+        texte = nav.texte()
+        assert "Constats par axe" in texte
+        assert "Croissance subie" in texte and "2/3" in texte
+        assert "Non rattaché : Inconnu" in texte
+
+
 def test_upload_template_refuse_affiche_l_ecran_et_son_message_en_400(
     tmp_path_factory: pytest.TempPathFactory, nav: Navigateur
 ) -> None:

@@ -167,6 +167,17 @@ def build_export_markdown(mission: Mission, axes=None) -> str:
         "résume bien une tension ou un constat partagé.",
         "",
         *_rubriques_synthese(axes),
+        "## CONSTATS",
+        "",
+        "Sous chaque rubrique ci-dessous, liste les constats de l'axe, un par "
+        "ligne, au format exact `- [consensus] <constat> (Prénom Nom, Prénom Nom)` "
+        "quand les interviewés convergent, ou `- [écart] <constat> (Prénom Nom, …)` "
+        "quand ils divergent sensiblement. Entre parenthèses, cite UNIQUEMENT les "
+        "personnes qui portent le constat, avec leur nom écrit exactement comme "
+        "dans la liste « Entretiens » ci-dessus : c'est ce qui permet de compter "
+        "combien d'interviewés le disent réellement. Rubrique facultative.",
+        "",
+        *[ligne for axe in axes for ligne in (f"### {axe.label}", "")],
         "## RECOMMANDATIONS",
         "",
         "Regroupe 3 à 4 axes **transverses** à la mission (pas un axe par "

@@ -34,6 +34,7 @@ from ..services.analyse_import import (
     decode_text_upload,
     parse_analysis_markdown,
 )
+from ..services.constats import apply_constats_import
 from ..services.garde_edition import CONFIRMER, garde_regeneration
 from ..services.mission_axes import axes_of
 from ..services.mission_export import build_export_markdown, slugify
@@ -234,6 +235,7 @@ async def import_analyse(
         apply_global_synthesis_result(global_synthesis, parsed["global_synthesis"])
         if parsed["axes"]:
             apply_recommendations_result(db, mission, parsed["axes"])
+        apply_constats_import(db, mission, parsed["constats"])
         db.commit()
     except (AnalysisParseError, UploadTropVolumineux) as exc:
         # Deux exceptions PORTEUSES d'un message écrit pour l'utilisateur (le

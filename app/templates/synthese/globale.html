@@ -70,6 +70,50 @@
 </div>
 {% endif %}
 
+{# Constats qualifiés (I2). La qualification consensus / écart vient de
+   l'analyse ; le décompte N/M vient du CODE (entretiens rattachés et
+   contributifs). Quand les deux se contredisent — un consensus porté par la
+   moitié ou moins — l'écran le dit au lieu de trancher en silence. #}
+{% macro liste_constats(lignes) %}
+  <ul class="couverture-liste constats-liste">
+    {% for ligne in lignes %}
+    {% set c = ligne.constat %}
+    <li>
+      <span>
+        <span class="pill {{ 'pill-done' if c.type == 'consensus' else 'pill-draft' }}">{{ constat_type_labels.get(c.type, c.type) }}</span>
+        {{ c.libelle }}
+        {% if ligne.porteurs %}<span class="muted"> — {{ ligne.porteurs|join(', ') }}</span>{% endif %}
+        {% if c.noms_non_rattaches %}<span class="constat-alerte">Non rattaché{{ 's' if ',' in c.noms_non_rattaches }} : {{ c.noms_non_rattaches }}</span>{% endif %}
+        {% if ligne.non_etaye %}<span class="constat-alerte">Consensus non étayé : porté par la moitié ou moins des entretiens</span>{% endif %}
+      </span>
+      {% if ligne.m %}
+      {# Un écart n'a pas de « bon » score : couleur neutre, jamais le vert du complet. #}
+      <span class="couverture{% if ligne.non_etaye %} couverture-partielle{% elif c.type != 'consensus' %} couverture-neutre{% endif %}">{{ ligne.n }}/{{ ligne.m }}</span>
+      {% else %}
+      <span class="couverture couverture-neutre" title="Aucun entretien ne nourrit encore la synthèse">—</span>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+{% endmacro %}
+{% if constats_par_axe %}
+<div class="card">
+  <div class="card-head"><h2>Constats par axe</h2>
+    <span class="muted">interviewés qui portent le constat / entretiens qui nourrissent la synthèse</span></div>
+  {% set cles_axes = synthesis_axes|map(attribute='key')|list %}
+  {% for axe in synthesis_axes if axe.key in constats_par_axe %}
+  <h3>{{ axe.label }}</h3>
+  {{ liste_constats(constats_par_axe[axe.key]) }}
+  {% endfor %}
+  {# Un axe retiré de la mission APRÈS l'import garde ses constats en base :
+     les taire ferait disparaître un fait mesuré sans que personne le sache. #}
+  {% for cle, lignes in constats_par_axe.items() if cle not in cles_axes %}
+  <h3>Axe retiré de la mission <span class="muted">({{ cle }})</span></h3>
+  {{ liste_constats(lignes) }}
+  {% endfor %}
+</div>
+{% endif %}
+
 {% include "synthese/_global_panel.html" %}
 {% endif %}
 {% endblock %}

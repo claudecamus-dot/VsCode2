@@ -27,6 +27,7 @@ from sqlalchemy.orm import (
     Mapped,
     mapped_column,
     relationship,
+    validates,
 )
 
 # Types de questions supportés (US1.2)
@@ -1145,9 +1146,22 @@ class MissionConstat(Base):
     # constat saisi ou retouché à la main ne sera jamais écrasé par une future
     # proposition IA sans confirmation explicite.
     edite: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Noms cités à l'import qui n'ont pas pu être rattachés à UN entretien de la
+    # mission (inconnus ou homonymes). Ils ne comptent pas dans le décompte —
+    # mais l'écran les montre : une personne perdue en silence ferait baisser
+    # « N sur M » sans que personne ne sache pourquoi.
+    noms_non_rattaches: Mapped[str] = mapped_column(Text, default="")
 
     mission: Mapped[Mission] = relationship(back_populates="constats")
     interviews: Mapped[list[Interview]] = relationship(
         secondary=constat_interviews, order_by="Interview.id"
     )
+
+    @validates("type")
+    def _type_connu(self, _cle: str, valeur: str) -> str:
+        # Pas de CHECK en base : SQLite n'en ajoute pas à une table existante.
+        # La garde vit donc ici, pour TOUT écrivain (import, futur appel IA).
+        if valeur not in CONSTAT_TYPES:
+            raise ValueError(f"type de constat inconnu : {valeur!r}")
+        return valeur
 

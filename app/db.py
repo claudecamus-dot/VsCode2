@@ -133,6 +133,9 @@ def _add_missing_columns() -> None:
             "files_done": "INTEGER DEFAULT 0",
             "blocks_before_file": "INTEGER DEFAULT 0",
         },
+        # I2 tranche 2 : la table existe déjà sur les bases qui ont démarré
+        # après la tranche 1 (create_all), la colonne doit donc s'y ajouter.
+        "mission_constats": {"noms_non_rattaches": "TEXT DEFAULT ''"},
     }
     with engine.begin() as conn:
         for table, cols in additions.items():

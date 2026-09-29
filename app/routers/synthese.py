@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_session
 from ..models import (
+    CONSTAT_TYPE_LABELS,
     MATURITE_NIVEAUX,
     RISK_CONTROL_TYPES,
     RISK_LEVELS,
@@ -30,6 +31,7 @@ from ..models import (
     RecommendationAxis,
 )
 from ..services.ai_common import api_key_env_name
+from ..services.constats import constats_par_axe
 from ..services.garde_edition import CONFIRMER, garde_regeneration
 from ..services.global_synthesis_job import run_global_synthesis_job
 from ..services.mission_axes import axes_of, creer_axe, supprimer_axe
@@ -176,6 +178,8 @@ def global_synthese_view(
             # aucun échange de panneau n'a à la recalculer.
             "couverture_mission": _couverture_mission(mission),
             "couverture_par_theme": _couverture_par_theme(mission),
+            "constats_par_axe": constats_par_axe(mission),
+            "constat_type_labels": CONSTAT_TYPE_LABELS,
             # Erreur d'une génération précédente, en LECTURE SEULE (contrairement
             # à generate_global, un chargement de page ne l'acquitte/n'efface
             # jamais) : sans ce champ, un rechargement après échec n'affichait

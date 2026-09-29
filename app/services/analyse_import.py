@@ -187,6 +187,40 @@ def _parse_recommendations_section(text: str) -> list[dict]:
     return axes
 
 
+_CONSTAT_RE = re.compile(
+    r"^-\s*\[\s*(consensus|[ée]cart)\s*\]\s*(.+?)\s*(?:\(([^()]*)\))?\s*$",
+    re.IGNORECASE,
+)
+
+
+# « (Alix, Bao) » ou « (Alix ; Bao) ». Le « et » (« Alix et Bao ») n'est PAS
+# découpé ici : « Dupont et Fils » peut être UN nom. C'est le rattachement,
+# qui connaît les entretiens, qui tente le segment entier puis ses parties.
+_SEP_NOMS_RE = re.compile(r"\s*[,;]\s*")
+
+
+def _parse_constats_section(text: str, axes_etude) -> list[dict]:
+    """`### <axe>` puis `- [consensus|écart] <libellé> (Nom1, Nom2)`.
+
+    Une rubrique d'axe non reconnue est ignorée, comme en synthèse globale. Les
+    noms sont rendus BRUTS : leur rattachement aux entretiens se fait en base,
+    où l'on sait qui est homonyme de qui."""
+    constats = []
+    for h3_title, h3_body in _split_sections(text, _H3_RE):
+        axe_key = _match_global_field(h3_title, axes_etude)
+        if not axe_key:
+            continue
+        for line in h3_body.splitlines():
+            m = _CONSTAT_RE.match(line.strip())
+            if not m:
+                continue
+            type_ = "consensus" if m.group(1).lower() == "consensus" else "ecart"
+            noms = [n.strip() for n in _SEP_NOMS_RE.split(m.group(3) or "") if n.strip()]
+            constats.append({"axe_key": axe_key, "type": type_,
+                             "libelle": m.group(2).strip(), "noms": noms})
+    return constats
+
+
 def parse_analysis_markdown(text: str, axes_etude=None) -> dict:
     """Retourne {"global_synthesis": {clé d'axe: texte}, "axes": [...]}.
 
@@ -198,6 +232,9 @@ def parse_analysis_markdown(text: str, axes_etude=None) -> dict:
     d'étude avant le premier `_match_global_field` (attrapé par
     `tests/test_axes_etude.py`).
 
+    `constats` (I2) : rubrique FACULTATIVE `## CONSTATS` — absente, la liste
+    est vide et le reste du contrat d'import est inchangé.
+
     Lève `AnalysisParseError` si aucune des sections attendues n'est trouvée
     (le fichier n'a pas conservé la structure de titres du gabarit exporté).
     """
@@ -207,11 +244,19 @@ def parse_analysis_markdown(text: str, axes_etude=None) -> dict:
         axes_etude = _axes_par_defaut()
     global_synthesis = {axe.key: "" for axe in axes_etude}
     axes: list[dict] = []
+    constats: list[dict] = []
     found_any = False
 
     for h2_title, h2_body in _split_sections(text, _H2_RE):
         lowered = h2_title.lower()
-        if "synthèse" in lowered or "synthese" in lowered:
+        # Le titre COMMENCE par « constat » : « ## Constats de synthèse » est
+        # une rubrique de constats, « ## Synthèse des constats » reste la
+        # synthèse globale (un simple `in` la faisait basculer ici, vide).
+        if lowered.lstrip().startswith("constat"):
+            constats = _parse_constats_section(h2_body, axes_etude)
+            if constats:
+                found_any = True
+        elif "synthèse" in lowered or "synthese" in lowered:
             for h3_title, h3_body in _split_sections(h2_body, _H3_RE):
                 field = _match_global_field(h3_title, axes_etude)
                 if field:
@@ -230,4 +275,5 @@ def parse_analysis_markdown(text: str, axes_etude=None) -> dict:
             "sans les modifier."
         )
 
-    return {"global_synthesis": global_synthesis, "axes": axes}
+    return {"global_synthesis": global_synthesis, "axes": axes,
+            "constats": constats}
