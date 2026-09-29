@@ -31,15 +31,25 @@
 # commande (cf. Test-CommandeSurLePort) ; les orphelins restent cherchés par
 # le socket du port visé. Deux serveurs du même repo coexistent donc.
 #
+# Authentifié (diagnostic superviseur du 2026-09-29, arbitré le jour même) :
+# le « OK » ne regardait que /static/ et un code HTTP quelconque sur / — les
+# SEULES routes publiques. Un serveur sans APP_AUTH_PASSWORD, qui rend 503 sur
+# toute page réelle, était déclaré sain ; l'utilisateur l'a vu KO trois fois.
+# Désormais : refus de démarrer sans mot de passe, et le OK exige un 200 sur
+# une route PROTÉGÉE (/missions) avec `Authorization: Bearer`. -CheckOnly fait
+# ce contrôle sur un serveur en marche sans rien purger ni relancer.
+#
 # Usage :  powershell -ExecutionPolicy Bypass -File scripts/serveur-dev.ps1
-#          [-Port 8020] [-StopOnly] [-KeepIfFresh]
+#          [-Port 8020] [-StopOnly] [-KeepIfFresh] [-CheckOnly]
 
 param(
-    # 8040 : 8010, 8020 puis 8030 sont HANTÉS sur ce poste (socket détenu par un PID
-    # mort, insensible aux kills des deux namespaces — vécu 2026-07-22 ×3).
-    [int]$Port = 8040,
+    # 8020 : le port de l'utilisateur (arbitrage du 2026-09-29). Il était hanté
+    # en juillet ; la cause (worker orphelin d'un redirecteur venv) est traitée
+    # par la purge ci-dessous depuis le 2026-07-27.
+    [int]$Port = 8020,
     [switch]$StopOnly,
-    [switch]$KeepIfFresh
+    [switch]$KeepIfFresh,
+    [switch]$CheckOnly
 )
 
 $ErrorActionPreference = "Stop"
@@ -182,17 +192,84 @@ function Test-ContenuFrais {
     return ($nbCompares -gt 0)
 }
 
+function Get-MotDePasseApp {
+    # Le mot de passe tel que l'APP le verra : .env chargé par python-dotenv,
+    # sans écraser une variable déjà posée (même règle que app/main.py), puis
+    # lu par app.auth.mot_de_passe(). Transporté en base64 UTF-8 : la console
+    # PS 5.1 mutile un accent. Jamais affiché.
+    $code = "import base64,sys; from pathlib import Path; from dotenv import load_dotenv; " +
+            "load_dotenv(Path(r'$racine') / '.env'); from app.auth import mot_de_passe; " +
+            "sys.stdout.write(base64.b64encode((mot_de_passe() or '').encode('utf-8')).decode('ascii'))"
+    Push-Location $racine
+    try { $b64 = (& $python -c $code 2>$null | Select-Object -Last 1) } finally { Pop-Location }
+    if (-not $b64) { return $null }
+    return [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64.Trim()))
+}
+
+function Get-CodeRouteProtegee {
+    # Code HTTP de GET /missions AUTHENTIFIÉ. 200 = le site sert vraiment ;
+    # 503 = mot de passe absent côté serveur ; 401 = mot de passe différent.
+    param([int]$NumPort, [string]$Mdp)
+    try {
+        $req = [System.Net.WebRequest]::Create("http://127.0.0.1:$NumPort/missions")
+        $req.Timeout = 10000
+        $req.Headers.Add("Authorization", "Bearer $Mdp")
+        $rep = $req.GetResponse(); $code = [int]$rep.StatusCode; $rep.Close()
+        return $code
+    } catch [System.Net.WebException] {
+        if ($_.Exception.Response) { return [int]$_.Exception.Response.StatusCode }
+        return 0
+    } catch { return 0 }
+}
+
 function Test-PythonFrais {
     # /__fraicheur : empreinte capturée à l'IMPORT par le worker == empreinte du
     # disque (recalculée par le même code). C'est LA détection du --reload qui a
-    # raté une modif — diagnostic superviseur 2026-07-23.
+    # raté une modif — diagnostic superviseur 2026-07-23. La route est PROTÉGÉE
+    # depuis le 2026-09-19 : sans l'en-tête, ce contrôle échouait toujours.
     param([int]$NumPort)
     try {
-        $servie = ((New-Object System.Net.WebClient).DownloadString("http://127.0.0.1:$NumPort/__fraicheur") |
+        $wc = New-Object System.Net.WebClient
+        $wc.Headers.Add("Authorization", "Bearer $script:motDePasse")
+        $servie = ($wc.DownloadString("http://127.0.0.1:$NumPort/__fraicheur") |
             ConvertFrom-Json).empreinte
         $disque = (& $python -c "from app.main import empreinte_code; print(empreinte_code())" 2>$null | Select-Object -Last 1).Trim()
         return ($servie -and $disque -and $servie -eq $disque)
     } catch { return $false }
+}
+
+# ---- 0a. Mot de passe : AVANT toute purge — ne jamais tuer un serveur pour en
+# relancer un qui rendrait 503 partout. ----
+$script:motDePasse = $null
+if (-not $StopOnly) {
+    $script:motDePasse = Get-MotDePasseApp
+    if (-not $script:motDePasse) {
+        # Pas Write-Error : sous EAP Stop il TERMINE le script en code 1, avant
+        # le `exit 2` qui distingue ce refus d'une panne.
+        $host.UI.WriteErrorLine(("APP_AUTH_PASSWORD absent (ni variable d'environnement ni .env) : le site " +
+                     "rendrait 503 sur toute page hors /connexion. Poser la ligne " +
+                     "APP_AUTH_PASSWORD=... dans .env puis relancer. Rien n'a été arrêté."))
+        exit 2
+    }
+}
+
+# ---- 0b. -CheckOnly : vérifier le serveur EN MARCHE, sans le toucher ----
+if ($CheckOnly) {
+    if (-not (Test-PortRepond -NumPort $Port)) {
+        Write-Error "KO : rien n'écoute sur http://127.0.0.1:$Port."
+        exit 1
+    }
+    $codeProtege = Get-CodeRouteProtegee -NumPort $Port -Mdp $script:motDePasse
+    $frais = Test-ContenuFrais -NumPort $Port
+    $fraisPy = Test-PythonFrais -NumPort $Port
+    if ($codeProtege -eq 200 -and $frais -and $fraisPy) {
+        Write-Host "OK : http://127.0.0.1:$Port sert /missions authentifié (200), statique ET python frais."
+        exit 0
+    }
+    Write-Error ("KO : /missions authentifié -> $codeProtege (503 = le SERVEUR n'a pas le mot de passe, " +
+                 "à relancer ; 401 = mot de passe du serveur différent du .env), statique frais: $frais, " +
+                 "python frais: $fraisPy.")
+    exit 1
 }
 
 # ---- 0. -KeepIfFresh (auto-start VS Code) : ne pas avorter un serveur sain ----
@@ -200,7 +277,8 @@ function Test-PythonFrais {
 # chaque folderOpen le tuerait en vol. Conservé UNIQUEMENT si statique ET python
 # servis == disque : un serveur au python périmé est purgé et relancé.
 if ($KeepIfFresh -and -not $StopOnly -and (Test-PortRepond -NumPort $Port)) {
-    if ((Test-ContenuFrais -NumPort $Port) -and (Test-PythonFrais -NumPort $Port)) {
+    if ((Test-ContenuFrais -NumPort $Port) -and (Test-PythonFrais -NumPort $Port) -and
+        ((Get-CodeRouteProtegee -NumPort $Port -Mdp $script:motDePasse) -eq 200)) {
         Write-Host "OK : serveur déjà frais (statique + python) sur http://127.0.0.1:$Port — conservé (-KeepIfFresh)."
         exit 0
     }
@@ -286,11 +364,12 @@ if (-not $pret) {
 # superviseur 2026-07-23 — la preuve octets ne couvrait que le statique).
 $frais = Test-ContenuFrais -NumPort $Port
 $fraisPy = Test-PythonFrais -NumPort $Port
+$codeProtege = Get-CodeRouteProtegee -NumPort $Port -Mdp $script:motDePasse
 $nbEcoute = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
     Select-Object -ExpandProperty OwningProcess -Unique).Count
-if ($frais -and $fraisPy -and $nbEcoute -eq 1) {
-    Write-Host "OK : serveur FRAIS sur http://127.0.0.1:$Port (1 seul listener, statique ET python servis = disque)."
+if ($frais -and $fraisPy -and $codeProtege -eq 200 -and $nbEcoute -eq 1) {
+    Write-Host "OK : serveur FRAIS sur http://127.0.0.1:$Port (1 seul listener, statique ET python servis = disque, /missions authentifié = 200)."
 } else {
-    Write-Error "Serveur lancé mais suspect (listeners uniques: $nbEcoute, statique frais: $frais, python frais: $fraisPy) — ne pas s'en servir tel quel."
+    Write-Error "Serveur lancé mais suspect (listeners uniques: $nbEcoute, statique frais: $frais, python frais: $fraisPy, /missions authentifié: $codeProtege) — ne pas s'en servir tel quel."
     exit 1
 }

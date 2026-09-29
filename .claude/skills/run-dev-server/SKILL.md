@@ -21,7 +21,24 @@ octets servis == octets sur disque) :
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/serveur-dev.ps1 -Port 8020
 # arrêt : ... -Port 8020 -StopOnly
+# vérifier le serveur de l'UTILISATEUR sans y toucher :
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/serveur-dev.ps1 -Port 8020 -CheckOnly
 ```
+
+**8020 est LE port de l'utilisateur** (arbitrage du 2026-09-29). **Avant d'écrire à
+l'utilisateur que son site marche, coller la sortie brute de `-CheckOnly`.** Rien
+d'autre ne le prouve :
+- `/connexion` et `/static/**` sont les SEULES routes publiques : un 200 dessus ne dit
+  rien d'un serveur qui rend 503 partout ailleurs (mot de passe absent). Le 2026-09-29,
+  « le serveur répond » fondé sur ces deux routes a été contredit trois fois par
+  l'utilisateur, clic sur Connexion à l'appui.
+- un screenshot pris sur un serveur de TEST lancé avec `APP_AUTH_PASSWORD=...` injecté
+  prouve le CODE, jamais le serveur de l'utilisateur ;
+- un serveur `--reload` peut servir du Python périmé : `-CheckOnly` compare l'empreinte
+  servie à celle du disque (`/__fraicheur`, authentifié).
+
+Le script refuse de démarrer (code 2, rien arrêté) si `APP_AUTH_PASSWORD` manque, et
+son OK exige `/missions` authentifié = 200 (`tests/test_serveur_dev_script.py`).
 
 Il est aussi lancé automatiquement à l'ouverture du dossier par `.vscode/tasks.json`
 (tâche « Serveur dev (fiable) », port 8020) — un serveur est donc souvent DÉJÀ en
@@ -31,8 +48,9 @@ ci-dessous reste valable pour un port ad hoc :
 
 ```bash
 cd <repo root>
-.venv/Scripts/python.exe -m uvicorn app.main:app --port 8010 --reload > /tmp/server.log 2>&1 &
-until curl -sf -o /dev/null http://127.0.0.1:8010/missions; do sleep 1; done
+APP_AUTH_PASSWORD=<mdp de test> .venv/Scripts/python.exe -m uvicorn app.main:app --port 8010 --reload > /tmp/server.log 2>&1 &
+# /missions rend 401 sans session depuis 2026-09-19 : attendre /connexion (publique)
+until curl -sf -o /dev/null http://127.0.0.1:8010/connexion; do sleep 1; done
 ```
 
 **`--reload` n'est pas optionnel** (surtout si l'utilisateur va s'en servir) : un

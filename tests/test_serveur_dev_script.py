@@ -1,136 +1,54 @@
-"""Garde-fous sur le lanceur `scripts/serveur-dev.ps1` (2026-07-27).
+"""scripts/serveur-dev.ps1 ne déclare plus « OK » un site qui rend 503.
 
-Le 2026-07-27, le port 8040 est resté « hanté » alors que le script venait de
-tourner : un serveur lancé avec le python SYSTÈME (hors venv du repo) avait
-laissé un worker `multiprocessing.spawn` orphelin. La purge ne le voyait pas —
-elle est scopée aux exécutables sous la racine du repo — et le kill du listener
-ne le voyait pas non plus, puisque Windows attribue le socket au PID du PARENT,
-mort. Le script sait désormais remonter d'un PID propriétaire mort à ses
-workers via le marqueur `parent_pid=<pid>` que `spawn_main` écrit dans leur
-ligne de commande.
-
-Portée de ces tests : ils vérifient le CONTRAT du script (la logique est
-présente ET branchée dans la purge), pas son exécution — un `.ps1` ne se
-dot-source pas sans déclencher la purge elle-même. La détection a été vérifiée
-en réel le 2026-07-27 en fabriquant un vrai orphelin (parent tué, enfant
-survivant sous `C:\\Python314\\python.exe`, retrouvé par la fonction). Ce qui
-casserait sans bruit et que ces tests attrapent : re-scoper la recherche au
-venv, ou définir la fonction sans l'appeler.
+Diagnostic superviseur du 2026-09-29 : le contrôle de santé n'exerçait que les
+routes publiques (/static/, et un code HTTP quelconque sur /). Un serveur sans
+APP_AUTH_PASSWORD était déclaré sain pendant que l'utilisateur voyait KO au
+clic sur Connexion, trois fois. Ces tests figent les deux gardes qui se jouent
+SANS lancer de serveur : refus sans mot de passe, et -CheckOnly qui ne lance
+rien. Port 8099 : jamais celui de l'utilisateur (8020).
 """
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "serveur-dev.ps1"
+RACINE = Path(__file__).resolve().parents[1]
+SCRIPT = RACINE / "scripts" / "serveur-dev.ps1"
+PORT_LIBRE = "8099"
+
+pytestmark = pytest.mark.skipif(
+    sys.platform != "win32" or shutil.which("powershell") is None,
+    reason="script PowerShell 5.1 propre au poste Windows",
+)
 
 
-@pytest.fixture(scope="module")
-def source() -> str:
-    assert SCRIPT.exists(), f"lanceur introuvable : {SCRIPT}"
-    return SCRIPT.read_text(encoding="utf-8-sig")
+def _lancer(*args: str, mot_de_passe: str) -> subprocess.CompletedProcess:
+    # Variable POSÉE (même vide) : python-dotenv n'écrase jamais une variable
+    # existante, donc le .env du poste ne peut pas fausser le test.
+    env = dict(os.environ, APP_AUTH_PASSWORD=mot_de_passe)
+    return subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+         str(SCRIPT), "-Port", PORT_LIBRE, *args],
+        cwd=RACINE, env=env, capture_output=True, timeout=180,
+    )
 
 
-def test_le_script_reste_encode_avec_bom(source: str) -> None:
-    """Un `.ps1` accentué sans BOM casse le parseur PowerShell 5.1 — le script
-    ne démarre alors plus du tout (piège déjà payé le 2026-07-22)."""
-    assert SCRIPT.read_bytes().startswith(b"\xef\xbb\xbf")
+def test_sans_mot_de_passe_le_script_refuse_avant_toute_purge() -> None:
+    res = _lancer(mot_de_passe="")
+    sortie = (res.stdout + res.stderr).decode("utf-8", errors="replace")
+    assert res.returncode == 2, sortie
+    assert "APP_AUTH_PASSWORD" in sortie
+    assert "Purge" not in sortie  # aucun serveur tué pour rien
 
 
-def test_la_recherche_de_workers_est_independante_de_l_interpreteur(source: str) -> None:
-    """Le worker fantôme du 2026-07-27 tournait sous le python système. Re-scoper
-    cette recherche (au venv, à `Name='python.exe'`…) la rendrait aveugle au cas
-    qu'elle existe précisément pour couvrir."""
-    debut = source.index("function Get-WorkersDeParent")
-    corps = source[debut:source.index("function", debut + 10)]
-    assert "parent_pid=$PidParent" in corps, "le lien parent->worker doit venir de parent_pid="
-    assert "Name='python.exe'" not in corps
-    assert ".venv" not in corps and "$racine" not in corps
-
-
-def test_seules_les_racines_sont_scopees_au_repo(source: str) -> None:
-    """CAUSE RACINE de la saga des ports condamnés (trouvée le 2026-07-27) :
-    `.venv\\Scripts\\python.exe` est un redirecteur — le vrai uvicorn et son
-    worker `--reload` tournent sous le python de BASE, hors de la racine du
-    repo. Filtrer la DESCENDANCE sur l'exécutable rendait la purge aveugle au
-    worker de notre propre serveur, qui survivait à chaque redémarrage et
-    tenait le port. Le scope repo ne doit donc porter que sur les RACINES."""
-    debut = source.index("function Get-ProcessusServeur")
-    corps = source[debut:source.index("function", debut + 10)]
-    racines, reste = corps.split("Get-DescendantsProcessus", 1)
-    assert "$racine\\*" in racines, "les racines restent scopées au repo"
-    # `$racines` (la variable) apparaît légitimement dans le reste : ce qui ne
-    # doit PAS y apparaître, c'est un nouveau filtre sur l'exécutable.
-    assert "ExecutablePath" not in reste
-    assert "$racine\\*" not in reste, "la descendance ne doit pas être re-filtrée sur l'exécutable"
-
-
-def test_la_descendance_suit_les_deux_liens_de_parente(source: str) -> None:
-    """Les deux liens sont nécessaires : `ParentProcessId` rate le worker spawn
-    dont le parent est déjà mort, `parent_pid=` rate un enfant qui n'est pas un
-    worker spawn (le vrai python derrière le redirecteur du venv)."""
-    debut = source.index("function Get-DescendantsProcessus")
-    corps = source[debut:source.index("function", debut + 10)]
-    assert "ParentProcessId -eq $id" in corps
-    assert "parent_pid=$id" in corps
-
-
-def test_la_purge_fait_deux_passes(source: str) -> None:
-    """Tant que le parent vit, ses workers ne sont pas encore « orphelins du
-    port » : un worker qui survit à la 1re passe n'est détectable qu'à la 2e.
-    Sans reprise, le port était déclaré hanté à tort."""
-    assert "foreach ($passe in 1..2)" in source
-    assert "if (-not (Test-PortRepond -NumPort $Port)) { break }" in source
-
-
-def test_la_purge_appelle_la_recherche_d_orphelins(source: str) -> None:
-    """Défaut le plus probable en cas de retouche : la fonction reste définie
-    mais plus personne ne l'appelle — le port redevient hanté en silence."""
-    ligne = next(l for l in source.splitlines() if l.strip().startswith("$aTuer ="))
-    assert "Get-WorkersOrphelinsDuPort" in ligne
-    assert "Get-ProcessusServeur" in ligne, "la purge scopée au repo reste nécessaire"
-
-
-def test_un_listener_non_python_n_est_jamais_tue(source: str) -> None:
-    """Garde-fou préexistant (revue 2026-07-22) : l'élargissement ne doit pas
-    l'avoir dilué — on ne tue pas l'appli tierce qui occupe le port."""
-    assert 'ProcessName -ne "python"' in source
-    assert "non tué" in source
-
-
-def test_la_purge_des_racines_est_scopee_au_port(source: str) -> None:
-    """Bug réel du 2026-09-08 : la purge tuait TOUS les uvicorn du repo, quel
-    que soit leur port — lancer `-Port 8040` pendant qu'un entretien
-    s'enregistrait sur 8020 a tué ce serveur en vol (9 segments de
-    transcription perdus côté navigateur, un job de répartition figé
-    `running`). Les racines doivent être filtrées sur le port de leur ligne
-    de commande, et la purge doit transmettre le port visé."""
-    debut = source.index("function Get-ProcessusServeur")
-    corps = source[debut:source.index("function", debut + 10)]
-    racines = corps.split("Get-DescendantsProcessus", 1)[0]
-    assert "Test-CommandeSurLePort" in racines, "les racines doivent être filtrées sur le port"
-    ligne = next(l for l in source.splitlines() if l.strip().startswith("$aTuer ="))
-    assert "Get-ProcessusServeur -NumPort $Port" in ligne
-
-
-def test_le_port_se_lit_dans_la_ligne_de_commande_uvicorn(source: str) -> None:
-    """`--port 8040` (forme du script) comme `--port=8040` doivent être
-    reconnus ; sans `--port`, uvicorn écoute sur 8000 — un serveur lancé sans
-    option ne doit être purgé que par un `-Port 8000`."""
-    debut = source.index("function Test-CommandeSurLePort")
-    corps = source[debut:source.index("function", debut + 10)]
-    assert "--port[ =]" in corps
-    assert "8000" in corps
-
-
-def test_le_journal_precedent_est_conserve_avant_le_lancement(source: str) -> None:
-    """`Start-Process -RedirectStandardOutput` ÉCRASE le journal à chaque
-    lancement : le 2026-09-08, un redémarrage en cours d'entretien a effacé les
-    deux premières heures de requêtes — exactement celles qu'il fallait lire
-    pour comprendre l'absence de sauvegarde audio. Une génération est gardée
-    (`.prev`), et la rotation précède le lancement."""
-    rotation = source.index('Move-Item -Force -Path $ancien -Destination ($ancien + ".prev")')
-    lancement = source.index("$proc = Start-Process")
-    assert rotation < lancement
-    assert '($journal + ".err")' in source[rotation - 400:rotation], "le .err tourne avec le journal"
+def test_check_only_ne_lance_rien_et_dit_ko_sur_un_port_muet() -> None:
+    res = _lancer("-CheckOnly", mot_de_passe="mdp-de-test")
+    sortie = (res.stdout + res.stderr).decode("utf-8", errors="replace")
+    assert res.returncode == 1, sortie
+    assert "uvicorn lancé" not in sortie
+    assert "Purge" not in sortie

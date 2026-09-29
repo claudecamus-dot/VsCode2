@@ -114,6 +114,11 @@ ci-dessus plutôt que d'en dupliquer la logique.
 - [ ] Toute surface runtime touchée **exercée pour de vrai**, pas seulement en
       unitaire :
   - écran / template / CSS / HTMX → `run-dev-server` (screenshot regardé).
+  - **« le site de l'utilisateur marche »** → la sortie BRUTE de
+    `scripts/serveur-dev.ps1 -Port 8020 -CheckOnly` (route protégée authentifiée = 200
+    + Python servi = disque), collée telle quelle. Un 200 sur `/connexion` ou
+    `/static/` et un screenshot sur un serveur de test ne comptent pas
+    (diagnostic superviseur du 2026-09-29 : trois « OK » démentis au clic).
   - **enregistrement libre, transcription, tour de table** → `tests/test_e2e_enregistrement_libre.py`
     (faux micro Chromium + vraie transcription `tiny` + faux Ollama HTTP) joué,
     et allongé si l'écran d'enregistrement ou le rejeu changent.
