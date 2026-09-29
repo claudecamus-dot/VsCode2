@@ -56,6 +56,9 @@ def theme_material(mission: Mission, theme: Theme) -> tuple[dict, list]:
                 by_question.setdefault(q.id, []).append(
                     {
                         "interviewee": iv.interviewee_name,
+                        # Identifiant stable (I2) : la génération des constats
+                        # cite les entretiens par id, jamais par nom.
+                        "interview_id": iv.id,
                         "role": iv.interviewee_role,
                         "text": (a.text or "").strip(),
                         "value": (a.value or "").strip(),
@@ -64,7 +67,8 @@ def theme_material(mission: Mission, theme: Theme) -> tuple[dict, list]:
         for v in iv.verbatims:
             if v.question_id in qids:
                 verbatims.append(
-                    {"interviewee": iv.interviewee_name, "quote": v.quote}
+                    {"interviewee": iv.interviewee_name, "interview_id": iv.id,
+                     "quote": v.quote}
                 )
     return by_question, verbatims
 

@@ -269,9 +269,16 @@ def apply_recommendations_result(db: Session, mission: Mission, axes_data: list[
             # aux constats DÉJÀ en base — l'import les écrit avant les recos.
             reco = dict(reco)
             libelles = reco.pop("constats", None)
+            # Génération IA (I2 étape 2) : identifiants DÉJÀ filtrés contre la
+            # mission par `generate_recommendations` ; refiltrés ici (un id
+            # d'une autre mission ne relie jamais rien).
+            constat_ids = reco.pop("constat_ids", None)
             recommandation = Recommendation(axis_id=axis.id, position=rpos, **reco)
             if libelles:
                 from .constats import lier_aux_constats
 
                 lier_aux_constats(recommandation, libelles, mission)
+            elif constat_ids:
+                par_id = {c.id: c for c in mission.constats}
+                recommandation.constats = [par_id[i] for i in constat_ids if i in par_id]
             db.add(recommandation)

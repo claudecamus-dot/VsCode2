@@ -52,6 +52,52 @@ def apply_constats_import(db: Session, mission: Mission, constats: list[dict]) -
     for iv in mission.interviews:
         par_nom.setdefault(_cle_nom(iv.interviewee_name), []).append(iv)
 
+    def resoudre(item):
+        porteurs, non_rattaches = [], []
+        for nom in _noms_rattachables(item["noms"], par_nom):
+            candidats = par_nom.get(_cle_nom(nom), [])
+            if len(candidats) == 1:
+                if candidats[0] not in porteurs:
+                    porteurs.append(candidats[0])
+            elif _cle_nom(nom) not in {_cle_nom(n) for n in non_rattaches}:
+                # 0 = inconnu dans la mission, 2+ = homonymes : dans les deux
+                # cas, choisir serait inventer qui a parlé.
+                non_rattaches.append(nom)
+        return porteurs, non_rattaches
+
+    _remplacer_constats(db, mission, constats, resoudre)
+
+
+def apply_constats_ia(db: Session, mission: Mission, constats: list[dict]) -> bool:
+    """Écrit les constats proposés par l'IA (`synthese_ai.generate_constats`).
+
+    Même contrat que l'import : liste vide = rien n'est touché (un modèle muet
+    n'efface pas des constats existants), constat `edite` jamais écrasé ni
+    doublé, liens reco -> constat reposés. Les porteurs viennent d'identifiants
+    d'entretien DÉJÀ validés contre la mission ; ceux que le modèle a inventés
+    arrivent dans `ids_rejetes` et restent visibles en clair
+    (`noms_non_rattaches`) sans jamais entrer dans le décompte N.
+    Rend True si quelque chose a été écrit."""
+    if not constats:  # modèle muet : les constats existants restent
+        return False
+    par_id = {iv.id: iv for iv in mission.interviews}
+
+    def resoudre(item):
+        porteurs = []
+        for iid in item.get("interview_ids") or []:
+            iv = par_id.get(iid)
+            if iv is not None and iv not in porteurs:
+                porteurs.append(iv)
+        rejetes = [f"E{x} (hors mission)" if isinstance(x, int) else f"{x} (non reconnu)"
+                   for x in item.get("ids_rejetes") or []]
+        return porteurs, rejetes
+
+    _remplacer_constats(db, mission, constats, resoudre)
+    return True
+
+
+def _remplacer_constats(db: Session, mission: Mission, constats: list[dict], resoudre) -> None:
+    """Cœur commun import / IA : `resoudre(item) -> (porteurs, non_rattaches)`."""
     gardes = [c for c in mission.constats if c.edite]
     # Les liens reco -> constat portés par un constat qu'on va supprimer :
     # la CASCADE les efface, et un réimport limité à `## CONSTATS` (recos non
@@ -80,16 +126,7 @@ def apply_constats_import(db: Session, mission: Mission, constats: list[dict]) -
         if cle in edites or (*cle, item["type"]) in vus:
             continue
         vus.add((*cle, item["type"]))
-        porteurs, non_rattaches = [], []
-        for nom in _noms_rattachables(item["noms"], par_nom):
-            candidats = par_nom.get(_cle_nom(nom), [])
-            if len(candidats) == 1:
-                if candidats[0] not in porteurs:
-                    porteurs.append(candidats[0])
-            elif _cle_nom(nom) not in {_cle_nom(n) for n in non_rattaches}:
-                # 0 = inconnu dans la mission, 2+ = homonymes : dans les deux
-                # cas, choisir serait inventer qui a parlé.
-                non_rattaches.append(nom)
+        porteurs, non_rattaches = resoudre(item)
         constat = MissionConstat(
             axe_key=item["axe_key"], type=item["type"], libelle=item["libelle"],
             position=position, noms_non_rattaches=", ".join(non_rattaches),

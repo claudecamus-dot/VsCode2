@@ -19,7 +19,8 @@ import logging
 from ..db import SessionLocal
 from ..models import GlobalSynthesis, Mission
 from .mission_axes import axes_of
-from .synthese_ai import SynthesisAIError, generate_global_synthesis
+from .constats import apply_constats_ia
+from .synthese_ai import SynthesisAIError, generate_constats, generate_global_synthesis
 from .synthese_ecriture import apply_global_synthesis_result
 from .synthese_material import all_theme_material, libre_material
 
@@ -50,6 +51,26 @@ def reconcile_running_on_startup() -> int:
         return len(bloquees)
     finally:
         db.close()
+
+
+def _generer_constats(db, mission, material_by_theme, material_libre) -> str | None:
+    """I2 étape 1, APRÈS la synthèse déjà committée : un échec ici ne la
+    défait jamais. Rend le message d'erreur à poser sur le job (seul canal vers
+    l'écran), en disant que la synthèse, elle, est à jour ; None si tout va bien.
+    Sortie vide = constats existants intacts (`apply_constats_ia`)."""
+    # Arbitrage 2026-09-29 (option A) : l'IA ne propose des constats que si la
+    # mission n'en a AUCUN. Des constats importés ou édités sont le travail du
+    # consultant ; une régénération de la synthèse ne les remplace jamais.
+    if mission.constats:
+        return None
+    try:
+        result = generate_constats(
+            mission, material_by_theme, material_libre, axes=axes_of(db, mission)
+        )
+    except SynthesisAIError as exc:
+        return f"Synthèse globale mise à jour, mais constats non générés : {exc}"
+    apply_constats_ia(db, mission, result["constats"])
+    return None
 
 
 def run_global_synthesis_job(mission_id: int) -> None:
@@ -95,8 +116,15 @@ def run_global_synthesis_job(mission_id: int) -> None:
         # (le suivi d'avancement interrogé par l'écran), pas à l'application
         # d'un résultat de synthèse — le chemin synchrone du router n'a pas de
         # statut de génération à remettre au repos.
-        global_synthesis.generation_status = "idle"
-        global_synthesis.generation_error = None
+        #
+        # La synthèse est committée AVANT les constats (statut encore
+        # `running` : le bouton reste bloqué, pas de 2e job concurrent) — un
+        # échec des constats ne la perd donc jamais.
+        db.commit()
+        erreur_constats = _generer_constats(
+            db, mission, material_by_theme, material_libre)
+        global_synthesis.generation_status = "error" if erreur_constats else "idle"
+        global_synthesis.generation_error = erreur_constats
         db.commit()
     except Exception as exc:  # garde-fou : un job planté ne doit pas rester "running"
         # Journal À L'ENTRÉE du handler, avant toute condition (audit-technique

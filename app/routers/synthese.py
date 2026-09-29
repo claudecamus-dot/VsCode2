@@ -546,7 +546,11 @@ def generate_recommendations_view(
             confirmation = {"action": str(request.url.path), "libelle": refus["libelle"]}
         else:
             try:
-                axes_data = generate_recommendations(global_synthesis, axes_of(db, mission))
+                # I2 étape 2 : la reco part des constats et les cite par id.
+                # Sans constats, appel inchangé (même prompt qu'avant).
+                extra = {"constats": list(mission.constats)} if mission.constats else {}
+                axes_data = generate_recommendations(
+                    global_synthesis, axes_of(db, mission), **extra)
                 apply_recommendations_result(db, mission, axes_data)
                 db.commit()
                 db.refresh(mission)

@@ -182,7 +182,16 @@ def _axes_par_defaut() -> list:
     return [_AxeParDefaut(*d) for d in DEFAUTS]
 
 
-def _global_material_blocks(material_by_theme, material_libre=None, axes=None) -> list[str]:
+def _qui(nom: str, interview_id, avec_ids: bool) -> str:
+    """`[E12] Nom` quand la génération doit citer les entretiens (constats I2) ;
+    le nom seul sinon — le prompt de synthèse globale reste octet pour octet
+    celui d'avant (et donc l'empreinte du cache de reprise)."""
+    if avec_ids and interview_id is not None:
+        return f"[E{interview_id}] {nom}"
+    return nom
+
+
+def _global_material_blocks(material_by_theme, material_libre=None, axes=None, avec_ids=False) -> list[str]:
     """Un bloc de texte par thème et par entretien libre — l'unité de découpe
     du map-reduce (on ne coupe jamais au milieu d'un thème ou d'un entretien).
 
@@ -206,7 +215,7 @@ def _global_material_blocks(material_by_theme, material_libre=None, axes=None) -
                 continue
             lines.append(f"Question : {q.label}")
             for r in rows:
-                who = r["interviewee"]
+                who = _qui(r["interviewee"], r.get("interview_id"), avec_ids)
                 if r.get("role"):
                     who += f" ({r['role']})"
                 answer = " / ".join(p for p in (r.get("value"), r.get("text")) if p)
@@ -214,11 +223,13 @@ def _global_material_blocks(material_by_theme, material_libre=None, axes=None) -
         if verbatims:
             lines.append("Verbatims :")
             for v in verbatims:
-                lines.append(f"  « {v['quote']} » — {v['interviewee']}")
+                qui = _qui(v["interviewee"], v.get("interview_id"), avec_ids)
+                lines.append(f"  « {v['quote']} » — {qui}")
         blocks.append("\n".join(lines))
     libelles = {axe.key: axe.label for axe in (axes or _axes_par_defaut())}
     for interview, repartition in material_libre or []:
-        lines = [f"=== ENTRETIEN LIBRE : {interview.interviewee_name} ==="]
+        qui = _qui(interview.interviewee_name, getattr(interview, "id", None), avec_ids)
+        lines = [f"=== ENTRETIEN LIBRE : {qui} ==="]
         # Les AXES DE LA MISSION, pas les 5 clés historiques (correctif 2026-07-28,
         # trouvé en revue adversariale) : `libelles` était construite ici puis jamais
         # lue, et la boucle restait figée sur les 5 défauts. Or `Interview.repartition`
@@ -490,6 +501,173 @@ def generate_global_synthesis(mission, material_by_theme, material_libre=None, a
 
 
 # --------------------------------------------------------------------------- #
+# Constats qualifiés consensus / écart (I2, étape 1 de la spec) — un appel
+# DÉDIÉ plutôt qu'un champ de plus dans `generate_global_synthesis` : la
+# synthèse garde son schéma, son prompt et son cache de reprise inchangés, et
+# un modèle qui renvoie une liste vide ne vide jamais la synthèse.
+# Les entretiens sont cités par identifiant stable `E<id>` ; un identifiant
+# absent de la mission est REJETÉ à la lecture (spec A2), jamais cru.
+# --------------------------------------------------------------------------- #
+CONSTATS_MAX_TOKENS = 3000
+
+_ID_ENTRETIEN_RE = re.compile(r"^\[?\s*E?\s*(\d+)\s*\]?$", re.IGNORECASE)
+_ID_CONSTAT_RE = re.compile(r"^\[?\s*C?\s*(\d+)\s*\]?$", re.IGNORECASE)
+
+
+def constats_system(axes) -> str:
+    lignes = "".join(f"- {axe.key} (rubrique « {axe.label} »)\n" for axe in axes)
+    return (
+        "Tu es consultant·e senior. À partir des réponses d'entretiens d'une "
+        "mission, identifie les CONSTATS transverses : pour chacun, dis s'il "
+        "s'agit d'un consensus (les personnes interrogées convergent) ou d'un "
+        "écart (elles divergent sensiblement), rattache-le à UNE rubrique parmi :\n"
+        f"{lignes}"
+        "et cite les entretiens qui le portent par leur identifiant entre "
+        "crochets tel qu'il figure dans la matière (ex. \"E12\"). N'invente "
+        "aucun identifiant ; un constat porté par une seule personne n'est pas "
+        "un consensus. Libellé : une phrase courte et factuelle."
+    )
+
+
+CONSTATS_JSON_HINT = (
+    '\nRéponds UNIQUEMENT par un objet JSON à la clé "constats", liste '
+    "d'objets {\"axe\", \"type\" (\"consensus\" ou \"ecart\"), \"libelle\", "
+    '"interviewes" (liste d\'identifiants comme "E12")}.'
+)
+
+CONSTATS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "constats": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "axe": {"type": "string"},
+                    "type": {"type": "string", "enum": ["consensus", "ecart"]},
+                    "libelle": {"type": "string"},
+                    "interviewes": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["axe", "type", "libelle", "interviewes"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["constats"],
+    "additionalProperties": False,
+}
+
+
+def _norm_type_constat(value) -> str | None:
+    t = str(value or "").strip().casefold()
+    t = t.replace("é", "e").replace("è", "e")
+    if t.startswith("consensus"):
+        return "consensus"
+    if t.startswith("ecart") or t.startswith("divergence"):
+        return "ecart"
+    return None
+
+
+def _snap_axe_key(value, axes) -> str | None:
+    """Clé d'axe de la mission, par clé OU par libellé ; None si inconnu —
+    un constat rangé sous une rubrique que la mission n'a pas n'apparaîtrait
+    nulle part à l'écran."""
+    v = " ".join(str(value or "").split()).casefold()
+    for axe in axes:
+        if v in (axe.key.casefold(), " ".join(axe.label.split()).casefold()):
+            return axe.key
+    return None
+
+
+def _parse_ids(values, motif) -> list:
+    """Chaînes/entiers -> entiers ; une valeur illisible est rendue telle quelle
+    (chaîne) pour être comptée comme rejetée, jamais comme un porteur."""
+    if not isinstance(values, list):
+        values = [values] if values not in (None, "") else []
+    out = []
+    for v in values:
+        m = motif.match(str(v).strip())
+        out.append(int(m.group(1)) if m else str(v).strip())
+    return out
+
+
+def _clean_constats(data, axes, ids_valides: set) -> tuple[list[dict], list]:
+    """Rend `(constats, rejetes)`. Chaque constat : `{axe_key, type, libelle,
+    interview_ids, ids_rejetes}`. Un identifiant hors mission va dans
+    `ids_rejetes` ; le constat, lui, est gardé (le consultant voit alors 0/M ou
+    un décompte faible, et la mention « hors mission »)."""
+    items = (data or {}).get("constats") if isinstance(data, dict) else None
+    out, rejetes = [], []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        libelle = " ".join(str(item.get("libelle") or "").split())
+        type_ = _norm_type_constat(item.get("type"))
+        axe_key = _snap_axe_key(item.get("axe"), axes)
+        if not libelle or type_ is None or axe_key is None:
+            continue
+        valides, hors = [], []
+        for x in _parse_ids(item.get("interviewes"), _ID_ENTRETIEN_RE):
+            if isinstance(x, int) and x in ids_valides:
+                if x not in valides:
+                    valides.append(x)
+            elif x != "" and x not in hors:
+                hors.append(x)
+        rejetes.extend(hors)
+        out.append({"axe_key": axe_key, "type": type_, "libelle": libelle,
+                    "interview_ids": valides, "ids_rejetes": hors})
+    return out, rejetes
+
+
+def _fusionner_constats(listes: list[list[dict]]) -> list[dict]:
+    """Constats de plusieurs tronçons : même (axe, libellé, type) = un seul,
+    porteurs réunis. Pas d'appel de réduction : chaque tronçon couvre des
+    thèmes/entretiens distincts, et un appel IA de plus sur une chaîne déjà
+    longue coûte plus qu'il ne rapporte (risque nommé par la spec)."""
+    par_cle: dict[tuple, dict] = {}
+    for liste in listes:
+        for c in liste:
+            cle = (c["axe_key"], c["libelle"].casefold(), c["type"])
+            if cle not in par_cle:
+                par_cle[cle] = {**c, "interview_ids": list(c["interview_ids"]),
+                                "ids_rejetes": list(c["ids_rejetes"])}
+                continue
+            cible = par_cle[cle]
+            for k in ("interview_ids", "ids_rejetes"):
+                cible[k] += [x for x in c[k] if x not in cible[k]]
+    return list(par_cle.values())
+
+
+def generate_constats(mission, material_by_theme, material_libre=None, axes=None,
+                      ids_valides=None) -> dict:
+    """Retourne `{"constats": [...], "ids_rejetes": [...]}`. Lève SynthesisAIError.
+
+    `ids_valides` : identifiants des entretiens DE LA MISSION (par défaut
+    `mission.interviews`). Tout autre identifiant cité est rejeté."""
+    axes = list(axes) if axes else _axes_par_defaut()
+    if ids_valides is None:
+        ids_valides = {iv.id for iv in getattr(mission, "interviews", []) or []}
+    blocks = _global_material_blocks(material_by_theme, material_libre, axes, avec_ids=True)
+    if not blocks:
+        return {"constats": [], "ids_rejetes": []}
+    groups = _chunk_blocks(blocks, ollama_chunk_max_words())
+    system = constats_system(axes)
+    header = f"MISSION : {mission.name}"
+    listes, rejetes = [], []
+    for i, group in enumerate(groups, start=1):
+        titre = header if len(groups) == 1 else f"{header} (extrait {i}/{len(groups)})"
+        data = _call_claude(system, "\n\n".join([titre, *group]), CONSTATS_SCHEMA,
+                            CONSTATS_JSON_HINT, max_tokens=CONSTATS_MAX_TOKENS)
+        constats, rej = _clean_constats(data, axes, set(ids_valides))
+        listes.append(constats)
+        rejetes.extend(rej)
+    if rejetes:
+        logger.warning("Constats IA : %d identifiant(s) d'entretien rejeté(s) (%s)",
+                       len(rejetes), rejetes[:10])
+    return {"constats": _fusionner_constats(listes), "ids_rejetes": rejetes}
+
+
+# --------------------------------------------------------------------------- #
 # Recommandations (évol) : dérivées de la synthèse globale déjà générée (pas
 # des réponses brutes), regroupées en quelques axes transverses — chaque
 # fiche suit un schéma fixe calqué sur un rapport de restitution réel.
@@ -543,6 +721,11 @@ RECO_SCHEMA = {
                                 "proposition_valeur": {"type": "string"},
                                 "plan_actions": {"type": "string"},
                                 "resultats_attendus": {"type": "string"},
+                                # I2 étape 2 : identifiants des constats qui
+                                # motivent la reco (« C12 »). NON requis : la
+                                # spec demande de mesurer sur un vrai modèle
+                                # avant de le rendre obligatoire.
+                                "constats": {"type": "array", "items": {"type": "string"}},
                             },
                             "required": [
                                 "title", "objectif", "acteurs", "valeur",
@@ -571,13 +754,25 @@ def _clamp_score(value) -> int:
     return max(1, min(5, n))
 
 
-def _build_reco_prompt(global_synthesis, axes=None) -> str:
+def _build_reco_prompt(global_synthesis, axes=None, constats=None) -> str:
     """Matière des recommandations (et, par ricochet, du SWOT et des
     difficultés, qui en dérivent) : les rubriques suivent désormais les AXES de
     la mission. Sans axes fournis, les 5 historiques — le contenu d'un axe
-    ajouté serait sinon absent du prompt, donc jamais restitué."""
-    lines = ["SYNTHÈSE TRANSVERSE DE LA MISSION", ""]
+    ajouté serait sinon absent du prompt, donc jamais restitué.
+
+    `constats` (I2, étape 2) : quand la mission en a, ils ouvrent le prompt
+    avec leur identifiant `C<id>` — la reco part des constats et les cite.
+    Sans constats (SWOT, difficultés…), le prompt reste celui d'avant."""
+    lines = []
     axes = list(axes) if axes else _axes_par_defaut()
+    if constats:
+        labels = {axe.key: axe.label for axe in axes}
+        lines += ["CONSTATS DE LA MISSION (cite leurs identifiants dans \"constats\")", ""]
+        for c in constats:
+            type_ = "consensus" if c.type == "consensus" else "écart"
+            lines.append(f"- [C{c.id}] ({labels.get(c.axe_key, c.axe_key)}, {type_}) {c.libelle}")
+        lines.append("")
+    lines += ["SYNTHÈSE TRANSVERSE DE LA MISSION", ""]
     fields = [(axe.label, global_synthesis.contenu(axe.key)) for axe in axes]
     for label, content in fields:
         if (content or "").strip():
@@ -587,28 +782,53 @@ def _build_reco_prompt(global_synthesis, axes=None) -> str:
     return "\n".join(lines)
 
 
-def generate_recommendations(global_synthesis, axes=None) -> list[dict]:
+def generate_recommendations(global_synthesis, axes=None, constats=None) -> list[dict]:
     """Retourne une liste d'axes {"title", "recommendations": [...]}.
-    Lève SynthesisAIError."""
-    prompt = _build_reco_prompt(global_synthesis, axes)
-    data = _call_claude(RECO_SYSTEM, prompt, RECO_SCHEMA, RECO_JSON_HINT, max_tokens=RECO_MAX_TOKENS)
+    Lève SynthesisAIError.
+
+    Avec `constats` (objets MissionConstat de la mission), chaque reco porte
+    `constat_ids` : les identifiants cités par le modèle QUI EXISTENT dans
+    la mission. Un identifiant inconnu est rejeté (journalisé), jamais
+    affiché tel quel."""
+    prompt = _build_reco_prompt(global_synthesis, axes, constats)
+    system = RECO_SYSTEM
+    if constats:
+        system += (
+            "\nPars des CONSTATS fournis : pour chaque recommandation, renseigne "
+            "aussi constats : la liste des identifiants (ex. \"C12\") des "
+            "constats qui la motivent, uniquement parmi ceux fournis."
+        )
+    data = _call_claude(system, prompt, RECO_SCHEMA, RECO_JSON_HINT, max_tokens=RECO_MAX_TOKENS)
+    ids_connus = {c.id for c in constats or []}
+    rejetes = []
     axes = []
     for axis in data.get("axes") or []:
         recos = []
         for r in axis.get("recommendations") or []:
-            recos.append(
-                {
-                    "title": (r.get("title") or "").strip(),
-                    "objectif": (r.get("objectif") or "").strip(),
-                    "acteurs": (r.get("acteurs") or "").strip(),
-                    "valeur": _clamp_score(r.get("valeur")),
-                    "complexite": _clamp_score(r.get("complexite")),
-                    "proposition_valeur": (r.get("proposition_valeur") or "").strip(),
-                    "plan_actions": (r.get("plan_actions") or "").strip(),
-                    "resultats_attendus": (r.get("resultats_attendus") or "").strip(),
-                }
-            )
+            reco = {
+                "title": _titre_reco(r.get("title")),
+                "objectif": _texte_reco(r.get("objectif")),
+                "acteurs": _texte_reco(r.get("acteurs")),
+                "valeur": _clamp_score(r.get("valeur")),
+                "complexite": _clamp_score(r.get("complexite")),
+                "proposition_valeur": _texte_reco(r.get("proposition_valeur")),
+                "plan_actions": _texte_reco(r.get("plan_actions")),
+                "resultats_attendus": _texte_reco(r.get("resultats_attendus")),
+            }
+            if constats:
+                ids = []
+                for x in _parse_ids(r.get("constats"), _ID_CONSTAT_RE):
+                    if isinstance(x, int) and x in ids_connus:
+                        if x not in ids:
+                            ids.append(x)
+                    elif x != "":
+                        rejetes.append(x)
+                reco["constat_ids"] = ids
+            recos.append(reco)
         axes.append({"title": (axis.get("title") or "").strip(), "recommendations": recos})
+    if rejetes:
+        logger.warning("Recos IA : %d identifiant(s) de constat rejeté(s) (%s)",
+                       len(rejetes), rejetes[:10])
     return axes
 
 
@@ -675,6 +895,22 @@ def _bullet_line(item) -> str:
     if isinstance(item, list):
         return " ; ".join(t for t in (_bullet_line(x) for x in item) if t)
     return ""
+
+
+def _titre_reco(value) -> str:
+    """Titre d'une reco IA : une liste est jointe par « ; » sur UNE ligne —
+    des puces n'ont pas de sens dans un titre (écran, deck)."""
+    if isinstance(value, str):
+        return value.strip()
+    return " ; ".join(l.lstrip("- ").strip() for l in _coerce_bullets(value).splitlines() if l.strip())
+
+
+def _texte_reco(value) -> str:
+    """Champ texte d'une reco IA : une chaîne est gardée, une liste (ou un
+    objet) est APLATIE en puces. Mesure réelle du 2026-09-29 (qwen2.5:3b) :
+    `plan_actions` revenait en liste et `.strip()` levait AttributeError —
+    toute la génération des recos échouait. Même leçon que `_clean_global`."""
+    return value.strip() if isinstance(value, str) else _coerce_bullets(value)
 
 
 def _coerce_bullets(value) -> str:

@@ -374,6 +374,20 @@ def pytest_sessionstart(session):  # noqa: ARG001
     vider_recordings_de_test()
 
 
+@pytest.fixture(autouse=True)
+def _constats_ia_neutres(monkeypatch: pytest.MonkeyPatch):
+    """Le job de synthèse globale enchaîne la génération IA des constats (I2,
+    tranche 4). Les tests qui simulent `generate_global_synthesis` sans rien
+    savoir de cette seconde étape partiraient sinon vers un VRAI fournisseur IA
+    (Ollama écoute souvent sur le poste) : lent, non déterministe. Par défaut
+    elle rend une liste vide (= constats intacts) ; un test qui l'exerce la
+    remplace par son propre `monkeypatch.setattr`."""
+    from app.services import global_synthesis_job
+
+    monkeypatch.setattr(global_synthesis_job, "generate_constats",
+                        lambda *a, **k: {"constats": [], "ids_rejetes": []})
+
+
 @pytest.fixture
 def tmp_path_git(monkeypatch: pytest.MonkeyPatch):
     """Un dossier temporaire où `git` FONCTIONNE même quand la suite tourne
