@@ -726,6 +726,26 @@
       ],
       "decision": "ACCEPTE : corriger dans CE lot (et non tracer pour plus tard ni laisser tel quel). Defaut preexistant, releve par la lentille Boundary de la salle code-review-crew. Regle unique dans synthese_ecriture._resultat_entierement_vide : vide = TOUS les champs blancs, jamais un seul (une SWOT sans menaces est une generation legitime) — la regle des listes transposee, deja appliquee localement par l'import d'analyse externe, dont la copie a ete supprimee.",
       "preuve_application": "commit 68054cf"
+    },
+    {
+      "cible": "veille:silence-is-endorsement-2609-20211",
+      "date": "2026-09-29",
+      "titre": "Silence Is Endorsement - le statut non-verifie d'une revendication se perd au relais entre agents (arXiv 2609.20211)",
+      "categories": [
+        "pratique-revue"
+      ],
+      "decision": "ACCEPTE + APPLIQUE 2026-09-29 (VSCode2 c406f38) : audit du relais joue ; regle canon statut_preuve adoptee au hub VSCode5, propagation par sync_dispositif (a verifier a la reception)",
+      "preuve_application": "write_diagnostic --fusionner sur diag.json de scratchpad : preuve 'HYPOTHESE non reproduite' -> REFUS 'preuve NON MESUREE' ; grep -c 'statut_preuve|a_verifier' scan_transcripts.py = 0, agents-supervision.md = 0"
+    },
+    {
+      "cible": "veille:htmx-claude-skill",
+      "date": "2026-09-29",
+      "titre": "ercan-er/htmx-claude-skill - skill HTMX production-grade",
+      "categories": [
+        "pratique-dev"
+      ],
+      "decision": "ACCEPTE (instruit) 2026-09-29 (VSCode2 c406f38) : rien a greffer - deja couvert ; jeton CSRF cache contraire au garde Origin/Referer arbitre ; entree veille passee en ecarte",
+      "preuve_application": "lecture integrale 12 .md du depot (MIT) ; grep -c HX-Trigger app/ = 0"
     }
   ]
 }
