@@ -834,10 +834,10 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-09-29T10:07:34+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-09-29T18:17:19+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>95 sessions</strong> couvertes · <strong>323</strong> invocations de skills · <strong>369</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>96 sessions</strong> couvertes · <strong>330</strong> invocations de skills · <strong>381</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
         <div class="tag-source">scan_transcripts.py · 2026-09-29 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
@@ -847,22 +847,22 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Skill</th><th>Famille</th><th>Invocations</th><th>Première</th><th>Dernière</th></tr></thead>
           <tbody>
-            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>66</td><td>2026-07-17</td><td>2026-09-28</td></tr>
-            <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>58</td><td>2026-07-20</td><td>2026-09-29</td></tr>
+            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>67</td><td>2026-07-17</td><td>2026-09-29</td></tr>
+            <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>62</td><td>2026-07-20</td><td>2026-09-29</td></tr>
             <tr><td><code>run-dev-server</code></td><td>projet</td><td>49</td><td>2026-07-03</td><td>2026-09-29</td></tr>
             <tr><td><code>bmad-review-edge-case-hunter</code></td><td>BMAD</td><td>26</td><td>2026-07-20</td><td>2026-09-07</td></tr>
-            <tr><td><code>agent-supervisor</code></td><td>projet</td><td>22</td><td>2026-07-18</td><td>2026-09-16</td></tr>
+            <tr><td><code>agent-supervisor</code></td><td>projet</td><td>22</td><td>2026-07-18</td><td>2026-09-29</td></tr>
             <tr><td><code>bmad-review-adversarial-general</code></td><td>BMAD</td><td>19</td><td>2026-07-20</td><td>2026-09-07</td></tr>
             <tr><td><code>revue-increment</code></td><td>projet</td><td>17</td><td>2026-07-18</td><td>2026-09-16</td></tr>
             <tr><td><code>bmad-party-mode</code></td><td>BMAD</td><td>11</td><td>2026-07-31</td><td>2026-09-29</td></tr>
-            <tr><td><code>pptx-verify</code></td><td>projet</td><td>11</td><td>2026-07-03</td><td>2026-09-26</td></tr>
+            <tr><td><code>pptx-verify</code></td><td>projet</td><td>11</td><td>2026-07-03</td><td>2026-09-29</td></tr>
             <tr><td><code>update-config</code></td><td>(builtin/session)</td><td>8</td><td>2026-07-03</td><td>2026-09-28</td></tr>
+            <tr><td><code>deck-design-library</code></td><td>projet</td><td>4</td><td>2026-07-28</td><td>2026-09-29</td></tr>
             <tr><td><code>roadmap-keeper</code></td><td>global</td><td>4</td><td>2026-06-29</td><td>2026-07-15</td></tr>
             <tr><td><code>bmad-review</code></td><td>BMAD</td><td>3</td><td>2026-09-15</td><td>2026-09-29</td></tr>
             <tr><td><code>run</code></td><td>(builtin/session)</td><td>3</td><td>2026-06-29</td><td>2026-07-03</td></tr>
             <tr><td><code>veille-agentic</code></td><td>projet</td><td>3</td><td>2026-09-08</td><td>2026-09-28</td></tr>
             <tr><td><code>bmad-brainstorming</code></td><td>BMAD</td><td>2</td><td>2026-09-16</td><td>2026-09-16</td></tr>
-            <tr><td><code>deck-design-library</code></td><td>projet</td><td>2</td><td>2026-07-28</td><td>2026-09-28</td></tr>
             <tr><td><code>deck-design-review</code></td><td>projet</td><td>2</td><td>2026-07-22</td><td>2026-07-28</td></tr>
             <tr><td><code>pptx-deck</code></td><td>projet</td><td>2</td><td>2026-07-02</td><td>2026-07-03</td></tr>
             <tr><td><code>skill-creator</code></td><td>global</td><td>2</td><td>2026-07-03</td><td>2026-07-03</td></tr>
@@ -887,13 +887,13 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Sous-agent</th><th>Lancements</th><th>Premier</th><th>Dernier</th></tr></thead>
           <tbody>
-            <tr><td><code>general-purpose</code></td><td>229</td><td>2026-07-15</td><td>2026-09-29</td></tr>
-            <tr><td><code>Explore</code></td><td>65</td><td>2026-06-30</td><td>2026-09-29</td></tr>
-            <tr><td><code>bmad-revue</code></td><td>50</td><td>2026-08-31</td><td>2026-09-29</td></tr>
+            <tr><td><code>general-purpose</code></td><td>234</td><td>2026-07-15</td><td>2026-09-29</td></tr>
+            <tr><td><code>Explore</code></td><td>66</td><td>2026-06-30</td><td>2026-09-29</td></tr>
+            <tr><td><code>bmad-revue</code></td><td>55</td><td>2026-08-31</td><td>2026-09-29</td></tr>
             <tr><td><code>(defaut)</code></td><td>7</td><td>2026-07-21</td><td>2026-07-30</td></tr>
             <tr><td><code>Plan</code></td><td>4</td><td>2026-07-06</td><td>2026-09-25</td></tr>
+            <tr><td><code>agent-supervisor</code></td><td>4</td><td>2026-09-01</td><td>2026-09-29</td></tr>
             <tr><td><code>claude</code></td><td>4</td><td>2026-07-16</td><td>2026-07-16</td></tr>
-            <tr><td><code>agent-supervisor</code></td><td>3</td><td>2026-09-01</td><td>2026-09-16</td></tr>
             <tr><td><code>veille-agentic</code></td><td>3</td><td>2026-09-08</td><td>2026-09-28</td></tr>
             <tr><td><code>a11y-auditor</code></td><td>1</td><td>2026-09-16</td><td>2026-09-16</td></tr>
             <tr><td><code>claude-code-guide</code></td><td>1</td><td>2026-07-03</td><td>2026-07-03</td></tr>
@@ -911,7 +911,7 @@ pytest -k "pptx or export"                                                     #
       <p><strong>bibliothèque / référence</strong> — usage via scripts/sous-agent, non capté par le compteur (n=0 ≠ mort, constat #2) : <code>pdf-quality</code>, <code>pptx-framed-image</code></p>
 
       <h3>TODO agents — chantiers à lancer (constats automatiques)</h3>
-      <p class="avertissement"><em>⚠️ <strong>Mesure incomplète</strong> — 63 transcript(s) sur 95 absent(s) du disque. Un <code>n=0</code> ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.</em></p>
+      <p class="avertissement"><em>⚠️ <strong>Mesure incomplète</strong> — 63 transcript(s) sur 96 absent(s) du disque. Un <code>n=0</code> ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.</em></p>
       <div class="critical">
         <p><strong>Désinstaller les shims BMAD dépréciés</strong> (21) : <code>bmad-checkpoint-preview</code>, <code>bmad-create-architecture</code>, <code>bmad-create-prd</code>, <code>bmad-create-story</code>, <code>bmad-dev-auto</code>, <code>bmad-dev-story</code>, <code>bmad-document-project</code>, <code>bmad-domain-research</code>, <code>bmad-edit-prd</code>, <code>bmad-editorial-review</code>, <code>bmad-editorial-review-prose</code>, <code>bmad-editorial-review-structure</code>, <code>bmad-generate-project-context</code>, <code>bmad-market-research</code>, <code>bmad-quick-dev</code>, <code>bmad-review-adversarial-general</code>, <code>bmad-review-edge-case-hunter</code>, <code>bmad-review-verification-gap</code>, <code>bmad-sprint-status</code>, <code>bmad-technical-research</code>, <code>bmad-validate-prd</code> — dépréciés par BMAD dans leur propre <code>description</code>, chacun avec son remplaçant ; le seul élagage qui ne repose pas sur notre mesure d'usage.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
@@ -1013,11 +1013,13 @@ pytest -k "pptx or export"                                                     #
         <li><strong><code>VSCode2:resultat-ia-vide-ecrase-les-enregistrements-uniques</code></strong> (2026-09-27) : ACCEPTE : corriger dans CE lot (et non tracer pour plus tard ni laisser tel quel). Defaut preexistant, releve par la lentille Boundary de la salle code-review-crew. Regle unique dans synthese_ecriture._resultat_entierement_vide : vide = TOUS les champs blancs, jamais un seul (une SWOT sans menaces est une generation legitime) — la regle des listes transposee, deja appliquee localement par l'import d'analyse externe, dont la copie a ete supprimee.</li>
         <li><strong><code>veille:silence-is-endorsement-2609-20211</code></strong> (2026-09-29) : ACCEPTE + APPLIQUE 2026-09-29 (VSCode2 c406f38) : audit du relais joue ; regle canon statut_preuve adoptee au hub VSCode5, propagation par sync_dispositif (a verifier a la reception)</li>
         <li><strong><code>veille:htmx-claude-skill</code></strong> (2026-09-29) : ACCEPTE (instruit) 2026-09-29 (VSCode2 c406f38) : rien a greffer - deja couvert ; jeton CSRF cache contraire au garde Origin/Referer arbitre ; entree veille passee en ecarte</li>
+        <li><strong><code>scripts/serveur-dev.ps1</code></strong> (2026-09-29) : ACCEPTE + APPLIQUE 2026-09-29 (VSCode2 151f10f) : refus sans mot de passe, OK sur /missions authentifie, -CheckOnly, /__fraicheur authentifie</li>
+        <li><strong><code>run-dev-server</code></strong> (2026-09-29) : ACCEPTE + APPLIQUE 2026-09-29 (VSCode2 151f10f) : sortie brute de -CheckOnly exigee par run-dev-server et revue-increment ; port unique 8020</li>
       </ul>
       <h3>Diagnostic qualitatif (étage 2 — agent-supervisor)</h3>
       <p><em>Diagnostic ⚠️ à relancer (&gt; 14 j) — rien à signaler, tous les constats précédents ont été arbitrés.</em></p>
-      <p><em>4 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un <code>re_challenge</code> avec des données nouvelles :</em></p>
-      <ul><li><s>La securite n existe dans aucun des deux vocabulaires du dispositif : l arbitrage du 2026-09-11 ne ferme rien, et aucun constat de securite ne peut meme s ecrire</s> (<code>canon:vocabulaire-sans-pratique-securite</code>)</li><li><s>Le drapeau mesure non fiable desactive a perpetuite le volet agent-mort sur une premisse fausse : les compteurs d usage NE SONT PAS perdus quand un transcript disparait</s> (<code>scan_transcripts.py:mesure-non-fiable-faux-positif</code>)</li><li><s>11 commits pousses sur origin/main le 2026-09-16 sans le moindre verdict de CI : le garde-fou existe, il est structurellement muet, et 3 runs successifs ont cesse de le dire</s> (<code>VSCode2:ci-jamais-verifiee-faute-de-jeton</code>)</li><li><s>La regle de veille adoptee le 2026-09-08 sur les faux succes auto-declares n est outillee qu au hub : elle ne mesure rien la ou les runs se produisent</s> (<code>flotte:succes-sans-marqueur-non-outille-sur-les-cibles</code>)</li></ul>
+      <p><em>6 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un <code>re_challenge</code> avec des données nouvelles :</em></p>
+      <ul><li><s>La securite n existe dans aucun des deux vocabulaires du dispositif : l arbitrage du 2026-09-11 ne ferme rien, et aucun constat de securite ne peut meme s ecrire</s> (<code>canon:vocabulaire-sans-pratique-securite</code>)</li><li><s>Le drapeau mesure non fiable desactive a perpetuite le volet agent-mort sur une premisse fausse : les compteurs d usage NE SONT PAS perdus quand un transcript disparait</s> (<code>scan_transcripts.py:mesure-non-fiable-faux-positif</code>)</li><li><s>11 commits pousses sur origin/main le 2026-09-16 sans le moindre verdict de CI : le garde-fou existe, il est structurellement muet, et 3 runs successifs ont cesse de le dire</s> (<code>VSCode2:ci-jamais-verifiee-faute-de-jeton</code>)</li><li><s>La regle de veille adoptee le 2026-09-08 sur les faux succes auto-declares n est outillee qu au hub : elle ne mesure rien la ou les runs se produisent</s> (<code>flotte:succes-sans-marqueur-non-outille-sur-les-cibles</code>)</li><li><s>Le controle de sante du serveur dev n'exerce que des routes publiques : un serveur 503 sur tout le site est declare OK</s> (<code>scripts/serveur-dev.ps1</code>)</li><li><s>run-dev-server et revue-increment n'imposent pas de verifier le serveur DE L'UTILISATEUR : le rendu reel est prouve sur des serveurs de test a env injecte</s> (<code>run-dev-server</code>)</li></ul>
     </section>
 <!-- TODO-AGENTS-HTML:END -->
 

@@ -8,28 +8,28 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-09-29T10:07:34+02:00 · **95 sessions** (transcripts) · **323** invocations de skills · **369** lancements de sous-agents.
+Dernier scan : 2026-09-29T18:17:19+02:00 · **96 sessions** (transcripts) · **330** invocations de skills · **381** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `agent-orchestrator` | projet | 66 | 2026-07-17 | 2026-09-28 |
-| `bmad-code-review` | BMAD | 58 | 2026-07-20 | 2026-09-29 |
+| `agent-orchestrator` | projet | 67 | 2026-07-17 | 2026-09-29 |
+| `bmad-code-review` | BMAD | 62 | 2026-07-20 | 2026-09-29 |
 | `run-dev-server` | projet | 49 | 2026-07-03 | 2026-09-29 |
 | `bmad-review-edge-case-hunter` | BMAD | 26 | 2026-07-20 | 2026-09-07 |
-| `agent-supervisor` | projet | 22 | 2026-07-18 | 2026-09-16 |
+| `agent-supervisor` | projet | 22 | 2026-07-18 | 2026-09-29 |
 | `bmad-review-adversarial-general` | BMAD | 19 | 2026-07-20 | 2026-09-07 |
 | `revue-increment` | projet | 17 | 2026-07-18 | 2026-09-16 |
 | `bmad-party-mode` | BMAD | 11 | 2026-07-31 | 2026-09-29 |
-| `pptx-verify` | projet | 11 | 2026-07-03 | 2026-09-26 |
+| `pptx-verify` | projet | 11 | 2026-07-03 | 2026-09-29 |
 | `update-config` | (builtin/session) | 8 | 2026-07-03 | 2026-09-28 |
+| `deck-design-library` | projet | 4 | 2026-07-28 | 2026-09-29 |
 | `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
 | `bmad-review` | BMAD | 3 | 2026-09-15 | 2026-09-29 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
 | `veille-agentic` | projet | 3 | 2026-09-08 | 2026-09-28 |
 | `bmad-brainstorming` | BMAD | 2 | 2026-09-16 | 2026-09-16 |
-| `deck-design-library` | projet | 2 | 2026-07-28 | 2026-09-28 |
 | `deck-design-review` | projet | 2 | 2026-07-22 | 2026-07-28 |
 | `pptx-deck` | projet | 2 | 2026-07-02 | 2026-07-03 |
 | `skill-creator` | global | 2 | 2026-07-03 | 2026-07-03 |
@@ -50,13 +50,13 @@ Dernier scan : 2026-09-29T10:07:34+02:00 · **95 sessions** (transcripts) · **3
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 229 | 2026-07-15 | 2026-09-29 |
-| `Explore` | 65 | 2026-06-30 | 2026-09-29 |
-| `bmad-revue` | 50 | 2026-08-31 | 2026-09-29 |
+| `general-purpose` | 234 | 2026-07-15 | 2026-09-29 |
+| `Explore` | 66 | 2026-06-30 | 2026-09-29 |
+| `bmad-revue` | 55 | 2026-08-31 | 2026-09-29 |
 | `(defaut)` | 7 | 2026-07-21 | 2026-07-30 |
 | `Plan` | 4 | 2026-07-06 | 2026-09-25 |
+| `agent-supervisor` | 4 | 2026-09-01 | 2026-09-29 |
 | `claude` | 4 | 2026-07-16 | 2026-07-16 |
-| `agent-supervisor` | 3 | 2026-09-01 | 2026-09-16 |
 | `veille-agentic` | 3 | 2026-09-08 | 2026-09-28 |
 | `a11y-auditor` | 1 | 2026-09-16 | 2026-09-16 |
 | `claude-code-guide` | 1 | 2026-07-03 | 2026-07-03 |
@@ -95,7 +95,7 @@ _Consommés en lisant/exécutant leurs `scripts/`, ou via un sous-agent qui les 
 
 ## TODO agents (constats automatiques)
 
-⚠️ **Mesure incomplète** — 63 transcript(s) sur 95 absent(s) du disque. Un `n=0` ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.
+⚠️ **Mesure incomplète** — 63 transcript(s) sur 96 absent(s) du disque. Un `n=0` ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.
 
 1. **Désinstaller les shims BMAD dépréciés** (21) : `bmad-checkpoint-preview`, `bmad-create-architecture`, `bmad-create-prd`, `bmad-create-story`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-edit-prd`, `bmad-editorial-review`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-generate-project-context`, `bmad-market-research`, `bmad-quick-dev`, `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-review-verification-gap`, `bmad-sprint-status`, `bmad-technical-research`, `bmad-validate-prd` — dépréciés par BMAD dans leur propre `description`, chacun avec son remplaçant ; le seul élagage qui ne repose pas sur notre mesure d'usage.
 2. **Skills projet sans usage** : `agent-securite` — vérifier pertinence et déclencheurs.
@@ -187,21 +187,25 @@ _Constats clos par décision humaine (`.claude/supervision/arbitrages.json`) —
 - **`VSCode2:resultat-ia-vide-ecrase-les-enregistrements-uniques`** (2026-09-27) : ACCEPTE : corriger dans CE lot (et non tracer pour plus tard ni laisser tel quel). Defaut preexistant, releve par la lentille Boundary de la salle code-review-crew. Regle unique dans synthese_ecriture._resultat_entierement_vide : vide = TOUS les champs blancs, jamais un seul (une SWOT sans menaces est une generation legitime) — la regle des listes transposee, deja appliquee localement par l'import d'analyse externe, dont la copie a ete supprimee.
 - **`veille:silence-is-endorsement-2609-20211`** (2026-09-29) : ACCEPTE + APPLIQUE 2026-09-29 (VSCode2 c406f38) : audit du relais joue ; regle canon statut_preuve adoptee au hub VSCode5, propagation par sync_dispositif (a verifier a la reception)
 - **`veille:htmx-claude-skill`** (2026-09-29) : ACCEPTE (instruit) 2026-09-29 (VSCode2 c406f38) : rien a greffer - deja couvert ; jeton CSRF cache contraire au garde Origin/Referer arbitre ; entree veille passee en ecarte
+- **`scripts/serveur-dev.ps1`** (2026-09-29) : ACCEPTE + APPLIQUE 2026-09-29 (VSCode2 151f10f) : refus sans mot de passe, OK sur /missions authentifie, -CheckOnly, /__fraicheur authentifie
+- **`run-dev-server`** (2026-09-29) : ACCEPTE + APPLIQUE 2026-09-29 (VSCode2 151f10f) : sortie brute de -CheckOnly exigee par run-dev-server et revue-increment ; port unique 8020
 
 ## Diagnostic qualitatif (étage 2 — `agent-supervisor`)
 
 _Diagnostic ⚠️ à relancer (> 14 j) — rien à signaler, tous les constats précédents ont été arbitrés._
 
-_4 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un `re_challenge` avec des données nouvelles :_
+_6 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir un, demander au superviseur un `re_challenge` avec des données nouvelles :_
 
 - ~~La securite n existe dans aucun des deux vocabulaires du dispositif : l arbitrage du 2026-09-11 ne ferme rien, et aucun constat de securite ne peut meme s ecrire~~ (`canon:vocabulaire-sans-pratique-securite`)
 - ~~Le drapeau mesure non fiable desactive a perpetuite le volet agent-mort sur une premisse fausse : les compteurs d usage NE SONT PAS perdus quand un transcript disparait~~ (`scan_transcripts.py:mesure-non-fiable-faux-positif`)
 - ~~11 commits pousses sur origin/main le 2026-09-16 sans le moindre verdict de CI : le garde-fou existe, il est structurellement muet, et 3 runs successifs ont cesse de le dire~~ (`VSCode2:ci-jamais-verifiee-faute-de-jeton`)
 - ~~La regle de veille adoptee le 2026-09-08 sur les faux succes auto-declares n est outillee qu au hub : elle ne mesure rien la ou les runs se produisent~~ (`flotte:succes-sans-marqueur-non-outille-sur-les-cibles`)
+- ~~Le controle de sante du serveur dev n'exerce que des routes publiques : un serveur 503 sur tout le site est declare OK~~ (`scripts/serveur-dev.ps1`)
+- ~~run-dev-server et revue-increment n'imposent pas de verifier le serveur DE L'UTILISATEUR : le rendu reel est prouve sur des serveurs de test a env injecte~~ (`run-dev-server`)
 
 ## Seuil de qualification — la mesure
 
-Depuis le 2026-09-11 : **540** demande(s) vue(s) hors commande slash (+ 88 slash), **19** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **4 %** des demandes orchestrées.
+Depuis le 2026-09-11 : **588** demande(s) vue(s) hors commande slash (+ 95 slash), **24** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **4 %** des demandes orchestrées.
 _Ce chiffre ne dit pas ce qui AURAIT dû être orchestré : le hook compte, il ne juge pas. Il donne le dénominateur qui manquait pour arbitrer le seuil sur données plutôt que sur habitude._
 
 ---
