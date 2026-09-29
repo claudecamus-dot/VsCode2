@@ -1,11 +1,11 @@
-"""Génération IA de la synthèse d'un thème (US4.2).
+"""Génération IA de la synthèse globale, des constats et des livrables de restitution.
 
 Appelle le fournisseur IA actif (`AI_PROVIDER` — ollama par défaut, ou
 openai/mistral) via `ai_common.call_ai_json()`, en sortie structurée JSON.
 
 Dégradation gracieuse : si la clé API du fournisseur actif est absente ou son
 SDK non installé, `is_configured()` renvoie False (l'UI propose alors la
-saisie manuelle) et `generate_theme_synthesis()` lève `SynthesisAIError` avec
+saisie manuelle) et les générateurs lèvent `SynthesisAIError` avec
 un message lisible.
 """
 from __future__ import annotations
@@ -25,81 +25,21 @@ logger = logging.getLogger(__name__)
 
 MAX_TOKENS = 2000
 
-SYSTEM = (
-    "Tu es consultant·e senior. À partir des réponses de plusieurs personnes "
-    "interviewées sur un même thème, tu produis une synthèse transverse en "
-    "français, factuelle et nuancée :\n"
-    "- summary : 3 à 5 points saillants (les enseignements clés du thème) ;\n"
-    "- convergences : ce sur quoi les personnes se rejoignent ;\n"
-    "- divergences : désaccords, tensions ou angles morts.\n"
-    "Reste fidèle aux propos, n'invente rien. Si un champ manque de matière, "
-    "indique-le brièvement. Rédige en puces courtes, une idée par ligne."
-)
-
-_JSON_HINT = (
-    "\nRéponds UNIQUEMENT par un objet JSON aux clés "
-    '"summary", "convergences", "divergences".'
-)
-
-_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "summary": {"type": "string"},
-        "convergences": {"type": "string"},
-        "divergences": {"type": "string"},
-    },
-    "required": ["summary", "convergences", "divergences"],
-    "additionalProperties": False,
-}
-
-
 class SynthesisAIError(AIError):
     """Erreur fonctionnelle d'appel IA — le message est destiné à l'UI."""
-
-
-def _build_prompt(theme, by_question, verbatims) -> str:
-    lines = [f"THÈME : {theme.title}", ""]
-    for q in theme.questions:
-        rows = by_question.get(q.id) or []
-        if not rows:
-            continue
-        lines.append(f"Question : {q.label}")
-        for r in rows:
-            who = r["interviewee"]
-            if r.get("role"):
-                who += f" ({r['role']})"
-            answer = " / ".join(p for p in (r.get("value"), r.get("text")) if p)
-            lines.append(f"  - {who} : {answer}")
-        lines.append("")
-    if verbatims:
-        lines.append("VERBATIMS (citations mot pour mot) :")
-        for v in verbatims:
-            lines.append(f"  « {v['quote']} » — {v['interviewee']}")
-    return "\n".join(lines)
 
 
 def _call_claude(system: str, prompt: str, schema: dict, json_hint: str, max_tokens: int = MAX_TOKENS) -> dict:
     """Appel IA générique (fournisseur actif — voir `ai_common.PROVIDER`),
     sortie JSON structurée. Lève SynthesisAIError.
 
-    Factorisé pour être réutilisé par la synthèse par thème, la synthèse
+    Factorisé pour être réutilisé par la synthèse
     globale et la génération de recommandations — seuls system/prompt/schema
     changent. Le nom historique (`_call_claude`) est conservé pour limiter le
     diff des 3 sites d'appel ci-dessous ; le fournisseur réel dépend d'
     `AI_PROVIDER` (ollama par défaut).
     """
     return call_ai_json(system, prompt, schema, json_hint, max_tokens=max_tokens, error_cls=SynthesisAIError)
-
-
-def generate_theme_synthesis(theme, by_question, verbatims) -> dict:
-    """Retourne {summary, convergences, divergences}. Lève SynthesisAIError."""
-    prompt = _build_prompt(theme, by_question, verbatims)
-    data = _call_claude(SYSTEM, prompt, _SCHEMA, _JSON_HINT)
-    return {
-        "summary": (data.get("summary") or "").strip(),
-        "convergences": (data.get("convergences") or "").strip(),
-        "divergences": (data.get("divergences") or "").strip(),
-    }
 
 
 # --------------------------------------------------------------------------- #
