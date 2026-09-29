@@ -931,3 +931,93 @@ def test_design_base_analyse_chiffre_et_libelle_ne_se_chevauchent_pas() -> None:
         f"{len(dedans)} boites trouvees dans la carte-chiffre"
     )
     assert "nourrissent" in dedans[0].text_frame.text.lower()
+
+
+def _mission_reco_fondee(objectif: str = "Arbitrer les priorités data.",
+                         titre: str = "Instaurer une gouvernance data") -> int:
+    """I2 : une reco qui cite deux constats (consensus 2/3, écart 1/3) — les
+    trois entretiens sont contributifs (répartition libre non vide)."""
+    from app.models import MissionConstat
+    db = SessionLocal()
+    try:
+        m = Mission(name="Audit qualité — Fiche fondée"); db.add(m); db.flush()
+        ivs = [Interview(mission_id=m.id, interviewee_name=n, mode="libre",
+                         status="done", repartition={"contexte": "Vu."})
+               for n in ("Alix", "Bao", "Chloé")]
+        db.add_all(ivs); db.flush()
+        cons = MissionConstat(mission_id=m.id, axe_key="contexte", type="consensus",
+                              libelle="Les arbitrages data remontent au COMEX",
+                              position=0, interviews=ivs[:2])
+        ecart = MissionConstat(mission_id=m.id, axe_key="contexte", type="ecart",
+                               libelle="La DSI ne se sent pas associée",
+                               position=1, interviews=ivs[2:])
+        db.add_all([cons, ecart]); db.flush()
+        ax = RecommendationAxis(mission_id=m.id, title="Axe 1", position=0)
+        db.add(ax); db.flush()
+        db.add(Recommendation(
+            axis_id=ax.id, position=0, title=titre, objectif=objectif,
+            acteurs="CDO, DSI", valeur=4, complexite=2,
+            proposition_valeur="Décider plus vite.",
+            plan_actions="- Définir le mandat\n- Tenir un comité mensuel",
+            resultats_attendus="- Moins d'escalades.",
+            constats=[cons, ecart]))
+        db.commit()
+        return m.id
+    finally:
+        db.close()
+
+
+def _fiche(prs):
+    return next(s for s in prs.slides if _slide_titre(s).startswith("1.1"))
+
+
+def _textes(slide) -> str:
+    return " ".join(sh.text_frame.text for sh in slide.shapes if sh.has_text_frame)
+
+
+def test_fiche_reco_cite_ses_constats_avec_le_decompte_de_l_ecran() -> None:
+    """I2 tranche deck : la fiche dit sur quels constats la reco est fondée,
+    avec le N/M CALCULÉ (même source que l'écran), sans déborder."""
+    db = SessionLocal()
+    try:
+        prs = build_presentation(db.get(Mission, _mission_reco_fondee()))
+    finally:
+        db.close()
+    fiches = [s for s in prs.slides if _slide_titre(s).startswith("1.1")]
+    assert len(fiches) == 1, "cas normal : la rubrique ne crée pas de slide de suite"
+    textes = _textes(fiches[0])
+    # Rubrique DÉDIÉE (bandeau), pas la puce de repli « Fondée sur : » du plan —
+    # rendu réel 2026-09-29 : la carte plan (~1.4in) ne pouvait pas la loger.
+    assert "FONDÉE SUR" in textes
+    assert "Fondée sur :" not in textes
+    assert "Les arbitrages data remontent au COMEX (Consensus, 2/3)" in textes
+    assert "La DSI ne se sent pas associée (Écart important, 1/3)" in textes
+    assert D.verifier_debordements_texte(prs) == []
+    assert D.verifier_geometrie(prs) == []
+
+
+def test_fiche_reco_sans_constat_ne_pose_pas_la_rubrique() -> None:
+    prs = _prs_complete()
+    assert "FONDÉE SUR" not in _textes(_fiche(prs))
+    assert "Fondée sur" not in _textes(_fiche(prs))
+
+
+def test_fiche_reco_pleine_ne_perd_pas_les_constats_et_ne_deborde_pas() -> None:
+    """Cas extrême (titre long, objectif au max) : le plancher de 2.0in de la
+    carte plan réduit le bandeau, voire le reverse en fin de plan (la slide de
+    suite est alors le repli prévu). Rien n'est perdu, rien ne sort du cadre —
+    mesuré : sans plancher, carte plan de hauteur NÉGATIVE (export refusé)."""
+    long = ("Créer un mécanisme régulier et légitime pour arbitrer les priorités, "
+            "valider les règles communes et rendre visibles les décisions data. ") * 3
+    titre = ("Mettre en place une gouvernance des données décisionnelle, outillée et "
+             "partagée entre les directions métiers, la DSI et les équipes terrain")
+    db = SessionLocal()
+    try:
+        prs = build_presentation(db.get(Mission, _mission_reco_fondee(long, titre)))
+    finally:
+        db.close()
+    tout = " ".join(_textes(s) for s in prs.slides if _slide_titre(s).startswith("1.1"))
+    assert "Les arbitrages data remontent au COMEX (Consensus, 2/3)" in tout
+    assert "La DSI ne se sent pas associée (Écart important, 1/3)" in tout
+    assert D.verifier_debordements_texte(prs) == []
+    assert D.verifier_geometrie(prs) == []

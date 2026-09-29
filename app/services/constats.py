@@ -13,7 +13,7 @@ import re
 
 from sqlalchemy.orm import Session
 
-from app.models import Mission, MissionConstat
+from app.models import CONSTAT_TYPE_LABELS, Mission, MissionConstat
 from app.services.synthese_material import consensus_non_etaye, interviews_contributifs
 
 
@@ -132,3 +132,17 @@ def constats_par_axe(mission: Mission) -> dict[str, list[dict]]:
             "non_etaye": c.type == "consensus" and consensus_non_etaye(n, m),
         })
     return out
+
+
+def texte_fondee_sur(reco, lignes: dict[int, dict]) -> str:
+    """Rubrique « Fondée sur » de la fiche reco du deck : `libellé (Type, N/M)`
+    par constat cité, séparés par « ; ». Mêmes chiffres que l'écran (`lignes`
+    = constats_par_axe indexé par id). Les libellés non rattachés restent une
+    alerte d'écran : le deck ne restitue que ce qui est étayé par la mission."""
+    morceaux = []
+    for c in getattr(reco, "constats", None) or []:
+        ligne = lignes.get(c.id)
+        type_ = CONSTAT_TYPE_LABELS.get(c.type, c.type)
+        compte = f", {ligne['n']}/{ligne['m']}" if ligne else ""
+        morceaux.append(f"{c.libelle} ({type_}{compte})")
+    return " ; ".join(morceaux)

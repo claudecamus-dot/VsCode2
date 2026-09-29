@@ -286,7 +286,7 @@ def _slide_matrice_effort_valeur(prs: Presentation, axes: list,
 
 
 def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: object,
-                          accent: str | None = None) -> None:
+                          accent: str | None = None, fondee_sur: str = "") -> None:
     """Fiche recommandation en ENCARTS ARRONDIS format OCTO (demande 2026-07-22 —
     les sections flottaient sur fond blanc) : colonne gauche (objectif / acteurs /
     jauges / résultats) dans une carte arrondie au liseré couleur d'AXE (identité,
@@ -320,6 +320,18 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
     a_resultats = bool(_bullet_lines(reco.resultats_attendus or ""))
     strip_h = 0.72 if a_resultats else 0.0
     band_h = h_in - top - 0.60 - strip_h - (0.12 if a_resultats else 0.0)
+    # I2 : « FONDÉE SUR » en NOTE DE SOURCE au pied de la slide, sous le bandeau
+    # résultats (arbitrage 2026-09-29 puis rendu réel : la carte plan ne fait que
+    # ~1.4in, et voler de la hauteur aux cartes casse la carte gauche, déjà
+    # saturée — ACTEURS passait sous les chips). Zone libre : entre le bas du
+    # bandeau (h_in-0.60) et le bord ; le n° de page est à droite. Deux lignes
+    # `tiny` au plus ; au-delà (ou sans place) le texte est reversé en fin de
+    # plan, jamais tronqué. Sans constat cité, rien (0in).
+    fs_w = w_in - 2 * MARGIN - 0.2
+    fs_txt = f"FONDÉE SUR : {fondee_sur}"
+    fs_reverse = bool(fondee_sur) and (
+        not a_resultats
+        or D.estimer_lignes(fs_txt, fs_w, D.TYPE["tiny"], cpi_ref=D.CPI_PESSIMISTE) > 2)
     plan_source = reco.plan_actions
     if a_resultats and band_h < 1.0:
         # Garde template client (defer revue adversariale) : un content_top très
@@ -332,6 +344,8 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
         plan_source = (reco.plan_actions or "") + (
             "\nRésultats attendus : " + " — ".join(_bullet_lines(reco.resultats_attendus or ""))
         )
+    if fs_reverse:
+        plan_source = (plan_source or "") + "\nFondée sur : " + fondee_sur
     bottom = top + band_h
 
     # ---- Colonne gauche : carte arrondie, liseré couleur d'axe ----
@@ -365,7 +379,6 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
                f"Valeur {reco.valeur}/5", D.OK, size=D.TYPE["tiny"])
     D.add_chip(slide, lx + chip_w + 0.15, chips_y, chip_w, chip_h,
                f"Complexité {reco.complexite}/5", D.WARN, size=D.TYPE["tiny"])
-
     # ---- Colonne droite : encart « proposition » + carte « plan + résultats » ----
     # prop_h 1.10 (était 1.35) : la carte droite porte TROIS blocs — au-delà, la
     # zone résultats devenait fictive (~0.1in) et son texte peignait PAR-DESSUS le
@@ -389,7 +402,7 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
     r_bottom = plan_top + plan_h - pad
     D.add_text(slide, rcx, r_top, rcw, 0.26,
                [("PLAN D'ACTIONS", {"size": D.TYPE["small"], "bold": True, "color": D.MUTED})])
-    # Le plan a TOUTE la carte (les résultats vivent dans le bandeau bas) —
+    # Le plan a le reste de la carte (les résultats vivent dans le bandeau bas) —
     # shrink-first, suite en dernier recours seulement.
     plan_overflow = _add_bulleted_text(
         slide, rcx, r_top + 0.26, rcw, r_bottom - (r_top + 0.26),
@@ -419,6 +432,16 @@ def _slide_recommendation(prs: Presentation, axis: object, index: str, reco: obj
              (D.tronquer_a_lignes(res_txt, scw, D.TYPE["small"], 2, cpi_ref=D.CPI_PESSIMISTE),
               {"size": D.TYPE["small"], "color": D.INK})],
             anchor=MSO_ANCHOR.MIDDLE,
+        )
+
+    # ---- Note de source « FONDÉE SUR » (I2), au pied de la slide ----
+    if fondee_sur and not fs_reverse:
+        D.add_text(
+            slide, MARGIN + pad + lis, h_in - 0.60 + 0.05, fs_w - pad - lis, 0.42,
+            [(D.tronquer_a_lignes(fs_txt, fs_w - pad - lis, D.TYPE["tiny"], 2,
+                                  cpi_ref=D.CPI_PESSIMISTE),
+              {"size": D.TYPE["tiny"], "color": D.MUTED})],
+            anchor=MSO_ANCHOR.TOP,
         )
 
     base_title = f"{index} — {reco.title}"

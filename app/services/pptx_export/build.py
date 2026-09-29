@@ -12,6 +12,7 @@ from pptx.util import Inches
 
 from ...models import Mission
 from .. import pptx_deck as D
+from ..constats import constats_par_axe, texte_fondee_sur
 from ..synthese_material import couverture_mission, couverture_par_theme
 from .archetypes import Archetype, normaliser_plan, plan_applicable
 from .base import _H_IN, _W_IN, OCTO_TEMPLATE_PATH, _clear_slides
@@ -157,6 +158,10 @@ def build_presentation(
             _slide_synthese_categorie(prs, axe.label, gs.contenu(axe.key), axe.key)
 
     def _fiches() -> None:
+        # I2 : « Fondée sur » — même décompte N/M que l'écran « Constats par
+        # axe » (constats_par_axe), calculé une fois pour toutes les fiches.
+        lignes = {ligne["constat"].id: ligne
+                  for ls in constats_par_axe(mission).values() for ligne in ls}
         for i, axis in enumerate(axes):
             if axis not in selected_axes:
                 continue
@@ -164,7 +169,8 @@ def build_presentation(
                 # accent = couleur d'axe (identité) — même palette que la vue
                 # d'ensemble et les bulles de la matrice de priorisation.
                 _slide_recommendation(prs, axis, f"{i + 1}.{j + 1}", reco,
-                                      accent=palette[i % len(palette)])
+                                      accent=palette[i % len(palette)],
+                                      fondee_sur=texte_fondee_sur(reco, lignes))
 
     # Blocs de contenu dans l'ordre narratif PAR DÉFAUT : (archétype, chapitre,
     # libellé du sommaire, présent ?, émetteur). Présent = même condition pour le
