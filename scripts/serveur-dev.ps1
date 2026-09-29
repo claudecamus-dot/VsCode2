@@ -128,7 +128,9 @@ function Get-WorkersDeParent {
     return @(Get-CimInstance Win32_Process |
         Where-Object {
             $_.CommandLine -like "*multiprocessing*" -and
-            $_.CommandLine -like "*parent_pid=$PidParent*"
+            # Fin de nombre OBLIGATOIRE : « *parent_pid=123* » matchait aussi
+            # parent_pid=1234 — le worker d'un AUTRE serveur (revue 2026-09-29).
+            $_.CommandLine -match "parent_pid=$PidParent(\D|$)"
         })
 }
 
@@ -151,6 +153,31 @@ function Get-WorkersOrphelinsDuPort {
         Write-Host ("Socket fantôme sur $NumPort : PID propriétaire $pidProprio est mort, " +
                     "$($trouves.Count) worker(s) orphelin(s) rattaché(s).")
         $orphelins += $trouves
+    }
+    return $orphelins
+}
+
+function Get-WorkersOrphelinsDuJournal {
+    # Cas vécu le 2026-09-29 : un --reload déclenché par une édition de tests/
+    # a vu mourir son reloader ; le worker respawné restait vivant SANS écouter
+    # (port muet, ERR_CONNECTION_REFUSED dans Chrome) mais tenait le journal
+    # ouvert — la rotation échouait et le relancement avec. Aucun socket, donc
+    # Get-WorkersOrphelinsDuPort ne le voit pas. Le journal .err du lancement
+    # précédent porte « Started reloader process [<pid>] » : si ce PID est mort,
+    # ses workers (marqueur littéral parent_pid=) sont des orphelins sûrs.
+    param([string]$JournalErr)
+    if (-not (Test-Path $JournalErr)) { return @() }
+    $orphelins = @()
+    foreach ($m in (Select-String -Path $JournalErr -Pattern 'Started reloader process \[(\d+)\]' -AllMatches)) {
+        foreach ($g in $m.Matches) {
+            $pidReloader = [int]$g.Groups[1].Value
+            if (Get-Process -Id $pidReloader -ErrorAction SilentlyContinue) { continue }
+            $trouves = @(Get-WorkersDeParent -PidParent $pidReloader)
+            if ($trouves.Count -gt 0) {
+                Write-Host "Reloader $pidReloader mort (journal) : $($trouves.Count) worker(s) orphelin(s) muet(s)."
+            }
+            $orphelins += $trouves
+        }
     }
     return $orphelins
 }
@@ -296,7 +323,8 @@ if ($KeepIfFresh -and -not $StopOnly -and (Test-PortRepond -NumPort $Port)) {
 # détectable seulement à la 2e — sans elle, le port était déclaré hanté alors
 # qu'une simple reprise suffisait (vécu le 2026-07-27).
 foreach ($passe in 1..2) {
-    $aTuer = @(Get-ProcessusServeur -NumPort $Port) + @(Get-WorkersOrphelinsDuPort -NumPort $Port)
+    $aTuer = @(Get-ProcessusServeur -NumPort $Port) + @(Get-WorkersOrphelinsDuPort -NumPort $Port) +
+             @(Get-WorkersOrphelinsDuJournal -JournalErr ($journal + ".err"))
     $ecoute = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     foreach ($c in @($ecoute)) {
         $p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
@@ -337,10 +365,23 @@ if (-not (Test-Path $python)) { Write-Error "venv introuvable : $python"; exit 1
 # (les deux premieres heures d'un entretien reel, le jour ou il aurait fallu le
 # lire). Une generation est conservee : <journal>.prev et <journal>.err.prev.
 foreach ($ancien in @($journal, ($journal + ".err"))) {
-    if (Test-Path $ancien) { Move-Item -Force -Path $ancien -Destination ($ancien + ".prev") }
+    if (Test-Path $ancien) {
+        try { Move-Item -Force -Path $ancien -Destination ($ancien + ".prev") -ErrorAction Stop }
+        catch {
+            # Journal tenu par un process hors d'atteinte de la purge : ne pas
+            # mourir ici (site KO sans explication) — nommer le fautif et
+            # lancer sur un journal horodaté.
+            Write-Warning "Journal $ancien verrouillé ($($_.Exception.Message)) — nouveau journal horodaté."
+            $journal = Join-Path $env:TEMP ("uvicorn_dev_" + $Port + "_" + (Get-Date -Format "yyyyMMdd_HHmmss") + ".log")
+            break
+        }
+    }
 }
+# --reload-dir app : seul le code servi relance le serveur. Le 2026-09-29, une
+# édition de tests/ a déclenché un rechargement pendant lequel le reloader est
+# mort — site KO pour une modification qui ne change rien à ce qui est servi.
 $proc = Start-Process -FilePath $python `
-    -ArgumentList "-m", "uvicorn", "app.main:app", "--port", "$Port", "--reload" `
+    -ArgumentList "-m", "uvicorn", "app.main:app", "--port", "$Port", "--reload", "--reload-dir", "app" `
     -WorkingDirectory $racine -WindowStyle Hidden -PassThru `
     -RedirectStandardOutput $journal -RedirectStandardError ($journal + ".err")
 Write-Host "uvicorn lancé (PID $($proc.Id)), journal : $journal"

@@ -52,3 +52,36 @@ def test_check_only_ne_lance_rien_et_dit_ko_sur_un_port_muet() -> None:
     assert res.returncode == 1, sortie
     assert "uvicorn lancé" not in sortie
     assert "Purge" not in sortie
+
+
+def test_stop_purge_le_worker_muet_d_un_reloader_mort_lu_dans_le_journal(tmp_path) -> None:
+    """2026-09-29 : reloader mort pendant un --reload, worker respawné vivant
+    mais MUET (aucun socket) qui verrouillait le journal — Chrome en
+    ERR_CONNECTION_REFUSED et relance impossible. Le PID du reloader n'est lu
+    que dans le journal .err du lancement précédent."""
+    mort = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"],
+                          capture_output=True, text=True, check=True)
+    pid_mort = int(mort.stdout.strip())
+    (tmp_path / f"uvicorn_dev_{PORT_LIBRE}.log.err").write_text(
+        f"INFO:     Started reloader process [{pid_mort}] using WatchFiles\n", encoding="utf-8")
+    # Même forme de ligne de commande qu'un worker multiprocessing.spawn.
+    worker = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)",
+                               "multiprocessing", f"parent_pid={pid_mort}"])
+    # Faux ami : parent_pid=<pid_mort>9 est le worker d'un AUTRE serveur — il doit
+    # survivre (le motif avait un joker final, revue 2026-09-29).
+    voisin = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)",
+                               "multiprocessing", f"parent_pid={pid_mort}9"])
+    try:
+        env = dict(os.environ, APP_AUTH_PASSWORD="mdp-de-test", TEMP=str(tmp_path), TMP=str(tmp_path))
+        res = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+             str(SCRIPT), "-Port", PORT_LIBRE, "-StopOnly"],
+            cwd=RACINE, env=env, capture_output=True, timeout=180)
+        sortie = (res.stdout + res.stderr).decode("utf-8", errors="replace")
+        assert res.returncode == 0, sortie
+        worker.wait(timeout=10)  # tué par la purge, sinon TimeoutExpired
+        assert voisin.poll() is None, "le worker d'un autre serveur a été tué"
+    finally:
+        for proc in (worker, voisin):
+            if proc.poll() is None:
+                proc.kill()
