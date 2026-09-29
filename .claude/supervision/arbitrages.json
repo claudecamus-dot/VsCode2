@@ -746,6 +746,26 @@
       ],
       "decision": "ACCEPTE (instruit) 2026-09-29 (VSCode2 c406f38) : rien a greffer - deja couvert ; jeton CSRF cache contraire au garde Origin/Referer arbitre ; entree veille passee en ecarte",
       "preuve_application": "lecture integrale 12 .md du depot (MIT) ; grep -c HX-Trigger app/ = 0"
+    },
+    {
+      "cible": "scripts/serveur-dev.ps1",
+      "date": "2026-09-29",
+      "titre": "Le controle de sante du serveur dev n'exerce que des routes publiques : un serveur 503 sur tout le site est declare OK",
+      "categories": [
+        "verification-manquante"
+      ],
+      "decision": "ACCEPTE + APPLIQUE 2026-09-29 (VSCode2 151f10f) : refus sans mot de passe, OK sur /missions authentifie, -CheckOnly, /__fraicheur authentifie",
+      "preuve_application": "tests/test_serveur_dev_script.py 2 verts + P1 tenue ; -CheckOnly sur 8020 : exit=0, /missions authentifie 200, statique et python frais"
+    },
+    {
+      "cible": "run-dev-server",
+      "date": "2026-09-29",
+      "titre": "run-dev-server et revue-increment n'imposent pas de verifier le serveur DE L'UTILISATEUR : le rendu reel est prouve sur des serveurs de test a env injecte",
+      "categories": [
+        "verification-manquante"
+      ],
+      "decision": "ACCEPTE + APPLIQUE 2026-09-29 (VSCode2 151f10f) : sortie brute de -CheckOnly exigee par run-dev-server et revue-increment ; port unique 8020",
+      "preuve_application": "grep -c CheckOnly : run-dev-server/SKILL.md 2, revue-increment/SKILL.md 1 ; tasks.json 8020 x2"
     }
   ]
 }
