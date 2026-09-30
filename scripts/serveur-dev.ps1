@@ -322,9 +322,14 @@ if ($KeepIfFresh -and -not $StopOnly -and (Test-PortRepond -NumPort $Port)) {
 # PID propriétaire vivant). Un worker qui survit à la 1re passe devient donc
 # détectable seulement à la 2e — sans elle, le port était déclaré hanté alors
 # qu'une simple reprise suffisait (vécu le 2026-07-27).
+# Journaux .err à relire : celui par défaut ET les journaux horodatés de repli
+# (journal verrouillé au lancement précédent) — sans eux, le PID du reloader
+# de ce lancement-là était perdu et son worker muet jamais purgé (revue
+# 2026-09-29).
+$journauxErr = @(($journal + ".err")) + @(Get-ChildItem -Path $env:TEMP -Filter ("uvicorn_dev_" + $Port + "_*.log.err") -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
 foreach ($passe in 1..2) {
     $aTuer = @(Get-ProcessusServeur -NumPort $Port) + @(Get-WorkersOrphelinsDuPort -NumPort $Port) +
-             @(Get-WorkersOrphelinsDuJournal -JournalErr ($journal + ".err"))
+             @($journauxErr | ForEach-Object { Get-WorkersOrphelinsDuJournal -JournalErr $_ })
     $ecoute = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
     foreach ($c in @($ecoute)) {
         $p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue

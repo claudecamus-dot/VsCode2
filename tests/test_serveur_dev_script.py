@@ -85,3 +85,27 @@ def test_stop_purge_le_worker_muet_d_un_reloader_mort_lu_dans_le_journal(tmp_pat
         for proc in (worker, voisin):
             if proc.poll() is None:
                 proc.kill()
+
+
+def test_stop_relit_aussi_le_journal_horodate_d_un_lancement_verrouille(tmp_path) -> None:
+    """Revue 2026-09-29 : un lancement dont le journal était verrouillé écrit
+    dans uvicorn_dev_<port>_<horodatage>.log ; le lancement suivant ne relisait
+    que le journal par défaut et laissait vivre le worker muet de celui-là."""
+    mort = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"],
+                          capture_output=True, text=True, check=True)
+    pid_mort = int(mort.stdout.strip())
+    (tmp_path / f"uvicorn_dev_{PORT_LIBRE}_20260929_120000.log.err").write_text(
+        f"INFO:     Started reloader process [{pid_mort}] using WatchFiles\n", encoding="utf-8")
+    worker = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)",
+                               "multiprocessing", f"parent_pid={pid_mort}"])
+    try:
+        env = dict(os.environ, APP_AUTH_PASSWORD="mdp-de-test", TEMP=str(tmp_path), TMP=str(tmp_path))
+        res = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+             str(SCRIPT), "-Port", PORT_LIBRE, "-StopOnly"],
+            cwd=RACINE, env=env, capture_output=True, timeout=180)
+        assert res.returncode == 0, (res.stdout + res.stderr).decode("utf-8", errors="replace")
+        worker.wait(timeout=10)  # tué par la purge, sinon TimeoutExpired
+    finally:
+        if worker.poll() is None:
+            worker.kill()
