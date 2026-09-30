@@ -38,6 +38,13 @@ IMPORTE = ("import sys\n"
            "from sujet import double\n")
 
 
+def _abri_outil() -> Path:
+    """Un dossier comme celui que l'outil cree pour sa sauvegarde (mkdtemp,
+    prefixe `preuve_p1_`, dans le temporaire systeme) : seule une sauvegarde
+    placee la est restauree."""
+    return Path(tempfile.mkdtemp(prefix="preuve_p1_"))
+
+
 def _bac(tmp_path: Path, corps_module: str, corps_test: str) -> tuple[Path, Path]:
     """Un module et son test, dans un dossier à ce test seul.
 
@@ -289,7 +296,7 @@ def test_une_preuve_INTERROMPUE_bloque_la_suivante_et_se_restaure(tmp_path):
                         IMPORTE + "def test_double():\n    assert double(3) == 6\n")
     # On simule l'interruption : fichier mute, sauvegarde a cote, sentinelle en
     # place — exactement l'etat que laisse un processus tue.
-    sauvegarde = tmp_path / "sujet.py.sauvegarde"
+    sauvegarde = _abri_outil() / "sujet.py"
     sauvegarde.write_bytes(MODULE.encode("utf-8"))
     empreinte = hashlib.sha256(MODULE.encode("utf-8")).hexdigest()
     module.write_bytes(MODULE.replace(APRES, AVANT).encode("utf-8"))
@@ -523,7 +530,7 @@ def test_deux_preuves_sur_deux_fichiers_ne_se_bloquent_pas(tmp_path):
     corps_test = IMPORTE + "def test_double():\n    assert double(3) == 6\n"
     module_a, test_a = _bac(tmp_path / "a", MODULE, corps_test)
     module_b, test_b = _bac(tmp_path / "b", MODULE, corps_test)
-    sauvegarde = tmp_path / "a_sujet.py.sauvegarde"
+    sauvegarde = _abri_outil() / "sujet.py"
     sauvegarde.write_bytes(MODULE.encode("utf-8"))
     module_a.write_bytes(MODULE.replace(APRES, AVANT).encode("utf-8"))
     sentinelle_a = _sentinelle_de(module_a)
@@ -563,3 +570,60 @@ def test_la_preuve_n_ecrit_aucun_bytecode_dans_le_bac(tmp_path):
     r = _lancer(module, test)
     assert r.returncode == TENUE, r.stdout + r.stderr
     assert list(module.parent.rglob("*.pyc")) == []
+
+
+def test_une_sentinelle_FORGEE_ne_fait_pas_copier_un_fichier_sur_un_chemin_quelconque(tmp_path):
+    """Revue securite : la sentinelle vit dans le temporaire partage sous un nom
+    previsible et son JSON etait cru sur parole -- `--restaurer` copiait n'importe
+    quelle "sauvegarde" sur n'importe quelle "cible". Trois forgeries : une
+    sauvegarde hors d'un dossier cree par l'outil, une cible hors depot sans
+    --hors-depot, une cible qui n'est pas celle de la cle de la sentinelle."""
+    import json
+
+    corps_test = IMPORTE + "def test_double():\n    assert double(3) == 6\n"
+    module, test = _bac(tmp_path, MODULE, corps_test)
+    sentinelle = _sentinelle_de(module)
+    empreinte_attendue = hashlib.sha256(b"etat de depart attendu").hexdigest()
+    voulu = b"CONTENU DE L'ATTAQUANT\n"
+    mute = MODULE.replace(APRES, AVANT).encode("utf-8")
+
+    def forger(cible: Path, sauvegarde: Path, extra: list[str]):
+        sauvegarde.write_bytes(voulu)
+        sentinelle.write_text(json.dumps({
+            "cible": str(cible), "sauvegarde": str(sauvegarde),
+            "empreinte_depart": empreinte_attendue,
+        }), encoding="utf-8")
+        return _lancer(module, test, extra=["--restaurer"] + extra)
+
+    abri_tool = _abri_outil()
+    autre = tmp_path / "autre.txt"
+    autre.write_bytes(b"intact\n")
+    try:
+        # 1. sauvegarde hors d'un dossier preuve_p1_* (ici : tmp_path).
+        module.write_bytes(mute)
+        r = forger(module, tmp_path / "piege.bin", [])
+        assert r.returncode == USAGE, r.stdout + r.stderr
+        assert "REFUSEE" in r.stdout
+        assert module.read_bytes() == mute, "la cible ne doit pas etre ecrasee"
+
+        # 2. cible hors depot, outil lance SANS --hors-depot.
+        (abri_tool / "piege.bin").write_bytes(voulu)
+        sentinelle.write_text(json.dumps({
+            "cible": str(module), "sauvegarde": str(abri_tool / "piege.bin"),
+            "empreinte_depart": empreinte_attendue,
+        }), encoding="utf-8")
+        r = subprocess.run(
+            [sys.executable, str(OUTIL), "--restaurer", str(module), str(test)],
+            cwd=str(RACINE), capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=600)
+        assert r.returncode == USAGE, r.stdout + r.stderr
+        assert "hors du depot" in r.stdout
+        assert module.read_bytes() == mute
+
+        # 3. cible qui n'est pas celle de la cle de la sentinelle.
+        r = forger(autre, abri_tool / "piege.bin", [])
+        assert r.returncode == USAGE, r.stdout + r.stderr
+        assert "cle" in r.stdout
+        assert autre.read_bytes() == b"intact\n", "un fichier quelconque a ete ecrase"
+    finally:
+        sentinelle.unlink(missing_ok=True)
