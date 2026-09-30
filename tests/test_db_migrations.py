@@ -98,3 +98,39 @@ def test_schema_migre_couvre_les_modeles(moteur_jetable: Engine) -> None:
     dans `additions` (le cas que le mécanisme manuel ne détecte pas tout seul)."""
     db.init_db()
     assert _derives_modeles_vs_base(moteur_jetable) == []
+
+
+def _tables(eng: Engine) -> set[str]:
+    from sqlalchemy import inspect
+    return set(inspect(eng).get_table_names())
+
+
+def _creer_syntheses(eng: Engine, lignes: int) -> None:
+    from sqlalchemy import text
+    with eng.begin() as conn:
+        conn.execute(text("CREATE TABLE syntheses (id INTEGER PRIMARY KEY, summary TEXT)"))
+        for i in range(lignes):
+            conn.execute(text("INSERT INTO syntheses (summary) VALUES ('s')"))
+
+
+def test_la_table_morte_vide_est_supprimee(moteur_jetable) -> None:
+    """Modèle Synthesis retiré le 2026-09-30 : sa table vide disparaît à la
+    migration (create_all ne supprime jamais rien)."""
+    _creer_syntheses(moteur_jetable, 0)
+    db._retirer_tables_mortes()
+    assert "syntheses" not in _tables(moteur_jetable)
+
+
+def test_init_db_retire_la_table_morte_vide(moteur_jetable) -> None:
+    """Le câblage compte autant que la fonction : c'est init_db (migration
+    autorisée, base jetable) qui doit déclencher le retrait."""
+    _creer_syntheses(moteur_jetable, 0)
+    db.init_db()
+    assert "syntheses" not in _tables(moteur_jetable)
+
+
+def test_la_table_morte_avec_des_lignes_est_conservee(moteur_jetable) -> None:
+    """Une donnée présente ne se détruit pas en silence."""
+    _creer_syntheses(moteur_jetable, 2)
+    db._retirer_tables_mortes()
+    assert "syntheses" in _tables(moteur_jetable)

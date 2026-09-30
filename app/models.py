@@ -212,11 +212,6 @@ class Theme(Base):
         cascade="all, delete-orphan",
         order_by="Question.position",
     )
-    synthesis: Mapped[Synthesis | None] = relationship(
-        back_populates="theme",
-        cascade="all, delete-orphan",
-        uselist=False,
-    )
 
 
 class Question(Base):
@@ -403,44 +398,10 @@ SYNTHESIS_STATUS_LABELS = {
 }
 
 
-class Synthesis(Base):
-    """Synthèse transverse d'un thème (incrément 3).
-
-    Une synthèse par thème : agrège les réponses de tous les entretiens puis
-    dégage convergences / divergences. Brouillon généré par IA (US4.2) puis
-    éditable à la main (US4.3). Alimentera le plan de deck (incrément 4).
-    """
-
-    __tablename__ = "syntheses"
-    __table_args__ = (
-        UniqueConstraint("theme_id", name="uq_synthesis_theme"),
-    )
-
-    id: Mapped[int] = mapped_column(primary_key=True)
-    theme_id: Mapped[int] = mapped_column(
-        ForeignKey("themes.id", ondelete="CASCADE")
-    )
-    summary: Mapped[str] = mapped_column(Text, default="")
-    convergences: Mapped[str] = mapped_column(Text, default="")
-    divergences: Mapped[str] = mapped_column(Text, default="")
-    # empty | generated | edited
-    status: Mapped[str] = mapped_column(String(20), default="empty")
-    generated_at: Mapped[datetime | None] = mapped_column(DateTime, default=None)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=_utcnow, onupdate=_utcnow
-    )
-
-    theme: Mapped[Theme] = relationship(back_populates="synthesis")
-
-    @property
-    def has_content(self) -> bool:
-        return bool((self.summary or "").strip() or (self.convergences or "").strip() or (self.divergences or "").strip())
-
-
 class GlobalSynthesis(Base):
     """Synthèse transverse à la mission, tous thèmes confondus (évol).
 
-    Contrairement à `Synthesis` (par thème), regroupe les entretiens en 5
+    Contrairement à l'ancienne synthèse par thème (retirée le 2026-09-30), regroupe les entretiens en 5
     catégories fixes — contexte, culture & ADN, forces/succès, points
     d'amélioration, aspirations — qui recoupent les thèmes de trame plutôt
     que de les suivre un à un. Alimente `Recommendation` (le pipeline

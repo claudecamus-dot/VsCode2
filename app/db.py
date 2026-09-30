@@ -191,6 +191,31 @@ def _add_missing_indexes() -> None:
         _poser_index_uniques(conn, _INDEX_UNIQUES)
 
 
+# Tables dont le modèle a été RETIRÉ du code. `create_all` ne supprime jamais
+# rien : sans cette étape, elles survivraient indéfiniment aux bases existantes.
+# `syntheses` : synthèse par thème (A3), sans appelant depuis le 2026-07-17,
+# modèle retiré le 2026-09-30 (spec restitution défendable l.131-134).
+_TABLES_MORTES = ("syntheses",)
+
+
+def _retirer_tables_mortes() -> None:
+    """DROP d'une table morte SEULEMENT si elle est vide : une ligne présente
+    est une donnée qu'on ne détruit pas en silence — la table reste, avec un
+    avertissement, et la décision revient à un humain."""
+    from sqlalchemy import inspect, text
+
+    with engine.begin() as conn:
+        existantes = set(inspect(conn).get_table_names())
+        for table in _TABLES_MORTES:
+            if table not in existantes:
+                continue
+            n = conn.execute(text(f"SELECT COUNT(*) FROM {table}")).scalar()
+            if n:
+                logger.warning("Table morte %s conservée : %d ligne(s) à arbitrer.", table, n)
+                continue
+            conn.execute(text(f"DROP TABLE {table}"))
+
+
 def _index_unique_existe(conn, table: str, colonnes: tuple[str, ...]) -> bool:
     """Vrai si une contrainte d'unicité porte DÉJÀ exactement ces colonnes.
 
@@ -332,6 +357,7 @@ def init_db() -> None:
     if _migration_autorisee():
         _add_missing_columns()
         _add_missing_indexes()
+        _retirer_tables_mortes()
     ecarts = ecarts_de_schema()
     if ecarts:
         raise SchemaEnRetard(
