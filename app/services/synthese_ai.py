@@ -524,10 +524,20 @@ def _parse_ids(values, motif) -> list:
     (chaîne) pour être comptée comme rejetée, jamais comme un porteur."""
     if not isinstance(values, list):
         values = [values] if values not in (None, "") else []
+    # Préfixe explicite (E / C) cherché PARTOUT dans la chaîne : un modèle
+    # local écrit « E12 (Dupont) » ou « E12, E14 » — l'ancrage strict les
+    # rejetait en bloc alors que rien n'y était halluciné (revue 2026-09-29).
+    lettre = "E" if motif is _ID_ENTRETIEN_RE else "C"
+    tag = re.compile(rf"\b{lettre}\s*(\d+)\b", re.IGNORECASE)
     out = []
     for v in values:
-        m = motif.match(str(v).strip())
-        out.append(int(m.group(1)) if m else str(v).strip())
+        texte = str(v).strip()
+        m = motif.match(texte)
+        if m:
+            out.append(int(m.group(1)))
+            continue
+        trouves = [int(x) for x in tag.findall(texte)]
+        out.extend(trouves if trouves else [texte])
     return out
 
 
@@ -639,6 +649,15 @@ RECO_JSON_HINT = (
     'd\'objets {"title", "recommendations": [...]}.'
 )
 
+# I2 étape 2 : nommer le champ DANS la consigne JSON. Mesure réelle du
+# 2026-09-30 (qwen2.5:3b, 5 entretiens, même mission) : l'en-tête du prompt
+# seul donnait 0 reco sur 6 citant un constat ; cette phrase, 6 sur 6.
+# Ajoutée seulement quand la mission a des constats.
+RECO_CONSTATS_HINT = (
+    " Chaque recommandation porte OBLIGATOIREMENT la clé \"constats\" : liste "
+    "des identifiants \"C<id>\" des constats qui la motivent (au moins un)."
+)
+
 RECO_SCHEMA = {
     "type": "object",
     "properties": {
@@ -738,7 +757,8 @@ def generate_recommendations(global_synthesis, axes=None, constats=None) -> list
             "aussi constats : la liste des identifiants (ex. \"C12\") des "
             "constats qui la motivent, uniquement parmi ceux fournis."
         )
-    data = _call_claude(system, prompt, RECO_SCHEMA, RECO_JSON_HINT, max_tokens=RECO_MAX_TOKENS)
+    hint = RECO_JSON_HINT + RECO_CONSTATS_HINT if constats else RECO_JSON_HINT
+    data = _call_claude(system, prompt, RECO_SCHEMA, hint, max_tokens=RECO_MAX_TOKENS)
     ids_connus = {c.id for c in constats or []}
     rejetes = []
     axes = []

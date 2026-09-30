@@ -230,3 +230,12 @@ def consensus_non_etaye(nb_porteurs: int, nb_exploites: int) -> bool:
     lieu de le laisser passer pour une mesure. Majorité STRICTE, en entiers
     (2N > M) : pas de flottant, et 2 sur 4 n'est pas un consensus."""
     return nb_exploites > 0 and 2 * nb_porteurs <= nb_exploites
+
+
+def ecart_majoritaire(nb_porteurs: int, nb_exploites: int) -> bool:
+    """Un « écart » porté par une MAJORITÉ STRICTE des entretiens exploités
+    (2N > M) : une position majoritaire n'est pas une divergence. Miroir exact
+    de `consensus_non_etaye` (spec B2 : un décompte qui contredit la
+    qualification est SIGNALÉ, jamais corrigé en silence) — aucun seuil
+    nouveau : la même majorité stricte, lue dans l'autre sens."""
+    return nb_exploites > 0 and 2 * nb_porteurs > nb_exploites

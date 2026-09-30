@@ -117,7 +117,8 @@
       <ul class="reco-constats">
         {% for c in reco.constats %}{% set ligne = lignes_constat.get(c.id) %}
         <li>Part de : {{ c.libelle }} — {{ constat_type_labels.get(c.type, c.type) }}{% if ligne and ligne.m %}, {{ ligne.n }}/{{ ligne.m }}{% endif %}
-          {% if ligne and ligne.non_etaye %}<span class="constat-alerte">Consensus non étayé</span>{% endif %}</li>
+          {% if ligne and ligne.non_etaye %}<span class="constat-alerte">Consensus non étayé</span>{% endif %}
+          {% if ligne and ligne.ecart_majoritaire %}<span class="constat-alerte">Écart porté par la majorité</span>{% endif %}</li>
         {% endfor %}
         {% if reco.constats_non_rattaches %}
         <li class="constat-alerte">Constat introuvable dans la mission : {{ reco.constats_non_rattaches }}</li>

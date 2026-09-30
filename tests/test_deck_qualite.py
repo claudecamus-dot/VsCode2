@@ -1024,7 +1024,8 @@ def test_fiche_reco_pleine_ne_perd_pas_les_constats_et_ne_deborde_pas() -> None:
     assert D.verifier_geometrie(prs) == []
 
 
-def _mission_reco_un_constat(porteurs: int, contributifs: bool = True) -> int:
+def _mission_reco_un_constat(porteurs: int, contributifs: bool = True,
+                             type_: str = "consensus") -> int:
     """Reco citant UN consensus porté par `porteurs` entretiens sur 3 ; si
     `contributifs` est faux, aucun entretien n'a de matière (M = 0)."""
     from app.models import MissionConstat
@@ -1036,7 +1037,7 @@ def _mission_reco_un_constat(porteurs: int, contributifs: bool = True) -> int:
                          status="done", repartition=rep)
                for n in ("Alix", "Bao", "Chloé")]
         db.add_all(ivs); db.flush()
-        cons = MissionConstat(mission_id=m.id, axe_key="contexte", type="consensus",
+        cons = MissionConstat(mission_id=m.id, axe_key="contexte", type=type_,
                               libelle="Les arbitrages remontent au COMEX",
                               position=0, interviews=ivs[:porteurs])
         db.add(cons); db.flush()
@@ -1075,3 +1076,12 @@ def test_fiche_reco_sans_entretien_exploite_n_affiche_pas_zero_sur_zero() -> Non
     """M = 0 : l'écran masque le compte, le deck aussi (pas de « , 0/0 »)."""
     tout = _texte_fiche(_mission_reco_un_constat(0, contributifs=False))
     assert "FONDÉE SUR" in tout and "0/0" not in tout
+
+
+def test_fiche_reco_signale_un_ecart_porte_par_la_majorite() -> None:
+    """Spec B2 : un écart porté par 2 entretiens sur 3 est contredit par son
+    décompte ; le deck le dit comme l'écran. 1 sur 3 reste un écart normal."""
+    tout = _texte_fiche(_mission_reco_un_constat(2, type_="ecart"))
+    assert "(Écart important porté par la majorité, 2/3)" in tout
+    tout = _texte_fiche(_mission_reco_un_constat(1, type_="ecart"))
+    assert "(Écart important, 1/3)" in tout and "majorité" not in tout

@@ -85,10 +85,11 @@
         {% if ligne.porteurs %}<span class="muted"> — {{ ligne.porteurs|join(', ') }}</span>{% endif %}
         {% if c.noms_non_rattaches %}<span class="constat-alerte">Non rattaché{{ 's' if ',' in c.noms_non_rattaches }} : {{ c.noms_non_rattaches }}</span>{% endif %}
         {% if ligne.non_etaye %}<span class="constat-alerte">Consensus non étayé : porté par la moitié ou moins des entretiens</span>{% endif %}
+        {% if ligne.ecart_majoritaire %}<span class="constat-alerte">Écart porté par la majorité des entretiens : est-ce vraiment une divergence ?</span>{% endif %}
       </span>
       {% if ligne.m %}
       {# Un écart n'a pas de « bon » score : couleur neutre, jamais le vert du complet. #}
-      <span class="couverture{% if ligne.non_etaye %} couverture-partielle{% elif c.type != 'consensus' %} couverture-neutre{% endif %}">{{ ligne.n }}/{{ ligne.m }}</span>
+      <span class="couverture{% if ligne.non_etaye or ligne.ecart_majoritaire %} couverture-partielle{% elif c.type != 'consensus' %} couverture-neutre{% endif %}">{{ ligne.n }}/{{ ligne.m }}</span>
       {% else %}
       <span class="couverture couverture-neutre" title="Aucun entretien ne nourrit encore la synthèse">—</span>
       {% endif %}

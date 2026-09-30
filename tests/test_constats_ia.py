@@ -383,3 +383,32 @@ def test_le_job_ne_remplace_pas_des_constats_importes(monkeypatch) -> None:
         assert mission.global_synthesis.generation_status == "idle"
     finally:
         db.close()
+
+
+def test_les_ids_prefixes_sont_lus_meme_entoures_de_texte() -> None:
+    """Revue 2026-09-29 : « E12 (Dupont) » ou « E12, E14 » étaient rejetés en
+    bloc. Un texte sans identifiant reste rejeté tel quel."""
+    lu = synthese_ai._parse_ids(["E12 (Dupont)", "E12, e14", "[E3]", "7", "Dupont"],
+                                synthese_ai._ID_ENTRETIEN_RE)
+    assert lu == [12, 12, 14, 3, 7, "Dupont"]
+    assert synthese_ai._parse_ids(["C4 : cap"], synthese_ai._ID_CONSTAT_RE) == [4]
+    # Le préfixe d'un AUTRE type n'est pas pris : « C4 » n'est pas un entretien.
+    assert synthese_ai._parse_ids(["C4"], synthese_ai._ID_ENTRETIEN_RE) == ["C4"]
+
+
+def test_la_consigne_json_nomme_le_champ_constats_seulement_s_il_y_en_a(monkeypatch) -> None:
+    """Mesure réelle 2026-09-30 : sans cette phrase, 0 reco sur 6 citait un
+    constat ; avec, 6 sur 6. Sans constats, la consigne ne change pas."""
+    hints = []
+
+    def faux(system, prompt, schema, hint, max_tokens=0):
+        hints.append(hint)
+        return {"axes": []}
+
+    monkeypatch.setattr(synthese_ai, "_call_claude", faux)
+    gs = SimpleNamespace(contenu=lambda k: "- matière" if k == "contexte" else "")
+    constat = SimpleNamespace(id=7, axe_key="contexte", type="consensus", libelle="Cap")
+    synthese_ai.generate_recommendations(gs, None, constats=[constat])
+    synthese_ai.generate_recommendations(gs, None)
+    assert '"constats"' in hints[0] and "C<id>" in hints[0]
+    assert hints[1] == synthese_ai.RECO_JSON_HINT

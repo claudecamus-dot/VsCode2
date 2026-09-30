@@ -228,7 +228,11 @@ def _parse_constats_section(text: str, axes_etude) -> list[dict]:
             type_ = "consensus" if m.group(1).lower() == "consensus" else "ecart"
             noms = [n.strip() for n in _SEP_NOMS_RE.split(m.group(3) or "") if n.strip()]
             constats.append({"axe_key": axe_key, "type": type_,
-                             "libelle": m.group(2).strip(), "noms": noms})
+                             "libelle": m.group(2).strip(), "noms": noms,
+                             # Parenthèse BRUTE : seul le rattachement, qui
+                             # connaît les entretiens, sait si c'étaient des
+                             # noms ou un commentaire (« (hors licences) »).
+                             "parenthese": (m.group(3) or "").strip()})
     return constats
 
 

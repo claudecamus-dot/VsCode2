@@ -17,6 +17,7 @@ from app.db import DB_PATH, SessionLocal, engine, init_db
 from app.models import Interview, Mission, MissionConstat
 from app.services.synthese_material import (
     consensus_non_etaye,
+    ecart_majoritaire,
     couverture_mission,
     interviews_contributifs,
 )
@@ -659,9 +660,16 @@ _CONSTATS_SEULS_MD = """## CONSTATS
 
 
 def _reco_de(mission_id: int):
+    """(libellés liés, non rattachés) de l'unique reco — session FERMÉE : une
+    session ouverte verrouille la base de test au teardown (Windows)."""
     from app.models import Recommendation
-    return SessionLocal().query(Recommendation).join(Recommendation.axis).filter_by(
-        mission_id=mission_id).one()
+    db = SessionLocal()
+    try:
+        reco = db.query(Recommendation).join(Recommendation.axis).filter_by(
+            mission_id=mission_id).one()
+        return [c.libelle for c in reco.constats], reco.constats_non_rattaches
+    finally:
+        db.close()
 
 
 def test_un_reimport_des_seuls_constats_garde_les_liens_des_recos() -> None:
@@ -672,9 +680,7 @@ def test_un_reimport_des_seuls_constats_garde_les_liens_des_recos() -> None:
     client = TestClient(app)
     assert _importer(client, mission_id, _RECO_MD).status_code == 303
     assert _importer(client, mission_id, _CONSTATS_SEULS_MD).status_code == 303
-    reco = _reco_de(mission_id)
-    assert [c.libelle for c in reco.constats] == ["Croissance subie"]
-    assert reco.constats_non_rattaches == "Constat fantôme"
+    assert _reco_de(mission_id) == (["Croissance subie"], "Constat fantôme")
 
 
 def test_un_reimport_qui_retire_un_constat_cite_l_annonce_a_l_ecran() -> None:
@@ -684,8 +690,95 @@ def test_un_reimport_qui_retire_un_constat_cite_l_annonce_a_l_ecran() -> None:
     autre = ("## CONSTATS\n\n### Contexte\n"
              "- [écart] Vision du cap (Chris)\n")
     assert _importer(client, mission_id, autre).status_code == 303
-    reco = _reco_de(mission_id)
-    assert reco.constats == []
-    assert "Croissance subie" in reco.constats_non_rattaches
+    lies, non_rattaches = _reco_de(mission_id)
+    assert lies == []
+    assert "Croissance subie" in non_rattaches
     page = client.get(f"/missions/{mission_id}/recommandations").text
     assert "Constat introuvable dans la mission" in page and "Croissance subie" in page
+
+
+def test_ecart_majoritaire_miroir_strict_du_consensus() -> None:
+    """Spec B2 : même majorité stricte (2N > M), lue dans l'autre sens."""
+    assert ecart_majoritaire(3, 4) is True
+    assert ecart_majoritaire(2, 4) is False   # la moitié n'est pas une majorité
+    assert ecart_majoritaire(1, 9) is False
+    assert ecart_majoritaire(0, 0) is False
+    for n, m in ((0, 3), (1, 3), (2, 3), (3, 3), (2, 4), (5, 9)):
+        # Jamais les deux signaux pour un même décompte, jamais aucun des deux.
+        assert consensus_non_etaye(n, m) != ecart_majoritaire(n, m)
+
+
+def test_un_ecart_majoritaire_est_signale_a_l_ecran() -> None:
+    mission_id, _ = _mission_avec_entretiens("Ecart majoritaire", ["Alix", "Bao", "Chris"])
+    client = TestClient(app)
+    md = ("## CONSTATS\n\n### Contexte\n"
+          "- [écart] Tout le monde diverge (Alix, Bao)\n"
+          "- [écart] Voix isolée (Chris)\n")
+    assert _importer(client, mission_id, md).status_code == 303
+    page = client.get(f"/missions/{mission_id}/synthese/globale").text
+    assert page.count("Écart porté par la majorité des entretiens") == 1
+    assert '<span class="couverture couverture-partielle">2/3</span>' in page
+    assert '<span class="couverture couverture-neutre">1/3</span>' in page
+
+
+def test_une_parenthese_de_commentaire_reste_dans_le_libelle() -> None:
+    """Revue 2026-09-29 : « (hors licences) » était lu comme des porteurs."""
+    mission_id, _ = _mission_avec_entretiens("Parenthese", ["Alix", "Bao"])
+    client = TestClient(app)
+    md = ("## CONSTATS" + chr(10) * 2 + "### Contexte" + chr(10)
+          + "- [écart] Coût du run jugé élevé (hors licences)" + chr(10)
+          + "- [consensus] Cap partagé (Alix, Bao)" + chr(10)
+          + "- [écart] Vision du cap (Inconnu)" + chr(10))
+    assert _importer(client, mission_id, md).status_code == 303
+    db = SessionLocal()
+    try:
+        par = {c.libelle: c for c in db.get(Mission, mission_id).constats}
+        assert par["Coût du run jugé élevé (hors licences)"].noms_non_rattaches == ""
+        assert [iv.interviewee_name for iv in par["Cap partagé"].interviews] == ["Alix", "Bao"]
+        # Un nom inconnu en capitale reste une alerte, jamais du libellé.
+        assert par["Vision du cap"].noms_non_rattaches == "Inconnu"
+    finally:
+        db.close()
+
+
+def test_une_reco_retrouve_un_constat_dont_le_libelle_contient_un_point_virgule() -> None:
+    mission_id, _ = _mission_avec_entretiens("Point-virgule", ["Alix", "Bao", "Chris"])
+    client = TestClient(app)
+    nl = chr(10)
+    md = ("## CONSTATS" + nl * 2 + "### Contexte" + nl
+          + "- [consensus] Cap flou ; arbitrages lents (Alix, Bao)" + nl * 2
+          + "## RECOMMANDATIONS" + nl * 2 + "#### Axe 1 : A" + nl * 2
+          + "##### Recommandation 1.1 : R" + nl + "- Objectif : O" + nl
+          + "- Constats : Cap flou ; arbitrages lents ; Constat fantôme" + nl)
+    assert _importer(client, mission_id, md).status_code == 303
+    assert _reco_de(mission_id) == (["Cap flou ; arbitrages lents"], "Constat fantôme")
+
+
+def test_deux_constats_cites_ensemble_ne_sont_pas_fusionnes() -> None:
+    """Revue 2026-09-30 : « a », « b » et « a ; b » existent ; la reco qui
+    cite « a ; b » (deux constats) garde ses deux liens."""
+    mission_id, _ = _mission_avec_entretiens("Pas de fusion", ["Alix", "Bao"])
+    client = TestClient(app)
+    nl = chr(10)
+    md = ("## CONSTATS" + nl * 2 + "### Contexte" + nl
+          + "- [consensus] Cap flou (Alix, Bao)" + nl
+          + "- [consensus] Arbitrages lents (Alix, Bao)" + nl
+          + "- [consensus] Cap flou ; arbitrages lents (Alix, Bao)" + nl * 2
+          + "## RECOMMANDATIONS" + nl * 2 + "#### Axe 1 : A" + nl * 2
+          + "##### Recommandation 1.1 : R" + nl + "- Objectif : O" + nl
+          + "- Constats : Cap flou ; Arbitrages lents" + nl)
+    assert _importer(client, mission_id, md).status_code == 303
+    assert _reco_de(mission_id) == (["Cap flou", "Arbitrages lents"], "")
+
+
+def test_un_nom_inconnu_en_minuscule_reste_une_alerte() -> None:
+    mission_id, _ = _mission_avec_entretiens("Minuscule", ["Alix"])
+    client = TestClient(app)
+    md = "## CONSTATS" + chr(10) * 2 + "### Contexte" + chr(10) + "- [écart] Cap flou (dupont)" + chr(10)
+    assert _importer(client, mission_id, md).status_code == 303
+    db = SessionLocal()
+    try:
+        (c,) = db.get(Mission, mission_id).constats
+        assert (c.libelle, c.noms_non_rattaches) == ("Cap flou", "dupont")
+    finally:
+        db.close()

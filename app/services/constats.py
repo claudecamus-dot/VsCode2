@@ -14,7 +14,11 @@ import re
 from sqlalchemy.orm import Session
 
 from app.models import CONSTAT_TYPE_LABELS, Mission, MissionConstat
-from app.services.synthese_material import consensus_non_etaye, interviews_contributifs
+from app.services.synthese_material import (
+    consensus_non_etaye,
+    ecart_majoritaire,
+    interviews_contributifs,
+)
 
 
 def _cle_nom(nom: str | None) -> str:
@@ -65,7 +69,28 @@ def apply_constats_import(db: Session, mission: Mission, constats: list[dict]) -
                 non_rattaches.append(nom)
         return porteurs, non_rattaches
 
+    constats = [_parenthese_commentaire(item, par_nom) for item in constats]
     _remplacer_constats(db, mission, constats, resoudre)
+
+
+def _parenthese_commentaire(item: dict, par_nom: dict[str, list]) -> dict:
+    """« - [écart] Coût du run jugé élevé (hors licences) » : la parenthèse
+    finale était lue comme des porteurs — libellé tronqué, « hors licences »
+    affiché « Non rattaché », et la reco qui cite le libellé complet ne le
+    retrouvait plus (revue 2026-09-29). Elle redevient du libellé quand AUCUN
+    segment ne désigne un entretien ET que tous sont des GROUPES DE MOTS
+    commençant par une minuscule : un nom inconnu, en capitale (« Inconnu »)
+    ou d'un seul mot minuscule (« dupont »), reste une alerte « Non rattaché ».
+    Limites assumées (revue 2026-09-30) : une parenthèse MIXTE (« hors
+    licences, Alix ») reste lue comme des noms ; « (de Villiers) » passe pour
+    un commentaire si aucun entretien ne porte ce nom exact."""
+    brute = item.get("parenthese") or ""
+    noms = _noms_rattachables(item["noms"], par_nom)
+    if not brute or not noms or any(_cle_nom(n) in par_nom for n in noms):
+        return item
+    if not all(n.strip()[:1].islower() and len(n.split()) > 1 for n in noms):
+        return item
+    return {**item, "libelle": f"{item['libelle']} ({brute})", "noms": []}
 
 
 def apply_constats_ia(db: Session, mission: Mission, constats: list[dict]) -> bool:
@@ -173,7 +198,7 @@ def lier_aux_constats(recommandation, libelles: list[str], mission: Mission) -> 
     for c in mission.constats:
         par_libelle.setdefault(_cle_nom(c.libelle), []).append(c)
     lies, inconnus = [], []
-    for libelle in libelles:
+    for libelle in _recoller(libelles, par_libelle):
         trouves = par_libelle.get(_cle_nom(libelle), [])
         if not trouves:
             if _cle_nom(libelle) not in {_cle_nom(x) for x in inconnus}:
@@ -186,8 +211,9 @@ def lier_aux_constats(recommandation, libelles: list[str], mission: Mission) -> 
 
 
 def constats_par_axe(mission: Mission) -> dict[str, list[dict]]:
-    """`{axe_key: [{constat, porteurs, n, m, non_etaye}]}` dans l'ordre des
-    positions. `non_etaye` ne vaut que pour un consensus."""
+    """`{axe_key: [{constat, porteurs, n, m, non_etaye, ecart_majoritaire}]}`
+    dans l'ordre des positions. `non_etaye` ne vaut que pour un consensus,
+    `ecart_majoritaire` que pour un écart : le décompte contredit le jugement."""
     contributifs = {iv.id for iv in interviews_contributifs(mission)}
     m = len(contributifs)
     out: dict[str, list[dict]] = {}
@@ -203,6 +229,7 @@ def constats_par_axe(mission: Mission) -> dict[str, list[dict]]:
             "n": n,
             "m": m,
             "non_etaye": c.type == "consensus" and consensus_non_etaye(n, m),
+            "ecart_majoritaire": c.type == "ecart" and ecart_majoritaire(n, m),
         })
     return out
 
@@ -220,7 +247,35 @@ def texte_fondee_sur(reco, lignes: dict[int, dict]) -> str:
             # Même signal que l'écran : un consensus à 2 sur 9 ne part pas chez
             # le client comme une mesure (risque produit n°1 de la spec, l.137).
             type_ += " non étayé"
+        elif ligne and ligne["ecart_majoritaire"]:
+            type_ += " porté par la majorité"
         # Sans entretien exploité (M=0), l'écran masque le compte : le deck aussi.
         compte = f", {ligne['n']}/{ligne['m']}" if ligne and ligne["m"] else ""
         morceaux.append(f"{c.libelle} ({type_}{compte})")
     return " ; ".join(morceaux)
+
+
+def _recoller(libelles: list[str], connus: dict) -> list[str]:
+    """La puce `Constats :` sépare par « ; » — un libellé qui en contient un
+    arrivait en deux fragments dont aucun ne se rattachait (revue 2026-09-29).
+    On recolle les fragments VOISINS, au plus long d'abord, quand leur réunion
+    désigne un constat connu ; sinon chacun reste tel quel."""
+    def cle(x: str) -> str:  # « a ; b » et « a; b » : même libellé
+        return _cle_nom(re.sub(r"\s*;\s*", " ; ", x))
+
+    par_cle = {cle(k): k for k in connus}
+    out, i = [], 0
+    while i < len(libelles):
+        for j in range(len(libelles), i + 1, -1):
+            trouve = par_cle.get(cle(" ; ".join(libelles[i:j])))
+            # Jamais quand CHAQUE fragment désigne déjà un constat : « a » et
+            # « b » cités ensemble restent deux liens, même si « a ; b »
+            # existe aussi (revue 2026-09-30 : fusion silencieuse).
+            if trouve is not None and not all(cle(x) in par_cle for x in libelles[i:j]):
+                out.append(trouve)
+                i = j
+                break
+        else:
+            out.append(libelles[i])
+            i += 1
+    return out
