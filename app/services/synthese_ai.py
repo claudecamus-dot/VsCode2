@@ -538,6 +538,12 @@ def _parse_ids(values, motif) -> list:
             continue
         trouves = [int(x) for x in tag.findall(texte)]
         out.extend(trouves if trouves else [texte])
+        # Un nombre NU resté dans le texte (« Interview 3 et E5 ») n'est pas
+        # lu comme un id — mais il ne disparaît pas non plus : le texte entier
+        # est compté rejeté, visible au journal (revue 2026-09-30).
+        # Hors parenthèses : « E12 (2 fois) » est un commentaire, pas un id.
+        if trouves and re.search(r"\d", re.sub(r"\([^)]*\)", "", tag.sub("", texte))):
+            out.append(texte)
     return out
 
 

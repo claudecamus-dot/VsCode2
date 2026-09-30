@@ -412,3 +412,13 @@ def test_la_consigne_json_nomme_le_champ_constats_seulement_s_il_y_en_a(monkeypa
     synthese_ai.generate_recommendations(gs, None)
     assert '"constats"' in hints[0] and "C<id>" in hints[0]
     assert hints[1] == synthese_ai.RECO_JSON_HINT
+
+
+def test_un_nombre_nu_a_cote_d_un_id_prefixe_est_compte_rejete() -> None:
+    """Revue 2026-09-30 : dans « Interview 3 et E5 », le 3 disparaissait sans
+    trace. E5 est lu ; le texte entier est rendu pour être compté rejeté."""
+    lu = synthese_ai._parse_ids(["Interview 3 et E5"], synthese_ai._ID_ENTRETIEN_RE)
+    assert lu == [5, "Interview 3 et E5"]
+    assert synthese_ai._parse_ids(["E12 (Dupont)"], synthese_ai._ID_ENTRETIEN_RE) == [12]
+    # Un chiffre DANS une parenthèse est un commentaire (revue 2026-09-30).
+    assert synthese_ai._parse_ids(["E12 (2 fois)"], synthese_ai._ID_ENTRETIEN_RE) == [12]
