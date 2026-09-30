@@ -139,7 +139,7 @@ class _LazyExecutor:
     « transcrire » toute la fenêtre glissante avant la première panne, et le
     comptage des re-transcriptions ne prouverait plus rien."""
 
-    def __init__(self, max_workers=None):
+    def __init__(self, max_workers=None, mp_context=None):
         pass
 
     def __enter__(self):

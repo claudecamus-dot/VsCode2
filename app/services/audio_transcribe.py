@@ -62,6 +62,7 @@ from __future__ import annotations
 
 import io
 import logging
+import multiprocessing
 import os
 import threading
 from concurrent.futures import ProcessPoolExecutor
@@ -514,7 +515,13 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int):
         for _ in range(n_workers):
             _GLOBAL_WORKERS_SEMAPHORE.acquire()
             acquis += 1
-        with ProcessPoolExecutor(max_workers=n_workers) as executor:
+        # `spawn` PARTOUT, jamais `fork` (défaut Linux jusqu'à Python 3.13) :
+        # le parent a déjà des threads vivants (moniteur tqdm, feeder de
+        # queue, uvicorn) et un enfant forké dans cet état se bloque sur un
+        # verrou hérité. Vécu en CI le 2026-09-30 : pytest figé 6 h dans
+        # `_drain_parallel` (runs #48-#50), jamais vu sous Windows qui spawne.
+        with ProcessPoolExecutor(max_workers=n_workers,
+                                 mp_context=multiprocessing.get_context("spawn")) as executor:
             def _submit(i: int) -> None:
                 futures[i] = executor.submit(
                     _transcribe_pcm_chunk, (blocks[i], CPU_THREADS_PER_WORKER)

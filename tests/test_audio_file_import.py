@@ -733,7 +733,7 @@ class _InlineExecutor:
     substitut de `ProcessPoolExecutor` pour tester la mécanique de fenêtre
     sans charger de modèle."""
 
-    def __init__(self, max_workers=None):
+    def __init__(self, max_workers=None, mp_context=None):
         self.soumissions = []
 
     def __enter__(self):

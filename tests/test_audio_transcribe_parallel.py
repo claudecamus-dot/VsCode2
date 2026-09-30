@@ -110,3 +110,20 @@ def test_transcribe_audio_parallel_path_real_pipeline(monkeypatch: pytest.Monkey
 
     assert isinstance(text, str)
     assert text.strip() != ""
+
+
+def test_le_pool_de_transcription_spawne_jamais_ne_forke(monkeypatch: pytest.MonkeyPatch) -> None:
+    """CI Linux 2026-09-30 : un enfant FORKÉ d'un parent multithreadé s'est
+    bloqué 6 h dans `_drain_parallel`. Le pool doit démarrer en `spawn` sur
+    toutes les plateformes, pas seulement là où c'est le défaut (Windows)."""
+    contextes = []
+
+    class FauxPool:
+        def __init__(self, max_workers=None, mp_context=None):
+            contextes.append(mp_context.get_start_method() if mp_context else None)
+            raise RuntimeError("stop")
+
+    monkeypatch.setattr(audio_transcribe, "ProcessPoolExecutor", FauxPool)
+    with pytest.raises(RuntimeError, match="stop"):
+        list(audio_transcribe._drain_parallel([b"a", b"b"], 0, 2, 2))
+    assert contextes == ["spawn"]

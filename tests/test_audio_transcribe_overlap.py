@@ -175,7 +175,7 @@ def test_drain_parallel_acquires_and_releases_global_semaphore(
             return self._valeur
 
     class FauxExecutor:
-        def __init__(self, max_workers):
+        def __init__(self, max_workers, mp_context=None):
             self.max_workers = max_workers
 
         def __enter__(self):
