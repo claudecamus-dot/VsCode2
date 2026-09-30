@@ -357,6 +357,15 @@ if (Test-PortRepond -NumPort $Port) {
                  "(2 occurrences), sinon l'auto-start rejouera l'échec à chaque ouverture du dossier.")
     exit 1
 }
+# Journaux horodatés de repli : relus plus haut pour purger leurs workers,
+# ils ne servent plus ensuite. On garde les 3 plus récents (diagnostic), le
+# reste part — sinon ils s'accumulent et chaque lancement les relit tous
+# (revue 2026-09-30). Un fichier encore tenu ouvert est laissé sans bruit.
+Get-ChildItem -Path $env:TEMP -Filter ("uvicorn_dev_" + $Port + "_*.log*") -ErrorAction SilentlyContinue |
+    Group-Object { $_.Name -replace '\.err$', '' } |
+    Sort-Object { ($_.Group | Measure-Object LastWriteTime -Maximum).Maximum } -Descending |
+    Select-Object -Skip 3 |
+    ForEach-Object { $_.Group | Remove-Item -Force -ErrorAction SilentlyContinue }
 if ($StopOnly) { Write-Host "Serveur arrêté, port $Port libre."; exit 0 }
 
 # ---- 2. Bytecode : écarter l'hypothèse __pycache__ périmé ----

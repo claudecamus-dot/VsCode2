@@ -109,3 +109,22 @@ def test_stop_relit_aussi_le_journal_horodate_d_un_lancement_verrouille(tmp_path
     finally:
         if worker.poll() is None:
             worker.kill()
+
+
+def test_stop_ne_garde_que_les_trois_journaux_horodates_les_plus_recents(tmp_path) -> None:
+    """Revue 2026-09-30 : les journaux de repli s'accumulaient sans fin."""
+    import time
+    for i in range(5):
+        for suffixe in (".log", ".log.err"):
+            f = tmp_path / f"uvicorn_dev_{PORT_LIBRE}_2026093{i}_120000{suffixe}"
+            f.write_text("x", encoding="utf-8")
+            os.utime(f, (time.time() - (5 - i) * 60,) * 2)
+    env = dict(os.environ, APP_AUTH_PASSWORD="mdp-de-test", TEMP=str(tmp_path), TMP=str(tmp_path))
+    res = subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+         str(SCRIPT), "-Port", PORT_LIBRE, "-StopOnly"],
+        cwd=RACINE, env=env, capture_output=True, timeout=180)
+    assert res.returncode == 0, (res.stdout + res.stderr).decode("utf-8", errors="replace")
+    restants = sorted(p.name for p in tmp_path.glob(f"uvicorn_dev_{PORT_LIBRE}_*"))
+    assert restants == sorted(f"uvicorn_dev_{PORT_LIBRE}_2026093{i}_120000{s}"
+                              for i in (2, 3, 4) for s in (".log", ".log.err"))
