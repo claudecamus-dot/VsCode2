@@ -134,7 +134,20 @@
       "Read(**/credentials.json)",
       "Bash(env)",
       "Bash(git config:*)",
-      "PowerShell(Get-ChildItem Env:*)"
+      "PowerShell(Get-ChildItem Env:*)",
+      "Bash(git reset --hard*)",
+      "Bash(git checkout -- *)",
+      "Bash(git checkout .)",
+      "Bash(git push --force*)",
+      "Bash(git push -f *)",
+      "Bash(git push * --force*)",
+      "Bash(git clean *)",
+      "Bash(git stash drop*)",
+      "Bash(git stash clear)",
+      "Bash(git worktree remove --force*)",
+      "Bash(git branch -D *)",
+      "Bash(find * -delete*)",
+      "Bash(find * -exec*)"
     ],
     "allow": [
       "Bash(node \"C:\\\\Users\\\\claude.camus\\\\.claude\\\\skills\\\\roadmap-keeper\\\\scripts\\\\render-roadmap.js\" \"c:\\\\Users\\\\claude.camus\\\\Documents\\\\VSCode2\\\\.roadmap\\\\roadmap.json\")",
@@ -195,7 +208,29 @@
       "Bash(py -m pytest *)",
       "Bash(.venv/Scripts/python.exe -m py_compile *)",
       "Bash(py -m py_compile *)",
-      "Read(**/*.png)"
+      "Read(**/*.png)",
+      "Bash(cd *)",
+      "Bash(echo *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(grep *)",
+      "Bash(find . -name *)",
+      "Bash(sed -n *)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(git show *)",
+      "Bash(git commit *)",
+      "Bash(git worktree list)",
+      "Bash(.venv/Scripts/python.exe -m ruff check *)",
+      "Bash(.venv/Scripts/python.exe .claude/orchestration/log_run.py *)",
+      "Bash(.venv/Scripts/python.exe scripts/preuve_p1.py *)"
+    ],
+    "ask": [
+      "Bash(git push origin main)"
     ]
   }
 }
