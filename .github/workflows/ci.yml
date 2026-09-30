@@ -23,6 +23,9 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Borne du job (2026-09-30) : le run #48 est reste >1 h dans pytest sans
+    # verdict, contre ~2 min pour les runs verts ; sans borne GitHub attend 6 h.
+    timeout-minutes: 30
     steps:
       # Actions epinglees sur un SHA de commit, jamais sur un tag : un tag est
       # MUTABLE, qui controle le depot de l'action peut le re-pointer sur un
@@ -110,6 +113,9 @@ jobs:
         run: google-chrome --version
 
       - name: Tests (pytest + couverture)
+        timeout-minutes: 20
         env:
           E2E_OBLIGATOIRE: "1"
-        run: python -m pytest --cov=app --cov-report=term-missing -q
+        # faulthandler_timeout (natif pytest) : un test bloque plus de 5 min
+        # imprime la pile de tous les threads — le journal nomme le coupable.
+        run: python -m pytest --cov=app --cov-report=term-missing -q -o faulthandler_timeout=300
