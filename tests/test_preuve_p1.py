@@ -563,3 +563,30 @@ def test_la_preuve_n_ecrit_aucun_bytecode_dans_le_bac(tmp_path):
     r = _lancer(module, test)
     assert r.returncode == TENUE, r.stdout + r.stderr
     assert list(module.parent.rglob("*.pyc")) == []
+
+
+def test_un_verrou_pose_sur_A_refuse_une_seconde_preuve_avant_toute_mutation(tmp_path):
+    """Deux preuves simultanees sur le MEME fichier ne s'excluaient pas : la
+    sentinelle n'etait posee qu'apres le run vert. Un verrou exclusif est pris
+    avant le premier run ; s'il existe, la preuve refuse sans rien toucher. B
+    reste independant, et un run normal ne laisse aucun verrou."""
+    corps_test = IMPORTE + "def test_double():\n    assert double(3) == 6\n"
+    module_a, test_a = _bac(tmp_path / "a", MODULE, corps_test)
+    module_b, test_b = _bac(tmp_path / "b", MODULE, corps_test)
+    verrou_a = _sentinelle_de(module_a).with_suffix(".lock")
+    verrou_b = _sentinelle_de(module_b).with_suffix(".lock")
+    verrou_a.write_text("preuve concurrente", encoding="utf-8")
+    try:
+        r_a = _lancer(module_a, test_a)
+        assert r_a.returncode == INTERROMPUE, r_a.stdout + r_a.stderr
+        assert "PREUVE PRECEDENTE EN COURS" in r_a.stdout
+        assert "1/2" not in r_a.stdout, "aucun run ne doit partir sous verrou"
+        assert module_a.read_bytes() == MODULE.encode("utf-8")
+        assert verrou_a.exists(), "le verrou d'autrui n'est pas a nous"
+
+        r_b = _lancer(module_b, test_b)
+        assert r_b.returncode == TENUE, r_b.stdout + r_b.stderr
+        assert not verrou_b.exists(), "un run normal laisse son verrou"
+    finally:
+        verrou_a.unlink(missing_ok=True)
+        verrou_b.unlink(missing_ok=True)

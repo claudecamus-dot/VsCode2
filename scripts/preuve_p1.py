@@ -98,6 +98,15 @@ def _sentinelle(cible: Path) -> Path:
     cle = hashlib.sha1(str(cible.resolve()).encode("utf-8")).hexdigest()[:12]
     return Path(tempfile.gettempdir()) / f"preuve_p1_interrompue_{cle}.json"
 
+def _verrou(cible: Path) -> Path:
+    """Verrou EXCLUSIF d'une preuve en cours sur ce fichier, pris avant le 1er run.
+
+    La sentinelle n'est posee qu'apres le run vert : deux preuves simultanees sur
+    le meme fichier ne s'excluaient pas, et la seconde pouvait prendre le fichier
+    deja mute comme etat de depart."""
+    return _sentinelle(cible).with_suffix(".lock")
+
+
 # pytest : 0 = tout passe, 1 = des tests ont échoué. Tout le reste est un
 # problème d'OUTILLAGE (2 interrompu, 3 erreur interne, 4 usage, 5 aucun test
 # collecté) et ne dit rien du comportement teste.
@@ -386,6 +395,19 @@ def main() -> int:
     sauvegarde = abri / cible.name
     shutil.copy(cible, sauvegarde)
     basetemp = Path(tempfile.mkdtemp(prefix="preuve_p1_pytest_"))
+    verrou = _verrou(cible)
+    try:
+        with open(verrou, "x", encoding="utf-8") as f:
+            f.write(str(os.getpid()))
+    except FileExistsError:
+        shutil.rmtree(basetemp, ignore_errors=True)
+        shutil.rmtree(abri, ignore_errors=True)
+        print(f"PREUVE PRECEDENTE EN COURS : {verrou} existe deja.\n"
+              "Une autre preuve tient ce fichier ; en lancer une seconde "
+              "mesurerait un fichier peut-etre deja mute. Attendre sa fin. Si "
+              "aucune preuve ne tourne (processus tue), supprimer ce verrou apres "
+              "avoir verifie que le fichier cible est intact.")
+        return INTERROMPUE
     mutation_posee = False
     restauree = True  # vrai tant qu'aucune mutation n'a ete posee
 
@@ -497,6 +519,9 @@ def main() -> int:
         shutil.rmtree(basetemp, ignore_errors=True)
         if restauree:
             shutil.rmtree(abri, ignore_errors=True)
+            # Verrou libere seulement si le fichier est sain : sinon il reste
+            # avec la sentinelle, pour bloquer une preuve sur un fichier mute.
+            verrou.unlink(missing_ok=True)
 
     # La restauration PRIME sur le verdict : un code 0 rendu sur un depot reste
     # sur le code d'avant serait le defaut n3 muni d'un tampon de conformite.
