@@ -10,7 +10,7 @@ Le venv du projet porte les dépendances — `py -m pytest` échoue en collecte
 (`ModuleNotFoundError: fastapi`), il pointe le Python global.
 
 ```bash
-.venv/Scripts/python.exe -m pytest -q                      # suite complète (~7 min)
+.venv/Scripts/python.exe -m pytest -q                      # suite complète (48 min 47 s mesurées le 2026-09-30, 1444 tests)
 .venv/Scripts/python.exe -m pytest tests/test_swot.py -q   # un fichier
 .venv/Scripts/python.exe -m pytest -q -k "nom_du_test"     # un test unique
 ```
@@ -25,7 +25,14 @@ Le démarrage **ne migre plus** `data/app.db` depuis le 2026-09-27 (`app/db.py`)
 `uvicorn --reload` oublié l'avait migrée deux fois à la simple édition de `db.py`.
 Après un changement de schéma, l'app REFUSE de démarrer (`SchemaEnRetard`, message avec
 la commande) : migrer une fois avec `APP_DB_MIGRATE=1`. Toute autre base (tests,
-`APP_DB_PATH`) migre comme avant. Ne jamais laisser un serveur `--reload` vivant.
+`APP_DB_PATH`) migre comme avant.
+
+**Le site 8020 reste TOUJOURS en marche** (demande utilisateur du 2026-09-30) :
+`scripts/serveur-dev.ps1 -Port 8020` (`--reload`, auto-démarré à l'ouverture du dossier),
+jamais arrêté en fin de séance. Après une édition sous `app/` : `-CheckOnly` pour prouver
+qu'il sert le code du disque, sinon le relancer (`-Port 8020`). Après un changement de
+schéma : migrer une fois (commande ci-dessus), PUIS le relancer — sinon il reste mort sur
+`SchemaEnRetard`. Le reload ne migre plus rien, il est donc sans danger pour la base.
 
 Sur Windows, ajouter `--basetemp` sur un dossier neuf si le teardown se plaint. Lancer
 l'app et regarder un écran : skill `run-dev-server` (un port vierge — un serveur sans
@@ -72,7 +79,7 @@ Le contexte est un cache actif facturé à chaque tour, pas une mémoire gratuit
   (skills BMAD installées) sauf demande explicite.
 - **Lire avant d'écrire**, grep les appelants avant de modifier une route/service partagé
   (cf. la règle de rejeu des tests ci-dessus, même logique côté lecture).
-- **Sous-agent pour toute sortie volumineuse** (suite complète ~7 min, logs longs).
+- **Sous-agent pour toute sortie volumineuse** (suite complète ~49 min, logs longs).
 - **`/compact` dès ~40 %** de fenêtre utilisée si la session doit continuer longtemps.
 - **`/clear` (pas une 3e rustine) après deux corrections ratées consécutives** sur le
   même problème — repartir à froid avec un meilleur prompt bat l'insistance.
