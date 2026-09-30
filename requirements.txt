@@ -8,6 +8,7 @@ openai==2.44.0  # fournisseur IA alternatif (AI_PROVIDER=openai) — facultatif 
 mistralai==2.5.1  # fournisseur IA alternatif (AI_PROVIDER=mistral) — facultatif au runtime, importé en lazy
 python-dotenv==1.2.2  # charge .env au démarrage (clé API du fournisseur IA actif)
 faster-whisper==1.2.1  # transcription locale (US3.2) — facultatif au runtime, importé en lazy
+av==18.0.0  # décodage audio de faster-whisper : épinglé car av 19.0.0 (installé par défaut en CI le 2026-09-30) casse faster-whisper 1.2.1 (`open() got an unexpected keyword argument metadata_errors`)
 python-pptx==1.0.2  # export PowerPoint de la synthèse/recommandations (évol)
 reportlab==5.0.0  # export PDF par entretien (incr.9) — pure Python, pas de dépendance système
 
