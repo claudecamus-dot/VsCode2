@@ -77,20 +77,32 @@ def _parenthese_commentaire(item: dict, par_nom: dict[str, list]) -> dict:
     """« - [écart] Coût du run jugé élevé (hors licences) » : la parenthèse
     finale était lue comme des porteurs — libellé tronqué, « hors licences »
     affiché « Non rattaché », et la reco qui cite le libellé complet ne le
-    retrouvait plus (revue 2026-09-29). Elle redevient du libellé quand AUCUN
-    segment ne désigne un entretien ET que tous sont des GROUPES DE MOTS
-    commençant par une minuscule : un nom inconnu, en capitale (« Inconnu »)
-    ou d'un seul mot minuscule (« dupont »), reste une alerte « Non rattaché ».
-    Limites assumées (revue 2026-09-30) : une parenthèse MIXTE (« hors
-    licences, Alix ») reste lue comme des noms ; « (de Villiers) » passe pour
-    un commentaire si aucun entretien ne porte ce nom exact."""
-    brute = item.get("parenthese") or ""
-    noms = _noms_rattachables(item["noms"], par_nom)
-    if not brute or not noms or any(_cle_nom(n) in par_nom for n in noms):
+    retrouvait plus (revue 2026-09-29).
+
+    Segment par segment : un GROUPE DE MOTS commençant par une minuscule, qui
+    ne désigne aucun entretien, est un commentaire et rejoint le libellé ;
+    tout autre segment reste un nom. « (hors licences, Alix) » garde donc Alix
+    comme porteur (revue 2026-09-30 : le cas mixte restait lu en noms). Un nom
+    inconnu, en capitale (« Inconnu ») ou d'un seul mot (« dupont »), reste une
+    alerte « Non rattaché ». Limite assumée : « (de Villiers) » passe pour un
+    commentaire si aucun entretien ne porte ce nom exact."""
+    if not item.get("parenthese"):
         return item
-    if not all(n.strip()[:1].islower() and len(n.split()) > 1 for n in noms):
+    commentaires, noms = [], []
+    for seg in item["noms"]:
+        s = seg.strip()
+        if (s[:1].islower() and len(s.split()) > 1
+                and not any(_cle_nom(n) in par_nom for n in _noms_rattachables([s], par_nom))):
+            commentaires.append(s)
+        else:
+            noms.append(seg)
+    if not commentaires:
         return item
-    return {**item, "libelle": f"{item['libelle']} ({brute})", "noms": []}
+    # Aucun porteur restant : le texte BRUT de la parenthèse, tel qu'écrit (le
+    # séparateur peut être « ; » — la reco qui cite le libellé le cite ainsi).
+    # Cas mixte : seuls les commentaires sont recollés, donc avec « , ».
+    texte = item["parenthese"] if not noms else ", ".join(commentaires)
+    return {**item, "libelle": f"{item['libelle']} ({texte})", "noms": noms}
 
 
 def apply_constats_ia(db: Session, mission: Mission, constats: list[dict]) -> bool:

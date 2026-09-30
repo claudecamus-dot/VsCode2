@@ -782,3 +782,38 @@ def test_un_nom_inconnu_en_minuscule_reste_une_alerte() -> None:
         assert (c.libelle, c.noms_non_rattaches) == ("Cap flou", "dupont")
     finally:
         db.close()
+
+
+def test_une_parenthese_mixte_garde_ses_porteurs_et_son_commentaire() -> None:
+    """Revue 2026-09-30 : « (hors licences, Alix) » restait lu en noms."""
+    mission_id, _ = _mission_avec_entretiens("Mixte", ["Alix", "Bao"])
+    client = TestClient(app)
+    md = ("## CONSTATS" + chr(10) * 2 + "### Contexte" + chr(10)
+          + "- [écart] Coût du run élevé (hors licences, Alix)" + chr(10))
+    assert _importer(client, mission_id, md).status_code == 303
+    db = SessionLocal()
+    try:
+        (c,) = db.get(Mission, mission_id).constats
+        assert c.libelle == "Coût du run élevé (hors licences)"
+        assert [iv.interviewee_name for iv in c.interviews] == ["Alix"]
+        assert c.noms_non_rattaches == ""
+    finally:
+        db.close()
+
+
+def test_une_parenthese_de_commentaire_seul_garde_son_texte_brut() -> None:
+    """Revue 2026-09-30 : « (hors licences ; support) » ressortait avec une
+    virgule, donc la reco qui cite le libellé tel qu'écrit ne le retrouvait plus."""
+    mission_id, _ = _mission_avec_entretiens("Brut", ["Alix", "Bao"])
+    client = TestClient(app)
+    md = ("## CONSTATS" + chr(10) * 2 + "### Contexte" + chr(10)
+          + "- [écart] Coût du run élevé (hors licences ; support interne)" + chr(10))
+    assert _importer(client, mission_id, md).status_code == 303
+    db = SessionLocal()
+    try:
+        (c,) = db.get(Mission, mission_id).constats
+        assert c.libelle == "Coût du run élevé (hors licences ; support interne)"
+        assert list(c.interviews) == []
+        assert c.noms_non_rattaches == ""
+    finally:
+        db.close()
