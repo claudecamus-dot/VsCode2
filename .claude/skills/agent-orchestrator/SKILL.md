@@ -1,6 +1,6 @@
 ---
 name: agent-orchestrator
-description: Orchestrateur des agents et skills du projet — qualifie une demande de travail, compose un plan (cascade / parallèle / asynchrone, modèle par étape), l'exécute en s'appuyant sur le catalogue et les données du superviseur, puis journalise le run. Lance réellement du multi-agents via l'outil Agent (fan-out parallèle dans un même message, arrière-plan notifié, SendMessage pour continuer un sous-agent, isolation worktree pour les écritures concurrentes, modèle par agent). Sait aussi APPLIQUER une recommandation arbitrée du superviseur (findings de diagnostic.json des deux volets — usage des agents ET pratiques test/dev/revue/design) via le playbook evolution-flotte, puis enregistrer l'arbitrage. Traite la commande « adopte <trouvaille> » (verbe d'arbitrage de la veille) : applique la regle_proposee au référentiel/scan et l'action_corrective aux projets concernés, passe l'entrée de veille.json en adopte (ou ecarte) et trace l'arbitrage. CONVOQUE les 12 salles de table ronde du hub (§ 2 septies) quand la demande pose un choix à instruire — refonte, adoption, partition d un chantier, faux consensus — au lieu d un travail à exécuter : la salle délibère et rend un compte rendu qui alimente le plan, elle ne modifie aucun fichier. Route les skills BMAD installées par besoin détecté (v6.12.0 : 29 canoniques routées ; les 21 shims dépréciés, jamais invoqués, ont été retirés du hub le 2026-09-08 — table de § 2 quinquies : d'office pour les passes de lecture/critique qui rendent un rapport — revue, recherche, rétrospective ; annoncé-puis-validé dès qu'une skill coûte cher OU écrit un fichier réel — PRD, architecture, stories, code, documentation) et dispose pour cela de trois sous-agents porteurs de l'outil Skill — bmad-revue, bmad-recherche, veille-agentic ; les autres skills partent inline, quatre porteurs jamais invoques ayant ete mis en sommeil le 2026-09-01. Atteignable de trois façons : cette skill, le sous-agent agent-orchestrator (délégation d'une orchestration entière), ou la commande /orchestre. À charger quand une demande implique plusieurs étapes/agents, des vérifications obligatoires, ou « applique/traite la reco du superviseur » — ou quand la grille du hook UserPromptSubmit route ici.
+description: "Orchestrateur des agents et skills du projet — qualifie une demande de travail, compose un plan (cascade / parallèle / asynchrone, modèle par étape), l'exécute en s'appuyant sur le catalogue et les données du superviseur, puis journalise le run. Lance réellement du multi-agents via l'outil Agent (fan-out parallèle dans un même message, arrière-plan notifié, SendMessage pour continuer un sous-agent, isolation worktree pour les écritures concurrentes, modèle par agent). Sait aussi APPLIQUER une recommandation arbitrée du superviseur (findings de diagnostic.json des deux volets — usage des agents ET pratiques test/dev/revue/design) via le playbook evolution-flotte, puis enregistrer l'arbitrage. Traite la commande « adopte <trouvaille> » (verbe d'arbitrage de la veille) : applique la regle_proposee au référentiel/scan et l'action_corrective aux projets concernés, passe l'entrée de veille.json en adopte (ou ecarte) et trace l'arbitrage. CONVOQUE les 12 salles de table ronde du hub (§ 2 septies) quand la demande pose un choix à instruire — refonte, adoption, partition d un chantier, faux consensus — au lieu d un travail à exécuter : la salle délibère et rend un compte rendu qui alimente le plan, elle ne modifie aucun fichier. Route les skills BMAD installées par besoin détecté (v6.12.0 : 29 canoniques routées ; les 21 shims dépréciés, jamais invoqués, ont été retirés du hub le 2026-09-08 — table de § 2 quinquies : d'office pour les passes de lecture/critique qui rendent un rapport — revue, recherche, rétrospective ; annoncé-puis-validé dès qu'une skill coûte cher OU écrit un fichier réel — PRD, architecture, stories, code, documentation) et dispose pour cela de trois sous-agents porteurs de l'outil Skill — bmad-revue, bmad-recherche, veille-agentic ; les autres skills partent inline, quatre porteurs jamais invoques ayant ete mis en sommeil le 2026-09-01. Atteignable de trois façons : cette skill, le sous-agent agent-orchestrator (délégation d'une orchestration entière), ou la commande /orchestre. À charger quand une demande implique plusieurs étapes/agents, des vérifications obligatoires, ou « applique/traite la reco du superviseur » — ou quand la grille du hook UserPromptSubmit route ici."
 ---
 
 # Agent orchestrateur (étages O-A + O-B + O-C)
@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : 2bddf3c du 2026-09-23 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`2bddf3c`, 2026-09-23) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 105d533 du 2026-09-30 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`105d533`, 2026-09-30) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -263,6 +263,37 @@ description d'intention. Les gestes exacts :
      désormais outillée par `.claude/hooks/relire_memoires.py` (Stop/SubagentStop), qui
      relit ce qui a été écrit dans les mémoires persistantes et signale les charges
      suspectes — la clause reste la garde de premier recours, l'outillage la seconde.
+     Côté produit, quand un projet passe du contenu client à un agent, l'implémentation
+     de référence de la flotte est la clôture à jeton aléatoire de
+     `VSCode2/app/services/openhub_agents.py:158-178` (jeton tiré à chaque appel, donc
+     infalsifiable par le contenu enfermé) — critère au référentiel `criteres-pratiques.md` § 7.
+  8. **`BUDGET :`** — chaque brief de VOIX de salle (atelier-dev, code-review-crew, et
+     toute salle en `--mode subagent`) porte un budget explicite en une ligne, format
+     `BUDGET : <n> min`, plus une longueur de rendu (viser ≤ 1200 tokens condensés).
+     Le budget par voix se SCINDE : « BUDGET : 15 min exploration + 5 min rédaction »
+     (atelier-dev n°5, 2026-09-28 : à la revue n°3, 3 voix sur 5 ont rendu en 6-7 min
+     avec des angles « Information insuffisante » — c'est le temps d'EXPLORATION qui
+     manquait, pas celui de rédaction).
+  9. **Premier plan obligatoire** — clause à recopier telle quelle : « commandes au
+     premier plan avec timeout explicite — jamais de run_in_background ni de Monitor
+     dans un sous-agent, jamais attendre sa propre tâche de fond ». Fait : H2 est resté
+     figé ~2 h à attendre SA PROPRE tâche de fond, un mutant laissé posé sur
+     `_stdin_borne.py` ; R1 a reproduit le même motif le 2026-09-28.
+  10. **Mutant marqué et restauré** — clause à recopier telle quelle : « tout mutant
+     posé porte le marqueur `# MUTANT:` sur la ligne modifiée et est restauré avant de
+     rendre ; le garde de fin refuse sinon ». Le garde de fin est
+     `.claude/hooks/guard_terminaison_etayee.py` (SubagentStop) : il refuse la
+     terminaison tant que `git diff HEAD -U0` AJOUTE une ligne portant le marqueur
+     (commentaire `# MUTANT:`, casse ignorée — le mot nu ne compte pas)
+     (le mot déjà présent dans HEAD ne compte pas ; git en erreur = fail-open).
+     C'est le format que lit déjà `.claude/supervision/convergence.py` (`DEFAUT_BUDGET_MULT`,
+     § budget par salle, vers la ligne 101) — écrire une autre forme ne serait pas lu par
+     le chien de garde. Arbitrage utilisateur 2026-09-27 (atelier-dev n°4) : un budget
+     absent laisse la salle courir jusqu'au seuil de p95 du chien de garde (§ 2 septies,
+     `convergence.py`), pas jusqu'à ce que la voix ait fini — les quatre voix mesurées ce
+     jour-là ont rendu en 8-11 min chacune (483/582/649/699 s de notification), sans
+     qu'un budget écrit leur ait été nécessaire pour tenir ce format court : la clause
+     vise les salles à venir dont le sujet appelle naturellement plus de prose.
 
   **Bloc de fin de salle, obligatoire et STRUCTURÉ** (2026-09-20). La frontière
   sous-agent → orchestrateur était la dernière encore en prose libre : tout le reste du
@@ -286,6 +317,23 @@ description d'intention. Les gestes exacts :
   rendent un rapport, pas un commit, et restent jugés comme avant (sur la seule
   prétention de commit). C'est le `agent_type` du payload qui tranche, pas une
   heuristique sur le texte.
+
+  **Partir d'un gabarit versionné, jamais d'une page blanche** (2026-09-29). Les briefs
+  sont les prompts du hub : ils étaient réécrits à la main dans le scratchpad à chaque run,
+  puis perdus. Les formes récurrentes vivent dans `.claude/orchestration/prompts/`
+  (règles communes de N exécutants parallèles, lot d'exécutant, salle de revue en lecture,
+  propagation flotte, utilisateur simulé — index dans son `README.md`) et portent déjà les
+  clauses ci-dessus. Partir du gabarit, remplir les `{{placeholders}}`, n'écrire à la main
+  que la partie propre à la tâche ; un manque de brief constaté en run se corrige DANS le
+  gabarit (commit = révision). `tests/test_prompt_templates.py` échoue si un gabarit perd
+  une clause obligatoire.
+
+  **Tout commit cite sa demande** (2026-09-29, critère `tracabilite_demande_livrable` à
+  2/10 : 0,02 des commits citaient la demande servie). Le message se termine par un
+  trailer `Refs: <cible|story|run>` — la cible du finding (`VScode5:<slug>`), la story
+  BMAD (`story 1.2`) ou le run (`run <ts>`) réellement servi ; sans demande, on l'omet
+  plutôt que d'en inventer une. Le hook `warn_commit_sans_ref.py` le rappelle (jamais
+  bloquant) ; la consigne est à reporter dans le brief de tout exécutant qui committe.
 - **Arrière-plan** : `run_in_background: true` (défaut) rend la main immédiatement,
   la notification arrive à la fin — ne jamais écrire le résultat à sa place ; s'il
   faut le résultat pour continuer, `run_in_background: false` (synchrone).
@@ -444,6 +492,17 @@ Dans les trois cas, noter la résolution dans le `notes` du run journalisé
 (`"resolution: restauration <nom>"` / `"resolution: evolution <nom>"` /
 `"resolution: creation <nom>"`) — le superviseur s'en servira pour détecter les trous
 récurrents du catalogue.
+
+**Cas précis — besoin d'une revue en deux temps sur un chantier long.** Si le besoin qui
+motive une création est « un sous-agent frais par tâche individuelle, avec une revue en
+deux temps (conformité au spec, puis qualité) entre chaque tâche, pour tenir une itération
+de plusieurs heures sans dérive du plan » : vérifier d'abord `obra/superpowers`
+(https://github.com/obra/superpowers, trouvaille de veille adoptée le 2026-09-24, MIT,
+formalise `dispatching-parallel-agents` et `subagent-driven-development`) avant d'écrire un
+mécanisme maison — c'est une extension du pattern déjà en place ici (revue en contexte
+frais, sous-agent standard isolé, jamais un fork, entrée veille du 2026-08-31), pas un
+besoin nouveau. Reprise possible plutôt que réinvention, à condition que le besoin se
+confirme réellement sur le chantier en cours.
 
 ### 2 bis. Agir sur une recommandation du superviseur
 
@@ -817,8 +876,33 @@ pluralité d'options, le désaccord ou l'absence de problème bien posé — « 
 par où commencer », « faut-il adopter », « ça ne ressemble à rien », « est-ce prêt »,
 « pourquoi ça coûte », « je n'arrive pas à formuler », « tout le monde est d'accord trop
 vite ». À l'inverse, **ne pas convoquer** quand la demande est une exécution nette
-(« corrige ce bug », « régénère le wiki », « solde les runs ») : une salle y ajouterait un
-tour de parole et zéro information.
+(« régénère le wiki », « solde les runs ») : une salle y ajouterait un tour de parole et
+zéro information.
+
+**EXCEPTION À CE QUI PRÉCÈDE — tout travail de DÉVELOPPEMENT encadre son exécution par
+deux salles, systématiquement** (demande utilisateur du 2026-09-27, qui REMPLACE pour ce
+cas l'exemption « corrige ce bug » ci-dessus — l'exemple a d'ailleurs été retiré de la
+liste, il contredisait la règle). Un chantier de dev — correctif, feature, dette, garde
+neuve — s'ouvre par une **salle de dev** (`atelier-dev` : structure, partition de fichiers
+exclusive, contrat de preuve) et se ferme par une **salle de revue de dev**
+(`code-review-crew`) sur le diff réellement produit, dans cet ordre, l'exécution entre les
+deux. Ces deux salles sont les étapes `salle-dev` et `salle-revue-code` du playbook
+`dev-verifie` : les sauter n'est pas une décision de l'orchestrateur.
+
+Ce que cette règle achète, mesuré sur la séance qui l'a motivée (2026-09-27) : la salle
+d'ouverture a corrigé trois prémisses fausses AVANT qu'une ligne soit écrite (un champ
+tenu pour un marqueur de solde alors qu'il s'écrit aussi à l'append — la garde bâtie
+dessus aurait refusé un premier solde légitime ; un marqueur textuel à deux formes ; 8
+sites de rendu non échappés là où le plan initial en visait 3), et la salle de clôture a
+trouvé, sur un diff déjà vert, trois mutants survivants et un chemin qui soldait le mauvais
+run en sortant `exit 0`.
+
+**L'exception se DEMANDE, elle ne se décide pas.** Si le chantier paraît trop petit pour
+deux salles (une ligne, un renommage, un chiffre), poser la question à l'utilisateur en
+une ligne — quelle salle serait sautée et pourquoi — et attendre sa réponse. Un
+orchestrateur qui s'exempte lui-même au motif que « c'est évident » rouvre exactement le
+motif que R4 ferme. Le coût (3 à 5 sessions par salle) est un argument à présenter dans la
+question, jamais un motif de sauter en silence.
 
 **Comment.** `/bmad-party-mode --party <salle> --mode subagent`, en énonçant le sujet
 juste après. Le mode compte : `session` fait jouer toutes les voix par une seule, donc
@@ -829,6 +913,43 @@ puis confrontation. Depuis le wiki, le bouton « Déclencher » (« En débattre
 
 **Coût.** Une salle en `subagent` = une session par voix, soit 3 à 5 sessions. C'est le
 prix du désaccord réel ; il ne se paie que sur un vrai choix. Une seule salle à la fois.
+
+**Quatre mesures contre la salle qui traîne ou qui reste muette** (arbitrage utilisateur
+2026-09-27, motivé par l'atelier-dev n°4 : un précédent atelier a duré ~2 h, et un
+exécutant du même jour 3 h 07 dont ~2 h 35 bloquées sur un hook orphelin figé sur stdin —
+cf. § du chien de garde ci-dessous). Régime tenu ce jour-là : les quatre voix mesurées ont
+rendu en 8-11 min chacune (notifications à 483 s, 582 s, 649 s, 699 s).
+
+- **(a) Chien de garde périodique.** `.claude/supervision/convergence.py` existe déjà et
+  REFUSE toute salle NEUVE tant qu'une salle muette au-delà du budget n'est pas tranchée —
+  mais rien ne le rappelle pendant qu'une salle DÉJÀ lancée tourne : c'est une garde au
+  lancement, pas un réveil périodique. Le réveil est désormais un MÉCANISME, plus une
+  consigne : l'orchestrateur arme `Monitor` sur
+  `py .claude/supervision/chien_de_garde.py --boucle --intervalle 300` (timeout 30 min,
+  réarmé à expiration) dès qu'une salle ou un exécutant part en arrière-plan ; il ne
+  signale que les agents EN VOL (dédoublonnage 30 min). Fait mesuré le 2026-09-28 : la
+  version faite à la main (appel de `convergence.py` toutes les ~15 min) a produit 2 faux
+  positifs sur des agents déjà finis (H4/H2/R2) — corrigé dans b7b25e6. Sur
+  une voix silencieuse, vérifier le DISQUE d'abord (le « dernier signe de vie » que
+  `convergence.py` calcule sur `subagents/agent-<id>.jsonl` — jamais `tasks/*.output`, qui
+  reste à 0 octet même pour un agent terminé, § « FAIT DÉCOUVERT AU LANCEMENT »), puis
+  `--clore` ou `--deroger` nommément. Diagnostiquer le processus de hook orphelin (root
+  cause du 2026-09-27) revient à `convergence.py` en complément (lecture bornée de stdin
+  côté hooks : anthropics/claude-code#87289) — diagnostic seulement, il ne tue rien.
+- **(b) Voix en sonnet.** Toute voix de salle tourne en `sonnet` ; `opus` réservé au SEUL
+  rôle structurant explicitement identifié dans le manifeste de la salle — le Charpentier
+  d'`atelier-dev`. `code-review-crew` n'a pas d'équivalent : ses cinq lentilles
+  (sec-hawk/adversary/edge-hunter/craftsman/shipper) attaquent chacune son propre angle en
+  parallèle, aucune n'arbitre une structure avant les autres — sonnet pour les cinq. Écrit
+  par membre (`model`) dans `_bmad/custom/bmad-party-mode.toml`, lu par `resolve_party.py`.
+- **(c) Tour 2 seulement sur désaccord réel.** Le deuxième tour de confrontation ne se
+  lance que s'il reste un désaccord réel après le premier tour (positions indépendantes) —
+  un arrêt adaptatif sur consensus, pas un nombre de tours fixé d'avance. Source : préprint
+  arXiv:2605.19193 — **préprint, auteur unique, non relu par les pairs** : à traiter comme
+  une heuristique à confirmer sur la flotte, pas un résultat établi.
+- **(d) Budget explicite par voix.** Chaque brief de voix porte `BUDGET : <n> min` (le
+  format lu par `convergence.py` et `log_usage`, § 2 ter du gabarit de brief) et une
+  longueur de rendu visée (≤ 1200 tokens).
 
 **Les skills BMAD de la salle vont dans le brief des voix — `skills_bmad`.** Règle posée
 le 2026-09-02, sur demande utilisateur (« 44 sur 46 skills ne sont jamais utilisées,

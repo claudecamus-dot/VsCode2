@@ -59,8 +59,8 @@ contrat, et journalise le run dans `runs.jsonl` avec `"playbook": "<nom>"` dans 
 ou le plan — c'est ce qui permettra au superviseur (étage 2 / incrément O-C) de mesurer
 le taux de réussite par playbook et de remonter les playbooks jamais joués.
 
-<!-- SOCLE-PROVENANCE: socle : 2bddf3c du 2026-09-23 -->
-> **Socle généré** — tout ce qui PRÉCÈDE ce bandeau vient du hub de supervision (`2bddf3c`, 2026-09-23) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 105d533 du 2026-09-30 -->
+> **Socle généré** — tout ce qui PRÉCÈDE ce bandeau vient du hub de supervision (`105d533`, 2026-09-30) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » placé après ce bandeau, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet

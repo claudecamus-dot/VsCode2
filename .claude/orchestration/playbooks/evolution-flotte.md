@@ -68,6 +68,17 @@ faute de playbook qui matche.
       "checkpoint": false
     },
     {
+      "id": "decoupage-atomique",
+      "agent": "session principale",
+      "mode": "cascade",
+      "modele": "(session)",
+      "contrat": {
+        "type": "deterministe",
+        "critere": "AVANT la revue : découper le changement en commits atomiques, un sujet par commit, chacun sous 400 lignes changées (ajouts + suppressions, `git diff --stat`) — au-delà, scinder ou justifier dans le message (fichier généré, déplacement). Source : Google eng-practices, « Small CLs » (google.github.io/eng-practices/review/developer/small-cls.html), adopté le 2026-09-26 ; mesuré à froid par `commits_hors_gabarit()` de scan_projets.py sur les 20 derniers commits de chaque projet."
+      },
+      "checkpoint": false
+    },
+    {
       "id": "revue-fraiche",
       "agent": "sous-agent revue (contexte frais)",
       "mode": "cascade",
@@ -116,7 +127,7 @@ faute de playbook qui matche.
 }
 ```
 
-<!-- SOCLE-PROVENANCE: socle : 2bddf3c du 2026-09-23 -->
-> **Socle généré** — tout ce qui PRÉCÈDE ce bandeau vient du hub de supervision (`2bddf3c`, 2026-09-23) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 105d533 du 2026-09-30 -->
+> **Socle généré** — tout ce qui PRÉCÈDE ce bandeau vient du hub de supervision (`105d533`, 2026-09-30) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » placé après ce bandeau, lui, n'est jamais réécrit : c'est le travail local.
 
