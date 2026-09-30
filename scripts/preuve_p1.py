@@ -65,6 +65,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -114,9 +115,16 @@ def _jouer(test: str, motif: str | None, basetemp: Path, timeout: int):
             "--basetemp", str(basetemp)]
     if motif:
         args += ["-k", motif]
+    # Pas de bytecode écrit par le fils : la mutation garde souvent la même
+    # TAILLE (`x * 2` -> `x + 2`) et un .pyc est jugé valide sur (mtime à la
+    # seconde, taille) — sous Linux le run vert dure 0,03 s, la mutation tombe
+    # dans la même seconde et le second run rejoue l'ancien code : « le test
+    # PASSE aussi sur le code d'avant », à tort (CI du 2026-09-30, 2 tests).
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     try:
         r = subprocess.run(args, cwd=str(RACINE), capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", timeout=timeout)
+                           encoding="utf-8", errors="replace", timeout=timeout,
+                           env=env)
     except subprocess.TimeoutExpired as exc:
         return None, f"pytest n'a pas rendu en {timeout} s : {exc}"
     sortie = (r.stdout or "") + (r.stderr or "")

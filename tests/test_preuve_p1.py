@@ -488,7 +488,12 @@ def test_une_sortie_LONGUE_garde_sa_TETE_et_sa_QUEUE(tmp_path):
     corps = (IMPORTE
              + "def test_marqueur_de_queue():\n"
              + "    # MARQUEUR-DE-TETE\n"
-             + "    assert double(3) == 7, 'y' * 6000\n")
+             # Le volume va dans la sortie capturée (au MILIEU), pas dans le message
+             # d'assertion : sous `CI=true` pytest n'écourte plus la ligne FAILED du
+             # résumé, et 6000 « y » y chassaient le nom du test hors de la queue
+             # (CI du 2026-09-30 ; reproduit en local avec CI=true).
+             + "    print('y' * 6000)\n"
+             + "    assert double(3) == 7\n")
     module, test = _bac(tmp_path, MODULE, corps)
     r = _lancer(module, test)
     assert r.returncode == DEJA_ROUGE, r.stdout + r.stderr
@@ -545,3 +550,16 @@ def test_deux_preuves_sur_deux_fichiers_ne_se_bloquent_pas(tmp_path):
         assert not sentinelle_a.exists(), "la sentinelle de A survit a la restauration"
     finally:
         sentinelle_a.unlink(missing_ok=True)
+
+
+def test_la_preuve_n_ecrit_aucun_bytecode_dans_le_bac(tmp_path):
+    """CI du 2026-09-30 : la mutation garde la TAILLE du fichier et un .pyc est
+    valide sur (mtime à la seconde, taille) ; sous Linux le run vert dure 0,03 s,
+    la mutation tombe dans la même seconde et le second run rejouait l'ancien code
+    (« le test PASSE aussi sur le code d'avant », à tort). Le fils n'écrit donc
+    aucun .pyc : vérifiable ici sans dépendre de l'horloge."""
+    module, test = _bac(tmp_path, MODULE,
+                        IMPORTE + "def test_double():\n    assert double(3) == 6\n")
+    r = _lancer(module, test)
+    assert r.returncode == TENUE, r.stdout + r.stderr
+    assert list(module.parent.rglob("*.pyc")) == []
