@@ -1,5 +1,5 @@
 ---
-updated: 2026-09-30
+updated: 2026-10-01
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -8,25 +8,25 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-09-30T08:37:57+02:00 · **97 sessions** (transcripts) · **334** invocations de skills · **391** lancements de sous-agents.
+Dernier scan : 2026-10-01T09:45:00+02:00 · **98 sessions** (transcripts) · **344** invocations de skills · **407** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `agent-orchestrator` | projet | 68 | 2026-07-17 | 2026-09-29 |
-| `bmad-code-review` | BMAD | 64 | 2026-07-20 | 2026-09-30 |
+| `agent-orchestrator` | projet | 69 | 2026-07-17 | 2026-09-30 |
+| `bmad-code-review` | BMAD | 68 | 2026-07-20 | 2026-10-01 |
 | `run-dev-server` | projet | 49 | 2026-07-03 | 2026-09-29 |
 | `bmad-review-edge-case-hunter` | BMAD | 26 | 2026-07-20 | 2026-09-07 |
 | `agent-supervisor` | projet | 22 | 2026-07-18 | 2026-09-29 |
 | `bmad-review-adversarial-general` | BMAD | 19 | 2026-07-20 | 2026-09-07 |
-| `revue-increment` | projet | 17 | 2026-07-18 | 2026-09-16 |
+| `revue-increment` | projet | 18 | 2026-07-18 | 2026-09-30 |
+| `bmad-party-mode` | BMAD | 14 | 2026-07-31 | 2026-09-30 |
 | `pptx-verify` | projet | 12 | 2026-07-03 | 2026-09-29 |
-| `bmad-party-mode` | BMAD | 11 | 2026-07-31 | 2026-09-29 |
 | `update-config` | (builtin/session) | 8 | 2026-07-03 | 2026-09-28 |
+| `bmad-review` | BMAD | 4 | 2026-09-15 | 2026-09-30 |
 | `deck-design-library` | projet | 4 | 2026-07-28 | 2026-09-29 |
 | `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
-| `bmad-review` | BMAD | 3 | 2026-09-15 | 2026-09-29 |
 | `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
 | `veille-agentic` | projet | 3 | 2026-09-08 | 2026-09-28 |
 | `bmad-brainstorming` | BMAD | 2 | 2026-09-16 | 2026-09-16 |
@@ -50,9 +50,9 @@ Dernier scan : 2026-09-30T08:37:57+02:00 · **97 sessions** (transcripts) · **3
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 235 | 2026-07-15 | 2026-09-29 |
-| `Explore` | 66 | 2026-06-30 | 2026-09-29 |
-| `bmad-revue` | 62 | 2026-08-31 | 2026-09-30 |
+| `general-purpose` | 238 | 2026-07-15 | 2026-09-30 |
+| `Explore` | 76 | 2026-06-30 | 2026-09-30 |
+| `bmad-revue` | 65 | 2026-08-31 | 2026-10-01 |
 | `(defaut)` | 9 | 2026-07-21 | 2026-09-30 |
 | `Plan` | 4 | 2026-07-06 | 2026-09-25 |
 | `agent-supervisor` | 4 | 2026-09-01 | 2026-09-29 |
@@ -95,7 +95,7 @@ _Consommés en lisant/exécutant leurs `scripts/`, ou via un sous-agent qui les 
 
 ## TODO agents (constats automatiques)
 
-⚠️ **Mesure incomplète** — 63 transcript(s) sur 97 absent(s) du disque. Un `n=0` ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.
+⚠️ **Mesure incomplète** — 64 transcript(s) sur 98 absent(s) du disque. Un `n=0` ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.
 
 1. **Désinstaller les shims BMAD dépréciés** (21) : `bmad-checkpoint-preview`, `bmad-create-architecture`, `bmad-create-prd`, `bmad-create-story`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-edit-prd`, `bmad-editorial-review`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-generate-project-context`, `bmad-market-research`, `bmad-quick-dev`, `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-review-verification-gap`, `bmad-sprint-status`, `bmad-technical-research`, `bmad-validate-prd` — dépréciés par BMAD dans leur propre `description`, chacun avec son remplaçant ; le seul élagage qui ne repose pas sur notre mesure d'usage.
 2. **Skills projet sans usage** : `agent-securite` — vérifier pertinence et déclencheurs.
@@ -205,7 +205,7 @@ _6 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir 
 
 ## Seuil de qualification — la mesure
 
-Depuis le 2026-09-11 : **622** demande(s) vue(s) hors commande slash (+ 99 slash), **26** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **4 %** des demandes orchestrées.
+Depuis le 2026-09-11 : **673** demande(s) vue(s) hors commande slash (+ 109 slash), **29** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **4 %** des demandes orchestrées.
 _Ce chiffre ne dit pas ce qui AURAIT dû être orchestré : le hook compte, il ne juge pas. Il donne le dénominateur qui manquait pour arbitrer le seuil sur données plutôt que sur habitude._
 
 ---
