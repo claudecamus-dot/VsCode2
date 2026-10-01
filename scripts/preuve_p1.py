@@ -223,19 +223,43 @@ def _aux_fins_de_ligne(bloc: str, fin: str) -> str:
     return bloc.replace("\r\n", "\n").replace("\n", fin)
 
 
-def _traiter_la_sentinelle(cible_demandee: Path, restaurer: bool) -> int | None:
+def _traiter_la_sentinelle(cible_demandee: Path, restaurer: bool,
+                           hors_depot: bool = False) -> int | None:
     """None si la voie est libre, sinon le code de sortie à rendre.
 
     Deux traces peuvent parler : celle du fichier demande, et la trace heritee
     (chemin unique d'avant le 2026-09-28). La premiere qui existe decide."""
     for sentinelle in (_sentinelle(cible_demandee), SENTINELLE_HERITEE):
-        verdict = _traiter_une_sentinelle(sentinelle, restaurer)
+        verdict = _traiter_une_sentinelle(sentinelle, restaurer, hors_depot)
         if verdict is not None:
             return verdict
     return None
 
 
-def _traiter_une_sentinelle(sentinelle: Path, restaurer: bool) -> int | None:
+def _refus_restauration(sentinelle: Path, cible: Path, sauvegarde: Path,
+                        hors_depot: bool) -> str | None:
+    """Raison de refuser de restaurer, ou None. La sentinelle vit dans le
+    temporaire PARTAGE sous un nom previsible : son JSON n'est pas digne de foi.
+    Sans ces gardes, `--restaurer` copiait n'importe quel fichier sur n'importe
+    quel chemin. Trois conditions : la cible est dans le depot (ou
+    `--hors-depot`, comme pour une preuve), elle est celle que la cle de la
+    sentinelle designe (sauf la trace heritee, qui n'a pas de cle), et la
+    sauvegarde est dans un dossier `preuve_p1_*` cree par cet outil (mkdtemp)."""
+    if not hors_depot and not cible.resolve().is_relative_to(RACINE):
+        return (f"la cible {cible} est hors du depot (--hors-depot pour "
+                "l'assumer)")
+    if sentinelle != SENTINELLE_HERITEE and _sentinelle(cible) != sentinelle:
+        return f"la cible {cible} ne correspond pas a la cle de {sentinelle.name}"
+    abri = sauvegarde.resolve().parent
+    if (abri.parent != Path(tempfile.gettempdir()).resolve()
+            or not abri.name.startswith("preuve_p1_")):
+        return (f"la sauvegarde {sauvegarde} n'est pas dans un dossier "
+                "preuve_p1_* cree par l'outil")
+    return None
+
+
+def _traiter_une_sentinelle(sentinelle: Path, restaurer: bool,
+                            hors_depot: bool = False) -> int | None:
     if not sentinelle.is_file():
         return None
     try:
@@ -257,6 +281,12 @@ def _traiter_une_sentinelle(sentinelle: Path, restaurer: bool) -> int | None:
             print(f"RESTAURATION IMPOSSIBLE : sauvegarde introuvable "
                   f"({sauvegarde}). Recuperer {cible} depuis git.")
             return INTERROMPUE
+        raison = _refus_restauration(sentinelle, cible, sauvegarde, hors_depot)
+        if raison:
+            print(f"ERREUR D'USAGE : restauration REFUSEE, sentinelle suspecte : "
+                  f"{raison}.\n  sentinelle : {sentinelle}\n  la verifier et la "
+                  "supprimer a la main, rien n'a ete copie.")
+            return USAGE
         shutil.copy(sauvegarde, cible)
         if _empreinte(cible) != attendue:
             print(f"RESTAURATION INCOMPLETE : {cible} ne correspond pas a son "
@@ -320,7 +350,7 @@ def main() -> int:
 
     # AVANT tout : une preuve precedente a-t-elle laisse CE fichier mute ?
     # Partir sans regarder ferait mesurer la mauvaise version du code.
-    refus = _traiter_la_sentinelle(cible, args.restaurer)
+    refus = _traiter_la_sentinelle(cible, args.restaurer, args.hors_depot)
     if refus is not None:
         return refus
     if args.restaurer:
