@@ -11,6 +11,10 @@ sources:
   - tests/test_mission_trame_flow.py (_FILLED_ANALYSIS)
 ---
 
+> **Mise à jour 2026-10-01 — A3 levé** : `generate_theme_synthesis` supprimée en 1d93360,
+> table `syntheses` retirée en 4ec405d (absente de `data/app.db` au 2026-10-01).
+> Le corps ci-dessous (l.34-147) est inchangé et décrit l'état du 2026-09-28.
+
 # Restitution défendable — spec de cadrage (BROUILLON)
 
 ## ARBITRAGE UTILISATEUR — 2026-09-28
