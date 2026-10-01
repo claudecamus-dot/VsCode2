@@ -127,7 +127,9 @@ def _qui(nom: str, interview_id, avec_ids: bool) -> str:
     le nom seul sinon — le prompt de synthèse globale reste octet pour octet
     celui d'avant (et donc l'empreinte du cache de reprise)."""
     if avec_ids and interview_id is not None:
-        return f"[E{interview_id}] {nom}"
+        # Id seul, SANS nom (T9) : avec le nom, le modèle écrivait « selon X »
+        # dans le libellé au lieu de citer l'id dans `interviewes`.
+        return f"[E{interview_id}]"
     return nom
 
 
@@ -465,14 +467,18 @@ def constats_system(axes) -> str:
         "et cite les entretiens qui le portent par leur identifiant entre "
         "crochets tel qu'il figure dans la matière (ex. \"E12\"). N'invente "
         "aucun identifiant ; un constat porté par une seule personne n'est pas "
-        "un consensus. Libellé : une phrase courte et factuelle."
+        "un consensus. Chaque constat DOIT citer au moins un identifiant "
+        "d'entretien dans le champ \"interviewes\" ; le libellé ne contient "
+        "jamais de nom de personne (ni « selon X »). Libellé : une phrase "
+        "courte et factuelle."
     )
 
 
 CONSTATS_JSON_HINT = (
     '\nRéponds UNIQUEMENT par un objet JSON à la clé "constats", liste '
     "d'objets {\"axe\", \"type\" (\"consensus\" ou \"ecart\"), \"libelle\", "
-    '"interviewes" (liste d\'identifiants comme "E12")}.'
+    '"interviewes" (liste d\'identifiants comme "E12", au moins un par '
+    'constat ; jamais de nom de personne dans "libelle")}.'
 )
 
 CONSTATS_SCHEMA = {
@@ -596,7 +602,9 @@ def _fusionner_constats(listes: list[list[dict]]) -> list[dict]:
 
 def generate_constats(mission, material_by_theme, material_libre=None, axes=None,
                       ids_valides=None) -> dict:
-    """Retourne `{"constats": [...], "ids_rejetes": [...]}`. Lève SynthesisAIError.
+    """Retourne `{"constats": [...], "ids_rejetes": [...], "sans_porteur": n,
+    "non_cites": [ids]}`. Lève SynthesisAIError. `sans_porteur` / `non_cites` sont
+    un SIGNAL (journal), jamais un rejet : aucun constat n'est écarté pour cela.
 
     `ids_valides` : identifiants des entretiens DE LA MISSION (par défaut
     `mission.interviews`). Tout autre identifiant cité est rejeté."""
@@ -605,7 +613,7 @@ def generate_constats(mission, material_by_theme, material_libre=None, axes=None
         ids_valides = {iv.id for iv in getattr(mission, "interviews", []) or []}
     blocks = _global_material_blocks(material_by_theme, material_libre, axes, avec_ids=True)
     if not blocks:
-        return {"constats": [], "ids_rejetes": []}
+        return {"constats": [], "ids_rejetes": [], "sans_porteur": 0, "non_cites": []}
     groups = _chunk_blocks(blocks, ollama_chunk_max_words())
     system = constats_system(axes)
     header = f"MISSION : {mission.name}"
@@ -620,7 +628,15 @@ def generate_constats(mission, material_by_theme, material_libre=None, axes=None
     if rejetes:
         logger.warning("Constats IA : %d identifiant(s) d'entretien rejeté(s) (%s)",
                        len(rejetes), rejetes[:10])
-    return {"constats": _fusionner_constats(listes), "ids_rejetes": rejetes}
+    constats = _fusionner_constats(listes)
+    sans_porteur = sum(1 for c in constats if not c["interview_ids"])
+    cites = {i for c in constats for i in c["interview_ids"]}
+    non_cites = sorted(i for i in set(ids_valides) if i not in cites)
+    if sans_porteur or non_cites:
+        logger.warning("Constats IA : %d constat(s) sans porteur, %d entretien(s) "
+                       "jamais cité(s) (%s)", sans_porteur, len(non_cites), non_cites[:10])
+    return {"constats": constats, "ids_rejetes": rejetes,
+            "sans_porteur": sans_porteur, "non_cites": non_cites}
 
 
 # --------------------------------------------------------------------------- #
