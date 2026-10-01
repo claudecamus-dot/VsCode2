@@ -4,7 +4,7 @@
 # | garder : la signaler au hub, qui corrige le canon et re-synchronise.
 # | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
 # |  n'est pas déployé, il n'existe pas dans ce dépôt.)
-# | Provenance canon : 0d4454a du 2026-09-24 — permet, au prochain sync, de dire si
+# | Provenance canon : c26db88 du 2026-10-01 — permet, au prochain sync, de dire si
 # | une différence vient d'une édition locale ou d'une avance du canon (voir
 # | `determiner_cause` dans sync_dispositif.py au hub).
 # +---------------------------------------------------------------------------
@@ -12,6 +12,9 @@
 """Journal des orchestrations (étage O-A) — append d'un run dans runs.jsonl.
 
 Usage : py .claude/orchestration/log_run.py '<json>'   (ou JSON sur stdin)
+Lecture seule : `--stats [--champ X] [--depot Y]` compte, `--lister <champ>
+<valeur>` DÉTAILLE (numéro de ligne, ts, notes intégrales) — c'est par là qu'on
+voit le stock de runs `partiel` jamais relus, invisible d'un compteur.
 Champs requis : demande (str), qualification (orchestre|direct-signale).
 Champs usuels : plan (liste d'étapes {etape, agent, mode, modele}), resultat
 (en-cours|succes|en-attente-validation|partiel|echec), reprises (int), notes (str),
@@ -87,6 +90,7 @@ est concerné comme les autres : la note « revue: abandonné, rien livré » su
 import datetime
 import json
 import os
+import re
 import sys
 
 # Windows : la console par défaut est cp1252 — un message avec tiret cadratin ou
@@ -234,6 +238,42 @@ def verifier_note_de_revue(run: dict, note: str) -> str | None:
     )
 
 
+def deja_solde(run: dict) -> bool:
+    """Vrai si le run a deja ete solde. Champ structure `solde` d'abord (ecrit
+    depuis 2026-09-27) ; sinon repli textuel pour les runs historiques : un
+    segment de `notes` (decoupe sur " | ") qui commence par "solde " — couvre la
+    note d'un run a notes vides, ecrite sans pipe par `.strip(" |")`.
+    `validation` n'est PAS un marqueur (il s'ecrit aussi a l'append) et
+    `demande` n'est jamais lue."""
+    solde = run.get("solde")
+    if isinstance(solde, dict) and solde:
+        return True
+    notes = str(run.get("notes") or "")
+    # Format EXACT ecrit par `solder()` (« solde <date ISO> : ») : un segment
+    # « solde faux : ... » ne suffit plus a forger un solde (P3, 2026-09-28).
+    return any(_SEGMENT_SOLDE.match(seg.strip()) for seg in notes.split(" | "))
+
+
+_SEGMENT_SOLDE = re.compile(r"solde \d{4}-\d{2}-\d{2}")
+
+
+def verifier_re_solde(run: dict, re_solder: bool) -> str | None:
+    """Un run deja solde ne se re-solde que par geste delibere (`--re-solder`),
+    y compris un `partiel` deja note. Appelee avant toute mutation."""
+    if not deja_solde(run) or re_solder:
+        return None
+    solde = run.get("solde") if isinstance(run.get("solde"), dict) else {}
+    quand = solde.get("quand")
+    if not quand:
+        segs = [s.strip() for s in str(run.get("notes") or "").split(" | ")
+                if s.strip().startswith("solde ")]
+        quand = segs[-1][len("solde "):].split(" : ", 1)[0] if segs else "?"
+    anterieur = solde.get("resultat") or run.get("resultat")
+    ident = run.get("ts") or str(run.get("demande") or "")[:60]
+    return (f"log_run REFUS : run {ident} deja solde le {quand} ({anterieur} -> ...)"
+            " - relance avec --re-solder si le re-soldage est un geste delibere")
+
+
 def solder(argv) -> int:
     """--solde <prefixe-ts> <resultat> [note] — requalifie un run existant.
 
@@ -245,24 +285,50 @@ def solder(argv) -> int:
     qu'exige un run `livrable_utilisateur: true` pour passer `succes`. Sans ces
     options, un tel run ne pouvait JAMAIS etre solde en succes par la CLI, meme
     valide par l'utilisateur (constate sur VSCode3). Les controles de
-    `verifier_validation_utilisateur` s'appliquent au bloc ainsi construit."""
+    `verifier_validation_utilisateur` s'appliquent au bloc ainsi construit.
+
+    `--demande <fragment>` (2026-09-27) : selectionne le run par un fragment de
+    sa `demande` au lieu du prefixe de `ts`. Motif mesure : deux runs du journal
+    du hub portent `ts: null`, donc `str(r.get("ts","")).startswith(prefixe)`
+    matche les DEUX sur « None » et le solde est refuse a jamais. Un INDEX de
+    ligne aurait ete un identifiant muet dans un journal opposable (R5) ; le
+    fragment dit de quel run on parle. Le selecteur ne contourne RIEN : le run
+    choisi passe par les memes quatre gardes, et `len(cibles) != 1` reste un
+    refus."""
     options = {}
     positionnels = []
     i = 0
     while i < len(argv):
-        if argv[i] in ("--par", "--artefact") and i + 1 < len(argv):
+        if argv[i] in ("--par", "--artefact", "--demande") and i + 1 < len(argv):
             options[argv[i][2:]] = argv[i + 1]
             i += 2
+        elif argv[i] == "--re-solder":
+            options["re-solder"] = True
+            i += 1
+        elif argv[i] == "--demande":
+            print("log_run --solde : --demande attend un fragment de demande (valeur absente)")
+            return 1
         else:
             positionnels.append(argv[i])
             i += 1
     argv = positionnels
-    if len(argv) < 2:
-        print(f"log_run --solde : usage : --solde <prefixe-ts> <{'|'.join(RESULTATS_SOLDE)}> [note]"
-              " [--par <nom> --artefact <chemin>]")
+    # None = flag absent ; "" / blanc = flag present mais vide -> refus explicite,
+    # jamais un repli silencieux en mode prefixe (positionnels decales).
+    fragment = options.get("demande")
+    if fragment is not None and not fragment.strip():
+        print("log_run --solde : --demande vide refuse (fragment de demande requis)")
         return 1
-    prefixe, resultat = argv[0], argv[1]
-    note = argv[2] if len(argv) > 2 else "valide par l'utilisateur"
+    if len(argv) < (1 if fragment is not None else 2):
+        print(f"log_run --solde : usage : --solde <prefixe-ts> <{'|'.join(RESULTATS_SOLDE)}> [note]"
+              " [--par <nom> --artefact <chemin>] [--re-solder]\n"
+              f"  ou, pour un run sans ts : --solde --demande <fragment> <{'|'.join(RESULTATS_SOLDE)}> [note]")
+        return 1
+    if fragment is not None:
+        prefixe, resultat = None, argv[0]
+        note = argv[1] if len(argv) > 1 else "valide par l'utilisateur"
+    else:
+        prefixe, resultat = argv[0], argv[1]
+        note = argv[2] if len(argv) > 2 else "valide par l'utilisateur"
     if resultat not in RESULTATS_SOLDE:
         print(f"log_run --solde : resultat attendu : {' | '.join(RESULTATS_SOLDE)}")
         return 1
@@ -272,9 +338,15 @@ def solder(argv) -> int:
     except (OSError, ValueError) as exc:
         print(f"log_run --solde : lecture impossible ({exc})")
         return 1
-    cibles = [r for r in runs if str(r.get("ts", "")).startswith(prefixe)]
+    if fragment is not None:
+        cibles = [r for r in runs
+                  if fragment.lower() in str(r.get("demande") or "").lower()]
+        critere = f"fragment de demande '{fragment}'"
+    else:
+        cibles = [r for r in runs if str(r.get("ts", "")).startswith(prefixe)]
+        critere = f"prefixe '{prefixe}'"
     if len(cibles) != 1:
-        print(f"log_run --solde : {len(cibles)} run(s) pour le prefixe '{prefixe}' — il en faut exactement 1")
+        print(f"log_run --solde : {len(cibles)} run(s) pour le {critere} — il en faut exactement 1")
         for r in cibles:
             # `or ''` : un run a demande null faisait planter en TypeError la
             # branche meme qui doit servir a desambiguiser (reproduit 2026-08-31).
@@ -284,6 +356,10 @@ def solder(argv) -> int:
     # Contrôle AVANT toute mutation : un refus laisse le journal exactement dans
     # l'état où il était (aucune réécriture, aucun `notes` allongé d'un solde qui
     # n'a pas eu lieu).
+    refus_re_solde = verifier_re_solde(run, bool(options.get("re-solder")))
+    if refus_re_solde:
+        print(refus_re_solde)
+        return 1
     refus = verifier_note_de_revue(run, note)
     if refus:
         print(refus)
@@ -335,6 +411,18 @@ def solder(argv) -> int:
     # dont le solde ecrivait litteralement « None | solde ... » (meme motif que le
     # `or ''` de la desambiguisation ci-dessus, revue bmad-code-review 2026-09-09).
     run["notes"] = (str(run.get("notes") or "") + f" | solde {date} : {note}").strip(" |")
+    # Champ structure (2026-09-27) : lu en premier par `deja_solde`, le texte
+    # ci-dessus reste pour les humains.
+    entree = {"quand": date, "avant": avant, "resultat": resultat, "note": note}
+    # Historique (2026-09-28) : `solde` (dict) ne garde que le DERNIER solde et
+    # reste lu tel quel par les lecteurs existants ; `soldes` les empile tous,
+    # chacun disant s'il a ete force par `--re-solder`. Une ligne ancienne qui
+    # ne porte que le dict l'amorce, pour ne pas perdre le solde anterieur.
+    soldes = run.get("soldes") if isinstance(run.get("soldes"), list) else []
+    if not soldes and isinstance(run.get("solde"), dict) and run["solde"]:
+        soldes = [{**run["solde"], "re_solder": False}]
+    run["soldes"] = soldes + [{**entree, "re_solder": bool(options.get("re-solder"))}]
+    run["solde"] = entree
     # Ecriture atomique (meme convention que .claude/supervision/scan_transcripts.py) : "w" direct sur
     # RUNS_PATH tronque les 94 Ko du journal a mi-parcours si l'ecriture est interrompue
     # (Ctrl-C, coupure, disque plein). Le temporaire vit dans le meme repertoire pour
@@ -848,11 +936,81 @@ def imprimer_stats(argv) -> int:
     return 0
 
 
+def lister_runs(champ: str, valeur: str, chemin: str | None = None):
+    """Itere (numero_de_ligne, run) pour les runs dont `champ` vaut `valeur`.
+
+    Streaming, calque sur `stats()` : une ligne a la fois, rien n'est accumule.
+    `runs.jsonl` fait 526 Ko au hub et un `Read` entier coute ~109 000 tokens —
+    materialiser les 231 runs pour en afficher 39 serait payer ce prix-la.
+    Tolerance identique a `stats()` : une ligne illisible est sautee, jamais
+    fatale.
+    """
+    with open(chemin or RUNS_PATH, encoding="utf-8") as fh:
+        for numero, ligne in enumerate(fh, start=1):
+            ligne = ligne.strip()
+            if not ligne:
+                continue
+            try:
+                run = json.loads(ligne)
+            except ValueError:
+                continue
+            if not isinstance(run, dict):
+                continue
+            brut = run.get(champ, "(absent)")
+            if isinstance(brut, (dict, list)):
+                brut = "(structure)"
+            if str(brut) == str(valeur):
+                yield numero, run
+
+
+def lister(argv) -> int:
+    """--lister <champ> <valeur> — LECTURE SEULE : les runs qui matchent.
+
+    Rend le numero de ligne, le `ts` et les `notes` INTEGRALES. Pas de coupe :
+    on ne decide pas de solder (ou de classer sans suite) un run dont l'objet
+    est illisible — meme motif que `read_runs` dans `scripts/scan_projets.py`.
+    Aucun classement automatique ouvert/ferme : l'outil PRESENTE, l'humain
+    requalifie (un classement qui se trompe solderait un reste reel, R5).
+    """
+    if len(argv) < 2:
+        print("log_run --lister : usage : --lister <champ> <valeur>"
+              f"  (champs usuels : {', '.join(CHAMPS_STATS)})")
+        return 1
+    champ, valeur = argv[0], argv[1]
+    n = 0
+    try:
+        print(f"log_run --lister : runs dont '{champ}' == '{valeur}' "
+              "(lecture seule, aucun run n'est solde)")
+        for numero, run in lister_runs(champ, valeur):
+            n += 1
+            ts = run.get("ts")
+            # `or ''` et pas `get(..., '')` : le journal porte des `null`, et un
+            # `ts: null` s'affiche « None » — c'est justement le cas que cette
+            # commande doit rendre VISIBLE (2 runs du hub, mesure 2026-09-27).
+            print(f"  L{numero:<5d} ts={ts!s:<26} {str(run.get('demande') or '')[:70]}")
+            print(f"         notes: {str(run.get('notes') or '')}")
+    except OSError as exc:
+        print(f"log_run --lister : journal illisible ({exc})")
+        return 1
+    print(f"  {n} run(s) liste(s).")
+    if n:
+        print("  Solder l'un d'eux : --solde <prefixe-ts> <resultat> \"note\","
+              " ou --solde --demande <fragment de demande> <resultat> \"note\""
+              " quand le `ts` est absent.")
+    return 0
+
+
 def main(argv) -> int:
     if argv and argv[0] == "--solde":
         return solder(argv[1:])
     if argv and argv[0] == "--stats":
         return imprimer_stats(argv[1:])
+    # AVANT le repli d'append (`raw = argv[0]` plus bas) : sans ce routage, un
+    # `--lister` mal forme tomberait dans le parseur JSON d'append et se
+    # plaindrait d'un « JSON invalide ». Meme motif que la porte de derriere
+    # de `--solde` documentee dans `solder()`.
+    if argv and argv[0] == "--lister":
+        return lister(argv[1:])
     if argv and argv[0] == "--dette-oracle":
         sans, total = compter_succes_sans_oracle()
         print(f"log_run : {sans} run(s) 'succes' sur {total} ne portent aucun "

@@ -3,9 +3,9 @@
     "source": "hub de supervision VScode5, .claude/veille/veille.json",
     "projection": "entrees dont projets_concernes nomme VSCode2",
     "ne_pas_editer": "Fichier GENERE, en lecture seule : une correction faite ici sera ecrasee a la prochaine propagation. La veille s'ecrit AU HUB, ou elle est lue (section 3 du wiki) et arbitree. Une veille lancee depuis ce depot doit y etre remontee.",
-    "date": "2026-09-24"
+    "date": "2026-10-01"
   },
-  "derniere_veille": "2026-09-28T22:01:44+02:00",
+  "derniere_veille": "2026-09-29T15:59:36+02:00",
   "entrees": [
     {
       "titre": "microsoft/hve-core — skill PowerPoint python-pptx pilotée par YAML",
@@ -328,29 +328,113 @@
       "action_corrective": "Ne pas cabler utilisateur-produit comme validateur. Si la quittance nommee est cablee, contraindre le champ a un nom humain (liste fermee). Cout : ~30 min dans le script de journalisation."
     },
     {
+      "titre": "Twelve-Factor App — config strictement via variables d'environnement",
+      "url": "https://12factor.net/fr/config",
+      "type": "pratique",
+      "projets_concernes": [
+        "VSCode1",
+        "VSCode2"
+      ],
+      "pertinence": "criteres-pratiques.md ligne 120 constate des .env.dev/prod commit\\u00e9s sur VSCode1 (sans secret, mais le pattern meme viole le facteur III) ; aucun critere du referentiel ne verifie l'absence de config en dur dans le code source (hors secrets). [adopte le 2026-09-26 : Regle inscrite au referentiel criteres-pratiques.md en non outillee (grep a froid = faux positifs). Action NON appliquee : VSCode1 versionne .env.dev/.env.preprod/.env.prod a dessein (app/.gitignore l.15-29 : parametrage sans secret, secrets dans .env.*.local ignores, .env.example, garde-fou scripts/test-env-sans-secret.js dans npm test) ; constat criteres-pratiques.md l.120 requalifie (plus un ecart).]",
+      "date": "2026-09-26",
+      "statut": "adopte",
+      "source_referentiel": "The Twelve-Factor App, facteur III — Config",
+      "regle_proposee": "Absence de valeurs de config (URLs, ports, flags d'environnement) codees en dur dans les fichiers source hors tests, mesurable partiellement a froid par grep de motifs (localhost:, http://, chemins absolus) — a affiner, faux positifs probables",
+      "action_corrective": "Sur VSCode1, retirer les .env.dev/.env.prod du depot (gitignore + .env.example), verifier qu'aucune valeur n'y est sensible malgre le constat actuel"
+    },
+    {
+      "titre": "AGENTS.md — standard ouvert Linux Foundation pour les instructions d'agents de code",
+      "url": "https://agents.md/",
+      "type": "pratique",
+      "projets_concernes": [
+        "VSCode1",
+        "VSCode2",
+        "VSCode3",
+        "VSCode4",
+        "VScode5"
+      ],
+      "pertinence": "AGENTS.md est devenu un standard ouvert (issu d'Anthropic, repris par Claude Code/Codex/Cursor/VS Code) qui documente build/test/style/commit pour tout agent, pas seulement Claude Code ; la flotte n'a que des CLAUDE.md (verifie : seul VScode6-learning-sprintIA, hors flotte supervisee, a un AGENTS.md) — aucun projet supervise n'a de fichier interoperable si un autre outil agentic est utilise dessus. [adopte le 2026-09-26 : Regle outillee : agents_md_present() dans scan_projets.py, mesure affichee non imposee (Pratiques+rules). Aucun fichier cree (action = evaluer par projet). Mesure 2026-09-26 : 1/8 (VScode6-learning-sprintIA).]",
+      "date": "2026-09-26",
+      "statut": "adopte",
+      "source_referentiel": "AGENTS.md spec (agents.md, stewarding Linux Foundation, 2025-2026)",
+      "regle_proposee": "Presence d'un AGENTS.md a la racine (a cote ou en lieu de CLAUDE.md), mesurable a froid par test d'existence de fichier dans scan_projets.py",
+      "action_corrective": "Evaluer sur chaque projet de la flotte si dupliquer CLAUDE.md en AGENTS.md (ou l'inverse, un seul fichier source) apporte une valeur reelle avant d'imposer un nouveau fichier a maintenir en parallele"
+    },
+    {
+      "titre": "Google eng-practices — CL/diff petit et focalise, revue sous 1 jour ouvre",
+      "url": "https://google.github.io/eng-practices/review/developer/small-cls.html",
+      "type": "pratique",
+      "projets_concernes": [
+        "VSCode1",
+        "VSCode2",
+        "VSCode3",
+        "VSCode4"
+      ],
+      "pertinence": "Le referentiel a un critere 'Revue de code systematique avant merge/commit' (ligne 33, marque en place) mais aucun critere sur la TAILLE des changements revus ni un delai de revue ; un unique gros commit revu par un agent releveur ne respecte pas ce que Google documente comme condition d'efficacite de la revue (CLs petites, un seul sujet, tests inclus). [adopte le 2026-09-26 : Regle outillee : commits_hors_gabarit() (git log --numstat, 20 derniers commits, >400 lignes), affichee. Mesure : 1 a 3 commits hors gabarit sur 20 dans chacun des 8 depots. Etape decoupage-atomique ajoutee au playbook evolution-flotte (seuil 400, source Google Small CLs), kit regenere. conventions.md flotte deja faits : VSCode1 b8c2d6e, VSCode2 47aaed7, VSCode3 2a31808, VSCode4 a671774.]",
+      "date": "2026-09-26",
+      "statut": "adopte",
+      "source_referentiel": "Google Engineering Practices — eng-practices, Small CLs + The CL author's guide",
+      "regle_proposee": "Nombre de fichiers/lignes modifiees par commit sur les N derniers commits, mesurable a froid par git log --stat ; signaler les commits hors-gabarit (ex. > 400 lignes changees, plusieurs sujets non lies dans le message)",
+      "action_corrective": "Ajouter au playbook evolution-flotte une etape de decoupage des changements en commits atomiques avant revue, et documenter le seuil retenu dans conventions.md de chaque projet"
+    },
+    {
+      "titre": "SSDF/OWASP — verification outillee des dependances (SBOM, pip-audit/npm audit)",
+      "url": "https://csrc.nist.gov/projects/ssdf",
+      "type": "pratique",
+      "projets_concernes": [
+        "VSCode1",
+        "VSCode2",
+        "VSCode3",
+        "VSCode4"
+      ],
+      "pertinence": "criteres-pratiques.md ligne 128 marque deja 'Dependances sans vulnerabilite connue' en \\u2b1c non outille, et la ligne 131 note 'ecarts a outiller : pip-audit/npm audit' comme intention non realisee ; grep confirme aucune trace de pip-audit/npm audit/safety dans .github/workflows ni scripts/*.py du hub -- la trouvaille ne fait que confirmer un ecart deja identifie, avec sourcage provider (SSDF/OWASP Dependency-Check) pour l'etayer. [adopte le 2026-09-26 : Regle outillee : audit_dependances_ci() (pip-audit/npm audit/safety check dans .github/workflows/*.yml) ; critere criteres-pratiques.md l.128 passe de non mesure a proxy mesure (presence, pas absence de vulnerabilite). Mesure 4/8. Flotte : VSCode1 ea5e96e et VSCode4 e0a9b4e ajoutes non bloquants, VSCode2/VSCode3 deja ; VSCode4 Pillow 12.2.0->12.3.0 564d3cf (pip-audit 13 -> 0).]",
+      "date": "2026-09-26",
+      "statut": "adopte",
+      "source_referentiel": "NIST SP 800-218 SSDF + OWASP Dependency-Check/Dependency-Track",
+      "regle_proposee": "Presence d'une etape pip-audit (Python) ou npm audit (Node) dans un workflow CI, mesurable a froid par grep sur .github/workflows/*.yml",
+      "action_corrective": "Ajouter une etape pip-audit/npm audit aux workflows CI existants (5/6 projets en ont un, ligne 30 du referentiel) ; ne pas creer de nouveau workflow, etendre l'existant"
+    },
+    {
+      "titre": "Architecture Decision Records (Nygard) — journal des choix d'architecture",
+      "url": "https://adr.github.io/",
+      "type": "pratique",
+      "projets_concernes": [
+        "VSCode1",
+        "VSCode2",
+        "VSCode3",
+        "VSCode4",
+        "VScode5"
+      ],
+      "pertinence": "criteres-pratiques.md ligne 83 marque 'Explication (docs de conception, pourquoi des choix)' en \\u2705 partiel via 'docs/reflexions ici' sur le hub uniquement ; recherche find sur la flotte ne trouve aucun dossier adr/ ou docs/decisions -- seuls des dossiers de cadrage produit (VSCode1/cadrage, VSCode3/docs/cadrage-ppt) existent, pas un historique de decisions techniques dates/reversibles au format Nygard (titre/statut/contexte/decision/consequences). [adopte le 2026-09-26 : Regle outillee : adr_presents() (docs/adr/ ou docs/decisions/, fichiers portant statut/contexte/decision/consequences), mesure affichee. Aucune action generalisee (arbitrage projet par projet). Mesure : 0/8.]",
+      "date": "2026-09-26",
+      "statut": "adopte",
+      "source_referentiel": "Michael Nygard 2011 + adr.github.io (registre communautaire de templates)",
+      "regle_proposee": "Presence d'un dossier docs/adr/ ou docs/decisions/ avec au moins un fichier au format titre+statut+contexte+decision+consequences, mesurable a froid par recherche de motifs dans les titres Markdown (meme technique que diataxis_formes())",
+      "action_corrective": "Aucune action corrective generalisee proposee : a arbitrer projet par projet selon si des decisions d'architecture non tracees ont deja cause une reprise (a verifier dans diagnostic.json avant d'imposer le format)"
+    },
+    {
+      "titre": "OpenHub/OpenCode (VSCode2) : feature produit, pas a generaliser au hub",
+      "url": "https://github.com/sst/opencode",
+      "type": "framework",
+      "projets_concernes": [
+        "VSCode2"
+      ],
+      "pertinence": "Verification de reprise (2026-09-28) : l'integration OpenHub/OpenCode de VSCode2 (OPENHUB.md, app/services/openhub_agents.py, .opencode/agents/*.md) alimente la page produit Agents de l'app Interview-to-Deck pour l'utilisateur final de l'app, pas un usage dev/orchestration du hub -- OPENHUB.md le dit explicitement (ne pas confondre avec .claude/). opencode-ai est un paquet npm actif (v1.18.33 publiee le jour de la verification, 77 dependants). Aucun autre projet de la flotte n'a ce besoin produit identifie : ne pas generaliser. Une integration hub->OpenCode (dispatch d'agents externes depuis agent-orchestrator) ajouterait une double maintenance et une surface d'execution de prompts par un framework externe sans apport net face a l'existant (outil Agent + rooms bmad-party-mode), donc ecartee. Idees reutilisables sans adoption du framework : format agent en frontmatter Markdown id/label/description/mode (.opencode/agents/*.md, deja proche des sous-agents .claude/agents) ; repli simule propre quand la CLI externe est absente (openhub_agents.py:251-257) ; prudence documentee sur shutil.which(\"opencode\") qui peut renvoyer un .CMD Windows non appelable tel quel par subprocess (OPENHUB.md:119-121, code deja correct via chemin complet openhub_agents.py:183). A noter, deja en place cote securite : neutralisation + cloture a jeton aleatoire du contenu de mission avant tout prompt vers l'agent externe (openhub_agents.py:105-178), tracee comme fix du finding audit-technique securite:critique du 2026-09-04. [adopte le 2026-09-28 : Verdict applique tel quel : framework NON generalise et NON integre a l orchestrateur (feature produit propre a VSCode2, double maintenance et surface de securite sans capacite manquante) ; OPENHUB.md conserve chez VSCode2 ; les 3 idees reprenables (cloture a jeton aleatoire autour du contenu client, repli simule quand une CLI externe manque, frontmatter d agent id/label/description/mode) inscrites au registre pour reprise ulterieure]",
+      "date": "2026-09-28",
+      "statut": "adopte",
+      "regle_proposee": "aucune (pas de critere mesurable derive : usage produit local a VSCode2, non generalisable)",
+      "action_corrective": "aucune"
+    },
+    {
       "titre": "ercan-er/htmx-claude-skill — skill HTMX production-grade (HTML-over-the-wire, fragments, CSRF)",
       "url": "https://github.com/ercan-er/htmx-claude-skill",
       "type": "skill",
       "projets_concernes": [
         "VSCode2"
       ],
-      "pertinence": "Verifie a l'API GitHub ce jour : 18 etoiles, pousse le 2026-09-25 (3 jours avant ce cycle), non archive - vivant mais petit, aucune preuve d'adoption large. VSCode2 est le seul projet HTMX+Jinja2 de la flotte (grep confirme app/templates/*.html + htmx dans app/static) sans skill dediee HTMX (revue-ui-web couvre design/a11y generique, pas les patterns HTML-over-the-wire : fragments, OOB swaps, CSRF). Piste a etudier avant creation maison, pas a adopter en l'etat vu la faible traction (18 etoiles) : verifier le contenu reel avant toute reprise, meme partielle. [2026-09-29 : arbitrage utilisateur « applique » ; lecture integrale des 12 .md (MIT, aucune injonction) -> rien a greffer : fragments _*.html, 422 et CSRF deja couverts ; le jeton CSRF cache contredit le garde Origin/Referer d'app/csrf.py. Remonte au hub.]",
-      "date": "2026-09-28",
-      "statut": "ecarte"
-    },
-    {
-      "titre": "Silence Is Endorsement — le statut non-verifie d'une revendication se perd au relais entre agents (arXiv 2609.20211)",
-      "url": "https://arxiv.org/abs/2609.20211",
-      "type": "pratique",
-      "projets_concernes": [
-        "VSCode2"
-      ],
-      "pertinence": "Preprint (soumis 2026-07-25, aucun comite de lecture identifie sur la page) : verification-status laundering - un moniteur de securite LLM approuve des actions risquees quand une revendication d'autorisation perd son marquage non-verifie pendant un relais entre composants ; taux d'approbation d'actions non sures mesure entre 5% et 60% sur Llama-3.1-8B selon la mise en scene (protocole a citer avec le chiffre, pas seul). Recoupe un risque structurel du dispositif VSCode2 : un sous-agent (ex. audit-technique, agent-securite) rend un constat via SubagentHandback, relaye ensuite par l'orchestrateur/le superviseur - rien ne verifie a froid que le statut (non_evalue, a verifier, suppose) survit au relais plutot que d'etre lu comme confirme. Mesure_chez_nous : aucune, a verifier sur un cas reel avant adoption. [2026-09-29 : action_corrective jouee - audit du relais VSCode2 mesure : handback preserve (slots du brief), write_diagnostic refuse une hypothese et n'a aucun slot de statut, scan_transcripts ne rend jamais un statut ajoute (grep 0). Regle canon remontee au hub VSCode5, qui la derive et la propage.]",
-      "date": "2026-09-28",
-      "statut": "adopte",
-      "source_referentiel": "arXiv:2609.20211 (preprint, soumis 2026-07-25, non relu par les pairs a ce jour)",
-      "regle_proposee": "Mesurable a froid partiellement : grep sur les schemas de constats/findings (audits/*.json, diagnostic.json) pour verifier qu'un champ de statut d'incertitude (non_evalue, a_verifier) est preserve tel quel dans toute structure qui le relaie (pas de champ qui le collapse silencieusement en booleen ou en absence de champ).",
-      "action_corrective": "Auditer un relais reel (ex. sortie SubagentHandback d'audit-technique vers agent-supervisor) : le statut non_evalue d'un finding survit-il textuellement, ou se perd-il en cours de route ? A faire avant toute regle gravee.",
+      "pertinence": "Verifie a l'API GitHub par VSCode2 : 18 etoiles, pousse le 2026-09-25, non archive - vivant mais petit, aucune preuve d'adoption large. VSCode2 est le seul projet HTMX+Jinja2 de la flotte sans skill dediee HTMX. Instruite et arbitree par VSCode2 (source : .claude/veille/veille.json de VSCode2, 2026-09-28/29) : lecture integrale des 12 .md du depot (MIT, aucune injonction) - rien a greffer : fragments _*.html, 422 et CSRF deja couverts par app/csrf.py ; le jeton CSRF cache propose par la skill contredirait le garde Origin/Referer deja en place. Remontee au hub pour tracer la decision. [ecarte le 2026-09-29 : Ecarte sur arbitrage utilisateur du 2026-09-29 : instruit par VSCode2, lecture integrale des 12 .md du depot (MIT, aucune injonction) - rien a greffer, fragments/422/CSRF deja couverts par app/csrf.py, le jeton CSRF cache propose contredirait le garde Origin/Referer existant.]",
+      "date": "2026-09-29",
+      "statut": "ecarte",
       "revue_par_pairs": "non"
     }
   ]

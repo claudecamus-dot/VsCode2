@@ -4,7 +4,7 @@
 # | garder : la signaler au hub, qui corrige le canon et re-synchronise.
 # | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
 # |  n'est pas déployé, il n'existe pas dans ce dépôt.)
-# | Provenance canon : 0d4454a du 2026-09-24 — permet, au prochain sync, de dire si
+# | Provenance canon : c26db88 du 2026-10-01 — permet, au prochain sync, de dire si
 # | une différence vient d'une édition locale ou d'une avance du canon (voir
 # | `determiner_cause` dans sync_dispositif.py au hub).
 # +---------------------------------------------------------------------------
@@ -96,6 +96,10 @@ SKILL_DOCTOR_PATH = os.environ.get("AGENT_SUPERVISION_SKILL_DOCTOR") or os.path.
     SUP_DIR, "skill_doctor_last.txt"
 )
 DORMANT_DAYS = 30
+# Au-delà de cet âge, l'instantané /skill-doctor ne contredit plus rien : le coût 7 j
+# qu'il rapporte glisse avec le temps (finding skill_doctor_snapshot:instantane-perime-17j,
+# arbitré le 2026-09-26 — un rapport de 17 jours faisait encore foi).
+SKILL_DOCTOR_MAX_JOURS = 7
 # Version de la LOGIQUE DE DÉTECTION (préfiltre + parsing des invocations dans
 # scan()). À incrémenter à chaque fois qu'on apprend à reconnaître un mode
 # d'invocation de plus : le scan rejoue alors l'intégralité des transcripts au
@@ -1012,7 +1016,7 @@ def diagnostic_masques(diagnostic, arbitrages: list = None) -> list:
     et la cible : l'humain voit ce que sa décision passée continue de fermer, et peut
     demander un re-challenge."""
     return [
-        {"titre": _titre_court(f), "cible": f.get("cible") or "?"}
+        {"titre": _libelle_finding(f), "cible": f.get("cible") or "?"}
         for f in _findings(diagnostic)
         if _titre_court(f) and finding_arbitre(f, arbitrages, posterieur_a=_genere_le(diagnostic))
     ]
@@ -1036,6 +1040,24 @@ def _titre_court(finding: dict) -> str:
     """Titre sur UNE ligne : il est rendu dans une puce markdown et dans un `<li>`, où
     un saut de ligne casserait la mise en forme."""
     return " ".join((finding.get("titre") or "").split())
+
+
+# Statut de preuve d'un constat (schema write_diagnostic.py, 2026-09-29, trouvaille de
+# veille « Silence Is Endorsement ») : `mesure` (defaut, retro-compatible), `a_verifier`,
+# `hypothese`. Un constat non mesure DOIT se lire comme tel partout ou il est rendu :
+# sans l'etiquette, le lecteur voit un constat affirme — perte de statut mesuree le
+# 2026-09-29 (grep statut_preuve = 0 dans ce script et dans agents-supervision.md).
+STATUTS_PREUVE_LIBELLES = {"a_verifier": "À VÉRIFIER", "hypothese": "HYPOTHÈSE"}
+
+
+def _libelle_finding(finding: dict) -> str:
+    """Titre court PRÉFIXÉ de son statut de preuve quand il n'est pas `mesure`. Une valeur
+    inconnue est rendue telle quelle plutôt que tue : l'erreur sûre est de montrer le doute."""
+    titre = _titre_court(finding)
+    statut = str(finding.get("statut_preuve") or "mesure").strip() or "mesure"
+    if not titre or statut == "mesure":
+        return titre
+    return f"[{STATUTS_PREUVE_LIBELLES.get(statut, statut.upper())}] {titre}"
 
 
 def load_diagnostic() -> dict:
@@ -1076,7 +1098,7 @@ def diagnostic_todos(diagnostic, arbitrages: list = None) -> list:
     # `[:5]` = le plafond de la skill (« 5 constats max ») ; `write_diagnostic.py` le
     # refuse désormais à l'écriture, donc plus rien ne se perd ici en silence.
     for f in findings[:5]:
-        titre = _titre_court(f)
+        titre = _libelle_finding(f)
         if not titre:
             continue
         reco = (f.get("recommandation") or "").strip()
@@ -1393,6 +1415,84 @@ def _lire_skill_doctor(chemin: str = None) -> tuple[dict, str]:
     return usages, date_rapport
 
 
+def _skill_doctor_perime(date_rapport: str, max_jours: int = None) -> bool:
+    """True si un instantané /skill-doctor existe mais est trop vieux pour contredire
+    quoi que ce soit (finding skill_doctor_snapshot:instantane-perime-17j, arbitré le
+    2026-09-26 : toutes les entrées `contredit_par_skill_doctor` reposaient sur un
+    rapport de 17 jours).
+
+    Date absente (pas d'instantané) -> False : rien à périmer, le croisement est vide.
+    Date illisible -> True : un instantané dont la fraîcheur n'est pas établissable ne
+    doit pas sortir un nom de `jamais_utilises`.
+    """
+    if max_jours is None:
+        max_jours = SKILL_DOCTOR_MAX_JOURS
+    if not date_rapport:
+        return False
+    try:
+        date = dt.datetime.fromisoformat(date_rapport)
+    except ValueError:
+        return True
+    if date.tzinfo is None:
+        date = date.astimezone()
+    delta = dt.datetime.now().astimezone() - date
+    # Date FUTURE (horloge décalée, rapport édité) : sans cette garde, delta négatif
+    # rendait False à perpétuité — l'instantané corrompu blanchissait pour toujours
+    # (revue code-review-crew du 2026-09-26, constat Boundary/Dana).
+    if delta < dt.timedelta(0):
+        return True
+    return delta >= dt.timedelta(days=max_jours)
+
+
+def _racines_skills() -> list:
+    """Les endroits où Claude Code sert réellement des skills sur ce poste, hors dépôt :
+    les skills utilisateur (~/.claude/skills) et celles des plugins. Ne rend que les
+    dossiers existants.
+
+    Le dépôt n'est PAS dans cette liste : il est l'inventaire de RÉFÉRENCE (cf.
+    `_noms_fantomes`), les autres racines ne servent qu'à innocenter un nom."""
+    racines = [os.path.expanduser(os.path.join("~", ".claude", "skills"))]
+    racines += sorted(glob.glob(os.path.expanduser(
+        os.path.join("~", ".claude", "plugins", "*", "skills"))))
+    return [r for r in racines if os.path.isdir(r)]
+
+
+def _noms_fantomes(noms) -> set:
+    """Parmi `noms`, ceux sans `<racine>/<nom>/SKILL.md` dans AUCUNE des racines de
+    skills du poste (finding scan_transcripts.py:jamais_utilises-faux-nom-synced,
+    arbitré le 2026-09-26, durci par la revue code-review-crew du même jour : la
+    première version ne regardait que le dépôt et publiait `skill-creator` — skill
+    utilisateur vivante sous ~/.claude/skills — comme reliquat à nettoyer).
+
+    Le dépôt est l'inventaire de RÉFÉRENCE : c'est lui qui peut condamner un nom.
+    Les autres racines (`_racines_skills`) ne font qu'innocenter — sans cette
+    asymétrie, un dépôt dont le dossier de skills manque (canon chargé hors de son
+    arbre, déploiement partiel) faisait déclarer fantôme TOUT le catalogue, parce
+    que le ~/.claude du poste fournissait à lui seul un inventaire non vide
+    (mesuré le 2026-09-27 : `bmad-prd` sorti de `jamais_utilises` à tort,
+    test_les_hints_jamais_utilises_excluent_le_journal rouge).
+
+    Trois fail-open, tous justifiés par « on ne juge pas une absence sans
+    inventaire » :
+    - pas de dossier de skills dans le dépôt -> rien n'est fantôme ;
+    - dossier présent mais AUCUNE skill dedans (déploiement partiel) -> rien n'est
+      fantôme ; la première version déclarait alors TOUT fantôme et vidait
+      `jamais_utilises` en silence ;
+    - nom à espace de noms (`plugin:skill`) -> jamais fantôme : il n'est pas un
+      dossier plat, on ne peut pas le vérifier par ce chemin.
+    """
+    reference = os.path.join(REPO, ".claude", "skills")
+    if not os.path.isdir(reference):
+        return set()
+    if not glob.glob(os.path.join(reference, "*", "SKILL.md")):
+        return set()
+    racines = [reference] + _racines_skills()
+    return {n for n in noms
+            if ":" not in n
+            and not any(os.path.isfile(os.path.join(r, n, "SKILL.md"))
+                        for r in racines)}
+
+
 def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: dict, diagnostic,
                         runs: list = None, arbitrages: list = None) -> dict:
     """Sens superviseur → orchestrateur (conception §6) : ce que le scan mesure, appliqué
@@ -1413,11 +1513,21 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
     hub_only = skills_hub_only(fam)
     jamais_bruts = [k for k, v in fam.items()
                     if k not in vus and k not in libref and k not in hub_only]
+    # Un nom sans SKILL.md sur le disque est un fantôme (reliquat d'état, ex. « synced »)
+    # : il sort de jamais_utilises et se publie à part (arbitré le 2026-09-26).
+    fantomes = _noms_fantomes(jamais_bruts)
+    jamais_bruts = [k for k in jamais_bruts if k not in fantomes]
     # Second instrument, independant des transcripts : un nom que /skill-doctor
     # rapporte reellement invoque (uses > 0) sort de jamais_utilises et va dans
     # contredit_par_skill_doctor plutot que d etre presente comme mort a l arbitrage
     # (finding verification-manquante:jamais-utilises-vs-skill-doctor, 2026-09-15).
     usages_sd, date_sd = _lire_skill_doctor()
+    # Un instantané périmé (> SKILL_DOCTOR_MAX_JOURS) ne contredit rien : mieux vaut
+    # re-présenter un nom à l'arbitrage que le blanchir sur une mesure glissée
+    # (arbitré le 2026-09-26).
+    skill_doctor_perime = _skill_doctor_perime(date_sd)
+    if skill_doctor_perime:
+        usages_sd = {}
     contredit_par_skill_doctor = [
         {"skill": k, "uses_skill_doctor": usages_sd[k], "rapport_date": date_sd}
         for k in sorted(jamais_bruts) if usages_sd.get(k, 0) > 0
@@ -1442,7 +1552,7 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
             # il n'applique pas.
             and not finding_arbitre(f, arbitrages, respecter_re_challenge=False)
         ):
-            prudence.append({"cible": f["cible"], "raison": _titre_court(f)})
+            prudence.append({"cible": f["cible"], "raison": _libelle_finding(f)})
     # Incrément C — prudence déterministe : échecs répétés dans le journal d'orchestration,
     # sans attendre le diagnostic LLM (dédupliqué sur les cibles déjà signalées).
     deja = {p["cible"] for p in prudence}
@@ -1481,6 +1591,13 @@ def build_routing_hints(state: dict, fam: dict, par_playbook: dict, par_agent: d
         # (indépendant des transcripts) les rapporte réellement invoqués — vide si
         # skill_doctor_last.txt est absent ou périmé au point de ne rien contredire.
         "contredit_par_skill_doctor": contredit_par_skill_doctor,
+        # True quand un instantané /skill-doctor existe mais dépasse
+        # SKILL_DOCTOR_MAX_JOURS : ses usages sont alors ignorés — le rafraîchir
+        # (skill_doctor_snapshot.py) avant de trier jamais_utilises.
+        "mesure_skill_doctor_perimee": skill_doctor_perime,
+        # Noms retirés de jamais_utilises faute de SKILL.md sur le disque : reliquats
+        # d'état à nettoyer, pas des skills mortes à arbitrer.
+        "absents_du_disque": sorted(fantomes),
         # Skills-bibliothèque/référence : usage réel non capté par le compteur
         # d'invocations (constat #2) — sortis de jamais_utilises pour que
         # l'orchestrateur ne les traite pas comme morts.
