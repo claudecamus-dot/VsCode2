@@ -13,8 +13,8 @@ d'office, stats plan-vs-réel par playbook/agent, `prudence` issu du diagnostic 
 `docs/wiki/technical/agents-supervision.md` (tableau de bord humain des mêmes données) et
 `.claude/orchestration/playbooks/` (workflows récurrents — format dans `playbooks/FORMAT.md`).
 
-<!-- SOCLE-PROVENANCE: socle : 105d533 du 2026-09-30 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`105d533`, 2026-09-30) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 57e4740 du 2026-10-01 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`57e4740`, 2026-10-01) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -1127,6 +1127,18 @@ tours** (« toujours KO », « pas traité »), la boucle ne converge pas : **ST
 (§ ligne ci-dessus) ET **demander à l'utilisateur de pointer le défaut précis** (numéro de
 slide/page, capture, écran) avant de retoucher quoi que ce soit. Re-deviner produit
 l'oscillation ; l'oracle, c'est l'utilisateur sur SON artefact.
+
+**Décision éditoriale rapportée = AVANT / APRÈS côte à côte** (2026-09-30). Tout compte
+rendu d'une décision éditoriale de l'utilisateur montre le texte AVANT et le texte APRÈS
+côte à côte, l'APRÈS **extrait de l'artefact que l'utilisateur ouvre réellement** (le
+`.docx` relu via python-docx, ou le HTML servi), avec son emplacement exact (onglet,
+section). *Pourquoi* : le 2026-09-30, une décision de l'utilisateur sur la note d'auteur
+de l'article 2 a été appliquée mais pas perçue — le rapport ne montrait ni l'avant ni
+l'après. Mémoire du hub `verifier-avec-l-oracle-utilisateur`.
+
+**Un rapport à l'utilisateur s'ouvre sur « À trancher »** (2026-09-30) : un bloc de
+**3 lignes au plus** listant ce qui attend sa décision (ou « rien »), avant tout le
+reste. *Pourquoi* : dans les rapports longs, les décisions en attente se perdaient.
 
 ### 5. Journaliser
 
