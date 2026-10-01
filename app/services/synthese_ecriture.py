@@ -252,9 +252,66 @@ def apply_global_synthesis_result(global_synthesis: GlobalSynthesis, result: dic
     return True
 
 
-def apply_recommendations_result(db: Session, mission: Mission, axes_data: list[dict]) -> None:
+def _liens_par_titre(mission: Mission) -> dict[str, tuple[list, str]]:
+    """Liens reco→constats du jeu courant, indexés par titre normalisé.
+
+    Un titre porté par plusieurs recos n'est PAS indexé (arbitrage
+    utilisateur 2026-10-01, choix 2b) : on ne sait pas laquelle est laquelle,
+    et perdre un lien vaut mieux qu'en inventer un faux."""
+    from .constats import _cle_nom
+
+    vus: dict[str, tuple[list, str] | None] = {}
+    for axis in mission.recommendation_axes:
+        for reco in axis.recommendations:
+            cle = _cle_nom(reco.title)
+            if not cle:  # reco sans titre : rien à qui l'apparier, jamais héritée
+                continue
+            vus[cle] = None if cle in vus else (list(reco.constats), reco.constats_non_rattaches or "")
+    return {cle: liens for cle, liens in vus.items() if liens is not None}
+
+
+def _reprendre_liens(recommandation, herites: tuple[list, str], mission: Mission) -> None:
+    """Ajoute aux liens neufs ceux de la reco de même titre d'avant — union,
+    sans doublon ; un constat sorti de la mission n'est jamais relié."""
+    from .constats import _cle_nom
+
+    constats, non_rattaches = herites
+    liens = list(recommandation.constats)
+    liens += [c for c in constats if c in mission.constats and c not in liens]
+    recommandation.constats = liens
+    libelles = [x.strip() for x in (recommandation.constats_non_rattaches or "").split(";") if x.strip()]
+    # Un libellé devenu un constat de la mission n'est plus « introuvable » :
+    # on le RELIE à ce constat (sans doublon) au lieu de le reprendre en texte.
+    par_cle = {}
+    for c in mission.constats:
+        par_cle.setdefault(_cle_nom(c.libelle), c)
+    deja = {_cle_nom(x) for x in libelles} | set(par_cle)
+    for x in non_rattaches.split(";"):
+        cible = par_cle.get(_cle_nom(x)) if x.strip() else None
+        if cible is not None:
+            if cible not in recommandation.constats:
+                recommandation.constats = [*recommandation.constats, cible]
+        elif x.strip() and _cle_nom(x) not in deja:
+            libelles.append(x.strip())
+            deja.add(_cle_nom(x))
+    recommandation.constats_non_rattaches = "; ".join(libelles)
+
+
+def apply_recommendations_result(
+    db: Session, mission: Mission, axes_data: list[dict], *, conserver_liens: bool = False
+) -> None:
     # Remplace le jeu d'axes/recommandations précédent — même contrat que
     # "Régénérer" sur la synthèse par thème (un nouveau brouillon complet).
+    # `conserver_liens` (régénération IA, choix A du 2026-10-01) : une reco
+    # de même titre garde ses liens vers les constats, plus ceux que l'IA
+    # propose. L'import Markdown ne le passe pas : le fichier fait foi (1a).
+    from .constats import _cle_nom
+
+    herites = _liens_par_titre(mission) if conserver_liens else {}
+    # Même règle 2b côté sortie neuve : deux recos neuves de même titre ne
+    # se partagent pas un lot hérité.
+    neufs = [_cle_nom(r.get("title")) for a in axes_data for r in a["recommendations"]]
+    herites = {cle: liens for cle, liens in herites.items() if cle and neufs.count(cle) == 1}
     for axis in list(mission.recommendation_axes):
         db.delete(axis)
     db.flush()
@@ -281,4 +338,6 @@ def apply_recommendations_result(db: Session, mission: Mission, axes_data: list[
             elif constat_ids:
                 par_id = {c.id: c for c in mission.constats}
                 recommandation.constats = [par_id[i] for i in constat_ids if i in par_id]
+            if _cle_nom(recommandation.title) in herites:
+                _reprendre_liens(recommandation, herites[_cle_nom(recommandation.title)], mission)
             db.add(recommandation)

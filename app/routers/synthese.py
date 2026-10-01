@@ -551,7 +551,7 @@ def generate_recommendations_view(
                 extra = {"constats": list(mission.constats)} if mission.constats else {}
                 axes_data = generate_recommendations(
                     global_synthesis, axes_of(db, mission), **extra)
-                apply_recommendations_result(db, mission, axes_data)
+                apply_recommendations_result(db, mission, axes_data, conserver_liens=True)
                 db.commit()
                 db.refresh(mission)
             except SynthesisAIError as exc:

@@ -422,3 +422,200 @@ def test_un_nombre_nu_a_cote_d_un_id_prefixe_est_compte_rejete() -> None:
     assert synthese_ai._parse_ids(["E12 (Dupont)"], synthese_ai._ID_ENTRETIEN_RE) == [12]
     # Un chiffre DANS une parenthèse est un commentaire (revue 2026-09-30).
     assert synthese_ai._parse_ids(["E12 (2 fois)"], synthese_ai._ID_ENTRETIEN_RE) == [12]
+
+
+# --------------------------------------------------------------------------- #
+# Régénération : une reco de même titre garde ses liens (choix A, 2026-10-01)
+# --------------------------------------------------------------------------- #
+def _mission_avec_constats(nom: str, libelles: list[str]) -> tuple[int, list[int]]:
+    mid, _ = _mission(nom, ["Alix"])
+    db = SessionLocal()
+    try:
+        mission = db.get(Mission, mid)
+        for lib in libelles:
+            mission.constats.append(MissionConstat(axe_key="contexte", type="consensus",
+                                                   libelle=lib))
+        db.commit()
+        return mid, [c.id for c in mission.constats]
+    finally:
+        db.close()
+
+
+def _appliquer(mid: int, axes: list[dict], **kw) -> list:
+    db = SessionLocal()
+    try:
+        apply_recommendations_result(db, db.get(Mission, mid), axes, **kw)
+        db.commit()
+        db.expire_all()
+        return [(r.title, sorted(c.id for c in r.constats), r.constats_non_rattaches)
+                for a in db.get(Mission, mid).recommendation_axes for r in a.recommendations]
+    finally:
+        db.close()
+
+
+def _reco(titre: str, **extra) -> dict:
+    return {**_RECO, "title": titre, **extra}
+
+
+def test_regeneration_garde_les_liens_d_une_reco_de_meme_titre_et_ajoute_ceux_de_l_ia() -> None:
+    mid, (c1, c2) = _mission_avec_constats("Garde", ["Cap partagé", "Rythme"])
+    _appliquer(mid, [{"title": "Axe", "recommendations": [_reco("Clarifier le cap", constat_ids=[c1])]}])
+    # Titre retrouvé malgré casse/espaces, axe renommé : la clé est le titre seul.
+    apres = _appliquer(mid, [{"title": "Autre axe", "recommendations": [
+        _reco("clarifier  le CAP", constat_ids=[c2])]}], conserver_liens=True)
+    assert apres[0][1] == sorted([c1, c2])
+
+
+def test_regeneration_titre_change_ne_herite_de_rien() -> None:
+    mid, (c1,) = _mission_avec_constats("Renomme", ["Cap partagé"])
+    _appliquer(mid, [{"title": "Axe", "recommendations": [_reco("Clarifier le cap", constat_ids=[c1])]}])
+    apres = _appliquer(mid, [{"title": "Axe", "recommendations": [_reco("Autre chose")]}],
+                       conserver_liens=True)
+    assert apres[0][1] == []
+
+
+def test_regeneration_titre_en_double_n_herite_de_rien() -> None:
+    """Choix 2b : deux recos d'avant au même titre — on ne sait pas laquelle
+    est laquelle, aucun lien n'est reporté plutôt qu'un faux."""
+    mid, (c1, c2) = _mission_avec_constats("Double", ["Cap partagé", "Rythme"])
+    _appliquer(mid, [{"title": "Axe", "recommendations": [
+        _reco("Clarifier le cap", constat_ids=[c1]), _reco("Clarifier le cap", constat_ids=[c2])]}])
+    apres = _appliquer(mid, [{"title": "Axe", "recommendations": [_reco("Clarifier le cap")]}],
+                       conserver_liens=True)
+    assert apres[0][1] == []
+
+
+def test_regeneration_garde_les_libelles_non_rattaches() -> None:
+    mid, _ = _mission_avec_constats("NonRat", ["Cap partagé"])
+    _appliquer(mid, [{"title": "Axe", "recommendations": [
+        _reco("Clarifier le cap", constats=["Constat disparu"])]}])
+    apres = _appliquer(mid, [{"title": "Axe", "recommendations": [_reco("Clarifier le cap")]}],
+                       conserver_liens=True)
+    assert apres[0][2] == "Constat disparu"
+
+
+def test_regeneration_ne_relie_pas_un_constat_sorti_de_la_mission() -> None:
+    mid, (c1, c2) = _mission_avec_constats("Sorti", ["Cap partagé", "Rythme"])
+    _appliquer(mid, [{"title": "Axe", "recommendations": [_reco("Clarifier le cap", constat_ids=[c1, c2])]}])
+    db = SessionLocal()
+    try:
+        db.delete(db.get(MissionConstat, c1))
+        db.commit()
+    finally:
+        db.close()
+    apres = _appliquer(mid, [{"title": "Axe", "recommendations": [_reco("Clarifier le cap")]}],
+                       conserver_liens=True)
+    assert apres[0][1] == [c2]
+
+
+def test_import_sans_conserver_liens_le_fichier_fait_foi() -> None:
+    """Choix 1a : l'import Markdown n'hérite pas — seuls les liens du fichier."""
+    mid, (c1, c2) = _mission_avec_constats("Import", ["Cap partagé", "Rythme"])
+    _appliquer(mid, [{"title": "Axe", "recommendations": [_reco("Clarifier le cap", constat_ids=[c1])]}])
+    apres = _appliquer(mid, [{"title": "Axe", "recommendations": [
+        _reco("Clarifier le cap", constats=["Rythme"])]}])
+    assert apres[0][1] == [c2]
+
+
+def test_route_regeneration_conserve_les_liens(monkeypatch) -> None:
+    mid, (c1, c2) = _mission_avec_constats("Route", ["Cap partagé", "Rythme"])
+    db = SessionLocal()
+    try:
+        db.add(GlobalSynthesis(mission_id=mid, contexte="- Synthèse", status="generated"))
+        db.commit()
+    finally:
+        db.close()
+    _appliquer(mid, [{"title": "Axe", "recommendations": [_reco("Clarifier le cap", constat_ids=[c1])]}])
+
+    from app.routers import synthese as routes
+
+    monkeypatch.setattr(routes, "generate_recommendations", lambda gs, axes=None, constats=None: [
+        {"title": "Axe", "recommendations": [_reco("Clarifier le cap", constat_ids=[c2])]}])
+    monkeypatch.setattr(routes, "ai_precondition_error", lambda *a, **k: None)
+    r = TestClient(app).post(f"/missions/{mid}/recommandations/generate")
+    assert r.status_code == 200
+    db = SessionLocal()
+    try:
+        reco = db.get(Mission, mid).recommendation_axes[0].recommendations[0]
+        assert sorted(c.id for c in reco.constats) == sorted([c1, c2])
+    finally:
+        db.close()
+
+
+def test_regeneration_deux_recos_neuves_de_meme_titre_n_heritent_de_rien() -> None:
+    """Revue 2026-10-01 : la règle 2b vaut aussi pour la sortie neuve."""
+    mid, (c1,) = _mission_avec_constats("DoubleNeuf", ["Cap partagé"])
+    _appliquer(mid, [{"title": "Axe", "recommendations": [_reco("Clarifier le cap", constat_ids=[c1])]}])
+    apres = _appliquer(mid, [{"title": "Axe", "recommendations": [
+        _reco("Clarifier le cap"), _reco("Clarifier le cap")]}], conserver_liens=True)
+    assert [r[1] for r in apres] == [[], []]
+
+
+def test_regeneration_ne_reprend_pas_un_non_rattache_devenu_constat() -> None:
+    """Revue 2026-10-01 : un libellé hérité qui existe désormais comme constat
+    ne reste pas affiché « introuvable »."""
+    mid, _ = _mission_avec_constats("Devenu", ["Rythme"])
+    _appliquer(mid, [{"title": "Axe", "recommendations": [
+        _reco("Clarifier le cap", constats=["Cap partagé"])]}])
+    db = SessionLocal()
+    try:
+        mission = db.get(Mission, mid)
+        mission.constats.append(MissionConstat(axe_key="contexte", type="consensus",
+                                               libelle="Cap partagé"))
+        db.commit()
+        cid = mission.constats[-1].id
+    finally:
+        db.close()
+    apres = _appliquer(mid, [{"title": "Axe", "recommendations": [
+        _reco("Clarifier le cap", constat_ids=[cid])]}], conserver_liens=True)
+    assert apres[0][1] == [cid]
+    assert apres[0][2] == ""
+
+
+def test_regeneration_reco_sans_titre_n_herite_de_rien() -> None:
+    """Revue 2026-10-01 : une cle vide (titre vide/None) n'apparie jamais."""
+    mid, (c1,) = _mission_avec_constats("SansTitre", ["Cap partagé"])
+    _appliquer(mid, [{"title": "Axe", "recommendations": [_reco("", constat_ids=[c1])]}])
+    for titre in ("", "   "):
+        apres = _appliquer(mid, [{"title": "Axe", "recommendations": [_reco(titre)]}],
+                           conserver_liens=True)
+        assert apres[0][1] == []
+
+
+def test_regeneration_relie_un_non_rattache_devenu_constat_meme_sans_id_ia() -> None:
+    """Revue 2026-10-01 : l'IA ne le relie pas, le libelle herite correspond
+    a un constat de la mission -> lien (pas de doublon, pas de texte)."""
+    mid, _ = _mission_avec_constats("DevenuLie", ["Rythme"])
+    _appliquer(mid, [{"title": "Axe", "recommendations": [
+        _reco("Clarifier le cap", constats=["Cap partagé"])]}])
+    db = SessionLocal()
+    try:
+        mission = db.get(Mission, mid)
+        mission.constats.append(MissionConstat(axe_key="contexte", type="consensus",
+                                               libelle="Cap partagé"))
+        db.commit()
+        cid = mission.constats[-1].id
+    finally:
+        db.close()
+    apres = _appliquer(mid, [{"title": "Axe", "recommendations": [_reco("Clarifier le cap")]}],
+                       conserver_liens=True)
+    assert apres[0][1] == [cid]
+    assert apres[0][2] == ""
+
+def test_regeneration_ne_relie_pas_un_constat_d_une_autre_mission() -> None:
+    """Revue 2026-10-01 : la garde `c in mission.constats` doit tenir meme quand
+    un lien herite pointe un constat hors mission (supprimer le constat ne
+    suffit pas a l'exercer : le CASCADE efface deja le lien)."""
+    mid, (c1, c2) = _mission_avec_constats("Garde1", ["Cap partagé", "Rythme"])
+    _, (etranger,) = _mission_avec_constats("Garde2", ["Ailleurs"])
+    _appliquer(mid, [{"title": "Axe", "recommendations": [_reco("Clarifier le cap", constat_ids=[c1])]}])
+    db = SessionLocal()
+    try:
+        reco = db.get(Mission, mid).recommendation_axes[0].recommendations[0]
+        reco.constats.append(db.get(MissionConstat, etranger))
+        db.commit()
+    finally:
+        db.close()
+    apres = _appliquer(mid, [{"title": "Axe", "recommendations": [_reco("Clarifier le cap")]}],
+                       conserver_liens=True)
+    assert apres[0][1] == [c1]
