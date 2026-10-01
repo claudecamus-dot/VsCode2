@@ -399,7 +399,9 @@ def _dans_fenetre(entrees, now):
 
 
 def mesure_refus(refus_path, crit, now):
-    n = len(_dans_fenetre(_jsonl(refus_path), now))
+    # a guard crash is journaled with issue "passe": the command was NOT refused
+    refus = [e for e in _jsonl(refus_path) if e.get("issue") != "passe"]
+    n = len(_dans_fenetre(refus, now))
     return n, bande(n, crit["seuils"], crit["croissant"])
 
 

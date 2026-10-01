@@ -652,7 +652,12 @@ def _chemins_projets(kit_installe):
             if p.get("nom") and p.get("chemin")}
 
 
-def main():
+def main(argv=None):
+    # `--tout` (2026-10-01, finding `point_du_jour:tout-voir-reaffiche-la-liste-tronquee`) :
+    # la notice de troncature renvoyait a la commande nue, qui re-tronquait la meme
+    # liste. Lu a la main, sans argparse : un argument inconnu ne doit jamais faire
+    # planter un hook SessionStart (fail-open), il est simplement ignore.
+    tout = "--tout" in (sys.argv[1:] if argv is None else argv)
     # « Vous prevenir ailleurs » (salle atelier-idees, arbitre le 2026-08-31) : la
     # ligne ne DENOMBRE plus, elle donne la commande prete a taper — l'information
     # arrive dans le canal reellement utilise, avec le verbe qui la traite.
@@ -763,6 +768,15 @@ def main():
         return 0
 
     print("Point du jour -- ce qui attend VOTRE decision :")
+    for ligne in lignes_affichees(lignes, tout):
+        print("  " + ligne)
+    return 0
+
+
+def lignes_affichees(lignes, tout=False):
+    """Les lignes de contenu a imprimer sous le titre. `tout` leve le plafond."""
+    if tout:
+        return list(lignes)
     # PLAFOND borne les lignes de CONTENU (hors titre) a 3, verrouille par
     # test_reste_court (<=4 lignes non vides au total). La notice de troncature
     # (2026-09-21) est elle-meme une ligne de contenu : elle consomme un slot au lieu
@@ -771,13 +785,12 @@ def main():
     PLAFOND = 3
     caches = len(lignes) - PLAFOND
     a_afficher = lignes[:PLAFOND - 1] if caches > 0 else lignes[:PLAFOND]
-    for ligne in a_afficher:
-        print("  " + ligne)
     if caches > 0:
         caches = len(lignes) - len(a_afficher)
-        print(f"  ... et {caches} autre(s) point(s) masque(s) par l'affichage --"
-              " tout voir : py .claude/hooks/point_du_jour.py")
-    return 0
+        a_afficher = a_afficher + [
+            f"... et {caches} autre(s) point(s) masque(s) par l'affichage --"
+            " tout voir : py .claude/hooks/point_du_jour.py --tout"]
+    return a_afficher
 
 
 def _signaler(exc):
