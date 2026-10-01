@@ -29,6 +29,6 @@ relecture des correctifs (opus), `bmad-code-review` tranche 4 (sonnet),
 | L2 | majeur | nom inconnu en minuscule avalé dans le libellé | constats.py _parenthese_commentaire | exécuté | corrige 5206d07, test + P1 ; « (de Villiers) » reste une limite |
 | C1 | bloquant | CI : étape pytest bloquée (>1 h #48, borne 20 min #49) | .github/workflows/ci.yml | runs #48 #49 | corrige c696e58 + 6a704bb + 7c1321c : CI verte run 36755808386 (1434 passed, 7 min 29) |
 | C2 | majeur | aucun run CI entre le 2026-09-04 et le 2026-09-29 | .github/workflows/ci.yml | API runs | corrige : CI de nouveau jouee et verte le 2026-09-30 |
-| A1 | mineur | table `syntheses` orpheline après suppression d'A3 | models.py | grep | corrige 4ec405d (adopte par l'utilisateur 2026-09-30) : DROP seulement si vide, test + P1 ; a migrer avec APP_DB_MIGRATE=1 |
+| A1 | mineur | table `syntheses` orpheline après suppression d'A3 | models.py | grep | corrige 4ec405d (adopte par l'utilisateur 2026-09-30) : DROP seulement si vide, test + P1 ; migration deja jouee (table absente de data/app.db, constat 2026-10-01) |
 
 **Note 2026-09-30** : la suite complete dure ~49 min sous Windows (1444 tests) ; un premier run tue a 40 min avait ete pris pour un gel. 4 e2e (`test_e2e_premiers_clics`) ont expire en CDP muet 30 s sous charge ; rejoues seuls, verts (un seul encore rouge sur un run de 13 min, vert a 2 essais isoles).

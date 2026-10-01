@@ -721,6 +721,58 @@ def test_un_ecart_majoritaire_est_signale_a_l_ecran() -> None:
     assert '<span class="couverture couverture-neutre">1/3</span>' in page
 
 
+def _ecart_lie_a_une_reco(nom: str, noms: list[str], porteurs: list[str]):
+    """Mission avec UN écart porté par `porteurs`, lié à une reco. Rend
+    (mission_id, client, texte « Fondée sur » du deck)."""
+    from app.models import Recommendation
+    from app.services.constats import constats_par_axe, texte_fondee_sur
+
+    mission_id, _ = _mission_avec_entretiens(nom, noms)
+    client = TestClient(app)
+    md = ("## CONSTATS\n\n### Contexte\n"
+          f"- [écart] Position tranchée ({', '.join(porteurs)})\n\n"
+          "## RECOMMANDATIONS\n\n#### Axe 1 : A\n\n##### Recommandation 1.1 : R\n"
+          "- Objectif : O\n- Constats : Position tranchée\n")
+    assert _importer(client, mission_id, md).status_code == 303
+    db = SessionLocal()
+    try:
+        mission = db.get(Mission, mission_id)
+        lignes = {l["constat"].id: l for ls in constats_par_axe(mission).values()
+                  for l in ls}
+        reco = db.query(Recommendation).join(Recommendation.axis).filter_by(
+            mission_id=mission_id).one()
+        deck = texte_fondee_sur(reco, lignes)
+    finally:
+        db.close()
+    return mission_id, client, deck
+
+
+def test_ecart_unanime_3_sur_3_signale() -> None:
+    """B2 : un écart porté par TOUS les entretiens (n=m=3) est signalé comme
+    porté par la majorité — à l'écran (2 pages) ET dans le texte du deck."""
+    mission_id, client, deck = _ecart_lie_a_une_reco(
+        "Ecart unanime", ["Alix", "Bao", "Chris"], ["Alix", "Bao", "Chris"])
+    globale = client.get(f"/missions/{mission_id}/synthese/globale").text
+    assert "Écart porté par la majorité des entretiens" in globale
+    assert '<span class="couverture couverture-partielle">3/3</span>' in globale
+    reco_page = client.get(f"/missions/{mission_id}/recommandations").text
+    assert "Écart porté par la majorité" in reco_page
+    assert "Position tranchée (Écart important porté par la majorité, 3/3)" in deck
+
+
+def test_ecart_un_seul_entretien_m1() -> None:
+    """Gel du comportement ACTUEL : avec un seul entretien exploité (n=m=1),
+    2n > m, donc l'écart est signalé (écran et deck). Si ce choix change, ce
+    test doit être réécrit sciemment."""
+    assert ecart_majoritaire(1, 1) is True
+    mission_id, client, deck = _ecart_lie_a_une_reco(
+        "Ecart m1", ["Alix"], ["Alix"])
+    globale = client.get(f"/missions/{mission_id}/synthese/globale").text
+    assert "Écart porté par la majorité des entretiens" in globale
+    assert '<span class="couverture couverture-partielle">1/1</span>' in globale
+    assert "Position tranchée (Écart important porté par la majorité, 1/1)" in deck
+
+
 def test_une_parenthese_de_commentaire_reste_dans_le_libelle() -> None:
     """Revue 2026-09-29 : « (hors licences) » était lu comme des porteurs."""
     mission_id, _ = _mission_avec_entretiens("Parenthese", ["Alix", "Bao"])
