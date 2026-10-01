@@ -87,7 +87,8 @@ def test_le_modele_voit_des_ids_stables_et_un_id_hallucine_est_rejete(monkeypatc
     mission = SimpleNamespace(name="M", interviews=[SimpleNamespace(id=11), SimpleNamespace(id=12)])
     out = synthese_ai.generate_constats(mission, [], _libre([(11, "Alix"), (12, "Bao")]))
 
-    assert "[E11] Alix" in prompts[0] and "[E12] Bao" in prompts[0]
+    assert "[E11]" in prompts[0] and "[E12]" in prompts[0]
+    assert "[E11] Alix" not in prompts[0] and "[E12] Bao" not in prompts[0]  # T9 : id seul
     assert [(c["axe_key"], c["type"], c["interview_ids"]) for c in out["constats"]] == [
         ("contexte", "consensus", [11, 12]),
         ("contexte", "ecart", [12]),
