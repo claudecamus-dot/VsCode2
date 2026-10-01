@@ -1,4 +1,4 @@
-"""Standalone HTML page of the « Évaluation agentic » kit — scale v2.
+"""Standalone HTML page of the « Évaluation agentic » kit — scale v3.
 
 ``ecrire_page(evaluation, chemin)`` renders the output dict of
 ``evaluation_agentic.evaluer()`` into ONE self-contained HTML file (inline CSS
@@ -55,10 +55,13 @@ PERIME = "périmé"
 JAMAIS = "jamais mesuré"
 MAX = max(ea.NIVEAUX)
 
-# Series break: scale v2 notes are not comparable with earlier v1 notes.
+# Series breaks: say WHY a note moved, not only that the scale changed.
 BAREME_V2_DEPUIS = "2026-09-28"
-RUPTURE = (f"barème v2 depuis le {BAREME_V2_DEPUIS} — les notes v1 antérieures "
-           "ne sont pas comparables")
+BAREME_V3_DEPUIS = "2026-09-29"
+RUPTURE = (f"barème 3 depuis le {BAREME_V3_DEPUIS} : critères ajoutés ; une note qui "
+           "a baissé peut n'avoir rien perdu, elle a été notée sur davantage de "
+           f"critères (barème v2 depuis le {BAREME_V2_DEPUIS} — les notes v1 antérieures "
+           "ne sont pas comparables)")
 
 # Referential letter of each scored axis, and the public code of each criterion.
 LETTRES = {"pratiques_dev": "A", "pratiques_agentic": "B"}
@@ -182,6 +185,11 @@ ACTIONS = {
         "Déclarer, dans l'en-tête de chaque définition d'agent ou de skill, le "
         "modèle ou l'effort adapté à la tâche (au moins deux valeurs "
         "différentes), et suivre la consommation dans un fichier de coûts."),
+    "structure_mandats_agents": (
+        "Réécrire chaque mandat d'agent sur la structure de référence "
+        "(docs/reflexions/gabarit-agent.md) : condition d'arrêt écrite sans "
+        "maxTurns, chaque outil décrit, ligne de ton, interdits motivés, exemple "
+        "de départ, contrat de sortie et provenance en fin de texte."),
     "validation_humaine_tracee": (
         "Faire prononcer la recette d'un livrable par une autre personne que "
         "son auteur, et la tracer : mention Approved-by: ou Tested-by: dans le "
@@ -304,8 +312,7 @@ def _pastille(note, texte=None) -> str:
 def _pastille_axe(axe) -> str:
     etat = etat_mesure(axe)
     if etat:
-        return ("<span class='n {cl}'><span class='pastille'></span>{t}</span>"
-                .format(cl=etat[0], t=_e(etat[1])))
+        return (f"<span class='n {etat[0]}'><span class='pastille'></span>{_e(etat[1])}</span>")
     return _pastille(axe.get("note"))
 
 
@@ -569,6 +576,12 @@ def _recommandations(c, perime=None) -> list:
         return [f"Pour atteindre {suivant}/10 : ramener la part d'exécutions en "
                 f"échec sous {cible:.0%}.".replace("%", " %"),
                 action]
+    if mode == "part":
+        seuils = sorted(c.get("seuils") or dg.SEUILS_STRUCTURE)
+        cible = seuils[max(0, min(len(seuils) - 1, suivant // 2 - 2))]
+        return [f"Pour atteindre {suivant}/10 : porter à {cible:.0%} la part des "
+                "blocs de la structure présents dans les mandats d'agents."
+                .replace("%", " %"), action]
     return [f"Pour atteindre {suivant}/10 : {action}" if action else
             f"Pour atteindre {suivant}/10 : mettre en place ce que décrit le "
             "référentiel pour ce critère."]
@@ -720,22 +733,24 @@ def _referentiel() -> str:
 INTRO_RESULTATS = (
     "<div class='intro'><h2 class='intro-t'>Comment lire cette page</h2>"
     "<p>Chaque projet est regardé à travers deux référentiels : "
-    "<b>A — Pratiques de développement</b> (13 critères : besoin écrit, décisions "
+    "<b>A — Pratiques de développement</b> ({n_a} critères : besoin écrit, décisions "
     "tracées, relecture, secrets, tests, intégration continue…) et "
-    "<b>B — Pratiques agentic</b> (10 critères : ce qui cadre, borne, trace et "
+    "<b>B — Pratiques agentic</b> ({n_b} critères : ce qui cadre, borne, trace et "
     "fait valider le travail confié aux assistants d'IA). Tout est lu dans les "
     "fichiers et l'historique git du projet ; rien n'est jugé à l'œil.</p>"
     "<ul class='intro-l'>"
     "<li><b>Présent · 10/10 / absent · 2/10</b> — la plupart des critères n'ont "
-    "que ces deux niveaux ; deux critères ont une échelle ({c_orch} niveau "
-    "d'orchestration, {c_echecs} part d'échecs).</li>"
+    "que ces deux niveaux ; trois critères ont une échelle ({c_orch} niveau "
+    "d'orchestration, {c_echecs} part d'échecs, {c_structure} structure des "
+    "mandats d'agents).</li>"
     "<li><b>Note d'un référentiel</b> — la moyenne de ses critères notés ; "
     "<b>note globale</b> — la moyenne des deux référentiels.</li>"
     "<li><b>« non mesuré »</b> — le dépôt ne permet pas de conclure (pas "
     "d'historique git, pas de journal…) : aucune note n'est devinée, et le "
     "critère sort de la moyenne.</li>"
     "<li><b>« non applicable »</b> — le critère ne concerne pas ce projet ({c_solution} "
-    "quand le produit n'appelle aucun modèle d'IA) ; hors moyenne.</li>"
+    "quand le produit n'appelle aucun modèle d'IA, {c_structure} quand le projet "
+    "ne définit aucun agent) ; hors moyenne.</li>"
     "<li><b>« périmé »</b> — la dernière mesure date de plus de {j} jours (sa "
     "date est affichée) ; <b>« jamais mesuré »</b> — aucune mesure n'existe.</li>"
     "<li><b>« bloquant »</b> — un problème de sécurité important est ouvert ; "
@@ -753,6 +768,9 @@ def _intro_resultats() -> str:
                "{c_orch}": CODES["niveau_orchestration"],
                "{c_echecs}": CODES["blocages_traces"],
                "{c_solution}": CODES["solution_agentic_maitrisee"],
+               "{c_structure}": CODES["structure_mandats_agents"],
+               "{n_a}": str(len(dg.REFERENTIELS["A"])),
+               "{n_b}": str(len(dg.REFERENTIELS["B"])),
                "{c_decl}": codes_de(DECLARATIFS)}
     texte = INTRO_RESULTATS
     for cle, v in valeurs.items():
@@ -877,6 +895,7 @@ outline:3px solid var(--acc);outline-offset:2px}
 :root:not(.js) [role=tabpanel][hidden]:has(:target){display:block!important}
 .deux-ref{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,470px),1fr));
 gap:16px;align-items:start}
+.bloc.qualite-produit{margin-top:28px;border-style:dashed;border-width:2px}
 .bloc{background:var(--card);border:1px solid var(--bd);border-radius:14px;
 padding:18px 20px 12px;margin:16px 0;box-shadow:var(--sh)}
 .bloc>header,.axe-carte>header{display:flex;justify-content:space-between;
@@ -1103,8 +1122,28 @@ def _projets(evaluation):
             in enumerate(sorted((evaluation.get("projets") or {}).items()))]
 
 
-def _panneaux_resultats(projets, hub) -> tuple:
+def _bloc_qualite(qp) -> str:
+    """The separate informative « Qualité du produit » stage: never a note."""
+    if not isinstance(qp, dict) or not qp.get("lignes"):
+        return ""
+    lignes = "".join(
+        "<li><b>{lib}</b><div class='valeur'>Valeur : {v}</div>"
+        "<div class='meta'>Source : {s}</div>"
+        "<div class='meta'>Ne permet pas de conclure : {n}</div></li>".format(
+            lib=_e(l.get("libelle")), v=_e(l.get("valeur")), s=_e(l.get("source")),
+            n=_e(l.get("ne_permet_pas_de_conclure")))
+        for l in qp["lignes"].values())
+    return (
+        "<section class='bloc qualite-produit'><header><h3>Qualité du produit</h3>"
+        "<span class='tag'>informatif — non noté</span></header>"
+        "<p class='meta'>Étage séparé : ces relevés ne reçoivent aucune note et "
+        "n'entrent ni dans la note globale ni dans aucune moyenne.</p>"
+        f"<ul class='dispo'>{lignes}</ul></section>")
+
+
+def _panneaux_resultats(projets, hub, qualite=None) -> tuple:
     """(sub-tablist, panels) — one panel per project, plus the informative hub."""
+    qualite = qualite or {}
     montrer_hub = bool(hub) and _hub_mesure(hub)
     if not projets and not montrer_hub:
         return "", "<p class='meta'>Aucun projet évalué.</p>"
@@ -1114,7 +1153,7 @@ def _panneaux_resultats(projets, hub) -> tuple:
         panneaux.append(
             f"<div role='tabpanel' class='sous-pane' id='{_e(id_)}' "
             f"aria-labelledby='sub-{_e(id_)}'{'' if i == 0 else ' hidden'}>"
-            f"{_bloc(nom, b, 'bloc-' + id_, id_)}</div>")
+            f"{_bloc(nom, b, 'bloc-' + id_, id_)}{_bloc_qualite(qualite.get(nom))}</div>")
     if montrer_hub:
         premier = not projets
         onglets.append(_sous_onglet(
@@ -1129,10 +1168,30 @@ def _panneaux_resultats(projets, hub) -> tuple:
     return liste, "".join(panneaux)
 
 
+def _ecarts_bareme(projets) -> str:
+    """One « v2 → v3 » line per project whose global note moved with the scale.
+
+    The v2 note is recomputed from the SAME evaluation without the criteria
+    added by v3 (``ea.globale_sans_ajouts``): nothing is stored twice."""
+    lignes = []
+    for _id, nom, b in projets:
+        if not isinstance(b, dict) or "axes" not in b:
+            continue
+        v3 = b.get("globale")
+        v2 = ea.globale_sans_ajouts(b)
+        if v2 != v3:
+            lignes.append(f"<li>{_e(nom)} : v2 → v3 : {_e(v2)} → {_e(v3)}</li>")
+    if not lignes:
+        return ""
+    return ("<ul class='ecarts-bareme meta' aria-label='Notes déplacées par le barème 3'>"
+            + "".join(lignes) + "</ul>")
+
+
 def rendre_page(evaluation: dict) -> str:
     evaluation = evaluation or {}
     projets = _projets(evaluation)
-    sous_tabs, panneaux = _panneaux_resultats(projets, evaluation.get("hub"))
+    sous_tabs, panneaux = _panneaux_resultats(projets, evaluation.get("hub"),
+                                              evaluation.get("qualite_produit"))
     return (
         "<!doctype html><html lang='fr'><head><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -1146,12 +1205,13 @@ def rendre_page(evaluation: dict) -> str:
         "</head><body><main>"
         "<h1>Évaluation agentic</h1>"
         "<p class='chapeau'>Cette page note, projet par projet, les pratiques de "
-        "développement (référentiel A, 13 critères) et les pratiques de travail "
-        "avec des assistants d'IA (référentiel B, 10 critères). Chaque note vient "
+        f"développement (référentiel A, {len(dg.REFERENTIELS['A'])} critères) et les "
+        "pratiques de travail avec des assistants d'IA (référentiel B, "
+        f"{len(dg.REFERENTIELS['B'])} critères). Chaque note vient "
         "de constats faits dans les fichiers et l'historique git du projet ; "
         "l'onglet « Référentiel » dit, pour chaque critère, ce qui est regardé, "
         "pourquoi, et ce que la note permet ou non de conclure.</p>"
-        f"<p class='rupture'>{_e(RUPTURE)}</p>"
+        f"<p class='rupture'>{_e(RUPTURE)}</p>{_ecarts_bareme(projets)}"
         f"<p class='meta'>Barème {_e(evaluation.get('version_bareme'))} · généré le "
         f"{_e(_date(evaluation.get('genere_le')) or evaluation.get('genere_le'))} · "
         f"une mesure de plus de {ea.PEREMPTION_JOURS} jours devient « périmé » · "
@@ -1204,6 +1264,19 @@ def _detections(racine):
     return {nom: dg.detecter(racine)}
 
 
+def _chemins(racine, detections):
+    """{project: path} for the « Qualité du produit » stage (same source as
+    ``_detections``: the scanner configuration, else the evaluated repository)."""
+    try:
+        import scan_projets as sp
+        config = sp.read_json(sp.CONFIG_PATH) or {}
+        connus = {p["nom"]: p["chemin"] for p in config.get("projets", [])
+                  if os.path.isdir(p.get("chemin", ""))}
+    except ImportError:
+        connus = {}
+    return {nom: connus.get(nom, racine) for nom in detections}
+
+
 def main(argv=None) -> int:
     # hub: scripts/ -> root ; kit: .claude/evaluation/ -> root
     racine_def = os.path.dirname(ICI)
@@ -1216,7 +1289,8 @@ def main(argv=None) -> int:
     sortie = args.sortie or os.path.join(args.racine, "docs", "evaluation-agentic.html")
     now = ea.datetime.now(ea.UTC)
     detections = _detections(args.racine)
-    ecrire_page(ea.evaluer(detections, args.racine, now.isoformat(), now), sortie)
+    ecrire_page(ea.evaluer(detections, args.racine, now.isoformat(), now,
+                           chemins=_chemins(args.racine, detections)), sortie)
     print(f"page écrite : {sortie} ({len(detections)} projet(s))")
     return 0
 

@@ -28,7 +28,8 @@ Session principale : INACTIF par défaut (proposition (C) du finding, décision 
 `GUARD_SERVICE_PRINCIPALE=1` dans l'environnement (section `env` de settings.json) l'y
 étend.
 
-FAIL-OPEN : stdin illisible, commande vide, outil inattendu, contexte non identifié ou
+Payload illisible (vide, non-JSON, non-objet) : REFUS prudent, exit 2 (revue n4,
+Vex : un payload tronque passait en silence). FAIL-OPEN : commande vide, outil inattendu, contexte non identifié ou
 toute exception -> le hook ne dit rien. Un garde-fou qui bloque tout au premier cas non
 prévu est retiré dans l'heure (leçon hook-chemin-relatif-casse-toute-commande).
 Texte de refus en ASCII : lisible quel que soit l'encodage de la console (leçon
@@ -190,19 +191,56 @@ def _stdin_ou_refus(delai=5.0):
     """
     v = _stdin_borne(delai)
     if v is None:
-        _os = __import__("os")
-        nom = _os.path.splitext(_os.path.basename(__file__))[0]
-        try:  # UTF-8 bytes on fd 2: the harness reads UTF-8, a cp1252 dash is mojibake
-            _os.write(2, (
-                f"{nom}: stdin non recu en {delai:g} s — refus prudent, relancer la commande\n").encode())
-        finally:
-            _os._exit(2)
+        _refus_prudent(f"stdin non recu en {delai:g} s", "delai", delai)
     return v
+
+def _journal_refus(motif, delai):
+    """One JSON line per refusal in ``<hooks>/../supervision/refus_stdin.jsonl``
+    (review 4, Dana: measure before tuning the bound). ``CLAUDE_REFUS_STDIN_LOG``
+    redirects it (tests). Bounded (1 MB) and fail-silent: never changes the exit."""
+    try:
+        _os = __import__("os")
+        _dt = __import__("datetime")
+        chemin = _os.environ.get("CLAUDE_REFUS_STDIN_LOG") or _os.path.join(
+            _os.path.dirname(_os.path.abspath(__file__)), "..", "supervision", "refus_stdin.jsonl")
+        if _os.path.exists(chemin) and _os.path.getsize(chemin) > 1_000_000:
+            return
+        ligne = __import__("json").dumps({
+            "ts": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds"),
+            "hook": _os.path.splitext(_os.path.basename(__file__))[0],
+            "motif": motif, "delai_s": float(delai)})
+        with open(chemin, "a", encoding="utf-8") as fh:
+            fh.write(ligne + "\n")
+    except Exception:  # noqa: BLE001
+        pass
+
+def _refus_prudent(cause, motif, delai=5.0):
+    _os = __import__("os")
+    nom = _os.path.splitext(_os.path.basename(__file__))[0]
+    try:  # UTF-8 bytes on fd 2: the harness reads UTF-8, a cp1252 dash is mojibake
+        _journal_refus(motif, delai)
+        _os.write(2, f"{nom}: {cause} — refus prudent, relancer la commande\n".encode())
+    finally:
+        _os._exit(2)
+
+def _json_ou_refus(delai=5.0):
+    """Guard hook: an empty, non-JSON or non-object payload is refused too
+    (review 4, Vex) — only a VALID payload reaches the guard's own fail-open."""
+    brut = _stdin_ou_refus(delai)
+    try:
+        if isinstance(brut, bytes):
+            brut = brut.decode("utf-8", "replace")
+        data = __import__("json").loads(brut)
+    except Exception:  # noqa: BLE001
+        data = None
+    if not isinstance(data, dict):
+        _refus_prudent("entree illisible", "illisible", delai)
+    return data
 
 
 def main() -> None:
     try:
-        data = json.loads(_stdin_ou_refus())
+        data = _json_ou_refus()
     except Exception:
         return
     try:

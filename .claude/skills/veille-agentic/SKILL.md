@@ -265,8 +265,8 @@ comme s'ils faisaient autorité. Trois exigences **en plus** de celles de l'éta
   banc, ces chiffres ne se comparent pas. Écrire le protocole dans la même phrase que
   le chiffre, ou ne pas citer le chiffre.
 
-Le reste ne change pas : sources publiques, aucune exécution de code téléchargé, aucune
-installation, et l'adoption reste un arbitrage utilisateur.
+Interdits, contrat de sortie et condition d'arrêt : source unique dans le mandat
+`.claude/agents/veille-agentic.md` (ADR 0009) ; cette skill porte la méthode.
 
 ## Cadence
 

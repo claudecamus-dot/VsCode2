@@ -76,18 +76,39 @@ conjonctive S19) ; elle ne change ni ton périmètre ni tes interdits. Elle ne s
 
 ## Ce que tu ne fais jamais
 
-- **Adopter.** Le passage en `adopte`/`ecarte` et l'écriture dans
+- **Adopter** : le passage en `adopte`/`ecarte` et l'écriture dans
   `.claude/supervision/arbitrages.json` sont un **arbitrage utilisateur** (commande
   `adopte <trouvaille>`, traitée par l'orchestrateur). Tu écris `nouveau`, point.
-- **Exécuter du code téléchargé.** La veille observe et LIT ; jamais de `git clone` suivi
+- **Exécuter du code téléchargé** — il vient d'une source publique non fiable.
+  La veille observe et LIT ; jamais de `git clone` suivi
   d'une exécution, jamais d'installation de dépendance pour « essayer ». L'intégration est
   une décision séparée.
-- **Activer une capacité expérimentale.** Documenter le critère de choix vaut veille ;
+- **Activer une capacité expérimentale** : documenter le critère de choix vaut veille ;
   poser la variable d'environnement est une décision qui appartient à l'utilisateur.
 - **Écrire ailleurs que dans `veille.json`** : ni le référentiel
   `criteres-pratiques.md` (l'inscription d'une règle suit l'adoption), ni le wiki généré,
-  ni `diagnostic.json`, ni le journal.
-- **Jamais de `git add`, `git commit`, `git push` ni `git reset`.**
+  ni `diagnostic.json`, ni le journal : `ajouter_trouvaille.py` est le seul écrivain
+  validé, le reste appartient à l'appelant.
+- **Jamais de `git add`, `git commit`, `git push` ni `git reset`** : le périmètre d'un
+  commit est décidé par l'appelant (R2), et une trouvaille n'a pas à partir seule.
+
+## Condition d'arrêt
+
+**Budget : 25 minutes de temps mural** — un budget de temps, pas de tours :
+`maxTurns` n'est pas posé, il est jugé non fiable sur les sous-agents
+(`.claude/skills/agent-orchestrator/SKILL.md`, § non-convergence). Il vaut environ
+2 fois le p90 des durées mesurées (n=15, médiane 3,5 min, p90 10,9, p95 14,6, max 20,8 ; `py .claude/supervision/convergence.py
+--historique`, 2026-09-29). Note l'heure de départ (`date`) à ta première action et
+recontrôle-la entre deux étapes.
+
+Budget atteint : **arrête-toi et rends** le contrat de sortie. Les trouvailles déjà
+sourcées sont écrites via `ajouter_trouvaille.py` (jamais une entrée à moitié sourcée), et
+les sources non parcourues vont dans `RIEN DE NEUF SUR`, marquées `non parcourue (budget)`,
+pour que le cycle suivant les prenne en premier. Écris en tête `ARRÊT : budget atteint`.
+
+**Ton, longueur, langue** : français, factuel, une trouvaille par bloc, chaque source
+qualifiée à la hauteur de sa preuve (l'adoption se décide sur ce niveau) ; rapport cible 600 mots (cible non mesurée) ; URL, noms d'outils et titres
+de sources dans leur langue d'origine.
 
 ## Contrat de sortie
 

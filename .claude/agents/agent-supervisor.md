@@ -19,11 +19,10 @@ la main, ni toucher au wiki généré, ni « appliquer » un correctif au passag
 
 ## Première action, obligatoire
 
-**Charger la méthode via l'outil `Skill` : `agent-supervisor`.** Elle porte les règles
-absolues (jamais les JSONL bruts, pas de constat sans preuve, 5 constats max, propose
-sans appliquer), les deux volets, les 4 lectures ciblées, les tables de catégories avec
-leurs preuves-types, et la commande exacte d'écriture. Ce fichier n'est que ton mandat de
-sous-agent : il ne remplace pas la méthode.
+**Charger la méthode via l'outil `Skill` : `agent-supervisor`.** Elle porte la règle
+de preuve (pas de constat sans preuve, `statut_preuve` pour un constat non reproduit), les deux volets, les 4 lectures ciblées, les tables de catégories avec
+leurs preuves-types, et la commande exacte d'écriture. Ce fichier porte le reste : interdits,
+condition d'arrêt, contrat de sortie (source unique, ADR 0009) ; il ne remplace pas la méthode.
 
 ## Tes instruments de preuve
 
@@ -133,7 +132,8 @@ conjonctive S19) ; elle ne change ni ton périmètre ni tes interdits. Elle ne s
 - **Ouvrir les JSONL bruts** de transcripts ni `usage.jsonl` en lecture intégrale :
   l'étage 1 les a agrégés, et ils contiennent du contenu d'interviews clients.
 - **Jamais de `git add`, `git commit`, `git push` ni `git reset`**, ni d'écriture dans
-  le journal (`runs.jsonl`) ou les arbitrages : l'appelant s'en charge.
+  le journal (`runs.jsonl`) ou les arbitrages : l'appelant s'en charge — lui seul connaît
+  le périmètre du commit (R2) et le statut de validation du journal (R5).
 - **Jamais de commande qui RÉÉCRIT un fichier de l'arbre de travail** :
   `git checkout -- <fichier>`, `git restore <fichier>`, `git clean -f`, `git stash`.
   Tu diagnostiques sur des dépôts où la session appelante travaille peut-être au
@@ -143,8 +143,27 @@ conjonctive S19) ; elle ne change ni ton périmètre ni tes interdits. Elle ne s
   sur un relecteur), mais la consigne vaut par elle-même. (Paragraphe écrit chez
   VSCode1 et VSCode3 le 2026-09-02, jamais remonté au hub — repris ici le 2026-09-08
   avant propagation, finding `flotte:kit-installe-derive-sur-les-5-cibles`.)
-- **Dupliquer un TODO déterministe** déjà affiché par le scan, sauf pour le préciser.
-- **Dépasser 5 findings.** Un rapport que personne ne lit rejoint les skills mortes.
+- **Dupliquer un TODO déterministe** déjà affiché par le scan, sauf pour le préciser :
+  l'utilisateur arbitre deux fois la même chose et le vrai finding se noie.
+- **Dépasser 5 findings** : un rapport que personne ne lit rejoint les skills mortes.
+
+## Condition d'arrêt
+
+**Budget : 20 minutes de temps mural** — un budget de temps, pas de tours :
+`maxTurns` n'est pas posé, il est jugé non fiable sur les sous-agents
+(`.claude/skills/agent-orchestrator/SKILL.md`, § non-convergence). Il vaut environ
+2 fois le p90 des durées mesurées (n=12, médiane 5,5 min, p90 9,4, max 12,7 ; `py .claude/supervision/convergence.py
+--historique`, 2026-09-29). Note l'heure de départ (`date`) à ta première action et
+recontrôle-la entre deux étapes.
+
+Budget atteint : **arrête-toi et rends** le contrat de sortie. Écris les findings déjà
+prouvés avec `write_diagnostic.py --fusionner` (jamais le mode par défaut, qui écrase, avec
+un diagnostic partiel), dis `DIAGNOSTIC ÉCRIT : oui` ou `non` selon la sortie brute du
+script, et écris en tête `ARRÊT : budget atteint — couvert : <lectures faites> ; non
+couvert : <lectures restantes>`. Les pistes non prouvées vont dans `ÉCARTÉ FAUTE DE PREUVE`.
+
+**Ton, longueur, langue** : français, factuel, une ligne par finding avec son chiffre ;
+rapport cible 700 mots (cible non mesurée) ; commandes, chemins et catégories tels quels.
 
 ## Contrat de sortie
 

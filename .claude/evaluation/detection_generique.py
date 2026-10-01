@@ -1353,6 +1353,97 @@ def validation_humaine_tracee(racine, fichiers):
     return _res(validation_humaine_tracee, "mesure", sig, f or "")
 
 
+# ------------------------------------------------------------------ structure_mandats_agents
+# The 6 blocks of the reference template (docs/reflexions/gabarit-agent.md) that
+# can be read cold, without judgement. Blocks 1 (role quality), 3 (reasons) and
+# 5 (general guidance, no hand-written step plan) need a reader: not scored.
+RE_FRONT = re.compile(r"\A---\r?\n(.*?)\r?\n---\r?\n", re.S)
+RE_OUTILS = re.compile(r"^tools\s*:\s*(.+)$", re.M)
+RE_TITRE = re.compile(r"^#{1,4}\s+(.+)$", re.M)
+RE_BLOC_FIN = re.compile(r"condition d.arr[êe]t|\barr[êe]t\b|stop condition|when to stop|"
+                         r"\bdone\b|fin de (la )?t[âa]che|\bbudget\b", re.I)
+# « Ton, ... », « Ton et format », « Tone: » -- never the French possessive « Ton texte ».
+RE_BLOC_TON = re.compile(r"^(#{1,4}\s+|\*\*)?(ton|tone)\s*(,|:|\*\*|et\b|and\b|$)",
+                         re.I | re.M)
+RE_BLOC_INTERDITS = re.compile(r"ne fais jamais|ne fait jamais|interdit|\bnever\b|"
+                               r"\bdo not\b|\bdon.t\b|forbidden", re.I)
+RE_BLOC_EXEMPLE = re.compile(r"exemple|example|premi[èe]re action|first action|brief type",
+                             re.I)
+RE_ECRITURE = re.compile(r"^\**\s*[ÉE]criture\s*:|^\**\s*Writes?\s*:", re.M)
+RE_CONTRAT = re.compile(r"contrat de sortie|format de sortie|output contract|"
+                        r"output format|\bsortie\b|\boutput\b|rappel", re.I)
+RE_PROVENANCE = re.compile(r"provenance|non authentifi|untrusted|unauthenticated", re.I)
+BLOCS_STRUCTURE = ("objectif et fin", "outils", "ton et format", "interdits",
+                   "exemple de départ", "rappel final")
+SEUILS_STRUCTURE = (0.25, 0.45, 0.65, 0.95)  # estimated thresholds, not published ones
+
+
+def blocs_mandat(texte):
+    """{block: bool} for the 6 cold-detectable blocks of one agent mandate."""
+    m = RE_FRONT.match(texte)
+    front = m.group(1) if m else ""
+    corps = texte[m.end():] if m else texte
+    titres = RE_TITRE.findall(corps)
+    lo = RE_OUTILS.search(front)
+    outils = [o.strip() for o in lo.group(1).split(",") if o.strip()] if lo else []
+    decrits = bool(outils) and all(re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(o), corps)
+                                   for o in outils)
+    if {"Edit", "Write"} & set(outils) and not RE_ECRITURE.search(corps):
+        decrits = False
+    tiers = len(corps) * 2 // 3
+    pos_contrat = [mm.start() for mm in RE_TITRE.finditer(corps)
+                   if RE_CONTRAT.search(mm.group(1))]
+    pos_prov = [mm.start() for mm in RE_PROVENANCE.finditer(corps)]
+    return {
+        "objectif et fin": any(RE_BLOC_FIN.search(t) for t in titres)
+        and "maxTurns" not in front,
+        "outils": decrits,
+        "ton et format": bool(RE_BLOC_TON.search(corps)),
+        "interdits": any(RE_BLOC_INTERDITS.search(t) for t in titres),
+        "exemple de départ": any(RE_BLOC_EXEMPLE.search(t) for t in titres),
+        "rappel final": bool(pos_contrat) and max(pos_contrat) >= tiers
+        and bool(pos_prov) and max(pos_prov) >= tiers,
+    }
+
+
+def structure_mandats_agents(racine, fichiers):
+    """Structure des mandats d'agents (critère conditionnel, gradué).
+
+    Définition : chaque définition d'agent suit le gabarit de référence à 9 blocs
+    (docs/reflexions/gabarit-agent.md) ; les 6 blocs lisibles sans jugement sont
+    présents : objectif et fin, outils décrits, ton et format, interdits, exemple de
+    départ, rappel final.
+    Signaux exacts : fichiers .claude/agents/*.md, .github/agents/*.md ou agents/*.md
+    (hors README) ; sinon « non applicable ». Par mandat : titre de section « Condition
+    d'arrêt », « budget » ou « stop » et pas de maxTurns dans l'en-tête ; chaque outil
+    de la ligne tools: de l'en-tête cité dans le corps, plus une ligne « Écriture : »
+    si Edit ou Write est accordé ; ligne ou titre commençant par « Ton » ; titre de
+    section « Ce que tu ne fais jamais », « Interdits » ou « Never » ; titre « Exemple »
+    ou « Première action » ; titre de contrat de sortie ET mention de provenance dans le
+    dernier tiers du texte. La part moyenne de blocs présents fait la note.
+    Pourquoi : un mandat structuré borne la tâche et place le vital en tête et en fin
+    (Anthropic, « Prompting best practices » ; Anthropic, « Writing tools for agents » ;
+    Liu et al., « Lost in the Middle », TACL 2024 ; Zheng et al., EMNLP Findings 2024).
+    Permet de conclure : le texte des mandats porte les blocs de la structure de
+    référence.
+    Ne permet pas de conclure : que l'agent se comporte mieux — c'est une mesure de
+    présence du texte, pas du comportement ; la qualité du rôle, les motifs et
+    l'absence de plan pas à pas exigent une lecture et ne sont pas notés.
+    """
+    cand = set(fichiers) | set(_cadre(racine)[2])
+    mandats = sorted(f for f in cand if RE_AGENT_DEF.match(f)
+                     and not f.rsplit("/", 1)[-1].lower().startswith("readme"))
+    if not mandats:
+        return _res(structure_mandats_agents, "non applicable", ["aucune définition d'agent"])
+    compte = dict.fromkeys(BLOCS_STRUCTURE, 0)
+    for f in mandats:
+        for bloc, ok in blocs_mandat(_lire(racine, f)).items():
+            compte[bloc] += bool(ok)
+    ratio = sum(compte.values()) / (len(BLOCS_STRUCTURE) * len(mandats))
+    sig = [f"{bloc} : {n}/{len(mandats)} mandat(s)" for bloc, n in compte.items()]
+    return _res(structure_mandats_agents, "mesure", sig, mandats[0], ratio=ratio)
+
+
 # SINGLE source of the reading order: visible groups, then criteria inside each
 # group. Public codes (tests_automatises..tracabilite_demande_livrable, cadre_agentic_versionne..validation_humaine_tracee) are numbered in THIS order by the page;
 # every tab reads it, none re-sorts (reading order arbitrated 2026-09-29).
@@ -1374,6 +1465,7 @@ GROUPES = {
         ("Exécuter", ("solution_agentic_maitrisee", "blocages_traces")),
         ("Livrer et valider", ("conformite_resultats", "validation_humaine_tracee")),
         ("Améliorer", ("amelioration_continue",)),
+        ("Structurer les agents", ("structure_mandats_agents",)),
     ),
 }
 REFERENTIELS = {lettre: [nom for _, noms in groupes for nom in noms]

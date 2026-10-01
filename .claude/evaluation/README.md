@@ -62,7 +62,7 @@ qu'elle ne permet pas de conclure. Le tableau ci-dessous n'en est que la forme c
 | Tests et livraison | A12 | Résultat final exercé par le canal de l'utilisateur | Au moins un test vérifie-t-il le résultat final comme l'utilisateur le reçoit ? (la vérification visuelle par un humain n'est pas couverte) |
 | Tests et livraison | A13 | Intégration et livraison continues | Une chaîne automatique vérifie-t-elle chaque envoi, et les livraisons sont-elles repérées ? |
 
-### B — Pratiques agentic (10)
+### B — Pratiques agentic (11)
 
 Ce référentiel regarde le travail confié à des assistants d'IA (agents).
 
@@ -78,6 +78,7 @@ Ce référentiel regarde le travail confié à des assistants d'IA (agents).
 | Livrer et valider | B8 | Conformité des résultats à la demande | Le travail confié aux assistants est-il livré du premier coup ? |
 | Livrer et valider | B9 | Validation humaine tracée | La recette d'un livrable par une autre personne que son auteur est-elle tracée ? |
 | Améliorer | B10 | Amélioration continue du cadre | Le cadre donné aux assistants est-il révisé régulièrement ? |
+| Structurer les agents | B11 | Structure des mandats d'agents (conditionnel, gradué) | Les mandats des agents suivent-ils la structure de référence (fin écrite, outils décrits, ton, interdits, exemple, rappel final) ? Mesure la présence du texte, pas le comportement. |
 
 **B2, B3, B5 et B8 portent la mention « note fondée sur des déclarations »** : ils lisent
 ce que le projet déclare dans ses fichiers (un niveau, un modèle, un statut de journal),
@@ -268,6 +269,8 @@ notées automatiquement :
 
 ## Rupture de série
 
-Cette version est le **barème v2** (depuis le 2026-09-28). Les notes produites par la
-version précédente ne sont pas comparables et ne sont jamais recalculées ; la page le
+Cette version est le **barème 3** (depuis le 2026-09-29) : critère B11 ajouté, rien
+d'autre ne change. Une note qui a baissé peut n'avoir rien perdu : elle a été notée sur
+davantage de critères ; la page affiche « v2 → v3 » pour chaque projet dont la note
+bouge. Le barème v2 date du 2026-09-28 ; les notes v1 ne sont pas comparables et ne sont jamais recalculées ; la page le
 rappelle en tête.

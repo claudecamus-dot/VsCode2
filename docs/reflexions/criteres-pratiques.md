@@ -198,6 +198,26 @@ bougent vite, d'où l'alimentation continue par le volet 2 de `veille-agentic`).
 `action_corrective` (correctif flotte arbitrable). Une pratique passée `adopte` par
 l'utilisateur est intégrée ici, et au scan si mesurable à froid.
 
+## 7 ter. Structure d'un agent — référentiel : gabarit de mandat à 9 blocs
+
+Structure validée par l'utilisateur le 2026-09-29 ; raisons, sources (avec leur nature :
+doc officielle, billet, papier relu, préprint), limites, squelette et exemple rempli dans
+[`docs/reflexions/gabarit-agent.md`](../../reflexions/gabarit-agent.md). Un critère de
+PRÉSENCE mesure le texte du mandat, pas la qualité du comportement de l'agent ; la preuve
+du comportement (3 à 5 briefs de référence rejoués) est proposée à part, non outillée.
+
+| Critère | Mesure flotte |
+| --- | --- |
+| 1. Rôle : 1 à 2 phrases fonctionnelles (qui, pour qui, ce qu'il produit) | ⬜ (exige un jugement : la qualité d'un rôle ne se lit pas à froid) |
+| 2. Objectif et fin : condition d'arrêt écrite, budget de temps, pas de `maxTurns` | ✅ `structure_mandats_agents()` via `blocs_mandat()` (critère B11, noté, part des 6 blocs lisibles à froid) — nature : titre de section d'arrêt/budget et absence de `maxTurns` dans l'en-tête ; présence, pas justesse de la condition |
+| 3. Contexte et motifs : le pourquoi de chaque contrainte | ⬜ (exige un jugement) |
+| 4. Outils : chaque outil de `tools:` décrit dans le corps ; ligne « Écriture : » si Edit/Write | ✅ `structure_mandats_agents()` via `blocs_mandat()` (critère B11, noté, part des 6 blocs lisibles à froid) — nature : chaque nom de `tools:` cité dans le corps, ligne « Écriture : » si Edit/Write ; la citation n'est pas une description juste |
+| 5. Manière de travailler : consigne générale, sans plan pas à pas | ⬜ (exige un jugement : distinguer consigne et plan figé) |
+| 6. Ton et format dits en positif | ✅ `structure_mandats_agents()` via `blocs_mandat()` (critère B11, noté, part des 6 blocs lisibles à froid) — nature : ligne ou titre commençant par « Ton » ; « dit en positif » exige un jugement, non noté |
+| 7. Interdits courts et motivés | ✅ `structure_mandats_agents()` via `blocs_mandat()` (critère B11, noté, part des 6 blocs lisibles à froid) — nature : titre de section d'interdits ; « courts et motivés » exige un jugement, non noté |
+| 8. Exemple de départ (première action ou brief type) | ✅ `structure_mandats_agents()` via `blocs_mandat()` (critère B11, noté, part des 6 blocs lisibles à froid) — nature : titre « Exemple » ou « Première action » ; la pertinence de l'exemple exige un jugement |
+| 9. Rappel final : contrat de sortie et provenance en fin de texte | ✅ `structure_mandats_agents()` via `blocs_mandat()` (critère B11, noté, part des 6 blocs lisibles à froid) — nature : titre de contrat de sortie ET mention de provenance dans le dernier tiers du texte |
+
 ## 7 bis. Grille de maturité agentic — domaines, avec ce que le hub mesure
 
 Source : **grille d'audit et standard de maturité agentic fournis par l'utilisateur le
@@ -254,8 +274,14 @@ effectifs.
 
 ---
 
-## Référentiel d'évaluation v2 (kit « Évaluation des pratiques »)
+## Référentiel d'évaluation v3 (kit « Évaluation des pratiques »)
 
+Barème 3 arbitré le 2026-09-29 (« ils sont notés ») : B gagne B11, structure des mandats
+d'agents (§ 7 ter) ; rien d'autre ne change, une note v2 se recalcule sans B11
+(`evaluation_agentic.globale_sans_ajouts`). Choix d'UN critère composite gradué plutôt
+que 6 critères binaires : 6 critères auraient pesé 6/16 = 37,5 % de B sur une seule
+pratique, un critère pèse 1/11 = 9 %. Sans définition d'agent : « non applicable »,
+hors moyenne. Mesure de PRÉSENCE du texte, pas du comportement de l'agent.
 Arbitré le 2026-09-28 (barème v2). 23 critères par projet, en deux référentiels,
 chacun détecté par une fonction de `scripts/detection_generique.py` (C1 : le ✅ nomme
 cette fonction) ; les textes pédagogiques complets (définition, ce qu'on regarde,
@@ -283,7 +309,7 @@ renumérotée le 2026-09-29 dans l'ordre de lecture arbitré (groupes de
 | Tests et livraison | A12 | Résultat final exercé par le canal de l'utilisateur | ✅ `test_artefact_reel()` | M. Fowler, « TestPyramid » ; « Broad Stack Test » |
 | Tests et livraison | A13 | Intégration et livraison continues | ✅ `integration_continue()` | DORA, « Continuous integration », « Continuous delivery » |
 
-### B — Pratiques agentic (10)
+### B — Pratiques agentic (11)
 
 | Groupe | Code | Critère | Mesure | Source publique |
 | --- | --- | --- | --- | --- |
@@ -297,6 +323,7 @@ renumérotée le 2026-09-29 dans l'ordre de lecture arbitré (groupes de
 | Livrer et valider | B8 | Conformité des résultats à la demande — note fondée sur des déclarations | ✅ `conformite_resultats()` | DORA, « change failure rate », par analogie |
 | Livrer et valider | B9 | Validation humaine tracée après livraison | ✅ `validation_humaine_tracee()` | Scrum Guide 2020, « Definition of Done » ; ISO/IEC 25010, adéquation fonctionnelle |
 | Améliorer | B10 | Amélioration continue du cadre agentic | ✅ `amelioration_continue()` | Anthropic, « Claude Code best practices » : faire évoluer CLAUDE.md ; Scrum Guide 2020, « Sprint Retrospective » |
+| Structurer les agents | B11 | Structure des mandats d'agents (critère conditionnel et gradué : « non applicable » sans définition d'agent ; mesure la présence du texte, pas le comportement) | ✅ `structure_mandats_agents()` | Anthropic, « Prompting best practices » ; Liu et al., « Lost in the Middle », TACL 2024 |
 
 Hors notation, relevant d'un audit : qualités I/N/V/E d'INVEST (A1), maîtrise réelle
 d'une solution embarquant un LLM (B6). Les anciens axes propres au hub (reprises, refus

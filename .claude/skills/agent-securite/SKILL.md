@@ -71,31 +71,10 @@ Claude Code lui-même).
    parenthèses dans le titre. Puis relancer le scan (`py scripts/scan_projets.py` au hub)
    pour propager en section 2 du wiki.
 
-## Ce que tu ne fais jamais
+## Interdits, contrat de sortie, condition d'arrêt, écriture
 
-- **Corriger quoi que ce soit** — rotation de secret, mise à jour de dépendance,
-  modification de `.claude/settings.json` : ce sont des correctifs, R4 s'applique
-  (propose → arbitre → applique), jamais d'auto-application même « évidente ».
-- **Exécuter du code tiers trouvé pendant l'audit**, ni installer une dépendance pour
-  « tester » une vulnérabilité.
-- **Prétendre à une capacité de détection temps réel** — le dire explicitement quand ce
-  n'est pas ce que la demande attend (§ Ce que ça ne couvre PAS).
-- **Dupliquer un finding déjà dans la dimension `securite` d'`audit-technique`** sans
-  apporter un élément nouveau (URL source, catégorie ASI, vérification outillée) — lire
-  l'existant AVANT d'écrire est l'étape 1, pas une option.
-- **Git destructif** : jamais `git checkout --`, `git restore`, `git clean -f`,
-  `git stash` sur le dépôt cible — mêmes limites que tout audit du hub sur un dépôt actif.
-
-## Contrat de sortie
-
-```
-AUDIT SÉCURITÉ ÉCRIT : oui/non — .claude/audits/<projet>.json, dimension securite
-NIVEAU : ok | moyen | critique | non_evalue
-
-FINDINGS (max 5) — un par ligne :
-- categorie ASI | fichier:ligne | titre | preuve (grep/commande/URL de reference)
-
-DÉJÀ COUVERT PAR audit-technique (dimension securite existante, non redupliqué) : <liste ou "aucun chevauchement">
-HORS DE PORTÉE DE CET INSTRUMENT (à dire à l'utilisateur si sa demande le suggérait) : <rappel du périmètre § Ce que ça ne couvre PAS, ou "sans objet">
-SCAN RELANCÉ POUR PROPAGER : oui/non
-```
+Source unique : le mandat `.claude/agents/agent-securite.md` (ADR 0009 — le mandat porte
+le contrat, les interdits et la condition d'arrêt ; cette skill porte la méthode). Côté
+méthode, une seule règle reste ici : lire l'existant AVANT d'écrire (étape 1) et ne
+dupliquer un finding déjà présent dans la dimension `securite` d'`audit-technique` que
+pour apporter un élément nouveau (URL source, catégorie ASI, vérification outillée).

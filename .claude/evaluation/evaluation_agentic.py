@@ -1,4 +1,4 @@
-"""Scoring engine of the « Évaluation agentic » device — scale v2.
+"""Scoring engine of the « Évaluation agentic » device — scale v3.
 
 PURE module: stdlib only, no import of ``scan_projets`` (the import direction is
 ``scan_projets -> evaluation_agentic -> detection_generique``). It turns the
@@ -8,7 +8,11 @@ module and its detector ship together in the deployment kit.
 Scale v2 (atelier n°7, user-arbitrated 2026-09-28): two referentials, both
 PER PROJECT and project-agnostic —
   A « Pratiques de développement » (13 criteria),
-  B « Pratiques agentic » (10 criteria).
+  B « Pratiques agentic » (10 criteria in v2, 11 in v3).
+Scale v3 (user-arbitrated 2026-09-29, « ils sont notés »): B gains ONE graded
+criterion, ``structure_mandats_agents`` (reference template of agent mandates,
+docs/reflexions/gabarit-agent.md); nothing else changes, so a v2 note is the
+same computation without ``CRITERES_AJOUTES_V3`` (``globale_sans_ajouts``).
 Every criterion's texts (name, definition, signals, why + public source, what
 the score allows / does not allow to conclude) are READ from the docstring of
 its detection function: one source, never a second copy to keep in sync.
@@ -17,6 +21,8 @@ Measure -> note (declared per criterion in ``MODES``):
   binaire     "mesure" + signals = present -> 10 ; "mesure" + no signal -> 2.
   echelle     niveau_orchestration: detector ``niveau`` 0..5 -> 2/2/4/6/8/10.
   ratio_inv   blocages_traces: share of failed executions, lower is better, 5 bands.
+  part        structure_mandats_agents: mean share of template blocks present in
+              the agent mandates, higher is better, 5 bands (SEUILS_STRUCTURE).
   « non mesuré » and « non applicable » (solution_agentic_maitrisee) are NEVER a number and never
   enter a mean (C5).
 
@@ -40,7 +46,7 @@ is append-only and is NEVER re-scored (series break shown by the page).
 
 Output shape::
 
-    {"version_bareme": 2, "genere_le": ISO,
+    {"version_bareme": 3, "genere_le": ISO,
      "projets": {<nom>: {"axes": {"pratiques_dev": AXE, "pratiques_agentic": AXE},
                          "globale": float | "bloquant" | "non mesuré",
                          "axes_non_mesures": [...], "verrou_securite": {...},
@@ -59,7 +65,9 @@ from datetime import UTC, datetime, timedelta
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import detection_generique as dg  # noqa: E402  (sibling module, stdlib only)
 
-VERSION_BAREME = 2
+VERSION_BAREME = 3
+# Criteria added by scale v3: a v2 note is the same mean without them.
+CRITERES_AJOUTES_V3 = frozenset({"structure_mandats_agents"})
 NON_MESURE = "non mesuré"
 NON_APPLICABLE = "non applicable"
 BLOQUANT = "bloquant"
@@ -116,12 +124,14 @@ QUESTIONS = {
     "conformite_resultats": "Le travail confié aux assistants est-il livré du premier coup ?",
     "politique_modele_effort": "Le projet choisit-il le modèle ou l'effort selon la tâche, et suit-il le coût ?",
     "validation_humaine_tracee": "La recette d'un livrable par une autre personne que son auteur est-elle tracée ?",
+    "structure_mandats_agents": "Les mandats des agents suivent-ils la structure de référence (fin écrite, outils décrits, ton, interdits, exemple, rappel final) ?",
 }
 
 # Measure -> note, declared per criterion.
 MODES = {nom: "binaire" for ref in dg.REFERENTIELS.values() for nom in ref}
 MODES["niveau_orchestration"] = "echelle"
 MODES["blocages_traces"] = "ratio_inv"
+MODES["structure_mandats_agents"] = "part"
 
 SEUILS_ECHECS = (0.05, 0.1, 0.2, 0.35)  # estimated thresholds, not published ones
 _ECHELLE = {0: 2, 1: 2, 2: 4, 3: 6, 4: 8, 5: 10}
@@ -139,6 +149,12 @@ _COMBINAISONS = {
         "puis 8, 6 et 4 aux seuils 5 / 10 / 20 %, et 2 à partir de 35 % (seuils estimés). "
         "Une exécution « partielle » ou en attente de validation n'est PAS un échec. "
         "Sans journal d'exécution : « non mesuré »."),
+    "structure_mandats_agents": (
+        "Critère conditionnel et gradué : « non applicable » (hors moyenne) sans "
+        "définition d'agent. Sinon, la part moyenne des 6 blocs lisibles sans jugement "
+        "présents dans chaque mandat fait la note : 10 dès 95 %, puis 8, 6 et 4 aux "
+        "seuils 65 / 45 / 25 %, 2 en dessous (seuils estimés). Mesure la présence du "
+        "texte, pas le comportement de l'agent."),
     "solution_agentic_maitrisee": (
         "Critère conditionnel : « non applicable » (hors moyenne) si le produit ne "
         "déclare aucune dépendance à un modèle d'IA ; sinon 10 si au moins 2 des 4 "
@@ -166,6 +182,10 @@ def _ancres(nom, t):
     if MODES[nom] == "ratio_inv":
         return {10: "moins de 5 % d'exécutions en échec", 8: "de 5 à 10 %",
                 6: "de 10 à 20 %", 4: "de 20 à 35 %", 2: "35 % ou plus"}
+    if MODES[nom] == "part":
+        return {10: "95 % ou plus des blocs de la structure présents",
+                8: "de 65 à 95 %", 6: "de 45 à 65 %", 4: "de 25 à 45 %",
+                2: "moins de 25 %"}
     return {10: t["Définition"],
             2: "aucun des signaux décrits n'est trouvé dans le dépôt"}
 
@@ -187,6 +207,8 @@ def _crit(nom):
         d["note_ancres"] = NOTE_2_ETATS
     if MODES[nom] == "ratio_inv":
         d["seuils"], d["croissant"] = SEUILS_ECHECS, False
+    if MODES[nom] == "part":
+        d["seuils"], d["croissant"] = dg.SEUILS_STRUCTURE, True
     return d
 
 
@@ -348,7 +370,7 @@ def noter(c, r):
         if not isinstance(niv, int) or niv not in _ECHELLE:
             return sig, NON_MESURE
         return {"niveau": niv, "signaux": sig}, _ECHELLE[niv]
-    if c["mode"] == "ratio_inv":
+    if c["mode"] in ("ratio_inv", "part"):
         ratio = r.get("ratio")
         if not est_note(ratio):
             return sig, NON_MESURE
@@ -556,6 +578,23 @@ def _globale(axes, verrou):
     return round(sum(notes) / len(notes), 1) if notes else NON_MESURE
 
 
+def globale_sans_ajouts(bloc, exclus=CRITERES_AJOUTES_V3):
+    """The previous-scale global note of ``bloc`` (an ``evaluer_projet`` result):
+    the same means, without the criteria added since. Used by the page to say
+    WHY a note moved (« v2 → v3 »), never stored as a score."""
+    if bloc.get("globale") == BLOQUANT:
+        return BLOQUANT
+    notes = []
+    for a in bloc["axes"].values():
+        if a["informatif"] or not est_note(a["note"]):
+            continue
+        cs = [c for c in a["criteres"] if est_note(c["note"]) and c["nom"] not in exclus]
+        if cs:
+            notes.append(round(sum(c["note"] * c["poids"] for c in cs)
+                               / sum(c["poids"] for c in cs), 1))
+    return round(sum(notes) / len(notes), 1) if notes else NON_MESURE
+
+
 def _bloc(axes, verrou, mesure_le):
     return {"axes": axes, "globale": _globale(axes, verrou),
             "axes_non_mesures": [k for k, a in axes.items() if a["note"] == NON_MESURE],
@@ -684,15 +723,199 @@ def evaluer_hub(racine, now):
     return _bloc(axes, verrou_securite(p["diag"], p["arb"], None), mesure_le)
 
 
-def evaluer(detections_par_projet, racine_hub, mesure_le, now=None, declarations=None):
+# --------------------------------- informatif « Qualité du produit » stage
+# A SEPARATE stage, never scored: no note, no mean, no scale change. It sits at
+# the top level of the evaluation (``qualite_produit``), outside every project
+# block, so ``globale`` cannot read it. Arbitrated by the user 2026-09-30.
+# « fix » = a commit whose subject starts with the Conventional Commits type
+# ``fix`` : ``fix:``, ``fix!:``, ``fix(scope):`` or ``fix(scope)!:`` (lowercase).
+RX_FIX = re.compile(r"^fix(\([^)]*\))?!?:")
+
+QUALITE_LIBELLES = {
+    "attendus": "Conformité aux attendus",
+    "usage": "Usage réel",
+    "bugs": "Correctifs (proxy de bugs)",
+    "dette": "Dette technique",
+}
+QUALITE_NE_CONCLUT_PAS = {
+    "attendus": ("un rapport de l'utilisateur simulé (1 agent, 0 humain) n'est pas "
+                 "une recette : il ne dit pas que les vrais utilisateurs sont servis"),
+    "usage": ("rien sur l'usage réel : qui s'en sert, combien, avec quel succès — "
+              "ces données vivent hors du dépôt"),
+    "bugs": ("PROXY, pas un compte de bugs : un correctif peut ne pas porter le "
+             "préfixe « fix », un « fix » peut corriger un test ou une coquille, et "
+             "un bug jamais corrigé n'y apparaît pas"),
+    "dette": ("l'audit est un jugement daté, sur le code lu ce jour-là ; l'écart au "
+              "lint ne compte que ce que ruff sait voir, pas la dette de conception"),
+}
+
+
+def _git_sujets(chemin):
+    """Commit subjects of ``chemin`` (HEAD history), or None when not a git repo."""
+    import subprocess
+    try:
+        r = subprocess.run(["git", "-C", chemin, "log", "--format=%s"],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode != 0:
+        return None
+    return [s for s in r.stdout.splitlines()]
+
+
+def ratio_fix(chemin):
+    """(fix commits, all commits) of the project's HEAD history, or None."""
+    sujets = _git_sujets(chemin) if chemin and os.path.isdir(chemin) else None
+    if not sujets:
+        return None
+    return sum(1 for s in sujets if RX_FIX.match(s)), len(sujets)
+
+
+def _audit_de(nom, audits_dir):
+    """(risque_technique dimension, audit date, file) for ``nom``, or None."""
+    if not audits_dir:
+        return None
+    f = os.path.join(audits_dir, f"{nom}.json")
+    try:
+        with open(f, encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    dim = ((d or {}).get("dimensions") or {}).get("risque_technique")
+    if not isinstance(dim, dict) or not dim.get("niveau"):
+        return None
+    return dim, d.get("date"), f
+
+
+FICHIER_BASELINE_LINT = os.path.join("tests", "test_lint_baseline.py")
+RX_TOTAL_BASELINE = re.compile(r"^_TOTAL_BASELINE\s*=\s*(\d+)", re.M)
+
+
+RUFF_TIMEOUT_S = 60
+RAISON_RUFF_DELAI = f"ruff a dépassé {RUFF_TIMEOUT_S} s"
+RAISON_RUFF_INDISPO = "ruff indisponible ou en échec"
+RAISON_RUFF_ILLISIBLE = "sortie de ruff illisible"
+
+
+def _ruff_total(chemin, run=None):
+    """Total ruff findings of ``chemin`` (same call as the lint gate), or a str
+    giving why it could not be measured (fail-open: never raises)."""
+    import subprocess
+    run = run or subprocess.run
+    try:
+        r = run([sys.executable, "-m", "ruff", "check", ".",
+                 "--output-format=json", "--quiet"], cwd=chemin,
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=RUFF_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        return RAISON_RUFF_DELAI
+    except (OSError, subprocess.SubprocessError, UnicodeError):
+        return RAISON_RUFF_INDISPO
+    if r.returncode not in (0, 1):
+        return RAISON_RUFF_INDISPO
+    try:
+        return len(json.loads(r.stdout))
+    except (ValueError, TypeError):
+        return RAISON_RUFF_ILLISIBLE
+
+
+def ecart_baseline_lint(chemin, mesurer=None):
+    """(measured, baseline) when the project has a lint gate
+    (``tests/test_lint_baseline.py`` with ``_TOTAL_BASELINE = N``), None when it
+    has none, or a str reason when the gate exists but ruff could not measure."""
+    if not chemin:
+        return None
+    try:
+        with open(os.path.join(chemin, FICHIER_BASELINE_LINT), encoding="utf-8") as fh:
+            m = RX_TOTAL_BASELINE.search(fh.read())
+    except OSError:
+        return None
+    if not m:
+        return None
+    n = (mesurer or _ruff_total)(chemin)
+    if isinstance(n, bool) or not isinstance(n, int):
+        return n if isinstance(n, str) else RAISON_RUFF_INDISPO
+    return n, int(m.group(1))
+
+
+def _ligne(cle, valeur, source, mesure):
+    return {"libelle": QUALITE_LIBELLES[cle], "valeur": valeur, "source": source,
+            "mesure": mesure, "ne_permet_pas_de_conclure": QUALITE_NE_CONCLUT_PAS[cle]}
+
+
+def qualite_produit(nom, chemin, audits_dir=None, mesurer_lint=None):
+    """The informative « Qualité du produit » stage of one project: four lines,
+    each with value, source and what it does NOT allow to conclude. Never a note."""
+    # attendus: the utilisateur-produit agent RETURNS its report to the caller;
+    # no storage location exists in the fleet (checked 2026-09-30) -> non mesuré.
+    attendus = _ligne(
+        "attendus", NON_MESURE,
+        "aucun rapport utilisateur-produit conservé : l'agent rend son rapport à "
+        "l'appelant, aucun emplacement de stockage n'existe", False)
+    usage = _ligne("usage", NON_MESURE,
+                   "données hors du dépôt (usage réel, support, télémétrie) : non "
+                   "lues par cette évaluation", False)
+    r = ratio_fix(chemin)
+    if r is None:
+        bugs = _ligne("bugs", NON_MESURE, "historique git illisible ou vide", False)
+    else:
+        n, total = r
+        bugs = _ligne(
+            "bugs", f"{n}/{total} commits « fix » ({round(100 * n / total)} %) — proxy",
+            "git log --format=%s (sujets commençant par fix:, fix!:, fix(portée):)",
+            True)
+        bugs["fix"], bugs["total"] = n, total
+    a = _audit_de(nom, audits_dir)
+    lint = ecart_baseline_lint(chemin, mesurer_lint)
+    valeurs, sources = [], []
+    if isinstance(lint, str):
+        sources.append(f"écart au lint non mesuré : {lint}")
+        lint = None
+    elif lint is not None:
+        n, base = lint
+        valeurs.append(f"lint : {n - base:+d} point(s) ruff vs baseline ({n} mesurés, "
+                       f"baseline {base})")
+        sources.append("ruff check --output-format=json vs _TOTAL_BASELINE de "
+                       "tests/test_lint_baseline.py")
+    else:
+        sources.append("écart au lint non mesuré : pas de tests/test_lint_baseline.py")
+    if a is not None:
+        dim, date, f = a
+        valeurs.append(f"risque technique : {dim['niveau']} (audit du {date or '?'})")
+        sources.append(f".claude/audits/{os.path.basename(f)}")
+    else:
+        sources.append(f"aucun audit risque_technique dans .claude/audits/{nom}.json")
+    dette = _ligne("dette", " ; ".join(valeurs) or NON_MESURE, " ; ".join(sources),
+                   bool(valeurs))
+    if lint is not None:
+        dette["lint_mesure"], dette["lint_baseline"] = lint
+    return {"informatif": True, "lignes": {"attendus": attendus, "usage": usage,
+                                           "bugs": bugs, "dette": dette}}
+
+
+def evaluer(detections_par_projet, racine_hub, mesure_le, now=None, declarations=None,
+            chemins=None):
     """Full evaluation: every project (A + B) + the hub's informatif block.
 
     ``detections_par_projet`` = {nom: detection_generique.detecter(chemin)};
     ``mesure_le`` = the caller's detection timestamp (C3);
-    ``declarations`` = {nom: lire_declaration(chemin)} (optional)."""
+    ``declarations`` = {nom: lire_declaration(chemin)} (optional);
+    ``chemins`` = {nom: chemin} (optional) -> adds the separate informative
+    ``qualite_produit`` stage, which never enters any score."""
     now = now or datetime.now(UTC)
     sup = os.path.join(racine_hub, ".claude", "supervision")
     declarations = declarations or {}
+    sortie = _evaluer_notes(detections_par_projet, racine_hub, mesure_le, now,
+                            declarations, sup)
+    if chemins:
+        audits = os.path.join(racine_hub, ".claude", "audits")
+        sortie["qualite_produit"] = {nom: qualite_produit(nom, chemins.get(nom), audits)
+                                     for nom in sorted(detections_par_projet)}
+    return sortie
+
+
+def _evaluer_notes(detections_par_projet, racine_hub, mesure_le, now, declarations, sup):
     return {
         "version_bareme": VERSION_BAREME, "genere_le": now.isoformat(),
         "projets": {nom: evaluer_projet(nom, det, mesure_le, now,
