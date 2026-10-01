@@ -18,7 +18,6 @@ from __future__ import annotations
 import hashlib
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
@@ -59,6 +58,27 @@ def _bac(tmp_path: Path, corps_module: str, corps_test: str) -> tuple[Path, Path
     return module, test
 
 
+def _tmp_isole(test: Path) -> Path:
+    """Le temporaire SYSTEME du fils : un dossier a ce test seul.
+
+    L'outil ecrit (et lit) ses sentinelles dans `tempfile.gettempdir()`. Sans
+    isolation, ces tests ecrasaient puis detruisaient la vraie sentinelle d'une
+    preuve interrompue, et deux executions paralleles se marchaient dessus. Le
+    dossier est frere du bac (`test.parent.parent`), pas dedans.
+    """
+    dossier = test.parent.parent / "systmp"
+    dossier.mkdir(parents=True, exist_ok=True)
+    return dossier
+
+
+def _env_tmp(test: Path) -> dict[str, str]:
+    """TMP/TEMP (Windows) et TMPDIR (POSIX) pointes sur `_tmp_isole`."""
+    import os
+
+    d = str(_tmp_isole(test))
+    return {**os.environ, "TMP": d, "TEMP": d, "TMPDIR": d}
+
+
 def _lancer(module: Path, test: Path, avant: str = AVANT, apres: str = APRES,
             extra: list[str] | None = None) -> subprocess.CompletedProcess:
     """L'outil, en sous-processus, avec les marqueurs passés par FICHIER.
@@ -73,6 +93,7 @@ def _lancer(module: Path, test: Path, avant: str = AVANT, apres: str = APRES,
          "--hors-depot", "--marqueur-fichier", str(marqueurs)] + (extra or []),
         cwd=str(RACINE), capture_output=True, text=True,
         encoding="utf-8", errors="replace", timeout=1800,
+        env=_env_tmp(test),
     )
 
 
@@ -293,7 +314,7 @@ def test_une_preuve_INTERROMPUE_bloque_la_suivante_et_se_restaure(tmp_path):
     sauvegarde.write_bytes(MODULE.encode("utf-8"))
     empreinte = hashlib.sha256(MODULE.encode("utf-8")).hexdigest()
     module.write_bytes(MODULE.replace(APRES, AVANT).encode("utf-8"))
-    sentinelle = Path(tempfile.gettempdir()) / "preuve_p1_interrompue.json"
+    sentinelle = _tmp_isole(test) / "preuve_p1_interrompue.json"
     sentinelle.write_text(json.dumps({
         "cible": str(module), "sauvegarde": str(sauvegarde),
         "empreinte_depart": empreinte,
@@ -322,7 +343,7 @@ def test_une_sentinelle_PERIMEE_ne_bloque_rien(tmp_path):
 
     module, test = _bac(tmp_path, MODULE,
                         IMPORTE + "def test_double():\n    assert double(3) == 6\n")
-    sentinelle = Path(tempfile.gettempdir()) / "preuve_p1_interrompue.json"
+    sentinelle = _tmp_isole(test) / "preuve_p1_interrompue.json"
     sentinelle.write_text(json.dumps({
         "cible": str(module), "sauvegarde": str(tmp_path / "absente.py"),
         "empreinte_depart": hashlib.sha256(MODULE.encode("utf-8")).hexdigest(),
@@ -399,7 +420,6 @@ def _lancer_avec_env(module: Path, test: Path, env_sup: dict[str, str],
     OBSERVATION DIRECTE des trois tests déjà rouges n'est recevable que si ce
     fichier n'a subi AUCUNE suppression de ligne.
     """
-    import os
 
     marqueurs = test.parent / "marqueurs_env.txt"
     marqueurs.write_text(avant + "\n" + SEPARATEUR + "\n" + apres, encoding="utf-8")
@@ -408,7 +428,7 @@ def _lancer_avec_env(module: Path, test: Path, env_sup: dict[str, str],
          "--hors-depot", "--marqueur-fichier", str(marqueurs)],
         cwd=str(RACINE), capture_output=True, text=True,
         encoding="utf-8", errors="replace", timeout=1800,
-        env={**os.environ, **env_sup},
+        env={**_env_tmp(test), **env_sup},
     )
 
 
@@ -510,7 +530,7 @@ def _sentinelle_de(cible: Path) -> Path:
     interrompue sur X soit retrouvee par la preuve suivante sur X — et par elle
     seule."""
     cle = hashlib.sha1(str(cible.resolve()).encode("utf-8")).hexdigest()[:12]
-    return Path(tempfile.gettempdir()) / f"preuve_p1_interrompue_{cle}.json"
+    return _tmp_isole(cible.parent / "x") / f"preuve_p1_interrompue_{cle}.json"
 
 
 def test_deux_preuves_sur_deux_fichiers_ne_se_bloquent_pas(tmp_path):
