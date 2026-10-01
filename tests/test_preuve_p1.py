@@ -18,6 +18,7 @@ from __future__ import annotations
 import hashlib
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
@@ -37,11 +38,11 @@ IMPORTE = ("import sys\n"
            "from sujet import double\n")
 
 
-def _abri_outil() -> Path:
+def _abri_outil(test: Path) -> Path:
     """Un dossier comme celui que l'outil cree pour sa sauvegarde (mkdtemp,
     prefixe `preuve_p1_`, dans le temporaire systeme) : seule une sauvegarde
     placee la est restauree."""
-    return Path(tempfile.mkdtemp(prefix="preuve_p1_"))
+    return Path(tempfile.mkdtemp(prefix="preuve_p1_", dir=_tmp_isole(test)))
 
 
 def _bac(tmp_path: Path, corps_module: str, corps_test: str) -> tuple[Path, Path]:
@@ -317,7 +318,7 @@ def test_une_preuve_INTERROMPUE_bloque_la_suivante_et_se_restaure(tmp_path):
                         IMPORTE + "def test_double():\n    assert double(3) == 6\n")
     # On simule l'interruption : fichier mute, sauvegarde a cote, sentinelle en
     # place — exactement l'etat que laisse un processus tue.
-    sauvegarde = _abri_outil() / "sujet.py"
+    sauvegarde = _abri_outil(test) / "sujet.py"
     sauvegarde.write_bytes(MODULE.encode("utf-8"))
     empreinte = hashlib.sha256(MODULE.encode("utf-8")).hexdigest()
     module.write_bytes(MODULE.replace(APRES, AVANT).encode("utf-8"))
@@ -550,7 +551,7 @@ def test_deux_preuves_sur_deux_fichiers_ne_se_bloquent_pas(tmp_path):
     corps_test = IMPORTE + "def test_double():\n    assert double(3) == 6\n"
     module_a, test_a = _bac(tmp_path / "a", MODULE, corps_test)
     module_b, test_b = _bac(tmp_path / "b", MODULE, corps_test)
-    sauvegarde = _abri_outil() / "sujet.py"
+    sauvegarde = _abri_outil(test_a) / "sujet.py"
     sauvegarde.write_bytes(MODULE.encode("utf-8"))
     module_a.write_bytes(MODULE.replace(APRES, AVANT).encode("utf-8"))
     sentinelle_a = _sentinelle_de(module_a)
@@ -615,7 +616,7 @@ def test_une_sentinelle_FORGEE_ne_fait_pas_copier_un_fichier_sur_un_chemin_quelc
         }), encoding="utf-8")
         return _lancer(module, test, extra=["--restaurer"] + extra)
 
-    abri_tool = _abri_outil()
+    abri_tool = _abri_outil(test)
     autre = tmp_path / "autre.txt"
     autre.write_bytes(b"intact\n")
     try:
@@ -635,7 +636,8 @@ def test_une_sentinelle_FORGEE_ne_fait_pas_copier_un_fichier_sur_un_chemin_quelc
         r = subprocess.run(
             [sys.executable, str(OUTIL), "--restaurer", str(module), str(test)],
             cwd=str(RACINE), capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=600)
+            encoding="utf-8", errors="replace", timeout=600,
+            env=_env_tmp(test))
         assert r.returncode == USAGE, r.stdout + r.stderr
         assert "hors du depot" in r.stdout
         assert module.read_bytes() == mute
