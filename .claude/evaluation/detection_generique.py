@@ -181,7 +181,8 @@ def _est_code(rel):
 
 def _trailers(corps, noms):
     """Emails of the given trailers (e.g. Reviewed-by) in a commit body."""
-    rx = re.compile(r"^(?:%s):.*?<([^>]+)>" % "|".join(noms), re.I | re.M)
+    alternatives = "|".join(noms)
+    rx = re.compile(rf"^(?:{alternatives}):.*?<([^>]+)>", re.I | re.M)
     return [m.lower() for m in rx.findall(corps)]
 
 
@@ -198,7 +199,7 @@ def _mailmap(racine, emails):
     if len(lignes) != len(emails):
         return {e: e for e in emails}
     out = {}
-    for e, ligne in zip(emails, lignes):
+    for e, ligne in zip(emails, lignes, strict=True):
         m = re.search(r"<([^>]*)>\s*$", ligne)
         out[e] = m.group(1).strip().lower() if m else e
     return out
@@ -1386,7 +1387,7 @@ def blocs_mandat(texte):
     titres = RE_TITRE.findall(corps)
     lo = RE_OUTILS.search(front)
     outils = [o.strip() for o in lo.group(1).split(",") if o.strip()] if lo else []
-    decrits = bool(outils) and all(re.search(r"(?<![\w-])%s(?![\w-])" % re.escape(o), corps)
+    decrits = bool(outils) and all(re.search(rf"(?<![\w-]){re.escape(o)}(?![\w-])", corps)
                                    for o in outils)
     if {"Edit", "Write"} & set(outils) and not RE_ECRITURE.search(corps):
         decrits = False

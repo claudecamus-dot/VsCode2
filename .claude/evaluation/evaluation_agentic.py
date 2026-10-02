@@ -83,7 +83,7 @@ NOTE_2_ETATS = ("ce critère n'a que 2 niveaux notés — présent (10) ou absen
 # ------------------------------------------------ texts read from the detector
 _SECTIONS = ("Définition", "Signaux exacts", "Pourquoi", "Permet de conclure",
              "Ne permet pas de conclure")
-_RX_SECTION = re.compile(r"^\s*(%s) :\s*" % "|".join(_SECTIONS), re.M)
+_RX_SECTION = re.compile(rf"^\s*({'|'.join(_SECTIONS)}) :\s*", re.M)
 
 
 def textes_detecteur(nom):
