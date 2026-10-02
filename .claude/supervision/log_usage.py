@@ -93,11 +93,19 @@ def main() -> int:
                  "event": "subagent-stop",
                  "agent_id": agent_id if isinstance(agent_id, str) else None,
                  "agent_type": data.get("agent_type")}
-        duree, appariement = _apparier(session_id, horodate, entry["agent_id"])
-        entry["appariement"] = appariement
-        if duree is not None:
-            entry["duree_s"] = duree
-        entry.update(_jetons_du_transcript(data.get("agent_transcript_path")))
+        mesure = _jetons_du_transcript(data.get("agent_transcript_path"))
+        duree_transcript = mesure.pop("duree_s", None)
+        if duree_transcript is not None:
+            # Premier et dernier `timestamp` du transcript DU sous-agent : mesure
+            # directe, independante de l'ordre des lignes du journal partage.
+            entry["appariement"] = "transcript"
+            entry["duree_s"] = duree_transcript
+        else:
+            duree, appariement = _apparier(session_id, horodate, entry["agent_id"])
+            entry["appariement"] = appariement
+            if duree is not None:
+                entry["duree_s"] = duree
+        entry.update(mesure)
         _ecrire(entry)
         return 0
 
@@ -121,6 +129,13 @@ def main() -> int:
     budget_min = _budget_declare(tool_input.get("prompt"))
     if budget_min is not None:
         entry["budget_min"] = budget_min
+    # Taille du brief en caracteres (lot B). Pas de doublon avec
+    # taille_briefs.jsonl (ecrit par guard_brief_source_primaire au PreToolUse :
+    # TAILLE/BUDGET declares + plafond, jamais la longueur) : les deux se joignent
+    # par session_id + ts (le PreToolUse precede de peu ce PostToolUse).
+    prompt = tool_input.get("prompt")
+    if isinstance(prompt, str):
+        entry["brief_chars"] = len(prompt)
     # Le `tool_response` d'un Agent porte la comptabilite reelle, mesuree sur payload
     # reel le 2026-09-20 (sonde jetable). DEUX formes, selon le mode :
     #  - premier plan  : status 'completed'      + totalTokens / totalToolUseCount /
@@ -156,7 +171,7 @@ def _annotation_agent(tool_input: dict, reponse) -> dict:
     """
     champs = {"modele": tool_input.get("model") if isinstance(tool_input, dict) else None,
               "agent_id": None, "modele_resolu": None, "statut": None,
-              "jetons": None, "appels_outils": None, "duree_ms": None}
+              "jetons": None, "appels_outils": None, "duree_s": None}
     if isinstance(reponse, dict):
         for cle, source, types in (
             ("agent_id", "agentId", str),
@@ -164,11 +179,16 @@ def _annotation_agent(tool_input: dict, reponse) -> dict:
             ("statut", "status", str),
             ("jetons", "totalTokens", int),
             ("appels_outils", "totalToolUseCount", int),
-            ("duree_ms", "totalDurationMs", int),
         ):
             valeur = reponse.get(source)
             if isinstance(valeur, types) and not isinstance(valeur, bool):
                 champs[cle] = valeur
+        # Une seule unite de duree dans le journal : la seconde, comme `duree_s` du
+        # SubagentStop. Les anciennes lignes `duree_ms` restent lues par convergence.py
+        # (usage.jsonl n'est jamais reecrit).
+        ms = reponse.get("totalDurationMs")
+        if isinstance(ms, (int, float)) and not isinstance(ms, bool):
+            champs["duree_s"] = round(ms / 1000, 1)
     # La PROVENANCE du chiffre fait partie du chiffre : `tool_response` (premier plan,
     # compteur de l'outil) et `transcript` (arriere-plan, somme des messages assistant)
     # ne se comparent pas naivement. Annoncer une source qu'on n'a pas est pire que
@@ -207,11 +227,20 @@ def _jetons_du_transcript(chemin) -> dict:
     `read()` entier les chargerait tous en memoire. Fail-open absolu — chemin absent,
     illisible, ligne cassee, JSON invalide : les champs restent a None, jamais une
     exception, jamais un hook qui bloque la session.
+
+    Meme passe, deux mesures de plus : `appels_outils` = blocs `tool_use` des messages
+    assistant, dedoublonnes (un bloc par ligne, l'id du bloc fait foi, repli
+    message.id + rang) ; `duree_s` = ecart entre le premier et le dernier `timestamp`
+    lisible du transcript. Inconnu = None, jamais 0.
     """
-    vide = {"jetons": None, "jetons_detail": None, "source_jetons": None}
+    vide = {"jetons": None, "jetons_detail": None, "source_jetons": None,
+            "appels_outils": None, "duree_s": None}
     if not isinstance(chemin, str) or not chemin:
         return vide
     par_message = {}
+    outils = set()
+    premier = dernier = None
+    nb_instants = 0
     try:
         with open(chemin, encoding="utf-8", errors="strict") as fh:
             for ligne in fh:
@@ -222,11 +251,27 @@ def _jetons_du_transcript(chemin) -> dict:
                     evt = json.loads(ligne)
                 except ValueError:
                     continue  # une ligne cassee ne doit pas perdre tout le reste
-                if not isinstance(evt, dict) or evt.get("type") != "assistant":
+                if not isinstance(evt, dict):
+                    continue
+                instant = _instant(evt.get("timestamp"))
+                if instant is not None:
+                    nb_instants += 1
+                    if premier is None or instant < premier:
+                        premier = instant
+                    if dernier is None or instant > dernier:
+                        dernier = instant
+                if evt.get("type") != "assistant":
                     continue
                 msg = evt.get("message")
                 if not isinstance(msg, dict):
                     continue
+                contenu = msg.get("content")
+                if isinstance(contenu, list):
+                    for rang, b in enumerate(contenu):
+                        if isinstance(b, dict) and b.get("type") == "tool_use":
+                            bid = b.get("id")
+                            outils.add(bid if isinstance(bid, str)
+                                       else (msg.get("id"), evt.get("uuid"), rang))
                 usage = msg.get("usage")
                 if not isinstance(usage, dict):
                     continue
@@ -243,13 +288,28 @@ def _jetons_du_transcript(chemin) -> dict:
                     par_message[cle] = bloc
     except (OSError, UnicodeDecodeError, ValueError, TypeError):
         return vide
+    # Moins de deux timestamps valides : pas d'intervalle mesure -> None, jamais 0.0.
+    duree = (round((dernier - premier).total_seconds(), 1)
+             if nb_instants >= 2 else None)
     if not par_message:
         # Aucun message assistant : on ne SAIT pas, et 0 dirait qu'on a mesure zero.
-        return vide
+        return dict(vide, duree_s=duree)
     detail = {court: sum(b[court] for b in par_message.values())
               for court, _ in CLES_USAGE}
     return {"jetons": sum(detail.values()), "jetons_detail": detail,
-            "source_jetons": "transcript"}
+            "source_jetons": "transcript", "appels_outils": len(outils),
+            "duree_s": duree}
+
+
+def _instant(valeur):
+    """datetime conscient du fuseau d'un `timestamp` ISO (« ...Z » accepte), ou None."""
+    if not isinstance(valeur, str) or not valeur:
+        return None
+    try:
+        dt = datetime.datetime.fromisoformat(valeur.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt if dt.tzinfo is not None else None
 
 
 def _apparier(session_id, fin_iso: str, agent_id=None):
@@ -333,8 +393,38 @@ def _echec_avere(reponse) -> bool:
 
 
 def _ecrire(entry: dict) -> None:
-    with open(USAGE_PATH, "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    """Ajout ATOMIQUE d'une ligne : la ligne entiere (fin de ligne comprise) en UN
+    os.write sur un fd O_APPEND. Plusieurs hooks peuvent ecrire en meme temps
+    (fan-out, hooks async) ; un `open(..., "a")` bufferise peut decouper une longue
+    ligne en plusieurs ecritures. Le test de concurrence (2 x 200 lignes) n'a pas
+    fait echouer l'ancienne version sur ce poste : la garantie vient du contrat
+    O_APPEND + ecriture unique, pas d'un echec observe.
+    """
+    donnees = (json.dumps(entry, ensure_ascii=False) + "\n").encode("utf-8")
+    fd = os.open(USAGE_PATH, os.O_WRONLY | os.O_APPEND | os.O_CREAT
+                 | getattr(os, "O_BINARY", 0), 0o644)
+    try:
+        # Windows : le CRT EMULE O_APPEND (seek a la fin puis write, non atomique) —
+        # vu rouge 1 fois sur 5 au test de concurrence sous charge (2026-10-02). Verrou
+        # d'un octet en tete de fichier (LockFile accepte une region hors EOF) pour
+        # serialiser seek+write ; POSIX garantit deja l'atomicite d'O_APPEND.
+        verrou = None
+        if os.name == "nt":
+            import msvcrt
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+            verrou = msvcrt
+        try:
+            os.lseek(fd, 0, os.SEEK_END)
+            ecrit = os.write(fd, donnees)
+        finally:
+            if verrou is not None:
+                os.lseek(fd, 0, os.SEEK_SET)
+                verrou.locking(fd, verrou.LK_UNLCK, 1)
+    finally:
+        os.close(fd)
+    if ecrit != len(donnees):
+        raise OSError(f"ecriture partielle : {ecrit}/{len(donnees)} octets")
 
 
 if __name__ == "__main__":

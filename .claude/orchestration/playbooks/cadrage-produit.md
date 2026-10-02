@@ -93,6 +93,18 @@ réelle encore. À faire évoluer vers `eprouve` après un premier run réussi
       "checkpoint": "annonce + feu vert avant lancement (écrit un fichier réel)"
     },
     {
+      "id": "test-design",
+      "agent": "bmad-test (skill bmad-testarch-test-design)",
+      "mode": "cascade",
+      "modele": "sonnet",
+      "contrat": {
+        "type": "reel",
+        "regime": "propose (ecrit sous _bmad-output/test-artifacts/) : annoncer et attendre le feu vert",
+        "critere": "CONDITIONNELLE — SI le produit aura du code testable : plan de test système produit depuis le PRD et Architecture.md, risques nommés ; sinon étape sautée et le dire"
+      },
+      "checkpoint": "annonce + feu vert avant lancement (écrit un fichier réel)"
+    },
+    {
       "id": "cadrage-ux",
       "agent": "skill bmad-ux",
       "mode": "cascade",
@@ -119,7 +131,7 @@ réelle encore. À faire évoluer vers `eprouve` après un premier run réussi
 }
 ```
 
-<!-- SOCLE-PROVENANCE: socle : 19a8f19 du 2026-10-01 -->
-> **Socle généré** — tout ce qui PRÉCÈDE ce bandeau vient du hub de supervision (`19a8f19`, 2026-10-01) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 0811fa4 du 2026-10-02 -->
+> **Socle généré** — tout ce qui PRÉCÈDE ce bandeau vient du hub de supervision (`0811fa4`, 2026-10-02) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » placé après ce bandeau, lui, n'est jamais réécrit : c'est le travail local.
 

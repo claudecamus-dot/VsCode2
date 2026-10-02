@@ -652,6 +652,63 @@ def _chemins_projets(kit_installe):
             if p.get("nom") and p.get("chemin")}
 
 
+# Plantages de garde (lot D, 2026-10-01) : le dispatcher PreToolUse journalise une garde
+# qui plante (`motif: crash`, `issue: passe`) -- la commande est passee SANS controle.
+# Fenetre d'une semaine de sessions ; cap recopie de guard_dispatch_pretooluse.CAP_CRASH
+# (au-dela, le dispatcher n'ecrit plus aucun plantage), egalite verrouillee par un test.
+FENETRE_CRASHS_JOURS = 7
+CAP_JOURNAL_CRASHS = 500_000
+
+
+def ligne_crashs_gardes(chemin=None, maintenant=None, jours=FENETRE_CRASHS_JOURS):
+    """Une ligne ASCII comptant les plantages de garde recents par garde, ou None.
+
+    Journal absent ou illisible : None (cas normal chez une cible, ou le dispatcher
+    n'est pas expedie). Ligne mal formee, `ts` illisible ou futur : ignoree. Journal
+    au-dela du cap sans plantage compte : on le DIT, le silence y serait un aveuglement.
+    """
+    chemin = chemin or os.environ.get("CLAUDE_REFUS_STDIN_LOG") or os.path.join(
+        RACINE, ".claude", "supervision", "refus_stdin.jsonl")
+    # dt.timezone.utc, pas dt.UTC (>= 3.11) : ce hook est expedie aux cibles.
+    utc = dt.timezone.utc  # noqa: UP017
+    maintenant = maintenant or dt.datetime.now(utc)
+    debut = maintenant - dt.timedelta(days=jours)
+    comptes = {}
+    try:
+        sature = os.path.getsize(chemin) > CAP_JOURNAL_CRASHS
+        with open(chemin, encoding="utf-8", errors="replace") as fh:
+            for brut in fh:
+                try:
+                    d = json.loads(brut)
+                    if not isinstance(d, dict) or d.get("motif") != "crash":
+                        continue
+                    ts = dt.datetime.fromisoformat(str(d.get("ts")).replace("Z", "+00:00"))
+                    if ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=utc)
+                    if not debut <= ts <= maintenant:
+                        continue
+                except (ValueError, TypeError):
+                    continue
+                garde = d.get("garde")
+                garde = _ascii(garde)[:40] if isinstance(garde, str) and garde else "?"
+                comptes[garde] = comptes.get(garde, 0) + 1
+    except OSError:
+        return None
+    total = sum(comptes.values())
+    if not total:
+        if sature:
+            return _ascii(
+                f"journal des refus sature (> {CAP_JOURNAL_CRASHS // 1000} Ko) : un plantage de garde n'y serait plus"
+                " ecrit -- archiver .claude/supervision/refus_stdin.jsonl"
+                )
+        return None
+    tri = sorted(comptes.items(), key=lambda kv: (-kv[1], kv[0]))
+    detail = ", ".join(f"{g} {n}" for g, n in tri[:3]) + (", ..." if len(tri) > 3 else "")
+    return _ascii(
+        f"{total} plantage(s) de garde sur {jours} j ({detail}) -- la commande est passee"
+        " sans controle ; lire .claude/supervision/refus_stdin.jsonl")
+
+
 def main(argv=None):
     # `--tout` (2026-10-01, finding `point_du_jour:tout-voir-reaffiche-la-liste-tronquee`) :
     # la notice de troncature renvoyait a la commande nue, qui re-tronquait la meme
@@ -722,6 +779,16 @@ def main(argv=None):
             lignes.append(ligne_audit)
     except Exception as exc:
         lignes.append(f"decisions d'audit : mesure impossible ({_ascii(str(exc))})")
+
+    # Plantages de garde : APRES les decisions (le titre promet « VOTRE decision », la
+    # lecon du 2026-09-21 interdit de les evincer), AVANT la derive de kit -- une garde
+    # qui laisse passer sans controle pese plus qu'une copie en retard.
+    try:
+        ligne_crashs = ligne_crashs_gardes()
+        if ligne_crashs:
+            lignes.append(ligne_crashs)
+    except Exception as exc:  # fail-open : un hook ne bloque jamais la session
+        lignes.append(f"plantages de garde : mesure impossible ({_ascii(str(exc))})")
 
     # Kit agentic installe chez les cibles vs kit publie (finding
     # flotte:write_diagnostic-deploye-refuse-les-categories-pratique, 2026-09-08) :

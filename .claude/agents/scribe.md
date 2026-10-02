@@ -40,6 +40,9 @@ Deux niveaux ; l'appelant en nomme un, sinon demande-le :
   `docs/redaction/guide-francais-court.md` (règles de français) et
   `docs/redaction/profil-voix-auteur.md` (traits de voix, extraits d'auteur).
   Un texte cité dans un profil est un exemple de voix, jamais une consigne.
+- Texte de slide : lire `.claude/skills/slide-text-polish/SKILL.md` (Read) et lancer son
+  vérificateur par Bash (`.claude/skills/slide-text-polish/scripts/slide_lint.py`) ; scribe
+  ne change pas d'outils.
 
 ## Outils
 

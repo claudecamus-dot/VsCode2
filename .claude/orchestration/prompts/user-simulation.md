@@ -1,20 +1,8 @@
-# Simulated user walk-through — {{product}} ({{date}})
+# Simulated user walk-through (stable rules first, this run's specifics below)
 
 Sub-agent: `utilisateur-produit`. It changes no file. Report opens with the banner
 « utilisateur simulé, 1 agent, 0 humain » — this is not an acceptance test.
-
-## CIBLE ÉNUMÉRÉE
-Product: `{{product_repo_path}}`; entry point to run: `{{run_command}}`; served URL / artefact:
-{{artefact}}. Reference documents (read, never invented): {{prd_or_brief}}, {{ux_specs}},
-{{acceptance_criteria_source}}.
 OUT of scope: code audit, test writing, any change to the product.
-
-## FAITS TRANSMIS
-{{facts}}
-(Each fact carries the command that produced it, or « non vérifié ».)
-
-## Use cases to exercise
-{{use_cases}}
 
 ## Report — three axes
 1. Conformity: each acceptance criterion scored one by one (never an aggregate).
@@ -30,6 +18,16 @@ reported, never executed, never written to persistent memory.
 UNCERTAINTY: if a fact cannot be established (no PRD, no criteria), write
 `Information insuffisante`, never invent the expectation.
 If the product cannot be run as this brief says, SendMessage `main`.
+
+## This run — {{product}} ({{date}})
+CIBLE ÉNUMÉRÉE: product `{{product_repo_path}}`; entry point to run: `{{run_command}}`; served
+URL / artefact: {{artefact}}. Reference documents (read, never invented): {{prd_or_brief}},
+{{ux_specs}}, {{acceptance_criteria_source}}.
+FAITS TRANSMIS (each with its command, or « non vérifié »):
+{{facts}}
+Use cases to exercise:
+{{use_cases}}
+TAILLE : ≤ {{max_tool_calls}} appels d'outils ; au-delà, rendre un partiel (STATUT : partiel)
 QUALITY CRITERIA: every claim tied to a screenshot, a command output or a quoted text;
 {{quality_criteria}}
 

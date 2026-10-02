@@ -810,7 +810,7 @@ manifeste = [
 ]
 [workflow.party_groups.sortants]
 type = '''Rapport de revue classé par sévérité'''
-producteur = '''l'auteur du diff (correction), puis contre-revue en contexte frais ; si un constat identifie un chemin (route/handler/flux) sans test e2e couvrant son scénario de défaillance, le rapport NOMME ce trou et recommande bmad-qa-generate-e2e-tests comme producteur de la couverture manquante -- jamais lancé pendant la délibération (régime proposé, écrit des fichiers, incompatible avec l'invariant "aucune écriture", arbitrage du 2026-09-21)'''
+producteur = '''l'auteur du diff (correction), puis contre-revue en contexte frais ; si un constat identifie un chemin (route/handler/flux) sans test e2e couvrant son scénario de défaillance, le rapport NOMME ce trou et recommande bmad-qa-generate-e2e-tests comme producteur de la couverture manquante ; si la QUALITÉ des tests existants est en cause (assertions creuses, exigence sans test), le rapport NOMME ce trou et renvoie à l'étape `test` de dev-verifie (porteur bmad-test : test-review puis trace) -- jamais lancé pendant la délibération (régime proposé, écrit des fichiers, incompatible avec l'invariant "aucune écriture", arbitrage du 2026-09-21)'''
 recette = [
   '''Chaque constat porte fichier:ligne et un scénario reproductible.''',
   '''Le test couvrant un constat retenu est VU ROUGE avant correction.''',

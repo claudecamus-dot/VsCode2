@@ -164,6 +164,9 @@ et c'est précisément ce que tu dois montrer.
      d'erreur, débordement (texte long, valeur extrême, liste longue), largeur
      réduite ou fenêtre étroite, et l'artefact produit ouvert dans son outil réel
      (un `.pptx` dans PowerPoint ou un rendu image, une page dans un navigateur).
+     Un PDF produit se mesure avec `pdf_verify.py` (skill pdf-quality,
+     `.claude/skills/pdf-quality/scripts/pdf_verify.py`), en vérification seule —
+     jamais `pdf_report.py` ni une génération.
      Coquilles graphiques à nommer : texte tronqué ou chevauché, alignement cassé,
      élément hors cadre, icône ou image manquante, contraste insuffisant (WCAG 2.2
      1.4.3), police ou couleur qui ne suit pas le reste. Chaque coquille : où,
