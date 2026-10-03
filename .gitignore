@@ -45,3 +45,4 @@ tests/exemple/
 # par un outil d'environnement local. Ignore plutot que commite tant qu'aucun
 # usage reel de uv n'existe dans ce depot.
 uv.lock
+.claude/settings.json.avant-migration
