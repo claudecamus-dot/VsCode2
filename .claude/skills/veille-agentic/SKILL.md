@@ -126,6 +126,9 @@ et **des actions correctives** arbitrables.
 - **GitHub** : blog engineering (Copilot agents, workflows), docs Actions pour l'aspect
   automatisation.
 - Autres providers si pertinent (Google/Gemini, AWS/Bedrock agents…).
+- **Providers chinois** : docs agents/tool calling de DeepSeek, Qwen (Alibaba), Kimi
+  (Moonshot), GLM (Zhipu / Z.ai), MiniMax, ERNIE (Baidu), Hunyuan (Tencent), Doubao
+  (ByteDance) — liste de leurs sites de recherche au volet 3.
 - **Index communautaires curatés** — point d'entrée à re-parcourir à CHAQUE cycle plutôt
   que redécouvrir les mêmes dépôts. Référence adoptée le 2026-07-31 :
   [hesreallyhim/awesome-claude-code](https://github.com/hesreallyhim/awesome-claude-code)
@@ -211,10 +214,19 @@ sur les actes mais **juge et partie** sur leurs propres produits :
 `research.google` · `microsoft.com/en-us/research` · `bair.berkeley.edu/blog` ·
 `csail.mit.edu/research` · `hai.stanford.edu`.
 
-### Rotation — 19 sources ne tiennent pas dans un cycle
+**Fournisseurs et labos IA chinois** (ajout demandé par l'utilisateur le 2026-10-03) —
+même règle « juge et partie », et un **rapport technique** n'est pas un papier relu :
+`github.com/deepseek-ai` (DeepSeek) · `qwenlm.github.io` et Alibaba DAMO/Tongyi (Qwen) ·
+`github.com/MoonshotAI` (Kimi) · Zhipu AI / Z.ai et `github.com/THUDM` (GLM, Tsinghua
+KEG) · MiniMax · `research.baidu.com` (ERNIE) · Tencent AI Lab / Hunyuan ·
+`seed.bytedance.com` (ByteDance Seed) · StepFun · 01.AI · Shanghai AI Lab (InternLM) ·
+BAAI · OpenBMB / ModelBest (Tsinghua NLP) ; frameworks agentic à direction chinoise :
+MetaGPT / FoundationAgents, CAMEL, AgentVerse, ChatDev.
+
+### Rotation — plus de 30 sources ne tiennent pas dans un cycle
 
 L'étape 2 fixe **3 à 6 recherches ciblées par session, pas une rafale exhaustive**, et
-cette règle ne saute pas ici : parcourir 19 sources par cycle, c'est soit les survoler
+cette règle ne saute pas ici : parcourir plus de 30 sources par cycle, c'est soit les survoler
 toutes, soit faire exploser le budget. Chaque cycle en couvre **2 à 4**, choisies par
 le besoin du moment (un finding à prouver oriente vers les actes ; une pratique
 d'outillage vers les labos), et la ligne `RIEN DE NEUF SUR :` du rendu nomme celles qui

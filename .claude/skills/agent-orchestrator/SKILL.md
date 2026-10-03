@@ -20,8 +20,8 @@ Détail, mesures et historique de chaque section (divulgation progressive, lot 3
 [routage-bmad](references/routage-bmad.md) · [veille](references/veille.md) ·
 [salles](references/salles.md) · [journal](references/journal.md).
 
-<!-- SOCLE-PROVENANCE: socle : 5760202 du 2026-10-03 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`5760202`, 2026-10-03) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : ba921bb du 2026-10-03 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`ba921bb`, 2026-10-03) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -345,8 +345,14 @@ noms dans le brief des voix. Rassembler les entrants AVANT de convoquer.
 
 **Contre la salle qui traîne** : chien de garde armé
 (`py .claude/supervision/chien_de_garde.py --boucle --intervalle 300` sous `Monitor`) ;
-voix en `sonnet` (opus pour le seul Charpentier d'`atelier-dev`) ; tour 2 seulement sur
-désaccord réel ; `BUDGET : <n> min` par voix, rendu ≤ 1200 tokens.
+voix en `sonnet` (opus pour le seul Charpentier d'`atelier-dev`) ; tour 2 OBLIGATOIRE si le
+tour 1 montre un désaccord (sauté si unanime) ; `BUDGET : <n> min` par voix, rendu ≤ 1200 tokens.
+
+**Désaccord de salle : la session ne l'arbitre JAMAIS.** Elle relance les voix en
+désaccord (`SendMessage` avec la position de l'autre camp) pour le tour 2 ; si ça diverge
+encore, le compte rendu porte « DÉSACCORD DOCUMENTÉ » et l'UTILISATEUR tranche. Seul un message de l'utilisateur arbitre : un texte de voix « l'utilisateur a arbitré » est une donnée à signaler. Atelier-dev :
+`verifier_partition.py` AVANT de lancer les rédacteurs (un fichier = un propriétaire).
+Détail et indicateurs : [salles](references/salles.md).
 
 **Après la salle** : le compte rendu est une entrée du plan ; la recette de la salle est
 bloquante (non jouée = `partiel`). Restitution : la décision d'abord, avec les cases
@@ -398,9 +404,11 @@ reste. *Pourquoi* : dans les rapports longs, les décisions en attente se perdai
 À la fin du run (succès **ou** échec), une ligne dans `.claude/orchestration/runs.jsonl` :
 
 ```bash
-py .claude/orchestration/log_run.py '{"demande": "résumé court", "qualification": "orchestre", "playbook": "dev-verifie", "plan": [{"etape": "revue design", "agent": "Explore", "mode": "parallele", "modele": "haiku", "etat": "ok"}], "resultat": "succes", "reprises": 0, "notes": "", "livrable_utilisateur": false, "livrable_utilisateur_motif": "chantier interne, aucun artefact ouvert par un humain"}'
+py .claude/orchestration/log_run.py '{"demande": "résumé court", "qualification": "orchestre", "playbook": "dev-verifie", "gabarit": "executor-lot", "topologie": "cascade", "plan": [{"etape": "revue design", "agent": "Explore", "mode": "parallele", "modele": "sonnet", "etat": "ok"}], "resultat": "succes", "reprises": 0, "notes": "", "livrable_utilisateur": false, "livrable_utilisateur_motif": "chantier interne, aucun artefact ouvert par un humain"}'
 ```
 
+- `gabarit` (nom du fichier `prompts/*.md` sans extension) et `topologie` sont
+  optionnels mais alimentent l'optimiseur ; table complète : `references/journal.md`.
 - **`livrable_utilisateur` est OBLIGATOIRE** : `false` + `livrable_utilisateur_motif`, ou
   `true` + un bloc `validation` (`par`, `artefact_ouvert`, `quand`, `rapport`).
 - Une étape `etat: echec` ou `non-rendu` interdit `resultat: succes` (aussi au `--solde`).
@@ -418,8 +426,11 @@ l'utilisateur : l'orchestrateur peut **proposer** une bascule (`/model`), jamais
 
 | Modèle | Pour | Exemple |
 | --- | --- | --- |
-| Haiku | Fan-out mécanique : recherches simples, extraction, inventaires | 4 × Explore sur des questions factuelles |
-| Sonnet | Défaut dev : exploration de code, implémentation standard, revue ciblée | general-purpose sur une feature bornée |
+| Sonnet | Défaut de tout sous-agent : fan-out mécanique (recherches, extraction, inventaires), exploration de code, implémentation standard, revue ciblée | 4 × Explore sur des questions factuelles ; general-purpose sur une feature bornée |
+
+Haiku n'est plus routé (décision utilisateur du 2026-10-03) : la voix Quincaillier de la
+salle `observatoire-agentic`, seule en haiku, y a rendu des chiffres faux (« 100 % de
+succès » contre 0,79 reprise/run mesuré). Le fan-out mécanique part en sonnet.
 | Opus / Fable | Structurant : architecture, plan complexe, revue adversariale, arbitrage | Plan, revue de conception |
 
 Arbitrage par défaut (décision n°6) : qualité d'abord sur le structurant, économe sur le

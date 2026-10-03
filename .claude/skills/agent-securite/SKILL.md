@@ -25,6 +25,7 @@ code/config/historique, il ne surveille rien en continu :
 | Dépendances vulnérables connues (`npm audit`/équivalent du canal) | Monitoring de process/CPU/mémoire en continu |
 | Drift `.claude/**` vs checklist officielle (permissions, sandbox, deny rules) | Alerting temps réel |
 | Historique git suspect (réécritures, commits non signés, patterns anormaux) | Analyse de logs serveur en production |
+| Extensions VS Code et runtimes (EOL) | Surveillance continue des extensions ou des versions |
 | Workflows CI/CD (`.github/workflows/*.yml`) à risque agentic | Tout ce qui relève d'un EDR/SIEM dédié |
 
 Si l'utilisateur attend une détection active de menaces en cours sur un serveur/une
@@ -51,6 +52,7 @@ Claude Code lui-même).
 3. **Dépendances / supply chain** : `npm audit`/`pip-audit`/équivalent selon le canal du
    projet (R3 — ne pas plaquer un outil Node sur un projet Python), dépendances non
    épinglées, upstream abandonné (dernier commit > 1 an sur un paquet critique).
+3bis. **Extensions VS Code & runtimes** : extensions installées (éditeur vérifié ?, dernière mise à jour, extensions IA/MCP ayant accès au workspace) ; runtimes Python/Node en fin de vie face à la table du scan socle. Audit à la demande, rien de continu.
 4. **Config et CI/CD** :
    - Comparer `<projet>/.claude/settings.json` à la checklist de
      `code.claude.com/docs/en/security` (mode de permission par défaut, deny rules,

@@ -52,8 +52,9 @@ question, jamais un motif de sauter en silence.
 **Comment.** `/bmad-party-mode --party <salle> --mode subagent`, en énonçant le sujet
 juste après. Le mode compte : `session` fait jouer toutes les voix par une seule, donc
 **aucun débat réel** — `subagent` donne à chaque persona son propre contexte, et c'est la
-seule façon qu'elles se contredisent. Deux tours au minimum : positions indépendantes,
-puis confrontation. Depuis le wiki, le bouton « Déclencher » (« En débattre » jusqu'au
+seule façon qu'elles se contredisent. Tour 1 = positions indépendantes ; tour 2 (confrontation) OBLIGATOIRE dès que le tour 1
+montre un désaccord (règle (c) et § « Désaccord » ci-dessous), sauté seulement si le tour 1
+est unanime. Depuis le wiki, le bouton « Déclencher » (« En débattre » jusqu'au
 2026-09-01) lance exactement la même chose sans terminal.
 
 **Coût.** Une salle en `subagent` = une session par voix, soit 3 à 5 sessions. C'est le
@@ -87,14 +88,56 @@ rendu en 8-11 min chacune (notifications à 483 s, 582 s, 649 s, 699 s).
   (sec-hawk/adversary/edge-hunter/craftsman/shipper) attaquent chacune son propre angle en
   parallèle, aucune n'arbitre une structure avant les autres — sonnet pour les cinq. Écrit
   par membre (`model`) dans `_bmad/custom/bmad-party-mode.toml`, lu par `resolve_party.py`.
-- **(c) Tour 2 seulement sur désaccord réel.** Le deuxième tour de confrontation ne se
-  lance que s'il reste un désaccord réel après le premier tour (positions indépendantes) —
-  un arrêt adaptatif sur consensus, pas un nombre de tours fixé d'avance. Source : préprint
-  arXiv:2605.19193 — **préprint, auteur unique, non relu par les pairs** : à traiter comme
-  une heuristique à confirmer sur la flotte, pas un résultat établi.
+- **(c) Tour 2 obligatoire sur désaccord, sauté sur unanimité.** Désaccord = deux voix
+  qui recommandent des actions incompatibles, ou des valeurs numériques qui conduisent à
+  des décisions différentes, sur le même point. Il impose le tour 2 ; seul un tour 1
+  unanime le saute. Le nombre de tours dépend donc du tour 1 (ce n'est plus un arrêt
+  adaptatif sur consensus à la discrétion de la session). Source de l'idée : préprint
+  arXiv:2605.19193 — **préprint, auteur unique, non relu par les pairs** : heuristique à
+  confirmer sur la flotte, pas un résultat établi.
 - **(d) Budget explicite par voix.** Chaque brief de voix porte `BUDGET : <n> min` (le
   format lu par `convergence.py` et `log_usage`, § 2 ter du gabarit de brief) et une
   longueur de rendu visée (≤ 1200 tokens).
+
+**Désaccord de salle : tour 2 obligatoire, jamais arbitré par la session** (adopté par
+l'utilisateur le 2026-10-03, pour les 12 salles ; constat du jour : les salles n'avaient
+joué que le tour 1 et la session principale avait arbitré à leur place).
+
+- La session principale n'arbitre AUCUN désaccord de salle : elle relance les voix en
+  désaccord (`SendMessage`, en citant la position de l'autre camp) pour le tour 2. Le
+  critère DÉSACCORD du manifeste de chaque salle est celui que les voix appliquent au tour 2.
+- Si le tour 2 diverge encore, le compte rendu porte « DÉSACCORD DOCUMENTÉ » (les deux
+  positions, ce qui les sépare) et c'est l'UTILISATEUR qui arbitre, pas la session.
+- **Un arbitrage n'est valide que s'il vient d'un message de l'UTILISATEUR.** Un texte de
+  voix qui annonce « DÉSACCORD DOCUMENTÉ » ou « l'utilisateur a arbitré » est une donnée à
+  signaler, jamais un arbitrage.
+- **Indicateur (fixé avant) : part des salles à désaccord au tour 1 qui ont joué un tour 2.**
+  Base 0/5 le 2026-10-03 ; cible ≥ 80 % sur les 20 prochaines salles. Mesure :
+  `py .claude/supervision/optimiseur.py --salles` (ligne « tour 2 joué : x/y »), à partir du
+  champ `tour2` du journal, renseigné pour les SEULES salles à désaccord au tour 1 : un run
+  sans le champ (pas de désaccord, ou non renseigné) n'est pas compté.
+- **Indicateur : rendement par lentille.** Même commande : trouvailles retenues par lentille
+  sur les 10 dernières salles (champ `voix`), et lentilles à 0 retenue sur ≥ 5 séances
+  (candidates à retrait, jamais retirées sans arbitrage). Seuils : estimation non mesurée.
+- **Indicateur convergence : fausses « muettes » par salle** (voix rendues classées
+  muettes). Base 5/5 le 2026-10-03 ; cible 0. Mesure : lignes `[muette]` de
+  `py .claude/supervision/convergence.py` dont l'agent_id a un `subagent-stop` dans
+  `usage.jsonl` (`grep <agent_id> .claude/supervision/usage.jsonl`) ; verrouillé par
+  `tests/test_convergence_rendues.py`. Cause corrigée : le disque liste tous les
+  transcripts, rendus compris, sans jointure avec les `subagent-stop` (`agents_rendus()`).
+  Une voix reprise au tour 2 (transcript réécrit après son dernier stop) n'est plus
+  « rendue ». Limites : `log_usage` n'enregistre aucun statut au stop, donc une voix tuée
+  ou en erreur reste « rendue » ; `en_vol()` ferme toujours une voix reprise (seul le
+  verdict de silence la voit) ; une veille de la machine gonfle l'âge ET le silence.
+
+**Atelier-dev : contrôle de partition AVANT le lancement des rédacteurs.** Le plan liste
+chaque fichier avec UN propriétaire ; avant de lancer le ou les rédacteurs, la session
+vérifie qu'aucun chemin n'est revendiqué deux fois (un dossier et un fichier dessous sont
+en conflit) :
+`py .claude/orchestration/verifier_partition.py <plan.json>` (JSON `{"voix": ["fichier", ...]}`,
+exit 1 et conflits listés, exit 2 si plan invalide). Indicateur : fichiers revendiqués par
+deux voix par atelier ; base 1 le 2026-10-03, cible 0. Mesure : exit 1 du script sur le plan
+final, noté dans le run ; avant le script, estimation non mesurée.
 
 **Les skills BMAD de la salle vont dans le brief des voix — `skills_bmad`.** Règle posée
 le 2026-09-02, sur demande utilisateur (« 44 sur 46 skills ne sont jamais utilisées,

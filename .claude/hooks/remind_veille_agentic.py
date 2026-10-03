@@ -16,6 +16,16 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 VEILLE_PATH = os.path.join(ROOT, ".claude", "veille", "veille.json")
 
 
+def _armer_chien_de_garde():
+    """Bounded lifetime (< the 30 s hook timeout); no-op when the helper is absent."""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from _stdin_borne import armer_chien_de_garde
+        armer_chien_de_garde(25.0, 0)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def main():
     derniere = None
     try:
@@ -47,4 +57,5 @@ def main():
 
 
 if __name__ == "__main__":
+    _armer_chien_de_garde()
     sys.exit(main())

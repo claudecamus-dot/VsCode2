@@ -9,7 +9,7 @@
 À la fin du run (succès **ou** échec), une ligne dans `.claude/orchestration/runs.jsonl` :
 
 ```bash
-py .claude/orchestration/log_run.py '{"demande": "résumé court", "qualification": "orchestre", "playbook": "dev-verifie", "plan": [{"etape": "revue design", "agent": "Explore", "mode": "parallele", "modele": "haiku", "etat": "ok"}], "resultat": "succes", "reprises": 0, "notes": "", "livrable_utilisateur": false, "livrable_utilisateur_motif": "chantier interne, aucun artefact ouvert par un humain"}'
+py .claude/orchestration/log_run.py '{"demande": "résumé court", "qualification": "orchestre", "playbook": "dev-verifie", "gabarit": "executor-lot", "topologie": "cascade", "plan": [{"etape": "revue design", "agent": "Explore", "mode": "parallele", "modele": "sonnet", "etat": "ok"}], "resultat": "succes", "reprises": 0, "notes": "", "livrable_utilisateur": false, "livrable_utilisateur_motif": "chantier interne, aucun artefact ouvert par un humain"}'
 ```
 
 **`livrable_utilisateur` est OBLIGATOIRE** (booléen) depuis le 2026-09-19 — absent, le run
@@ -57,6 +57,29 @@ obligatoire sautée, OU une escalade non résolue à la remise (commit/PR bloqu�
 l'utilisateur) ; `echec` = objectif non atteint / run abandonné ; `playbook` : nom du
 playbook instancié ou `null` en composition libre. Les exécutions directes ne se
 journalisent pas — le journal trace les orchestrations, pas la conversation.)
+
+**Champs optionnels de l'optimiseur** (chantier `optimiser`, 2026-10-03). Tous absents
+acceptés (runs antérieurs, `--solde` compris) ; présents mais invalides : refus qui liste
+les valeurs permises (`verifier_gabarit_topologie`). Ils alimentent
+`.claude/supervision/optimiseur.py`, qui ne compare que des cellules
+(playbook, gabarit, topologie) complètes.
+
+| Champ | Valeurs | Rôle |
+| --- | --- | --- |
+| `gabarit` | nom de fichier de `prompts/*.md` sans extension, ou `null` | Gabarit de brief utilisé |
+| `topologie` | `agent-seul` \| `fan-out` \| `salle` \| `workflow` \| `cascade` | Forme du pilotage |
+| `bras` | `temoin` \| `variante` \| `topologie-reduite` | Rôle dans une comparaison appariée ; `topologie-reduite` se compare à `variante` (le bras multi-agent) sur le même `tache_id` |
+| `tache_id` | chaîne non vide | Identifiant commun aux deux bras d'une paire |
+| `tokens`, `duree_s`, `budget_tokens` | nombre ≥ 0 ou `null` | Coût, durée, budget égal des deux bras |
+| `famille` | chaîne non vide | Famille de tâches : un candidat n'est `gagnant` que s'il gagne sur ≥ 2 familles, sinon `donnees-insuffisantes` (« une seule famille ») |
+| `branches_lancees`, `duree_branche_max_s` | entier ≥ 0 | Détection du fan-out dégénéré (topologie `fan-out`/`salle`/`workflow`) : `branches_lancees` ≤ 1 OU `duree_s` ≥ 0,9 × branches × branche la plus longue |
+| `tour2` | `true` \| `false` | Salle à désaccord au tour 1 uniquement : `true` = tour 2 joué, `false` = désaccord sans tour 2. Rempli UNIQUEMENT si le tour 1 a produit un désaccord ; absent = pas de désaccord OU non renseigné (indistinguables), et `--salles` ne compte que les runs où le champ est présent |
+| `voix` | liste de `{nom, modele, duree_s ≥ 0 fini, trouvailles_retenues ≥ 0}` | Rendement par voix d'une salle (une entrée par lentille) |
+
+Les seuils du lot 2 (0,9 ; 2 familles ; 3 tâches par famille ; 4 runs résolus pour la
+tendance ; fenêtre de 10 salles ; 5 séances) sont des estimations non mesurées. La tendance « tokens par run résolu »
+(1re moitié contre 2de moitié des runs d'une cellule) s'affiche dans
+`optimiseur.py --rapport` et n'entre jamais dans la porte.
 
 ## Annexe — §§ 1 et 1 bis, texte intégral avant le lot 3
 

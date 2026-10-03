@@ -51,6 +51,10 @@ schéma, noter l'exigence dans le `critere` du `contrat` de l'étape longue elle
 point d'étape journalisable rendu par l'agent avant de poursuivre, coût tokens/latence
 mis en regard du bénéfice de détection précoce.
 
+## Comparaison témoin/variante
+
+Pour mesurer si un playbook vaut son coût face à un agent seul, voir la section « Bras témoin (optimiseur) » de `dev-verifie.md` (champs `bras`, `tache_id`, `budget_tokens` du journal).
+
 ## Exécution et journal
 
 La skill instancie le playbook (adapte les étapes à la demande, sans en retirer les
@@ -59,8 +63,8 @@ contrat, et journalise le run dans `runs.jsonl` avec `"playbook": "<nom>"` dans 
 ou le plan — c'est ce qui permettra au superviseur (étage 2 / incrément O-C) de mesurer
 le taux de réussite par playbook et de remonter les playbooks jamais joués.
 
-<!-- SOCLE-PROVENANCE: socle : 5760202 du 2026-10-03 -->
-> **Socle généré** — tout ce qui PRÉCÈDE ce bandeau vient du hub de supervision (`5760202`, 2026-10-03) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : ba921bb du 2026-10-03 -->
+> **Socle généré** — tout ce qui PRÉCÈDE ce bandeau vient du hub de supervision (`ba921bb`, 2026-10-03) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » placé après ce bandeau, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet

@@ -169,8 +169,9 @@ description d'intention. Les gestes exacts :
 - **Continuer un sous-agent** : `SendMessage` avec son agentId (rendu à la fin de
   son run) relance LE MÊME agent avec son contexte intact — toujours préférable à
   re-briefer un agent neuf quand on itère sur le même sujet (revue → contre-revue).
-- **Modèle par agent** : paramètre `model` de l'appel (haiku/sonnet/opus) selon la
-  politique § modèle ci-dessous — le fan-out mécanique en haiku, la revue en sonnet,
+- **Modèle par agent** : paramètre `model` de l'appel (sonnet/opus) selon la
+  politique § modèle ci-dessous — le fan-out mécanique et la revue en sonnet (haiku
+  n'est plus routé depuis le 2026-10-03),
   le structurant en opus ; omis = modèle de la session.
 - **Écritures concurrentes** : remplacé le 2026-10-02 (lot 3) par la règle « un seul
   rédacteur par périmètre de fichiers » de SKILL.md § 2 ter ; `isolation: "worktree"`

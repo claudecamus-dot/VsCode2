@@ -66,6 +66,32 @@ def lire_stdin_octets_borne(delai: float = DELAI_DEFAUT, flux=None):
         return None
 
 
+def armer_chien_de_garde(delai: float = 25.0, code: int = 0) -> None:
+    """Max lifetime for a NON-guard hook (finding hooks:processus-git-orphelins-et-verrou-fige).
+
+    Claude Code kills the ``py`` launcher at the hook timeout but not the ``python.exe``
+    child, which then lives on as an orphan if anything blocks (file I/O, a child, a
+    lock). A daemon timer ends the process with ``os._exit(code)`` after ``delai`` s,
+    which must stay below the hook's settings.json timeout. Fail-open ``code`` 0 for
+    reminders: NEVER use it in a guard (a guard's exit code is its decision)."""
+    try:
+        import os
+
+        def _fin():
+            try:
+                sys.stderr.write(f"hook: duree maximale {delai:g} s atteinte -- fail-open\n")
+                sys.stderr.flush()
+            except Exception:  # noqa: BLE001
+                pass
+            os._exit(code)
+
+        t = threading.Timer(delai, _fin)
+        t.daemon = True
+        t.start()
+    except Exception:  # noqa: BLE001 - never raise from a safety net
+        pass
+
+
 def signaler_fail_open(hook: str, delai: float = DELAI_DEFAUT) -> None:
     """One stderr line so a timeout fail-open is never an invisible bypass."""
     try:

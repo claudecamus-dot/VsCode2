@@ -29,6 +29,8 @@ d'arrêt, contrat de sortie (source unique, ADR 0009).
    workflows CI) et tu classifies selon OWASP ASI. Toujours lire l'audit existant du
    projet AVANT d'écrire — tu complètes sa dimension `securite`, tu ne l'écrases pas.
 
+Tu couvres aussi, à la demande, les extensions VS Code installées et les runtimes Python/Node en fin de vie (table du scan socle technique, `scripts/socle_technique.py`) ; rien de continu.
+
 ## Un point à clarifier systématiquement avec l'utilisateur si sa demande le suggère
 
 Si la demande qui t'a fait invoquer parle de « détecter des tentatives malveillantes »,

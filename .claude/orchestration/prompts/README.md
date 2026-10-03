@@ -15,6 +15,8 @@ fills the `{{placeholders}}`, and writes only the task-specific part by hand.
 | `user-simulation.md` | `utilisateur-produit` walk-through of a fleet product |
 
 Rules:
+- The `gabarit` id journaled in `runs.jsonl` (field `gabarit`, read by `optimiseur.py`) is the
+  template's file basename without `.md` (e.g. `executor-lot`), same as the `GABARIT :` line.
 - Every template carries the mandatory clauses of `agent-orchestrator` SKILL.md § 2 ter
   (FAITS TRANSMIS, CIBLE ÉNUMÉRÉE, SendMessage `main` affordance, UNCERTAINTY, QUALITY
   CRITERIA, PROVENANCE, foreground-only, marked mutants, structured end block).

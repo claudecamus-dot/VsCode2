@@ -715,14 +715,21 @@ def ligne_crashs_gardes(chemin=None, maintenant=None, jours=FENETRE_CRASHS_JOURS
 # subprocess ne tue que l'enfant direct. MESURE seulement (aucun correctif de timeout).
 SEUIL_GIT_ORPHELIN_MIN = 30
 _PS_GIT = (
-    "Get-CimInstance Win32_Process -Filter \"Name='git.exe'\" | ForEach-Object { "
-    "[pscustomobject]@{pid=$_.ProcessId; ppid=$_.ParentProcessId; "
+    "Get-CimInstance Win32_Process -Filter \"Name='git.exe' OR Name='python.exe' OR "
+    "Name='py.exe' OR Name='pythonw.exe'\" | ForEach-Object { "
+    "[pscustomobject]@{pid=$_.ProcessId; ppid=$_.ParentProcessId; nom=$_.Name; "
+    "cmd=$_.CommandLine; "
     "debut=$_.CreationDate.ToUniversalTime().ToString('o')} } | ConvertTo-Json -Compress"
 )
+# One bounded call (<= 5 s, SessionStart only, never on the PreToolUse path).
+DELAI_LISTE_PROCESSUS_S = 5
 
 
 def lister_git_exe():
-    """Liste les git.exe vivants : [{pid, ppid, debut (datetime UTC)}]. None si impossible.
+    """Liste les git.exe/python.exe/py.exe vivants : [{pid, ppid, nom, cmd, debut (UTC)}].
+
+    None si impossible. Nom historique conserve : le filtre par nom est fait par
+    `git_orphelins` / `hooks_orphelins`.
 
     Windows seulement (Get-CimInstance) ; ailleurs ou en cas d'echec : None, fail-open.
     """
@@ -732,7 +739,7 @@ def lister_git_exe():
         import subprocess
         r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", _PS_GIT],
                            capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=15)
+                           errors="replace", timeout=DELAI_LISTE_PROCESSUS_S)
         if r.returncode != 0:
             return None
         brut = (r.stdout or "").strip()
@@ -744,7 +751,8 @@ def lister_git_exe():
         sortie = []
         for d in data:
             debut = dt.datetime.fromisoformat(str(d["debut"]).replace("Z", "+00:00"))
-            sortie.append({"pid": d.get("pid"), "ppid": d.get("ppid"), "debut": debut})
+            sortie.append({"pid": d.get("pid"), "ppid": d.get("ppid"), "debut": debut,
+                           "nom": str(d.get("nom") or "").lower(), "cmd": d.get("cmd") or ""})
         return sortie
     except Exception:  # noqa: BLE001 - fail-open : un hook ne bloque jamais la session
         return None
@@ -760,6 +768,8 @@ def git_orphelins(processus=None, maintenant=None, seuil_min=SEUIL_GIT_ORPHELIN_
     maintenant = maintenant or dt.datetime.now(utc)
     vieux = []
     for p in processus:
+        if p.get("nom") and p.get("nom") != "git.exe":
+            continue  # a python.exe/py.exe is counted by hooks_orphelins, not here
         debut = p.get("debut")
         if not isinstance(debut, dt.datetime):
             continue
@@ -780,6 +790,50 @@ def ligne_git_orphelins(processus=None, maintenant=None, seuil_min=SEUIL_GIT_ORP
         f"{len(vieux)} processus git.exe de plus de {seuil_min} min (parents {', '.join(parents[:3])}"
         f"{', ...' if len(parents) > 3 else ''}) -- orphelins probables, risque de verrou .git ;"
         " journal des Popen detaches : .claude/supervision/popen_detaches.jsonl")
+
+
+_NOMS_PYTHON = ("python.exe", "py.exe", "pythonw.exe")
+
+
+def hooks_orphelins(processus=None, maintenant=None, seuil_min=SEUIL_GIT_ORPHELIN_MIN):
+    """python.exe/py.exe dont la ligne de commande vise `.claude/hooks` et plus vieux que
+    `seuil_min` minutes (strictement). Un hook sain vit quelques secondes ; le scan du
+    wiki detache par le lanceur vit plus longtemps mais est borne a < 15 min."""
+    if processus is None:
+        processus = lister_git_exe()
+    if not processus:
+        return []
+    utc = dt.timezone.utc  # noqa: UP017
+    maintenant = maintenant or dt.datetime.now(utc)
+    vieux = []
+    for p in processus:
+        if p.get("nom") not in _NOMS_PYTHON:
+            continue
+        cmd = str(p.get("cmd") or "").replace("\\", "/")
+        if ".claude/hooks" not in cmd:
+            continue
+        debut = p.get("debut")
+        if not isinstance(debut, dt.datetime):
+            continue
+        if debut.tzinfo is None:
+            debut = debut.replace(tzinfo=utc)
+        if maintenant - debut > dt.timedelta(minutes=seuil_min):
+            vieux.append(p)
+    return vieux
+
+
+def ligne_hooks_orphelins(processus=None, maintenant=None, seuil_min=SEUIL_GIT_ORPHELIN_MIN):
+    """Une ligne ASCII si des processus de hook depassent le seuil, sinon None. Jamais de
+    kill automatique (R4) : la commande est SUGGEREE, l'utilisateur decide."""
+    vieux = hooks_orphelins(processus, maintenant, seuil_min)
+    if not vieux:
+        return None
+    pids = [str(p.get("pid")) for p in vieux]
+    cmd = " ".join(f"/PID {x}" for x in pids[:5])
+    return _ascii(
+        f"{len(vieux)} processus de hook (.claude/hooks) de plus de {seuil_min} min, pids "
+        f"{', '.join(pids[:5])}{', ...' if len(pids) > 5 else ''} -- orphelins probables ; apres "
+        f"verification : taskkill /F /T {cmd}")
 
 
 def main(argv=None):
@@ -865,9 +919,14 @@ def main(argv=None):
 
     # git.exe orphelins (> 30 min) : affiche seulement si > 0 ; fail-open.
     try:
-        ligne_git = ligne_git_orphelins()
-        if ligne_git:
-            lignes.append(ligne_git)
+        procs = lister_git_exe()  # ONE bounded call shared by both counters
+        if procs is None and os.name == "nt":
+            lignes.append("processus orphelins (git/hooks) : non mesure (liste indisponible"
+                          f" ou > {DELAI_LISTE_PROCESSUS_S} s)")
+        procs = procs if procs is not None else []  # never a 2nd (slow) listing
+        for ligne_orph in (ligne_git_orphelins(procs), ligne_hooks_orphelins(procs)):
+            if ligne_orph:
+                lignes.append(ligne_orph)
     except Exception as exc:  # fail-open : un hook ne bloque jamais la session
         lignes.append(f"git orphelins : mesure impossible ({_ascii(str(exc))})")
 

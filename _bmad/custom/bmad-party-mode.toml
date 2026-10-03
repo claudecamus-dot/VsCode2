@@ -409,9 +409,9 @@ entrants = [
 # fonctionne. Meme charpente partout — mode, deroule, desaccord, arret, interdits —
 # pour qu'on puisse comparer deux salles et reconnaitre celle qui derive.
 manifeste = [
-  '''MODE — subagent, deux tours. Vigie et Argus arrivent avec des mesures, pas des impressions.''',
+  '''MODE — subagent. Tour 2 obligatoire si le tour 1 montre un désaccord, sauté si unanime. Vigie et Argus arrivent avec des mesures, pas des impressions.''',
   '''DÉROULÉ — (1) l'état de l'art (Vigie) et l'état mesuré de la flotte (Argus) ; (2) Quincaillier dit ce qui existe déjà et ferait doublon ; (3) Garde-fou chiffre le coût de maintenance ; (4) confrontation puis recommandation nommée.''',
-  '''DÉSACCORD — une pratique que la salle ne départage pas repart en arbitrage utilisateur avec les deux positions intactes.''',
+  '''DÉSACCORD — une pratique que la salle ne départage pas repart en arbitrage utilisateur avec les deux positions intactes. Critère des voix au tour 2 ; si le tour 2 diverge encore, « DÉSACCORD DOCUMENTÉ » et l'utilisateur arbitre, jamais la session.''',
   '''ARRÊT — quand une recommandation est nommée. Une salle qui rend N options équivalentes n'a pas fini.''',
   '''JAMAIS — n'adopte rien : l'adoption est un arbitrage humain tracé dans arbitrages.json.''',
 ]
@@ -474,9 +474,9 @@ entrants = [
 # fonctionne. Meme charpente partout — mode, deroule, desaccord, arret, interdits —
 # pour qu'on puisse comparer deux salles et reconnaitre celle qui derive.
 manifeste = [
-  '''MODE — subagent, deux tours. Le premier tour n'est PAS une répartition : c'est la structure.''',
+  '''MODE — subagent. Tour 2 obligatoire si le tour 1 montre un désaccord, sauté si unanime. Le premier tour n'est PAS une répartition : c'est la structure.''',
   '''DÉROULÉ — (1) le Charpentier pose les frontières ; (2) les trois dev nomment leur périmètre de fichiers ; (3) le Relecteur dit ce qui bloquera en revue ; (4) confrontation, chaque voix répond aux trois autres.''',
-  '''DÉSACCORD — deux voix sur le même fichier est le seul conflit qui ne doit JAMAIS sortir de la salle : il se tranche ici ou la salle ne rend rien.''',
+  '''DÉSACCORD — deux voix sur le même fichier est le seul conflit qui ne doit JAMAIS sortir de la salle : il se traite au tour 2 avec pour critère « un fichier, un propriétaire » (`verifier_partition.py`) ; s'il persiste, « DÉSACCORD DOCUMENTÉ » et l'utilisateur arbitre, jamais la session.''',
   '''ARRÊT — quand la partition est exclusive et le contrat de preuve écrit.''',
   '''JAMAIS — aucun diff, aucun fichier modifié : la salle rend un plan.''',
 ]
@@ -484,7 +484,7 @@ manifeste = [
 type = '''Plan de partition + contrat de preuve'''
 producteur = '''playbook dev-verifie (hub) ou evolution-flotte (dépôt cible) ; si Amélie-P (couche de preuve) identifie un chemin qui ne peut être prouvé que par un canal e2e absent, le contrat de preuve le nomme et recommande bmad-qa-generate-e2e-tests comme producteur de ce test -- jamais lancé pendant la délibération (régime proposé, écrit des fichiers, arbitrage du 2026-09-21)'''
 recette = [
-  '''Chaque fichier du plan a exactement un propriétaire.''',
+  '''Chaque fichier du plan a exactement un propriétaire — vérifié AVANT le lancement des rédacteurs par `py .claude/orchestration/verifier_partition.py <plan.json>` (aucun fichier deux fois).''',
   '''Si le chantier introduit un langage ou une dépendance, le choix est écrit avec ce qu'on lui préfère et pourquoi.''',
   '''Chaque exigence porte le test nommé qui la couvrira.''',
   '''Le canal de test cité a été lancé une fois avant que le plan soit clos.''',
@@ -572,9 +572,9 @@ entrants = [
 # fonctionne. Meme charpente partout — mode, deroule, desaccord, arret, interdits —
 # pour qu'on puisse comparer deux salles et reconnaitre celle qui derive.
 manifeste = [
-  '''MODE — subagent, deux tours. Sally entre en dernier : elle voit ce que voit le destinataire, pas le fabricant.''',
+  '''MODE — subagent. Tour 2 obligatoire si le tour 1 montre un désaccord, sauté si unanime. Sally entre en dernier : elle voit ce que voit le destinataire, pas le fabricant.''',
   '''DÉROULÉ — (1) le message en une phrase ; (2) le Maquettiste propose la forme, le Contrôleur oppose le gabarit ; (3) Sally regarde en destinataire ; (4) confrontation slide à slide.''',
-  '''DÉSACCORD — entre la forme voulue et le gabarit imposé, c'est le gabarit qui gagne, ou la contrainte est remontée à l'utilisateur.''',
+  '''DÉSACCORD — entre la forme voulue et le gabarit imposé, c'est le gabarit qui gagne, ou la contrainte est remontée à l'utilisateur. Critère des voix au tour 2 ; si le tour 2 diverge encore, « DÉSACCORD DOCUMENTÉ » et l'utilisateur arbitre, jamais la session.''',
   '''ARRÊT — quand chaque slide est rattachée à un point tranché et qu'aucune ne reste orpheline.''',
   '''JAMAIS — ne génère pas le deck : elle en écrit la recette, le playbook le produit.''',
 ]
@@ -616,9 +616,9 @@ entrants = [
 # fonctionne. Meme charpente partout — mode, deroule, desaccord, arret, interdits —
 # pour qu'on puisse comparer deux salles et reconnaitre celle qui derive.
 manifeste = [
-  '''MODE — subagent, deux tours. C'est un GUICHET : la salle répond oui, non, ou pas encore et à quelle condition.''',
+  '''MODE — subagent. Tour 2 obligatoire si le tour 1 montre un désaccord, sauté si unanime. C'est un GUICHET : la salle répond oui, non, ou pas encore et à quelle condition.''',
   '''DÉROULÉ — (1) Aiguilleur les environnements ; (2) Passerelle ce qui sort du poste ; (3) l'Archiviste la doc d'exploitation ; (4) Garde-fou les tests, puis confrontation.''',
-  '''DÉSACCORD — un « pas encore » l'emporte sur un « ça devrait aller » tant que la condition n'est pas écrite.''',
+  '''DÉSACCORD — un « pas encore » l'emporte sur un « ça devrait aller » tant que la condition n'est pas écrite. Critère des voix au tour 2 ; si le tour 2 diverge encore, « DÉSACCORD DOCUMENTÉ » et l'utilisateur arbitre, jamais la session.''',
   '''ARRÊT — quand le verdict est rendu avec ses conditions nommées.''',
   '''JAMAIS — ne déploie pas, ne touche à aucun environnement.''',
 ]
@@ -660,9 +660,9 @@ entrants = [
 # fonctionne. Meme charpente partout — mode, deroule, desaccord, arret, interdits —
 # pour qu'on puisse comparer deux salles et reconnaitre celle qui derive.
 manifeste = [
-  '''MODE — subagent, deux tours minimum. Le premier tour interdit les solutions.''',
+  '''MODE — subagent. Tour 2 obligatoire si le tour 1 montre un désaccord, sauté si unanime. Le premier tour interdit les solutions.''',
   '''DÉROULÉ — (1) le Cadreur pose le problème ; (2) Portevoix parle pour l'usager absent ; (3) Wildcard ouvre les options ; (4) Splinter casse l'accord facile, puis confrontation.''',
-  '''DÉSACCORD — les désaccords restants sont le livrable : on les nomme et on dit ce qui les départagerait.''',
+  '''DÉSACCORD — les désaccords restants sont le livrable : on les nomme et on dit ce qui les départagerait. Critère des voix au tour 2 ; si le tour 2 diverge encore, « DÉSACCORD DOCUMENTÉ » et l'utilisateur arbitre, jamais la session.''',
   '''ARRÊT — quand les options sont comparables colonne à colonne et qu'une recommandation est nommée.''',
   '''JAMAIS — n'efface la condition posée par une voix pour rendre son option plus vendable.''',
 ]
@@ -704,9 +704,9 @@ entrants = [
 # fonctionne. Meme charpente partout — mode, deroule, desaccord, arret, interdits —
 # pour qu'on puisse comparer deux salles et reconnaitre celle qui derive.
 manifeste = [
-  '''MODE — subagent, deux tours. Aucun chiffre n'entre en salle sans la commande qui l'a produit.''',
+  '''MODE — subagent. Tour 2 obligatoire si le tour 1 montre un désaccord, sauté si unanime. Aucun chiffre n'entre en salle sans la commande qui l'a produit.''',
   '''DÉROULÉ — (1) Jauge pose les chiffres et leurs fenêtres ; (2) Argus ce que les runs ont réellement joué ; (3) Quincaillier ce qui tourne pour rien ; (4) confrontation : la dépense a-t-elle acheté quelque chose ?''',
-  '''DÉSACCORD — une corrélation contestée est requalifiée en coïncidence tant que rien ne la relie.''',
+  '''DÉSACCORD — une corrélation contestée est requalifiée en coïncidence tant que rien ne la relie. Critère des voix au tour 2 ; si le tour 2 diverge encore, « DÉSACCORD DOCUMENTÉ » et l'utilisateur arbitre, jamais la session.''',
   '''ARRÊT — quand chaque poste est rattaché à un achat, ou explicitement déclaré sans contrepartie.''',
   '''JAMAIS — ne conclut rien sur une période non observée, et ne coupe aucun dispositif de sa propre autorité.''',
 ]
@@ -747,9 +747,9 @@ entrants = [
 # fonctionne. Meme charpente partout — mode, deroule, desaccord, arret, interdits —
 # pour qu'on puisse comparer deux salles et reconnaitre celle qui derive.
 manifeste = [
-  '''MODE — subagent, open-cast : la scène caste les voix selon ce que le projet est. Deux tours.''',
+  '''MODE — subagent. Tour 2 obligatoire si le tour 1 montre un désaccord, sauté si unanime. open-cast : la scène caste les voix selon ce que le projet est.''',
   '''DÉROULÉ — (1) lecture directe du dépôt, chacun sur sa question ; (2) mise en commun ; (3) ce qu'on ne sait pas encore ; (4) le premier pas proposé.''',
-  '''DÉSACCORD — une divergence sur ce que fait le projet se tranche en rouvrant le fichier, pas en argumentant.''',
+  '''DÉSACCORD — une divergence sur ce que fait le projet se tranche en rouvrant le fichier, pas en argumentant. Critère des voix au tour 2 ; si le tour 2 diverge encore, « DÉSACCORD DOCUMENTÉ » et l'utilisateur arbitre, jamais la session.''',
   '''ARRÊT — quand la fiche tient debout et que les trous sont nommés.''',
   '''JAMAIS — n'affirme rien sur le projet sans avoir ouvert le fichier qui le prouve.''',
 ]
@@ -802,9 +802,9 @@ entrants = [
 # fonctionne. Meme charpente partout — mode, deroule, desaccord, arret, interdits —
 # pour qu'on puisse comparer deux salles et reconnaitre celle qui derive.
 manifeste = [
-  '''MODE — subagent obligatoire, deux tours : chaque angle relit SEUL avant la confrontation. En mode session les cinq voix se ressemblent et la revue ne vaut rien.''',
+  '''MODE — subagent. Tour 2 obligatoire si le tour 1 montre un désaccord, sauté si unanime. Chaque angle relit SEUL avant la confrontation ; le mode session est interdit : les cinq voix se ressemblent et la revue ne vaut rien.''',
   '''DÉROULÉ — (1) cinq lectures indépendantes du même diff ; (2) mise en commun par sévérité ; (3) confrontation : sécurité contre livraison, élégance contre pragmatisme ; (4) tri bloquant / préférentiel.''',
-  '''DÉSACCORD — un constat contesté se défend ou se retire ; il ne reste pas « en discussion » dans le rapport.''',
+  '''DÉSACCORD — un constat contesté se défend ou se retire ; il ne reste pas « en discussion » dans le rapport. Critère des voix au tour 2 ; si le tour 2 diverge encore, « DÉSACCORD DOCUMENTÉ » et l'utilisateur arbitre, jamais la session.''',
   '''ARRÊT — quand chaque constat porte fichier:ligne et un scénario, et que le tri est fait.''',
   '''JAMAIS — ne corrige rien, ne félicite pas pour meubler, ne mélange pas le style au bloquant.''',
 ]
@@ -846,9 +846,9 @@ entrants = [
 # fonctionne. Meme charpente partout — mode, deroule, desaccord, arret, interdits —
 # pour qu'on puisse comparer deux salles et reconnaitre celle qui derive.
 manifeste = [
-  '''MODE — subagent fortement recommandé : en contexte partagé, l'accord trop rapide est mécanique.''',
+  '''MODE — subagent. Tour 2 obligatoire si le tour 1 montre un désaccord, sauté si unanime. Subagent fortement recommandé : en contexte partagé, l'accord trop rapide est mécanique.''',
   '''DÉROULÉ — (1) énoncer la décision qui semble acquise ; (2) Splinter nomme l'hypothèse cachée ; (3) Wildcard rouvre des options ; (4) Level vérifie les preuves, Killjoy arrête les boucles.''',
-  '''DÉSACCORD — la salle n'a pas à le résoudre : elle le rend visible et le rend à l'humain.''',
+  '''DÉSACCORD — la salle n'a pas à le résoudre : elle le rend visible et le rend à l'humain. Critère des voix au tour 2 ; si le tour 2 diverge encore, « DÉSACCORD DOCUMENTÉ » et l'utilisateur arbitre, jamais la session.''',
   '''ARRÊT — dès que la salle se répète : Killjoy coupe et demande quelle question non résolue compte.''',
   '''PASSE (pilote 2026-09-12 ; mesure du 2026-09-21 : quasi aucune économie constatée sur une convocation réelle, une voix a écrit "RAS." PUIS un paragraphe complet derrière — clause durcie en conséquence, généralisation gelée) — FORMAT STRICT, pas une option : si une voix n'a rien de neuf à ajouter à ce tour, sa réponse ENTIÈRE est le seul mot « RAS », sans point, sans guillemets, sans aucun caractère avant ou après, sur une ligne et rien d'autre — aucune phrase, aucune justification, aucun paragraphe, même court, ne peut suivre. Toute réponse qui contient autre chose que ce mot seul n'est PAS une PASSE : c'est une reformulation normale, à traiter comme telle. Ça ne compte ni comme un vote ni comme un accord.''',
   '''JAMAIS — ne vote pas, ne déclare pas de consensus, ne parle pas comme si elle avait autorité.''',
@@ -895,9 +895,9 @@ entrants = [
 ]
 
 manifeste = [
-  '''MODE — subagent, deux tours minimum. Un axe par voix au premier tour : quatre regards qui ne se contaminent pas.''',
+  '''MODE — subagent. Tour 2 obligatoire si le tour 1 montre un désaccord, sauté si unanime. Un axe par voix au premier tour : quatre regards qui ne se contaminent pas.''',
   '''DÉROULÉ — (1) chaque voix balaie SON axe seule ; (2) Argus pose les mesures d'usage sur la table ; (3) confrontation : ce qu'une voix veut retirer, une autre doit pouvoir défendre ; (4) tri par coût du statu quo.''',
-  '''DÉSACCORD — un retrait contesté reste PROPOSÉ, jamais arbitré en salle : le désaccord part tel quel à l'utilisateur.''',
+  '''DÉSACCORD — un retrait contesté reste PROPOSÉ, jamais arbitré en salle : le désaccord part tel quel à l'utilisateur. Critère des voix au tour 2 ; si le tour 2 diverge encore, « DÉSACCORD DOCUMENTÉ » et l'utilisateur arbitre, jamais la session.''',
   '''ARRÊT — quand les quatre axes ont rendu, ou quand la salle se met à re-débattre un constat déjà tranché (Killjoy peut être invité).''',
   '''JAMAIS — ne supprime rien, ne corrige rien, ne juge pas l'auteur ; et ne conclut aucune inutilité sur une période non observée.''',
 ]
@@ -936,9 +936,9 @@ entrants = [
 ]
 
 manifeste = [
-  '''MODE — subagent, deux tours. Le premier tour est un ÉTAT DES LIEUX, pas une proposition : on ne corrige pas un socle qu'on n'a pas décrit.''',
+  '''MODE — subagent. Tour 2 obligatoire si le tour 1 montre un désaccord, sauté si unanime. Le premier tour est un ÉTAT DES LIEUX, pas une proposition : on ne corrige pas un socle qu'on n'a pas décrit.''',
   '''DÉROULÉ — (1) Aiguilleur décrit le parc réel ; (2) Vex la surface d'exposition et les secrets, Jauge le coût, Quincaillier ce qui tourne pour rien ; (3) Winston dit vers quoi ça devrait aller ; (4) confrontation et tri par RISQUE, pas par facilité.''',
-  '''DÉSACCORD — un risque contesté est chiffré ou requalifié en hypothèse ; il ne disparaît pas parce qu'il gêne.''',
+  '''DÉSACCORD — un risque contesté est chiffré ou requalifié en hypothèse ; il ne disparaît pas parce qu'il gêne. Critère des voix au tour 2 ; si le tour 2 diverge encore, « DÉSACCORD DOCUMENTÉ » et l'utilisateur arbitre, jamais la session.''',
   '''ARRÊT — quand le parc est décrit, les risques triés et le prochain pas nommé. Pas de plan à douze mois : la salle se re-convoque.''',
   '''JAMAIS — ne touche à aucun environnement, ne fait tourner aucune commande de déploiement, n'écrit aucun secret dans son compte rendu.''',
 ]
@@ -986,9 +986,9 @@ entrants = [
 
 # MANIFESTE DE FONCTIONNEMENT (demande utilisateur 2026-09-01).
 manifeste = [
-  '''MODE — subagent, deux tours. Vigie arrive avec des sources, pas avec des impressions ; personne ne parle d'une pratique sans l'avoir ouverte.''',
+  '''MODE — subagent. Tour 2 obligatoire si le tour 1 montre un désaccord, sauté si unanime. Vigie arrive avec des sources, pas avec des impressions ; personne ne parle d'une pratique sans l'avoir ouverte.''',
   '''DÉROULÉ — (1) Vigie expose les pratiques et leurs sources ; (2) Level classe chacune sur l'échelle et exige la source primaire ; (3) Quincaillier dit ce que la flotte fait déjà, le Cadreur quel problème ça résoudrait ICI ; (4) Splinter attaque ce qui fait consensus trop vite, puis confrontation.''',
-  '''DÉSACCORD — une pratique que la salle ne sait pas classer est marquée À VÉRIFIER avec le coût de sa vérification, jamais promue au bénéfice du doute.''',
+  '''DÉSACCORD — une pratique que la salle ne sait pas classer est marquée À VÉRIFIER avec le coût de sa vérification, jamais promue au bénéfice du doute. Critère des voix au tour 2 ; si le tour 2 diverge encore, « DÉSACCORD DOCUMENTÉ » et l'utilisateur arbitre, jamais la session.''',
   '''ARRÊT — quand chaque pratique du périmètre porte une classe et une source. Pas de balayage sans fin : le périmètre borne la séance.''',
   '''JAMAIS — n'adopte rien, n'installe rien, n'exécute aucun code téléchargé ; et ne confond pas une annonce avec une sortie.''',
 ]
