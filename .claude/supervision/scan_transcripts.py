@@ -4,7 +4,7 @@
 # | garder : la signaler au hub, qui corrige le canon et re-synchronise.
 # | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
 # |  n'est pas déployé, il n'existe pas dans ce dépôt.)
-# | Provenance canon : c26db88 du 2026-10-01 — permet, au prochain sync, de dire si
+# | Provenance canon : 2659606 du 2026-10-03 — permet, au prochain sync, de dire si
 # | une différence vient d'une édition locale ou d'une avance du canon (voir
 # | `determiner_cause` dans sync_dispositif.py au hub).
 # +---------------------------------------------------------------------------
@@ -2461,6 +2461,19 @@ def main(argv) -> int:
     masques = diagnostic_masques(diagnostic, arbitrages)
     diag_a_jour = diagnostic_a_jour(diagnostic, runs)
     hints = build_routing_hints(state, fam, par_playbook, par_agent, diagnostic, runs, arbitrages)
+    # Cle NEUVE `variantes` (jamais `playbooks`, dont les lecteurs ne la connaissent pas) :
+    # verdicts de `optimiseur.py`, calcules sur les memes runs. Fail-open, mais pas muet :
+    # module absent (ImportError) = rien d'ecrit ; tout autre echec laisse sa trace
+    # `{"erreur": <type>}` que le wiki affiche au lieu d'un faux « rejouer le scan ».
+    try:
+        if SUP_DIR not in sys.path:
+            sys.path.append(SUP_DIR)
+        import optimiseur
+        hints["variantes"] = optimiseur.calculer(runs, optimiseur.charger_seuils())
+    except ImportError:
+        pass
+    except Exception as exc:
+        hints["variantes"] = {"erreur": type(exc).__name__}
     hints_dir = os.path.dirname(ROUTING_HINTS_PATH)
     if hints_dir:
         os.makedirs(hints_dir, exist_ok=True)

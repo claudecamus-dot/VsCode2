@@ -4,7 +4,7 @@
 # | garder : la signaler au hub, qui corrige le canon et re-synchronise.
 # | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
 # |  n'est pas déployé, il n'existe pas dans ce dépôt.)
-# | Provenance canon : c26db88 du 2026-10-01 — permet, au prochain sync, de dire si
+# | Provenance canon : 2659606 du 2026-10-03 — permet, au prochain sync, de dire si
 # | une différence vient d'une édition locale ou d'une avance du canon (voir
 # | `determiner_cause` dans sync_dispositif.py au hub).
 # +---------------------------------------------------------------------------
@@ -89,6 +89,7 @@ est concerné comme les autres : la note « revue: abandonné, rien livré » su
 """
 import datetime
 import json
+import math
 import os
 import re
 import sys
@@ -378,6 +379,10 @@ def solder(argv) -> int:
     if refus_forme:
         print(refus_forme)
         return 1
+    refus_gt = verifier_gabarit_topologie(run)
+    if refus_gt:
+        print(refus_gt)
+        return 1
     # NON RETROACTIF : `au_solde=True` fait sortir sans rien controler tout run
     # qui ne PORTE PAS `livrable_utilisateur` — c'est-a-dire les 194 runs ecrits
     # avant le deploiement du champ. Un run qui le porte a ete ecrit apres, et
@@ -434,6 +439,107 @@ def solder(argv) -> int:
     os.replace(tmp, RUNS_PATH)
     print(f"log_run --solde : run {run.get('ts')} requalifie {avant} -> {resultat}")
     return 0
+
+
+# --- Champs optionnels de l'optimiseur (chantier `optimiser`, 2026-10-03) -------
+# Tous OPTIONNELS : absent = accepte (non retroactif, `--solde` compris) ; present
+# mais invalide = refus qui liste les valeurs permises. Ils alimentent
+# `optimiseur.py` (cellule playbook x gabarit x topologie), jamais le journal lui-meme.
+TOPOLOGIES = ("agent-seul", "fan-out", "salle", "workflow", "cascade")
+BRAS = ("temoin", "variante", "topologie-reduite")
+CHAMPS_ENTIERS_OPT = ("tokens", "duree_s", "budget_tokens")
+# Lot 2 (2026-10-03) : entiers >= 0 stricts (pas de float, pas de bool, pas de null).
+CHAMPS_ENTIERS_STRICTS = ("branches_lancees", "duree_branche_max_s")
+# Liste blanche : un nom de fichier de prompts/ sans extension (fullmatch : pas de
+# saut de ligne final toleré). Un `.md` final, quelle que soit la casse, est refuse.
+_RE_GABARIT_OK = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}")
+
+
+def _entier_positif(v) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool) and v >= 0
+
+
+def verifier_salle_voix(run: dict) -> str | None:
+    """Refus si `tour2`, `voix`, `famille`, `branches_lancees` ou `duree_branche_max_s`
+    sont presents mais invalides. Champ ABSENT -> None.
+
+    `tour2` : bool (true = desaccord au tour 1 ET tour 2 joue ; false = desaccord sans
+    tour 2). `voix` : liste de {nom: str non vide, modele: str non vide, duree_s: nombre
+    fini >= 0, trouvailles_retenues: entier >= 0}. `famille` : chaine non vide.
+    """
+    if "tour2" in run and not isinstance(run["tour2"], bool):
+        return (f"log_run REFUS : tour2 invalide : {run['tour2']!r}.\n"
+                "  Attendu : true | false (booleen) - ou champ absent.")
+    if "famille" in run and not (isinstance(run["famille"], str) and run["famille"].strip()):
+        return (f"log_run REFUS : famille invalide : {run['famille']!r}.\n"
+                "  Attendu : chaine non vide (famille de taches) - ou champ absent.")
+    for champ in CHAMPS_ENTIERS_STRICTS:
+        if champ in run and not _entier_positif(run[champ]):
+            return (f"log_run REFUS : {champ} invalide : {run[champ]!r}.\n"
+                    "  Attendu : entier >= 0 - ou champ absent.")
+    if "voix" in run:
+        voix = run["voix"]
+        attendu = ("  Attendu : liste de {nom: str, modele: str, duree_s: nombre fini "
+                   ">= 0, trouvailles_retenues: entier >= 0} - ou champ absent.")
+        if not isinstance(voix, list):
+            return f"log_run REFUS : voix invalide : {voix!r}.\n{attendu}"
+        for i, v in enumerate(voix):
+            ok = (isinstance(v, dict)
+                  and isinstance(v.get("nom"), str) and v["nom"].strip()
+                  and isinstance(v.get("modele"), str) and v["modele"].strip()
+                  and isinstance(v.get("duree_s"), (int, float))
+                  and not isinstance(v.get("duree_s"), bool)
+                  and math.isfinite(v["duree_s"]) and v["duree_s"] >= 0
+                  and _entier_positif(v.get("trouvailles_retenues")))
+            if not ok:
+                return f"log_run REFUS : voix[{i}] invalide : {v!r}.\n{attendu}"
+        noms = [v["nom"].strip().casefold() for v in voix]
+        doublons = sorted({n for n in noms if noms.count(n) > 1})
+        if doublons:
+            return (f"log_run REFUS : voix en double : {', '.join(doublons)}.\n"
+                    "  Attendu : un nom de voix UNIQUE par run (une seance par lentille).")
+    return None
+
+
+def verifier_gabarit_topologie(run: dict) -> str | None:
+    """Refus si un champ optionnel de l'optimiseur est present mais invalide.
+
+    `gabarit` : nom de fichier de `prompts/*.md` sans extension, ou null.
+    `topologie` : TOPOLOGIES. `bras` : BRAS. `tache_id` : chaine non vide.
+    `tokens`, `duree_s`, `budget_tokens` : nombre >= 0 (bool exclu), ou null.
+    Champ ABSENT -> None : un run anterieur n'en porte aucun, et c'est valide.
+    Les champs du lot 2 (salles / fan-out) sont verifies par `verifier_salle_voix`.
+    """
+    refus_lot2 = verifier_salle_voix(run)
+    if refus_lot2:
+        return refus_lot2
+    if "gabarit" in run:
+        g = run["gabarit"]
+        if g is not None and not (isinstance(g, str) and _RE_GABARIT_OK.fullmatch(g)
+                                  and not g.lower().endswith(".md")):
+            return (f"log_run REFUS : gabarit invalide : {g!r}.\n  Attendu : nom de "
+                    "fichier de prompts/*.md SANS extension ni chemin, ou null - ou "
+                    "champ absent.")
+    if "topologie" in run and run["topologie"] not in TOPOLOGIES:
+        return (f"log_run REFUS : topologie invalide : {run['topologie']!r}.\n"
+                f"  Attendu : {' | '.join(TOPOLOGIES)} - ou champ absent.")
+    if "bras" in run and run["bras"] not in BRAS:
+        return (f"log_run REFUS : bras invalide : {run['bras']!r}.\n"
+                f"  Attendu : {' | '.join(BRAS)} - ou champ absent.")
+    if "tache_id" in run and not (isinstance(run["tache_id"], str)
+                                  and run["tache_id"].strip()):
+        return (f"log_run REFUS : tache_id invalide : {run['tache_id']!r}.\n"
+                "  Attendu : chaine non vide (identifiant commun aux deux bras "
+                "d'une paire) - ou champ absent.")
+    for champ in CHAMPS_ENTIERS_OPT:
+        if champ in run:
+            v = run[champ]
+            if v is not None and (isinstance(v, bool)
+                                  or not isinstance(v, (int, float))
+                                  or not math.isfinite(v) or v < 0):
+                return (f"log_run REFUS : {champ} invalide : {v!r}.\n"
+                        "  Attendu : nombre fini >= 0 ou null - ou champ absent.")
+    return None
 
 
 def verifier_forme_tache(run: dict) -> str | None:
@@ -1053,6 +1159,10 @@ def main(argv) -> int:
     refus_forme = verifier_forme_tache(run)
     if refus_forme:
         print(refus_forme)
+        return 1
+    refus_gt = verifier_gabarit_topologie(run)
+    if refus_gt:
+        print(refus_gt)
         return 1
     refus_validation = verifier_validation_utilisateur(run, au_solde=False)
     if refus_validation:
