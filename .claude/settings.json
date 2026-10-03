@@ -6,21 +6,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_destructive_git.py\"",
-            "timeout": 10,
-            "statusMessage": "Checking for destructive git operations..."
-          },
-          {
-            "type": "command",
-            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/warn_verif_before_commit.py\"",
-            "timeout": 10,
-            "statusMessage": "Verif reelle avant commit de code app/ ?"
-          },
-          {
-            "type": "command",
-            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_service.py\"",
-            "timeout": 10,
-            "statusMessage": "Sous-agent : aucun service lance, redemarre ou purge..."
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_dispatch_pretooluse.py\" guard_destructive_git.py warn_verif_before_commit.py guard_service.py",
+            "timeout": 130,
+            "statusMessage": "Gardes shell (dispatcher, un seul processus)..."
           }
         ]
       },
@@ -30,7 +18,7 @@
           {
             "type": "command",
             "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_salle_skills.py\"",
-            "timeout": 10
+            "timeout": 30
           }
         ]
       },
@@ -40,7 +28,7 @@
           {
             "type": "command",
             "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_stories_avant_dev.py\"",
-            "timeout": 10,
+            "timeout": 30,
             "statusMessage": "Implementation : user stories et criteres d'acceptance presents ?"
           }
         ]
@@ -52,7 +40,7 @@
           {
             "type": "command",
             "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/remind_revue_increment.py\"",
-            "timeout": 10,
+            "timeout": 30,
             "statusMessage": "Rappel discipline revue-increment..."
           },
           {
@@ -68,7 +56,7 @@
           {
             "type": "command",
             "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/remind_veille_agentic.py\"",
-            "timeout": 10,
+            "timeout": 30,
             "statusMessage": "Cadence veille agentic..."
           }
         ]
@@ -78,7 +66,7 @@
           {
             "type": "command",
             "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/point_du_jour.py\"",
-            "timeout": 15,
+            "timeout": 30,
             "statusMessage": "Ce qui attend votre decision..."
           }
         ]
@@ -90,7 +78,7 @@
           {
             "type": "command",
             "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/orchestrator_gate.py\"",
-            "timeout": 10,
+            "timeout": 30,
             "statusMessage": "Grille de qualification orchestrateur..."
           }
         ]
@@ -103,7 +91,7 @@
           {
             "type": "command",
             "command": "py \"$CLAUDE_PROJECT_DIR/.claude/supervision/log_usage.py\"",
-            "timeout": 10,
+            "timeout": 30,
             "statusMessage": "Journal usage agents..."
           }
         ]
@@ -114,7 +102,7 @@
           {
             "type": "command",
             "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_ci_after_push.py\"",
-            "timeout": 10,
+            "timeout": 30,
             "statusMessage": "Verification du dernier run CI apres push..."
           }
         ]

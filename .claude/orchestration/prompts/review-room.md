@@ -1,5 +1,7 @@
 # Review room — read-only (stable rules first, this run's specifics below)
 
+GABARIT : review-room
+
 THE ROOM CHANGES NO FILE: it reads, runs read-only commands, and reports.
 
 ## Proof contract

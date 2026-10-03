@@ -20,8 +20,8 @@ Détail, mesures et historique de chaque section (divulgation progressive, lot 3
 [routage-bmad](references/routage-bmad.md) · [veille](references/veille.md) ·
 [salles](references/salles.md) · [journal](references/journal.md).
 
-<!-- SOCLE-PROVENANCE: socle : 2d6bf93 du 2026-10-02 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`2d6bf93`, 2026-10-02) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 5760202 du 2026-10-03 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`5760202`, 2026-10-03) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -294,7 +294,7 @@ téléchargé exécuté. Détail : [adopte](references/adopte.md).
 
 BMAD v6.12.0 : 39 skills canoniques routées par la table de
 [routage-bmad](references/routage-bmad.md) (bloc `BMAD-ROUTAGE`, liste « Jamais routées »).
-Trois règles :
+Quatre règles :
 
 1. **Deux régimes** — *d'office* si la skill est bornée et ne rend qu'un rapport (sauf
    rapports de `bmad-test` sous `_bmad-output/test-artifacts/`) ; *proposé* (annoncé, feu
@@ -304,6 +304,10 @@ Trois règles :
 3. **Porteur ou inline** — une skill qui tient dans la conversation s'invoque inline ;
    porteur indisponible → inline, ou `general-purpose` avec les interdits recopiés, et
    `resolution: porteur-indisponible <nom>`.
+4. **Étape de recherche = `bmad-recherche`, d'office** — toute étape d'un plan qui cherche
+   pour décider (technique, domaine, marché, concurrence, idéation) part vers `bmad-recherche`
+   avec `bmad-deep-recon` ou `bmad-brainstorming` nommée au brief ; ni `general-purpose`, ni
+   inline sauf porteur indisponible.
 
 ### 2 sexies. Lancer la veille sur cadence
 

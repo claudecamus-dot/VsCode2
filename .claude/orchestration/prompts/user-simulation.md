@@ -1,5 +1,7 @@
 # Simulated user walk-through (stable rules first, this run's specifics below)
 
+GABARIT : user-simulation
+
 Sub-agent: `utilisateur-produit`. It changes no file. Report opens with the banner
 « utilisateur simulé, 1 agent, 0 humain » — this is not an acceptance test.
 OUT of scope: code audit, test writing, any change to the product.

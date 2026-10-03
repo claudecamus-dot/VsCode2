@@ -1,5 +1,7 @@
 # Executor brief — one lot (stable rules first, this run's specifics below)
 
+GABARIT : executor-lot
+
 ## Method
 1. Regression test SEEN RED on the current code, then green (quote both runs).
 2. Pose the requested mutant(s) on the decisive line(s), each marked `# MUTANT:`, see the

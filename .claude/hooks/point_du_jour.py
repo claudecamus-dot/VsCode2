@@ -709,6 +709,79 @@ def ligne_crashs_gardes(chemin=None, maintenant=None, jours=FENETRE_CRASHS_JOURS
         " sans controle ; lire .claude/supervision/refus_stdin.jsonl")
 
 
+# Processus git.exe orphelins (finding hooks:processus-git-orphelins-et-verrou-fige,
+# 2026-10-01 : ~80 git.exe de 14h46 a 17h45 et un packed-refs.lock fige). Un git sain vit
+# quelques secondes : au-dela de 30 min, c'est un orphelin. Sous Windows, le timeout d'un
+# subprocess ne tue que l'enfant direct. MESURE seulement (aucun correctif de timeout).
+SEUIL_GIT_ORPHELIN_MIN = 30
+_PS_GIT = (
+    "Get-CimInstance Win32_Process -Filter \"Name='git.exe'\" | ForEach-Object { "
+    "[pscustomobject]@{pid=$_.ProcessId; ppid=$_.ParentProcessId; "
+    "debut=$_.CreationDate.ToUniversalTime().ToString('o')} } | ConvertTo-Json -Compress"
+)
+
+
+def lister_git_exe():
+    """Liste les git.exe vivants : [{pid, ppid, debut (datetime UTC)}]. None si impossible.
+
+    Windows seulement (Get-CimInstance) ; ailleurs ou en cas d'echec : None, fail-open.
+    """
+    if os.name != "nt":
+        return None
+    try:
+        import subprocess
+        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", _PS_GIT],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=15)
+        if r.returncode != 0:
+            return None
+        brut = (r.stdout or "").strip()
+        if not brut:
+            return []
+        data = json.loads(brut)
+        if isinstance(data, dict):
+            data = [data]
+        sortie = []
+        for d in data:
+            debut = dt.datetime.fromisoformat(str(d["debut"]).replace("Z", "+00:00"))
+            sortie.append({"pid": d.get("pid"), "ppid": d.get("ppid"), "debut": debut})
+        return sortie
+    except Exception:  # noqa: BLE001 - fail-open : un hook ne bloque jamais la session
+        return None
+
+
+def git_orphelins(processus=None, maintenant=None, seuil_min=SEUIL_GIT_ORPHELIN_MIN):
+    """Les git.exe de plus de `seuil_min` minutes (strictement). `processus` injectable."""
+    if processus is None:
+        processus = lister_git_exe()
+    if not processus:
+        return []
+    utc = dt.timezone.utc  # noqa: UP017 - hook expedie aux cibles (< 3.11)
+    maintenant = maintenant or dt.datetime.now(utc)
+    vieux = []
+    for p in processus:
+        debut = p.get("debut")
+        if not isinstance(debut, dt.datetime):
+            continue
+        if debut.tzinfo is None:
+            debut = debut.replace(tzinfo=utc)
+        if maintenant - debut > dt.timedelta(minutes=seuil_min):
+            vieux.append(p)
+    return vieux
+
+
+def ligne_git_orphelins(processus=None, maintenant=None, seuil_min=SEUIL_GIT_ORPHELIN_MIN):
+    """Une ligne ASCII si des git.exe depassent le seuil, sinon None (silence)."""
+    vieux = git_orphelins(processus, maintenant, seuil_min)
+    if not vieux:
+        return None
+    parents = sorted({str(p.get("ppid")) for p in vieux})
+    return _ascii(
+        f"{len(vieux)} processus git.exe de plus de {seuil_min} min (parents {', '.join(parents[:3])}"
+        f"{', ...' if len(parents) > 3 else ''}) -- orphelins probables, risque de verrou .git ;"
+        " journal des Popen detaches : .claude/supervision/popen_detaches.jsonl")
+
+
 def main(argv=None):
     # `--tout` (2026-10-01, finding `point_du_jour:tout-voir-reaffiche-la-liste-tronquee`) :
     # la notice de troncature renvoyait a la commande nue, qui re-tronquait la meme
@@ -789,6 +862,14 @@ def main(argv=None):
             lignes.append(ligne_crashs)
     except Exception as exc:  # fail-open : un hook ne bloque jamais la session
         lignes.append(f"plantages de garde : mesure impossible ({_ascii(str(exc))})")
+
+    # git.exe orphelins (> 30 min) : affiche seulement si > 0 ; fail-open.
+    try:
+        ligne_git = ligne_git_orphelins()
+        if ligne_git:
+            lignes.append(ligne_git)
+    except Exception as exc:  # fail-open : un hook ne bloque jamais la session
+        lignes.append(f"git orphelins : mesure impossible ({_ascii(str(exc))})")
 
     # Kit agentic installe chez les cibles vs kit publie (finding
     # flotte:write_diagnostic-deploye-refuse-les-categories-pratique, 2026-09-08) :

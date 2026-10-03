@@ -766,7 +766,8 @@ def tronquer_a_lignes(texte, largeur_in, taille_pt, max_lignes, cpi_ref=11.0,
     return tronque.rstrip(" ,;:.") + "…"
 
 
-def verifier_debordements_texte(prs, cpi_pessimiste=10.7, tolerance_in=0.15):
+def verifier_debordements_texte(prs, cpi_pessimiste=10.7, tolerance_in=0.15,
+                                compte=None):
     """Filet « le texte tient dans sa boîte » — complémentaire de
     verifier_geometrie (qui ne voit que les BORDS des formes, pas le rendu du
     texte dedans). Pour chaque zone de texte dessinée (wrap actif, ancrage TOP,
@@ -777,29 +778,66 @@ def verifier_debordements_texte(prs, cpi_pessimiste=10.7, tolerance_in=0.15):
     limites qui, au vrai repli PowerPoint (français accentué, mots longs),
     sortent de leur cadre — défaut récurrent relevé à l'œil sur les fiches
     (2026-07-22) qu'aucun test ne couvrait. Renvoie une liste de constats
-    (vide = OK) ; l'appelant décide (test dur, ou log)."""
+    (vide = OK) ; l'appelant décide (test dur, ou log).
+
+    `compte` : dict optionnel rempli avec le nombre de zones `examinees`,
+    `ignorees`, et `groupes` (formes groupees, qui n'ont pas de text_frame et
+    dont le filet ne descend PAS les enfants : leur texte est hors verdict).
+    Un filet qui ne dit pas combien de zones il a REGARDEES laisse croire que
+    son vert couvre tout le deck. Sans `compte`, comportement inchange.
+
+    CE QUE CE FILET NE REGARDE PAS : les boites AUTO-AGRANDISSANTES
+    (`SHAPE_TO_FIT_TEXT`) et `TEXT_TO_FIT_SHAPE` sont hors verdict (comptees
+    `ignorees`). Les inclure a ete essaye cote VSCode4 le 2026-09-08 : 17
+    constats sur un deck qui se rend correctement (la calibration pessimiste
+    sur-estime aux grandes tailles, et la hauteur declaree de ces boites n'est
+    qu'une amorce que PowerPoint recalcule). Un filet qui crie sur 17 zones
+    correctes finit debranche. Ce qui est corrige, c'est l'HONNETETE du vert,
+    pas sa portee : `compte` dit combien de zones ont ete laissees de cote."""
+    if compte is not None:
+        compte.setdefault("examinees", 0)
+        compte.setdefault("ignorees", 0)
+        compte.setdefault("groupes", 0)
+
+    def _ignorer():
+        if compte is not None:
+            compte["ignorees"] += 1
+
     problemes = []
     for num, slide in enumerate(prs.slides, start=1):
         for sh in slide.shapes:
             if not getattr(sh, "has_text_frame", False):
+                # Un GROUPE n'a pas de text_frame mais peut porter du texte :
+                # il est compte (ignore + groupes), jamais une sortie muette.
+                _ignorer()
+                if getattr(sh, "shape_type", None) == MSO_SHAPE_TYPE.GROUP:
+                    _noter(compte, "groupes")
                 continue
             if getattr(sh, "is_placeholder", False):
+                _ignorer()
                 continue  # placeholders (titres, couverture…) : PowerPoint les
                 # laisse grandir sans cadre visuel — pas le défaut chassé ici
             tf = sh.text_frame
             try:
                 if not tf.word_wrap or tf.auto_size != MSO_AUTO_SIZE.NONE:
+                    _ignorer()
                     continue
                 if tf.vertical_anchor not in (None, MSO_ANCHOR.TOP):
+                    _ignorer()
                     continue  # MIDDLE/BOTTOM : contenu déjà borné par l'appelant
                 if getattr(sh, "rotation", 0):
+                    _ignorer()
                     continue  # labels rotés : géométrie non comparable
                 w_in = Emu(sh.width).inches
                 h_in = Emu(sh.height).inches
             except Exception:
+                _ignorer()
                 continue
             if w_in <= 0 or h_in <= 0:
+                _ignorer()
                 continue
+            if compte is not None:
+                compte["examinees"] += 1
             est = 0.0
             texte_court = ""
             for p in tf.paragraphs:
@@ -856,9 +894,16 @@ def paginer_items(items, hauteur_fn, capacite_in):
     return pages
 
 
-def verifier_geometrie(prs, marge_in=0.02):
+def verifier_geometrie(prs, marge_in=0.02, compte=None):
     """Retourne la liste des problemes : toute forme dont les bords depassent la
-    slide (au-dela d'une petite marge de tolerance). Liste vide = OK."""
+    slide (au-dela d'une petite marge de tolerance). Liste vide = OK.
+
+    `compte` : dict optionnel rempli avec `examinees`, `ignorees` (bords
+    illisibles ou absents) et `groupes` (formes groupees, examinees sur leur
+    boite ENGLOBANTE, sans descente dans les enfants : un enfant fautif se
+    signale alors au nom du groupe, jamais au sien). Un filet qui ne dit pas
+    combien de formes il a regardees laisse croire que son vert couvre tout le
+    deck. Sans `compte`, comportement inchange."""
     W, H = prs.slide_width, prs.slide_height
     tol = Inches(marge_in)
     problemes = []
@@ -867,9 +912,14 @@ def verifier_geometrie(prs, marge_in=0.02):
             try:
                 l, t, w, h = shp.left, shp.top, shp.width, shp.height
             except Exception:
+                _noter(compte, "ignorees")
                 continue
             if None in (l, t, w, h):
+                _noter(compte, "ignorees")
                 continue
+            _noter(compte, "examinees")
+            if getattr(shp, "shape_type", None) == MSO_SHAPE_TYPE.GROUP:
+                _noter(compte, "groupes")
             nom = shp.name or "shape"
             if w <= 0 or h <= 0:
                 # Pas de tolerance ici, contrairement aux bords : une dimension
@@ -1027,6 +1077,18 @@ def zones_numero_page(slide, defaut=_ZONE_NUMERO_PAGE_IN):
     zones = _zones_numero_page_de(layout) + _zones_numero_page_de(layout.slide_master)
     uniques = {tuple(round(v, 4) for v in z) for z in zones}
     return sorted(uniques) or [defaut]
+
+
+class MiseEnPageImpossible(ValueError):
+    """Une contrainte de mise en page ne peut pas etre honoree : trop d'items
+    pour la bande, une grille trop etroite, une bande qui descend sous le
+    plancher de dessin.
+
+    Existe pour remplacer les `assert` de PRODUCTION qui portaient ces gardes :
+    un `assert` disparait sous `python -O`, la garde est alors totalement
+    muette. `ValueError` comme classe de base : c'est bien un argument (un
+    contenu) incompatible avec la geometrie demandee, et les appelants qui
+    attrapaient deja `ValueError` continuent de fonctionner."""
 
 
 def verifier_plancher_de_dessin(prs, plancher_in, bord_droit_in=None):

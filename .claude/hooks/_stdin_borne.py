@@ -14,7 +14,7 @@ from __future__ import annotations
 import sys
 import threading
 
-DELAI_DEFAUT = 5.0
+DELAI_DEFAUT = 15.0  # 5 s refused bursts under load (254/day, 2026-09-30)
 
 
 def _lire_borne(lecture, delai):

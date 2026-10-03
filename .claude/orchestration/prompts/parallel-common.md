@@ -1,5 +1,7 @@
 # Common rules — N executors in parallel (stable rules first, this run's specifics below)
 
+GABARIT : parallel-common
+
 ## Executors run AT THE SAME TIME in this repo
 - Touch ONLY your partition. Another executor's files in `git status` are NOT yours: never
   stage, stash, restore or revert them.

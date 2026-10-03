@@ -1,5 +1,7 @@
 # Fleet propagation — one target repo (stable rules first, this run's specifics below)
 
+GABARIT : fleet-propagation
+
 Playbook: `.claude/orchestration/playbooks/evolution-flotte.md` (real framing → scoped change →
 checks → scoped commit). ONE target repo per executor.
 OUT of scope: every other repo, and any uncommitted work in the target that is not ours.

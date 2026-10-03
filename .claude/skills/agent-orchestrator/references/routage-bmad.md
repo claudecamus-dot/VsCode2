@@ -31,7 +31,9 @@ besoin matche — plus besoin que l'utilisateur les nomme.
 
 - **D'office** — la skill est bornée, ne rend qu'un rapport ; n'écrit rien sur disque — sauf,
   pour les passes portées par `bmad-test`, sous `_bmad-output/test-artifacts/` (jamais le
-  code ni les tests du dépôt) : lecture ou critique, sans cascade. L'orchestrateur
+  code ni les tests du dépôt), ou, pour les passes portées par `bmad-recherche`
+  (`bmad-deep-recon`, `bmad-brainstorming`), dans le dossier de sortie du run (`research/`,
+  `brainstorming/`) : lecture, recherche ou critique, sans cascade. L'orchestrateur
   l'insère dans le plan comme n'importe quelle autre étape, sans demander.
 - **Proposé** — la skill remplit au moins l'une de ces conditions :
   1. elle ouvre un **workflow multi-étapes** produisant des artefacts structurants
