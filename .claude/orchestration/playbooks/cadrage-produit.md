@@ -131,7 +131,7 @@ réelle encore. À faire évoluer vers `eprouve` après un premier run réussi
 }
 ```
 
-<!-- SOCLE-PROVENANCE: socle : ba921bb du 2026-10-03 -->
-> **Socle généré** — tout ce qui PRÉCÈDE ce bandeau vient du hub de supervision (`ba921bb`, 2026-10-03) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 5ee2027 du 2026-10-04 -->
+> **Socle généré** — tout ce qui PRÉCÈDE ce bandeau vient du hub de supervision (`5ee2027`, 2026-10-04) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » placé après ce bandeau, lui, n'est jamais réécrit : c'est le travail local.
 
