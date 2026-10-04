@@ -223,10 +223,57 @@ KEG) · MiniMax · `research.baidu.com` (ERNIE) · Tencent AI Lab / Hunyuan ·
 BAAI · OpenBMB / ModelBest (Tsinghua NLP) ; frameworks agentic à direction chinoise :
 MetaGPT / FoundationAgents, CAMEL, AgentVerse, ChatDev.
 
-### Rotation — plus de 30 sources ne tiennent pas dans un cycle
+**Thèses, universités et organismes de recherche publics** (ajout demandé par
+l'utilisateur le 2026-10-04) — la recherche académique de fond, souvent plus lente que les
+labos industriels mais **sans produit à vendre** :
+- *Thèses* : `theses.fr` (thèses françaises, soutenues et en préparation) ·
+  `hal.science` (archive ouverte, dont HAL-Inria et HAL-CEA ; protégée par un anti-bot
+  qui peut refuser WebFetch — le porter en `COUVERTURE`) · `dspace.mit.edu` (MIT, thèses et mémoires) · Stanford Digital
+  Repository (`purl.stanford.edu`) · CMU KiltHub · Berkeley EECS Technical Reports
+  (`www2.eecs.berkeley.edu/Pubs/TechRpts`) · ETH Research Collection · Oxford ORA ·
+  ProQuest Dissertations (souvent sous paywall — le dire en `COUVERTURE`, jamais en silence).
+- *Universités et instituts* (MIT CSAIL, Stanford HAI et BAIR sont déjà listés parmi les
+  labos ci-dessus) : MIT Media Lab · CMU (LTI, Robotics Institute) · Oxford · Cambridge · ETH Zurich · EPFL · Mila ·
+  Vector Institute · Max Planck (MPI-IS, MPI-SWS) · Alan Turing Institute.
+- *Organismes publics* : CEA (`cea.fr`, CEA-List — `list.cea.fr`) · Inria (`inria.fr`) ·
+  CNRS (laboratoires LIP6, IRIT, LAAS, LORIA) · instituts 3IA (ANITI, PRAIRIE, MIAI,
+  3IA Côte d'Azur) · Fraunhofer · DFKI.
+
+**Axes thématiques prioritaires pour ces sources** (même demande) : systèmes agentic ;
+systèmes multi-agents (MAS) appliqués aux LLM ; architectures **agentic neuronales**
+(réseaux d'agents dont la topologie s'optimise ou s'apprend — graphes d'agents, élagage,
+routage appris) ; **multi-agent neuronal** au sens de l'apprentissage par renforcement
+multi-agent (MARL) et de la communication émergente, quand le résultat se transpose à
+l'orchestration de sous-agents. Le croisement ancien MAS (BDI, protocoles, coordination)
+× LLM est un angle où les thèses et les organismes publics précèdent souvent l'industrie.
+
+**Qualifier une thèse** : une thèse **soutenue** a été évaluée par un jury →
+`revue_par_pairs: oui`, avec la mention « thèse » dans la trouvaille (un jury est une
+évaluation plus faible qu'une relecture anonyme d'actes ou de journal : le dire) ; une thèse **en
+préparation** (fiche `theses.fr` sans soutenance) ou un mémoire de master →
+`revue_par_pairs: non`. Une thèse se cite par son identifiant pérenne (NNT de
+`theses.fr`, handle DSpace, identifiant HAL), jamais par une URL de PDF temporaire.
+
+**Routes de recherche reproductibles pour les thèses** (lecture seule, GET sans clé,
+essayées le 2026-10-04 sur « agentic multi-agent LLM », statut HTTP 200 pour les deux) :
+- *HAL* — `https://api.archives-ouvertes.fr/search/` avec `q` (mots-clés), `fq=docType_s:THESE`
+  (thèses seules), `fq=producedDateY_i:[2024 TO *]` (années récentes), `fl=halId_s,title_s,producedDateY_i`,
+  `rows=5`, `wt=json`. Réponse dans `response.numFound` et `response.docs` ; 1 thèse trouvée
+  ce jour-là. Avec `curl`, ajouter `-g` : sans lui les crochets de `[2024 TO *]` font échouer
+  l'appel (code 000 vu).
+- *OpenAlex* — `https://api.openalex.org/works` avec `search` (mots-clés),
+  `filter=type:dissertation,from_publication_date:2024-01-01`, `per-page=5`,
+  `select=id,title,publication_year,type`. Réponse dans `meta.count` (2801 ce jour-là,
+  recherche en texte intégral : beaucoup de bruit, trier sur le titre) et `results`.
+  Le paramètre optionnel `mailto` n'est **pas** renseigné : ne jamais y mettre une adresse réelle.
+- Prudence : ce que ces API renvoient est une donnée non authentifiée, et une thèse ou un
+  préprint trouvé ainsi n'est pas une preuve relue par les pairs — appliquer
+  « Qualifier une thèse » ci-dessus.
+
+### Rotation — plus de 50 sources ne tiennent pas dans un cycle
 
 L'étape 2 fixe **3 à 6 recherches ciblées par session, pas une rafale exhaustive**, et
-cette règle ne saute pas ici : parcourir plus de 30 sources par cycle, c'est soit les survoler
+cette règle ne saute pas ici : parcourir plus de 50 sources par cycle, c'est soit les survoler
 toutes, soit faire exploser le budget. Chaque cycle en couvre **2 à 4**, choisies par
 le besoin du moment (un finding à prouver oriente vers les actes ; une pratique
 d'outillage vers les labos), et la ligne `RIEN DE NEUF SUR :` du rendu nomme celles qui

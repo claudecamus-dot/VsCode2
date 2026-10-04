@@ -243,11 +243,39 @@ def _est_un_chemin_protege(token: str) -> bool:
     return p.endswith("config/credentials.json")
 
 
+def _analysable(segment: str) -> bool:
+    try:
+        shlex.split(segment, posix=True)
+        return True
+    except ValueError:
+        return False
+
+
+def _assainir(cmd: str) -> str:
+    """Quote and backslash characters replaced, so no orphan quote can swallow an
+    operator when the text is split again."""
+    return cmd.replace("'", " ").replace('"', " ").replace("\\", "/")
+
+
 def _analyser(cmd: str, profondeur: int = 0):
-    for seg in _segments(cmd):
+    segs = _segments(cmd)
+    for seg in segs:
         raison = _blocked_reason(seg, profondeur)
         if raison:
             return raison
+    if not all(_analysable(seg) for seg in segs):
+        # An orphan quote also hides the operators that FOLLOW it (`echo it's;
+        # git reset --hard` was one single segment). Re-split the sanitised text
+        # and analyse every segment (SEC lot, D1, 2026-10-04).
+        for seg in _segments(_assainir(cmd)):
+            try:
+                tokens = shlex.split(seg, posix=True)
+            except ValueError:
+                continue
+            raison = _blocked_reason_tokens(tokens, profondeur) if tokens else None
+            if raison:
+                return ("Commande non analysable (guillemets ou antislash non apparies) : "
+                        "analyse lexicale prudente du texte brut, " + raison)
     return None
 
 
@@ -255,12 +283,33 @@ def _blocked_reason(segment: str, profondeur: int = 0):
     # shlex respects quoting, so a quoted string like -m "... git push
     # --force ..." collapses into a single token instead of being split
     # into separate "git"/"push"/"--force" words.
+    non_analysable = False
     try:
         tokens = shlex.split(segment, posix=True)
     except ValueError:
-        return None  # unbalanced quotes etc. — fail open, don't guess
+        # Unbalanced quote / dangling backslash. This used to fail OPEN, so
+        # `git reset --hard # it's` ran (SEC lot, 2026-10-04). Conservative
+        # lexical fallback: drop the quote and backslash characters and re-run
+        # the SAME analysis on the raw words (comments are not told apart, on
+        # purpose: a false block is cheaper than a destructive command passing).
+        non_analysable = True
+        try:
+            tokens = shlex.split(
+                segment.replace("'", " ").replace('"', " ").replace("\\", "/"), posix=True)
+        except ValueError:
+            return None  # cannot happen once the quotes are gone; kept for safety
     if not tokens:
         return None
+    if non_analysable:
+        raison = _blocked_reason_tokens(tokens, profondeur)
+        if raison:
+            return ("Commande non analysable (guillemets ou antislash non apparies) : "
+                    "analyse lexicale prudente du texte brut, " + raison)
+        return None
+    return _blocked_reason_tokens(tokens, profondeur)
+
+
+def _blocked_reason_tokens(tokens: list, profondeur: int = 0):
 
     lower = [t.lower() for t in tokens]
 
@@ -719,7 +768,15 @@ def main() -> None:
         data = _json_ou_refus()
     except Exception:
         return
-    cmd = (data.get("tool_input") or {}).get("command") or ""
+    entree = data.get("tool_input")
+    if entree is None:
+        entree = {}
+    if not isinstance(entree, dict):
+        _refus_prudent("tool_input n'est pas un objet", "payload-malforme")
+    cmd = entree.get("command", "")
+    if not isinstance(cmd, str):
+        # number, list, None, dict...: used to crash (exit 1 = NOT blocked).
+        _refus_prudent("command n'est pas une chaine", "payload-malforme")
     cmd = _strip_heredocs(cmd)
 
     blocked = _analyser(cmd)

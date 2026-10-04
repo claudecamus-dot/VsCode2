@@ -40,6 +40,11 @@ Rules:
   of local main the orchestrator's `git worktree add` started from.
 - `{{output_path}}` (R3, review-room): optional out-of-repo file for a bulky report; the room
   returns ≤ 600 tokens + the path. Indicator: tokens returned per room, 5 rooms before/after.
+- NON-REGRESSION and MUTATION PROOF (executor-lot, adopted 2026-10-03, neural test 20 agents):
+  replay every suite found by `grep -rl "<basename>" tests/`; every "corrigé/testé/couvert"
+  claim quotes a seen-red mutation on a copy. Indicator fixed before: share of executor
+  reports with a quoted seen-red mutation (0/5 Sonnet standard, 4/5 improved brief) and
+  suites replayed (0/5 vs 5/5). Locked by `tests/test_prompt_templates.py`.
 - Improve a template HERE (a commit = a revision) when a run shows a brief gap, instead of
   patching the scratchpad copy. No evaluation set exists yet for these prompts: their
   quality is not measured, only their clauses.

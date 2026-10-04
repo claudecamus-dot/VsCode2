@@ -9,7 +9,12 @@ description d'intention. Les gestes exacts :
 
 - **Fan-out parallèle** : plusieurs appels `Agent` **dans le même message** =
   lancement concurrent. Un appel par message = cascade involontaire (le 2e ne part
-  qu'à la fin du 1er). Chaque sous-agent part avec un contexte VIERGE : son prompt
+  qu'à la fin du 1er) — **sauf au-delà de 4 agents isolés (worktree) : alors UN appel
+  `Agent` par message tant que git est calme (`git status` ~0,2-0,5 s), jamais en rafale**
+  (refus de lancement mesurés le 2026-10-04, `C:/tmp/stress/` : 2 ou 4 simultanés 0 %, 10
+  40 %, 20 15 %, 26 35 %, 30 40 %, 40 65 % ; en série 0). **Vérifier sur disque** tout
+  fichier de résultat annoncé (`Test-Path`, taille, parse JSON), jamais l'annonce seule.
+  Chaque sous-agent part avec un contexte VIERGE : son prompt
   doit être un **brief autoportant** — chemins absolus, exigence vérifiable, format
   de réponse attendu (« données brutes », pas de prose), et le rappel qu'il rend un
   RÉSULTAT (son texte final), pas un message à l'utilisateur. Et dès que le brief
@@ -123,6 +128,21 @@ description d'intention. Les gestes exacts :
      jour-là ont rendu en 8-11 min chacune (483/582/649/699 s de notification), sans
      qu'un budget écrit leur ait été nécessaire pour tenir ce format court : la clause
      vise les salles à venir dont le sujet appelle naturellement plus de prose.
+  11. **Non-régression** (brief neuronal, adopté 2026-10-03) — « pour chaque fichier touché
+     F, `grep -rl "<basename F>" tests/` et rejouer TOUTES les suites trouvées avant
+     "fini", en citant commande + compte de tests passés ; "à rejouer" sans run =
+     STATUT : partiel ». Mesure (test neuronal 20 agents, 5 tâches × 4 bras) : brief
+     amélioré = suites rejouées 5/5 ; Sonnet standard 0/5. Indicateur : part des rapports
+     citant commande + compte pour chaque suite lisant un fichier touché.
+  12. **Mutation obligatoire** (même mesure) — toute prétention « corrigé »/« testé »/
+     « couvert » (correctif, clôture, verdict « déjà corrigé »), quel que soit le modèle,
+     cite une mutation posée sur une COPIE qui rend le test cité rouge ; un test vert sans
+     mutation vue rouge n'est pas une preuve. Mesure : preuve rouge 4/5 (brief amélioré),
+     0/5 (Sonnet standard), 1/5 (Opus standard, qui a cité deux fichiers verts comme
+     preuve alors qu'un vérificateur séparé a montré que le mutant survivait) ; le
+     vérificateur séparé prouve rouge 5/5 mais double la durée (d'où § 2 ter : exigé pour
+     les changements à risque, optionnel sinon). Indicateur : part des rapports
+     d'exécutant avec mutation vue rouge citée (base 0/5 Sonnet std, 4/5 brief amélioré).
 
   **Bloc de fin de salle, obligatoire et STRUCTURÉ** (2026-09-20). La frontière
   sous-agent → orchestrateur était la dernière encore en prose libre : tout le reste du
