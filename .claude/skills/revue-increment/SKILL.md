@@ -1,6 +1,6 @@
 ---
 name: revue-increment
-description: Boucle systématique de revue ET d'amélioration de fin d'incrément (ou de séance) pour Interview-to-Deck — ne se contente pas de constater : elle applique les correctifs et re-vérifie. Passe en revue le code produit ET la FAÇON de travailler (vérité terrain vs roadmap, vérification réelle et pas juste pytest vert, cohérence, docs de suivi, capitalisation mémoire), puis exécute les actions d'amélioration (code-review --fix / simplify / edits concrets) et re-vérifie. À lancer avant de considérer un incrément « livré », avant chaque commit de code, ou sur demande de rétrospective. Le hook SessionStart la rappelle à chaque session.
+description: "Boucle systématique de revue ET d'amélioration de fin d'incrément (ou de séance) pour Interview-to-Deck — ne se contente pas de constater : elle applique les correctifs et re-vérifie. Passe en revue le code produit ET la FAÇON de travailler (vérité terrain vs roadmap, vérification réelle et pas juste pytest vert, cohérence, docs de suivi, capitalisation mémoire), puis exécute les actions d'amélioration (code-review --fix / simplify / edits concrets) et re-vérifie. À lancer avant de considérer un incrément « livré », avant chaque commit de code, ou sur demande de rétrospective. Le hook SessionStart la rappelle à chaque session."
 ---
 
 # Revue-et-amélioration systématique d'incrément
