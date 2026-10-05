@@ -53,3 +53,4 @@ dispositifs de veille meurent :
    payée pour rien. Le superviseur en fait un finding (`cible` = `veille:<slug>`) — la
    même leçon que les documents de réflexion, dont les propositions ne sont pas
    arbitrables tant qu'elles ne passent pas par `diagnostic.json`.
+5. **Séparer latence et budget.** Dans une entrée de veille, noter à part un gain de latence et un gain à budget égal (tokens) : un papier qui accélère n'a pas prouvé qu'il coûte moins (veille du 2026-10-05, préprints 2602.02276 et 2605.02801).

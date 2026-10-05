@@ -4,7 +4,7 @@
 # | garder : la signaler au hub, qui corrige le canon et re-synchronise.
 # | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
 # |  n'est pas déployé, il n'existe pas dans ce dépôt.)
-# | Provenance canon : 2659606 du 2026-10-05 — permet, au prochain sync, de dire si
+# | Provenance canon : 6b8e1e2 du 2026-10-05 — permet, au prochain sync, de dire si
 # | une différence vient d'une édition locale ou d'une avance du canon (voir
 # | `determiner_cause` dans sync_dispositif.py au hub).
 # +---------------------------------------------------------------------------
@@ -123,6 +123,8 @@ RESULTATS_APPEND = ("en-cours",) + RESULTATS_SOLDE
 # un état inoffensif à côté d'un `resultat: succes`.
 ETATS_ETAPE = ("ok", "echec", "non-rendu")
 ETATS_ETAPE_FAUTIFS = ("echec", "non-rendu")
+# Issue de la verification AVAL d'une etape (critere de veille n7) : optionnelle, stricte.
+VERIFICATIONS_AVAL = ("ok", "ko", "non-verifiee")
 
 # Vocabulaire FERME de la FORME de la tache d'un run -- veille du 2026-09-20,
 # « Lois de scaling conditionnelles du multi-agent ». [S5] (arXiv 2512.08296,
@@ -599,8 +601,21 @@ def verifier_etapes_du_plan(run: dict) -> str | None:
 
     Le message NOMME l'étape (rang, libellé, agent). « une étape a échoué » ferait
     exactement ce que la trouvaille reproche : dire l'échec sans dire lequel.
+    `verification_aval` (veille n7) : champ OPTIONNEL par etape, `ok` | `ko` |
+    `non-verifiee`, toute autre valeur est REFUSEE (quel que soit `resultat`).
+    Il sert a ATTRIBUER un echec a une etape ; une etape `ko` n'interdit PAS
+    `resultat: succes` par elle-meme (choix delibere : pas de nouvelle regle de
+    refus, seule l'attribution est visee). Absent = run valide (retrocompatible).
+
     Le champ reste OPTIONNEL — les runs déjà journalisés n'en portent aucun, et une
     étape mal formée (non-dict) est ignorée plutôt que transformée en TypeError."""
+    for rang, etape in enumerate(run.get("plan") or [], start=1):
+        if isinstance(etape, dict) and "verification_aval" in etape:
+            va = etape["verification_aval"]
+            if not (isinstance(va, str) and va in VERIFICATIONS_AVAL):
+                return (f"log_run REFUS : etape {rang} ('{etape.get('etape', '')}') : "
+                        f"verification_aval invalide : {va!r}.\n"
+                        f"  Attendu : {' | '.join(VERIFICATIONS_AVAL)} - ou champ absent.")
     fautives, inconnues = [], []
     for rang, etape in enumerate(run.get("plan") or [], start=1):
         if not isinstance(etape, dict) or "etat" not in etape:

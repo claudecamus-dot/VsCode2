@@ -73,6 +73,7 @@ les valeurs permises (`verifier_gabarit_topologie`). Ils alimentent
 | `tokens`, `duree_s`, `budget_tokens` | nombre ≥ 0 ou `null` | Coût, durée, budget égal des deux bras |
 | `famille` | chaîne non vide | Famille de tâches : un candidat n'est `gagnant` que s'il gagne sur ≥ 2 familles, sinon `donnees-insuffisantes` (« une seule famille ») |
 | `branches_lancees`, `duree_branche_max_s` | entier ≥ 0 | Détection du fan-out dégénéré (topologie `fan-out`/`salle`/`workflow`) : `branches_lancees` ≤ 1 OU `duree_s` ≥ 0,9 × branches × branche la plus longue |
+| `plan[].verification_aval` | `ok` \| `ko` \| `non-verifiee` | Issue de la vérification aval de l'étape, pour attribuer un échec à une étape (critère de veille n°7). Optionnel ; toute autre valeur est refusée ; `ko` n'interdit pas `resultat: succes` |
 | `tour2` | `true` \| `false` | Salle à désaccord au tour 1 uniquement : `true` = tour 2 joué, `false` = désaccord sans tour 2. Rempli UNIQUEMENT si le tour 1 a produit un désaccord ; absent = pas de désaccord OU non renseigné (indistinguables), et `--salles` ne compte que les runs où le champ est présent |
 | `voix` | liste de `{nom, modele, duree_s ≥ 0 fini, trouvailles_retenues ≥ 0}` | Rendement par voix d'une salle (une entrée par lentille) |
 
