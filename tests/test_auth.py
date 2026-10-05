@@ -52,6 +52,15 @@ def _mot_de_passe(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("APP_AUTH_PASSWORD", MOT_DE_PASSE)
 
 
+@pytest.fixture(autouse=True)
+def _echecs_remis_a_zero() -> None:
+    from app import auth
+
+    auth.reinitialiser_echecs()
+    yield
+    auth.reinitialiser_echecs()
+
+
 def _client_anonyme() -> TestClient:
     """TestClient VRAIMENT anonyme : `tests/conftest.py` injecte des credentials
     par défaut dans tout TestClient pour que les 80 autres fichiers de test
@@ -185,3 +194,46 @@ def test_page_de_connexion_porte_la_charte() -> None:
     ).text
     assert 'role="alert" class="login-error"' in erreur
     assert 'aria-invalid="true"' in erreur
+
+
+def _poster(client: TestClient, mot: str):
+    return client.post(
+        "/connexion",
+        data={"mot_de_passe": mot},
+        headers={"origin": "http://testserver"},
+        follow_redirects=False,
+    )
+
+
+def test_connexion_limitee_apres_trop_d_echecs() -> None:
+    from app import auth
+
+    client = _client_anonyme()
+    for _ in range(auth.MAX_ECHECS):
+        assert _poster(client, "faux").status_code == 401
+    # Même le BON mot de passe est refusé : sinon le brute-force continue.
+    assert _poster(client, MOT_DE_PASSE).status_code == 429
+    assert _client_anonyme().get("/missions").status_code in (401, 403)
+
+
+def test_la_fenetre_de_limitation_expire(monkeypatch: pytest.MonkeyPatch) -> None:
+    from app import auth
+
+    client = _client_anonyme()
+    for _ in range(auth.MAX_ECHECS):
+        _poster(client, "faux")
+    assert _poster(client, MOT_DE_PASSE).status_code == 429
+    futur = time.time() + auth.FENETRE_ECHECS_S + 1
+    monkeypatch.setattr(auth.time, "time", lambda: futur)
+    assert _poster(client, MOT_DE_PASSE).status_code in (302, 303)
+
+
+def test_une_connexion_reussie_remet_le_compteur_a_zero() -> None:
+    from app import auth
+
+    client = _client_anonyme()
+    for _ in range(auth.MAX_ECHECS - 1):
+        _poster(client, "faux")
+    assert _poster(client, MOT_DE_PASSE).status_code in (302, 303)
+    for _ in range(auth.MAX_ECHECS):
+        assert _poster(client, "faux").status_code == 401

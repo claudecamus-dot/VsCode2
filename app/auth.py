@@ -31,8 +31,7 @@ invalide toutes les sessions, ce qui est le comportement attendu d'une
 révocation.
 
 Ce que ce module NE fait PAS (lots suivants, délibérément hors périmètre) :
-multi-utilisateur/rôles, journalisation des accès, limitation de débit sur la
-page de connexion, chiffrement au repos, conteneur/hébergeur.
+multi-utilisateur/rôles, journalisation des accès, chiffrement au repos, conteneur/hébergeur.
 
 Ordre d'empilement (`main.py`) : `entetes_securite` s'exécute AVANT, donc la
 réponse 401 porte les en-têtes de sécurité ; `csrf.verifier_origine` s'exécute
@@ -44,6 +43,7 @@ import base64
 import hashlib
 import hmac
 import os
+import threading
 import time
 
 from fastapi import APIRouter, Form, Request
@@ -54,6 +54,34 @@ from .templating import templates
 COOKIE = "app_session"
 # 12 h : une journée d'entretiens sans redemander, pas une session éternelle.
 DUREE_S = 12 * 3600
+
+# Limitation de débit de POST /connexion : au-delà de MAX_ECHECS mots de passe
+# faux depuis une même adresse dans FENETRE_ECHECS_S, la connexion est refusée
+# (429) jusqu'à expiration de la fenêtre. En mémoire, par processus : borne le
+# brute-force en ligne, ne remplace pas un WAF.
+MAX_ECHECS = 5
+FENETRE_ECHECS_S = 15 * 60
+_echecs: dict[str, list[float]] = {}
+_verrou_echecs = threading.Lock()
+
+
+def _client(request: Request) -> str:
+    return request.client.host if request.client else "?"
+
+
+def _echecs_recents(cle: str, maintenant: float) -> list[float]:
+    recents = [t for t in _echecs.get(cle, []) if maintenant - t < FENETRE_ECHECS_S]
+    if recents:
+        _echecs[cle] = recents
+    else:
+        _echecs.pop(cle, None)
+    return recents
+
+
+def reinitialiser_echecs() -> None:
+    with _verrou_echecs:
+        _echecs.clear()
+
 
 # Liste EXPLICITE et courte des chemins publics. Tout le reste est fermé par
 # défaut — c'est cette asymétrie qui fait la sûreté du dispositif.
@@ -180,13 +208,28 @@ def connexion(request: Request, mot_de_passe_saisi: str = Form(alias="mot_de_pas
             {"error": "Authentification non configurée (APP_AUTH_PASSWORD)."},
             status_code=503,
         )
+    cle, maintenant = _client(request), time.time()
+    with _verrou_echecs:
+        bloque = len(_echecs_recents(cle, maintenant)) >= MAX_ECHECS
+    if bloque:
+        return templates.TemplateResponse(
+            request,
+            "connexion.html",
+            {"erreur": "Trop de tentatives. Réessayez dans quelques minutes."},
+            status_code=429,
+        )
     if not egal(mot_de_passe_saisi, secret):
+        with _verrou_echecs:
+            _echecs_recents(cle, maintenant)
+            _echecs.setdefault(cle, []).append(maintenant)
         return templates.TemplateResponse(
             request,
             "connexion.html",
             {"erreur": "Mot de passe incorrect."},
             status_code=401,
         )
+    with _verrou_echecs:
+        _echecs.pop(cle, None)
     reponse = RedirectResponse("/", status_code=303)
     reponse.set_cookie(
         COOKIE,
