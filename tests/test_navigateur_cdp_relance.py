@@ -6,9 +6,8 @@ l'attente DevTools et la plomberie CDP sont remplacés par des faux.
 """
 from __future__ import annotations
 
-import pytest
-
 import navigateur_cdp as nav
+import pytest
 
 
 class _FauxProc:
