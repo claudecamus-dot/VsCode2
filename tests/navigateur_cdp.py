@@ -249,6 +249,9 @@ def _tuer_par_profil(profil: Path) -> None:
     )
 
 
+_ATTENTE_RELANCE_S = 1.0  # pause avant l'unique relance (<= 2 s)
+
+
 class Navigateur:
     """Une session de navigateur headless pilotée par CDP (un seul onglet)."""
 
@@ -278,6 +281,35 @@ class Navigateur:
             )
         profil.mkdir(parents=True, exist_ok=True)
         (profil / "DevToolsActivePort").unlink(missing_ok=True)
+        # Une seule relance (décision du 2026-10-05) : le handshake websocket CDP
+        # expire par intermittence en CI (run 37053848441). Pas de boucle.
+        try:
+            self._lancer_et_connecter(executable, profil, websockets)
+            return
+        except FileNotFoundError:
+            raise  # exécutable absent : une relance n'y changerait rien
+        except Exception as premiere:
+            premier_echec = (
+                f"{type(premiere).__name__}: {premiere}\n"
+                + self._journal_navigateur()[-2000:]
+            )
+        # `fermer()` tue l'arbre du premier navigateur (pid, profil, lanceur)
+        # AVANT la relance : aucun orphelin.
+        self.fermer()
+        self._proc = None
+        self.pid_navigateur = None
+        time.sleep(_ATTENTE_RELANCE_S)
+        (profil / "DevToolsActivePort").unlink(missing_ok=True)
+        try:
+            self._lancer_et_connecter(executable, profil, websockets)
+        except Exception as seconde:
+            raise RuntimeError(
+                f"{type(seconde).__name__}: {seconde}\n"
+                "--- journal du PREMIER échec (une relance a été tentée) ---\n"
+                + premier_echec
+            ) from seconde
+
+    def _lancer_et_connecter(self, executable, profil: Path, websockets) -> None:
         # Tout ce qui suit peut échouer APRÈS le lancement : on ferme alors ce
         # qui a été ouvert avant de relever l'erreur, sinon le navigateur survit
         # au test (et la fixture, qui n'a pas encore l'objet, ne peut rien).
