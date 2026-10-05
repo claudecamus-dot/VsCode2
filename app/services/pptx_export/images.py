@@ -48,8 +48,14 @@ try:  # pragma: no cover - dépend de la présence du skill + Pillow
     from framed_image import place_image_in_frame as _place_image_in_frame  # type: ignore
     _IMG_CACHE = Path(__file__).resolve().parents[3] / "data" / "pptx_chapitre_images"
     _FRAMED_OK = True
-except Exception:  # skill absent, Pillow non installé, etc. -> repli texte-seul
+except Exception as _exc:  # skill absent, Pillow non installé, etc. -> repli texte-seul
     _FRAMED_OK = False
+    # Repli légitime mais JAMAIS silencieux : sans cette trace, un skill
+    # resynchronisé cassé change le livrable (intercalaires sans photo) sans signal.
+    logger.warning(
+        "pptx-framed-image indisponible (%s) : intercalaires de chapitre en texte seul",
+        type(_exc).__name__,
+    )
 
 # Scène -> requête photo Openverse (vraies photos CC0, comme les decks OCTO réels /
 # VSCode3-4). Repli sur la génération procédurale `nature_images` (nom = la scène).
