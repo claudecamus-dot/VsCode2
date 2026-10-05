@@ -51,6 +51,7 @@ Source : tableau finding × bras du test à 30 agents (consolidation manuelle, n
 | --- | --- | --- |
 | Diagnostiquer un finding ouvert ; établir qu'un correctif est « déjà fait » ou « périmé » ; revue adverse autonome d'un livrable ou d'une conception | **neuronal** | Profondeur (voir ci-dessus) ; le verdict « déjà fait » sans preuve est le défaut mesuré |
 | Plusieurs findings indépendants à trier en lot | **neuronal**, par finding | Taille du lot : plafonds et topologie de § 2 ter. Interactif (plafond de 10) : au plus 3 findings en fan-out `Agent` (9 agents), ou 4 si aucun 2e bras ne part (8 agents). Lot long en arrière-plan : jusqu'à 30 agents. Au-delà de 4 éléments indépendants : `Workflow` sur opt-in. Plus de 3 sous-agents = validation du § 3 |
+| Concevoir ou proposer (design, IA, architecture) ; plan éditorial ; audit d'une flotte | **neuronal** | Étapes qui servent à comprendre, couvertes par le défaut ci-dessous |
 | Implémenter, spécification nette, périmètre borné | **classique** | Redondance sur l'écriture = conflit de fichiers |
 | Tâche mécanique : inventaire, extraction, régénération, propagation du canon, rendu du wiki | **classique** | Rien à départager |
 | Changement à risque (garde, hook, canon/kit, registre) | **classique** pour l'écriture, + vérificateur obligatoire | § 2 ter ; le neuronal ne s'applique qu'au diagnostic préalable si la cause est incertaine |
@@ -63,6 +64,29 @@ Source : tableau finding × bras du test à 30 agents (consolidation manuelle, n
 **Lot mixte** (des findings à diagnostiquer et du code à écrire) : chaque action prend son mode,
 le diagnostic en neuronal d'abord, l'écriture ensuite en classique. Une action à deux temps
 (diagnostic puis correction) suit la même règle.
+
+## Défauts permanents du propriétaire (2026-10-04)
+
+Consigne : « inscrit par défaut dès que c'est possible de traiter les sujets en parallèle, voire
+en mode neuronal ». Deux défauts, essai borné, fidèles à ce qui a été mesuré :
+
+1. **Parallèle par défaut** : des sujets indépendants (pas de dépendance de données, périmètres
+   de fichiers disjoints) se lancent concurrents en arrière-plan dans le même plan, annoncés en
+   une ligne, sans attendre d'être demandés. Garde-fous gardés (§ 2 ter) : un seul rédacteur par
+   périmètre (worktree créé par script depuis main local), UN appel `Agent` par message au-delà
+   de 4 agents isolés (rafales refusées de 35 à 65 % à 26-40), plafonds 10 interactif / 30 lots
+   longs / `Workflow` au-delà sur opt-in, vérification sur disque, pas de 2e rédacteur dans un dépôt.
+2. **Neuronal par défaut pour comprendre** : diagnostic, audit, revue, conception/IA, instruction
+   d'un choix, plan éditorial. Deux bras indépendants (ou `1 bras + escalade` quand l'enjeu est
+   faible : règle ci-dessus inchangée) et un vérificateur à contexte vierge, un script jugeant toute
+   preuve rejouable ; annoncé en une ligne. `neuronal :` / `classique :` forcent le mode.
+   **Jamais neuronal pour ÉCRIRE** : un seul rédacteur, la redondance sert à comprendre ; classique
+   pour le mécanique et l'irréversible.
+
+Limites honnêtes : petits échantillons (10 et 13 tâches), neuronal environ 2× le coût,
+vérificateurs trop accommodants (8 faux positifs sur 44 verdicts), effet non mesuré sur les tâches
+ouvertes (les tâches de test avaient un oracle objectif). Le défaut reste un essai borné que le
+journal mesure (`bras`, `topologie`, `tache_id`, ci-dessous).
 
 ## Comment le mode se choisit
 

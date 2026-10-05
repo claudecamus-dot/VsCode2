@@ -108,6 +108,9 @@ description d'intention. Les gestes exacts :
      (atelier-dev n°5, 2026-09-28 : à la revue n°3, 3 voix sur 5 ont rendu en 6-7 min
      avec des angles « Information insuffisante » — c'est le temps d'EXPLORATION qui
      manquait, pas celui de rédaction).
+     **Valeur du budget** : prendre la table de `SKILL.md` § 2 ter « BUDGET » — classe 1 rédaction
+     courte 7 min, classe 2 exécution avec tests 18 min, classe 3 campagne sous charge 46 min
+     (`2 × médiane mesurée`), multiplicateur de charge ×3 à 20 agents concurrents ou plus.
   9. **Premier plan obligatoire** — clause à recopier telle quelle : « commandes au
      premier plan avec timeout explicite — jamais de run_in_background ni de Monitor
      dans un sous-agent, jamais attendre sa propre tâche de fond ». Fait : H2 est resté

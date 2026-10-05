@@ -18,6 +18,7 @@ MUTATION PROOF: this role runs no mutation (it changes no file and audits no cod
 issues a "corrigé"/"déjà corrigé"/"couvert" verdict: a defect already seen fixed is reported as
 `Information insuffisante` for the fix status, with the steps observed. Any such claim it does make
 must quote the fixing commit and a mutation on a COPY that turns the cited test red.
+A green test without a seen-red mutation is not proof.
 CAUSE CITATION: a cause cited in a report carries a `file:line` you opened in this run; a cause
 without one is labelled "hypothesis", never stated as fact (2026-10-03: an Opus report cited a
 cause that did not exist, the code called the function at the cited place).

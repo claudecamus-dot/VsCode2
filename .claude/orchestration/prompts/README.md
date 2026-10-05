@@ -24,6 +24,9 @@ Rules:
   line `GABARIT : <file name without .md>` right after its title: the hook journals it
   (`taille_briefs.jsonl`, field `gabarit`) and the scan counts general-purpose briefs with
   neither a gabarit nor a size (warning only). Keep the line when instantiating a template.
+- `{{budget_minutes}}` / `{{writing_minutes}}` (review-room): take the numbers from the budget table of
+  `agent-orchestrator/SKILL.md` § 2 ter « BUDGET » (7 / 18 / 46 min = 2 x measured class median,
+  x3 at 20+ concurrent agents), never below 7 min in total; no template carries a literal budget.
 - `{{max_tool_calls}}`: the size ceiling of the brief, in tool calls (line
   `TAILLE : ≤ {{max_tool_calls}} appels d'outils ; au-delà, rendre un partiel`). Provisional
   default 16 (p90 of 25 delegations, usage.jsonl 2026-10-02); `review-room.md` declares

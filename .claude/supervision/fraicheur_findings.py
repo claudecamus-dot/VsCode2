@@ -7,12 +7,12 @@ findings ouverts sur 5 etaient DEJA corriges (commits a5a0087, 8d09ef3, 6cf87ef,
 meme oracle que write_diagnostic._ferme) selon des signaux d'obsolescence :
 
   (a) un fichier cite `chemin:ligne` dans titre/preuve/proposition a change depuis `vu_le`;
-  (b) des commits depuis `vu_le` mentionnent le slug de la cible (fort) ou >= 2 mots-cles
-      du titre (faible);
+  (b) des commits depuis `vu_le` mentionnent le slug de la cible ou >= 2 mots-cles du
+      titre : indice seul (`a-verifier`), perime seulement avec un fichier/test sujet change;
   (c) la proposition nomme un test (`test_xxx`) dont la definition est apparue depuis
       `vu_le` (git log -S), ou un fichier tests/test_*.py modifie depuis.
 
-Verdicts : `probablement-perime` (signal a, b fort ou c), `a-verifier` (b faible seul),
+Verdicts : `probablement-perime` (signal a, c ou arbitrage applique), `a-verifier` (b seul),
 `toujours-ouvert` (aucun signal), `non mesure` (git indisponible ou timeout : fail-open).
 Il CLASSE, il ne ferme JAMAIS rien (R4) : la fermeture reste un arbitrage humain.
 
@@ -140,9 +140,12 @@ def signaux(f: dict) -> dict:
 
 
 def verdict(ev: dict) -> str:
-    if ev["fichiers"] or ev["slug"] or ev["tests"] or ev["arbitrage"]:
+    # Option 2 (arbitrage proprietaire 2026-10-04) : un commit qui ne fait que CITER la cible
+    # (portage, propagation) ne prouve rien ; PERIME exige qu'un fichier ou test sujet ait
+    # aussi change (signaux fichiers/tests) ou un arbitrage applique.
+    if ev["fichiers"] or ev["tests"] or ev["arbitrage"]:
         return PERIME
-    if ev["mots"]:
+    if ev["slug"] or ev["mots"]:
         return A_VERIFIER
     return OUVERT
 
@@ -185,8 +188,16 @@ def analyser(findings: list, cible: str = "", tous: bool = False) -> list:
     return res
 
 
+BANDEAU = (
+    "# ATTENTION : classement ≠ preuve. La classe « probablement perime » est une indication",
+    "# fondee sur des messages de commit qui citent la cible, PAS la preuve que le finding est resolu.",
+    "# Faux positif connu : un commit de portage/propagation dont le message cite la cible",
+    "# sans modifier les fichiers sujets du finding. Lire le commit avant de conclure.",
+)
+
+
 def _rendre(res: list) -> str:
-    lignes = []
+    lignes = list(BANDEAU)
     for r in res:
         marque = " [deja arbitre]" if r.get("arbitre") else ""
         lignes.append(f"[{r['verdict']}] {r['cible']} (vu le {r['vu_le']}){marque}")

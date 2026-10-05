@@ -13,8 +13,8 @@ GABARIT : executor-lot
    suite found BEFORE "fini", quoting the command + the pass count of each. "Should be replayed"
    without a run = STATUT : partiel.
    MUTATION PROOF: any claim "corrigé"/"testé"/"couvert" (a fix, a closure, or an "already fixed"
-   verdict), whatever the model, must quote a mutation posed on a COPY that turns the cited test
-   red. A green test without a seen-red mutation is not proof — a green suite can miss the
+   verdict), whatever the model, must quote the fixing commit and a mutation posed on a COPY
+   that turns the cited test red. A green test without a seen-red mutation is not proof — a green suite can miss the
    regression (2026-10-03: two green files cited as proof, the mutant survived).
    CAUSE CITATION: a cause cited in a report carries a `file:line` you opened in this run;
    a cause without one is labelled "hypothesis", never stated as fact (2026-10-03: an Opus

@@ -201,6 +201,7 @@ def _json_ou_refus(delai=15.0):
 # (tests/test_hooks_stdin_borne.py); its writer adds ``gardes`` because this
 # module defines _GARDES_ACTIVES. Crash lines keep a hard stop (no rotation).
 CAP_CRASH = 500_000
+_PLANTEES = []  # guards that crashed during the current dispatch (visible message)
 
 
 def _lire_payload():
@@ -225,13 +226,17 @@ def _journal_crash(nom, exc, brut):
     text. Capped at CAP_CRASH (half the refusals' cap): a guard crashing on
     every call must not fill the shared journal and silence real refusals."""
     try:
-        cmd = (json.loads(brut).get("tool_input") or {}).get("command")
+        data = json.loads(brut)
+        cmd = (data.get("tool_input") or {}).get("command")
         sha = (hashlib.sha256(cmd.encode("utf-8", "replace")).hexdigest()[:12]
                if isinstance(cmd, str) else None)
+        outil = str(data.get("tool_name"))[:40]
     except Exception:  # noqa: BLE001
-        sha = None
+        sha, outil = None, None
+    # the exception MESSAGE is deliberately not journaled: it may quote the command
     _ecrire_journal_stdin({"motif": "crash", "issue": "passe", "garde": nom,
-                           "exc": type(exc).__name__, "cmd_sha": sha}, CAP_CRASH, rotation=False)
+                           "exc": type(exc).__name__, "cmd_sha": sha, "outil": outil},
+                          CAP_CRASH, rotation=False)
 
 
 def _forme_ou_refus(brut):
@@ -273,8 +278,13 @@ def _executer(nom, brut):
             except SystemExit as e:
                 code = e.code if isinstance(e.code, int) else (0 if e.code is None else 1)
     except Exception as e:  # noqa: BLE001 - a crashing guard never blocked
-        err.write(f"{nom}: erreur interne ignoree ({type(e).__name__})\n")
-        _journal_crash(nom, e, brut)
+        err.write(f"{nom}: erreur interne ignoree ({type(e).__name__})"
+                  " - commande NON controlee par cette garde\n")
+        try:  # visibility must never turn into a second crash or a block
+            _journal_crash(nom, e, brut)
+            _PLANTEES.append(f"{nom} ({type(e).__name__})")
+        except Exception:  # noqa: BLE001
+            pass
         code = 1
     return code, out.getvalue(), err.getvalue()
 
@@ -323,6 +333,7 @@ def _dispatcher(gardes, brut) -> int:
     messages, contextes, stderr_cumul = [], [], []
     raisons, deny, ask, refus = [], None, None, False
     _forme_ou_refus(brut)
+    del _PLANTEES[:]
     for nom in gardes:
         code, out, err = _executer(nom, brut)
         if err:
@@ -359,6 +370,9 @@ def _dispatcher(gardes, brut) -> int:
     if refus:
         _err("".join(stderr_cumul) + "".join(r + "\n" for r in raisons))
         return 2
+    if _PLANTEES:  # same decision, but the user is told right now
+        messages.append("Garde(s) plantee(s): " + ", ".join(_PLANTEES)
+                        + " - la commande n'a PAS ete controlee par elle.")
     _err("".join(stderr_cumul))
     sortie = deny or ask
     if sortie is not None:

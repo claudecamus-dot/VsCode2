@@ -107,6 +107,11 @@ def _segments(cmd: str):
     n = len(cmd)
     while i < n:
         c = cmd[i]
+        if c == "\\" and quote != "'" and i + 1 < n:
+            # escaped char (`\"`, `\;`): never opens a quote nor splits (POSIX).
+            buf.append(cmd[i : i + 2])
+            i += 2
+            continue
         if quote:
             buf.append(c)
             if c == quote:
@@ -257,8 +262,179 @@ def _assainir(cmd: str) -> str:
     return cmd.replace("'", " ").replace('"', " ").replace("\\", "/")
 
 
-def _analyser(cmd: str, profondeur: int = 0):
+# A continuation is an ODD run of backslashes right before the newline; an even run is
+# literal backslashes and the newline then ends the command (`echo \\<LF>git ...`).
+_CONTINUATION = re.compile(r"(?<!\\)((?:\\\\)*)\\\r?\n")
+_ANSI_C = re.compile(r"(?<!\\)\$'((?:[^'\\]|\\.)*)'", re.DOTALL)
+_DEFAULT_EXPANSION = re.compile(r"\$\{[A-Za-z_][A-Za-z0-9_]*:?-([^}]*)\}")
+_SIMPLE_ESC = {"n": "\n", "t": "\t", "r": "\r", "\\": "\\", "'": "'", '"': '"', "a": "\a",
+               "b": "\b", "e": "\x1b", "f": "\f", "v": "\v"}
+
+
+def _decode_ansi_c(body: str) -> str:
+    out = []
+    i = 0
+    while i < len(body):
+        c = body[i]
+        if c != "\\" or i + 1 >= len(body):
+            out.append(c)
+            i += 1
+            continue
+        d = body[i + 1]
+        m = re.match(r"x([0-9A-Fa-f]{1,2})|([0-7]{1,3})|u([0-9A-Fa-f]{1,4})", body[i + 1 :])
+        if m:
+            code = m.group(1) or m.group(3)
+            out.append(chr(int(code, 16) if code else int(m.group(2), 8)))
+            i += 1 + m.end()
+        else:
+            out.append(_SIMPLE_ESC.get(d, "\\" + d))
+            i += 2
+    return "".join(out)
+
+
+def _ansi_c_litteral(m) -> str:
+    texte = _decode_ansi_c(m.group(1))
+    return "'" + texte.replace("'", "'\\''") + "'"
+
+
+def _normaliser(cmd: str) -> str:
+    r"""Make the shell's own rewriting visible to the lexical analysis (SEC holes lot,
+    2026-10-04): `\<LF>` continuations are joined (`git reset \<LF> --hard`,
+    `--\<LF>hard`), `$'--hard'` becomes the literal `'--hard'`, and `${X:-word}`
+    becomes its default word (`${X:---hard}`, `git ${X:-reset} --hard`). Conservative
+    on purpose: a rewritten harmless text never forms a destructive command."""
+    cmd = _CONTINUATION.sub(lambda m: m.group(1), cmd)
+    cmd = _ANSI_C.sub(_ansi_c_litteral, cmd)
+    for _ in range(3):  # nested defaults
+        nouveau = _DEFAULT_EXPANSION.sub(lambda m: m.group(1), cmd)
+        if nouveau == cmd:
+            break
+        cmd = nouveau
+    return cmd
+
+
+_TRAVAIL = [0]
+_MAX_TRAVAIL = 1_000_000   # characters scanned for substitutions, per command
+_MAX_CHARS_CORPS = 30_000   # total characters of bodies analysed
+_MAX_CORPS = 64          # bodies analysed per top-level command
+_DESTRUCTIF_BRUT = re.compile(
+    r"\bgit\b[^\n]{0,300}?\b(?:reset|clean|push|checkout|restore|stash|rm|worktree|switch)\b",
+    re.IGNORECASE)
+
+
+def _corps_de_substitutions(cmd: str):
+    """Bodies of backtick and `$(...)` substitutions (outermost first, nested ones
+    listed too), active outside '...' and also INSIDE "...". ONE linear pass with a
+    stack: the previous version re-scanned nested bodies at every recursion level
+    (40 nested `$(` = 6 s). An unclosed `$(` runs to the end of the text."""
+    trouves = []   # (start, body)
+    pile = []      # start index of each open `(`; -1 for a plain paren
+    n = len(cmd)
+    i = 0
+    quote = None
+    while i < n:
+        c = cmd[i]
+        if c == "\\" and quote != "'":
+            i += 2
+            continue
+        if quote == "'":
+            if c == "'":
+                quote = None
+            i += 1
+            continue
+        if c == "'":
+            quote = "'"
+        elif c == '"':
+            quote = None if quote == '"' else '"'
+        elif c == "`":
+            j = i + 1
+            while j < n and cmd[j] != "`":
+                j += 2 if cmd[j] == "\\" else 1
+            trouves.append((i + 1, j, True))
+            i = j
+        elif c == "$" and cmd[i + 1 : i + 2] == "(":
+            pile.append(i + 2)
+            i += 1
+        elif c == "(":
+            pile.append(-1)
+        elif c == ")" and pile:
+            debut = pile.pop()
+            if debut >= 0:
+                trouves.append((debut, i, False))
+        i += 1
+    for debut in pile:
+        if debut >= 0:
+            trouves.append((debut, n, False))
+    trouves.sort(key=lambda t: t[0])
+    corps = []
+    total = 0
+    trop = len(trouves) > _MAX_CORPS
+    for debut, fin, backtick in trouves[:_MAX_CORPS]:
+        total += fin - debut
+        if total > _MAX_CHARS_CORPS:   # analysed text bounded: never hang
+            trop = True
+            break
+        texte = cmd[debut:fin]
+        corps.append((texte.replace("\\`", "`") if backtick else texte, backtick))
+    return corps, trop
+
+
+def _alias_git(segs: list) -> dict:
+    """`alias g=git` / `alias g='git -c x'` -> {"g": ["git", "-c", "x"]}."""
+    alias = {}
+    for seg in segs:
+        try:
+            toks = shlex.split(seg, posix=True)
+        except ValueError:
+            continue
+        if len(toks) >= 2 and toks[0] == "alias":
+            for t in toks[1:]:
+                nom, sep, val = t.partition("=")
+                if sep and re.match(r"^[A-Za-z_][\w.-]*$", nom):
+                    mots = val.split()
+                    if mots and _nom_binaire(mots[0]) == "git":
+                        alias[nom] = mots
+    return alias
+
+
+def _developper_alias(seg: str, alias: dict) -> str:
+    if not alias:
+        return seg
+    try:
+        toks = shlex.split(seg, posix=True)
+    except ValueError:
+        return seg
+    k = 0
+    while k < len(toks) and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", toks[k]):
+        k += 1
+    if k < len(toks) and toks[k] in alias:
+        toks = toks[:k] + alias[toks[k]] + toks[k + 1 :]
+        return " ".join(shlex.quote(t) for t in toks)
+    return seg
+
+
+def _analyser(cmd: str, profondeur: int = 0, extraire: bool = True):
+    cmd = _normaliser(cmd)
+    if profondeur == 0:
+        _TRAVAIL[0] = 0
+    if extraire and profondeur < _MAX_DEPTH:
+        _TRAVAIL[0] += len(cmd)
+        if _TRAVAIL[0] > _MAX_TRAVAIL:   # total scanned text bounded: never hang
+            corps, trop = [], True
+        else:
+            corps, trop = _corps_de_substitutions(cmd)
+        for c, backtick in corps:
+            # `$(...)` bodies are listed flat (nested ones too): no re-scan, else n^3
+            raison = _analyser(c, profondeur + 1, backtick)
+            if raison:
+                return raison
+        if trop and _DESTRUCTIF_BRUT.search(cmd):
+            return ("Trop de substitutions imbriquees pour une analyse bornee, et un motif "
+                    "git destructif apparait dans le texte brut : refus prudent.")
     segs = _segments(cmd)
+    alias = _alias_git(segs)
+    if alias:
+        segs = [_developper_alias(sg, alias) for sg in segs]
     for seg in segs:
         raison = _blocked_reason(seg, profondeur)
         if raison:

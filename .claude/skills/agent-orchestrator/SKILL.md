@@ -20,8 +20,8 @@ Détail, mesures et historique de chaque section (divulgation progressive, lot 3
 [routage-bmad](references/routage-bmad.md) · [veille](references/veille.md) ·
 [salles](references/salles.md) · [journal](references/journal.md).
 
-<!-- SOCLE-PROVENANCE: socle : 5ee2027 du 2026-10-04 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`5ee2027`, 2026-10-04) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 034b43c du 2026-10-05 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`034b43c`, 2026-10-05) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -122,6 +122,13 @@ les autres projets, il est à remonter au hub VSCode5 pour propagation.
   clôture qui va avec. Tout le reste, même orchestré — état des lieux, propagation de canon,
   réception d'un diagnostic ou d'une veille, reprise de travaux, cadrage, rapport — ne
   s'inscrit PAS dans `runs.jsonl` (mesure du 2026-09-07 : [journal](references/journal.md)).
+- **Parallèle par défaut** (consigne permanente du propriétaire, 2026-10-04 : « inscrit par
+  défaut dès que c'est possible de traiter les sujets en parallèle, voire en mode neuronal »).
+  Quand une demande contient plusieurs sujets indépendants (aucune dépendance de données,
+  périmètres de fichiers disjoints), les lancer EN PARALLÈLE en arrière-plan dans le même plan,
+  sans attendre qu'on le demande, et l'annoncer en une ligne. Garde-fous inchangés : § 2 ter
+  (un seul rédacteur par périmètre, plafonds, UN appel `Agent` par message au-delà de 4 agents
+  isolés, vérification sur disque). Dépendance de données ou même fichier : cascade.
 
 **Un aller-retour sur un livrable pas encore validé n'est jamais une nouvelle orchestration**
 (38 runs `en-attente-validation` flotte-wide au 2026-09-07, l'essentiel du motif « refais
@@ -181,6 +188,16 @@ que pour ce qu'un script ne rejoue pas. Pas d'Opus dans un bras de diagnostic (v
 vue rouge (clause 9). **La redondance sert à
 comprendre (diagnostiquer, prouver), jamais à écrire.**
 
+**Neuronal par défaut pour COMPRENDRE** (consigne permanente du 2026-10-04) : pour une étape dont
+le travail est de comprendre (diagnostic, audit, revue, proposition de conception ou d'IA,
+instruction d'un choix, plan éditorial), l'orchestrateur applique par défaut le neuronal et
+l'annonce en une ligne ; le propriétaire force `neuronal :` ou `classique :`. **Jamais pour
+ÉCRIRE** (un seul rédacteur) ni pour une action mécanique ou irréversible : classique, sans
+annonce. Limites mesurées : petits échantillons (10 et 13 tâches), coût environ 2×, vérificateurs
+trop accommodants (8 faux positifs sur 44 verdicts), effet non mesuré sur les tâches ouvertes
+(les tâches de test avaient un oracle objectif) — essai borné que le journal continue de
+mesurer (`bras`, `topologie`, `tache_id`).
+
 À l'étape 1, l'orchestrateur **propose le mode en une ligne avec sa raison** : neuronal pour
 diagnostiquer un finding ouvert, établir qu'un correctif est « déjà fait », auditer, trier des
 findings en lot ; classique pour implémenter, une tâche mécanique, un changement à risque
@@ -194,6 +211,8 @@ justifient, valeurs de journal acceptées, indicateurs : [modes](references/mode
 Les modes se CONCRÉTISENT par l'outil `Agent` (Task) — pas par une description
 d'intention. Détail, incidents datés et mesures : [multi-agents-briefs](references/multi-agents-briefs.md).
 
+- **Parallèle par défaut** : des sujets indépendants se lancent concurrents sans attendre
+  d'y être invités (§ 1) ; tout ce qui suit borne ce défaut, il ne le lève jamais.
 - **Fan-out parallèle** : plusieurs appels `Agent` **dans le même message** = lancement
   concurrent ; un appel par message = cascade involontaire. Chaque sous-agent part avec un
   contexte VIERGE : son prompt est un **brief autoportant** (chemins absolus, exigence
@@ -296,6 +315,23 @@ référence côté produit : la clôture à jeton aléatoire de
 Monitor dans un sous-agent, jamais attendre sa propre tâche de fond » et « tout mutant posé
 porte le marqueur `# MUTANT:` sur la ligne modifiée et est restauré avant de rendre ; le
 garde de fin refuse sinon » (`guard_terminaison_etayee.py`).
+
+**Table des budgets (règle, mesurée le 2026-10-04 sur `usage.jsonl`, 729 agents general-purpose
+appariés lancement/arrêt)** : `BUDGET = 2 × médiane mesurée de la classe`, jamais un chiffre d'instinct
+(sur les agents lancés dès le 2026-10-03 avec un `BUDGET :` déclaré, 220 sur 407 (54 %) ont dépassé leur budget ; parmi les seuls budgets de 10 min, 119 sur 146 (81 %)). Le détecteur `convergence.py` lit cette table (`BUDGETS_CLASSE_MIN`) : seuil non convergent = max(5 × p95 de la classe, 2 × budget de la classe), repli sur le p95 global pour une classe inconnue.
+
+| Classe | Proxy observable (budget déclaré historique) | Médiane mesurée | `BUDGET :` à écrire |
+| --- | --- | --- | --- |
+| 1. Rédaction courte | lecture + un fichier à écrire, sans suite de tests (≤ 5 min déclarées) | 3,5 min | 7 min |
+| 2. Exécution avec tests | worktree + test rouge/vert + mutants + rejeu de suites (6-29 min déclarées) | 9,1 min | 18 min |
+| 3. Campagne sous charge | mesure, fan-out, test de charge ou propagation flotte (≥ 30 min déclarées) | 23,0 min | 46 min |
+
+Multiplicateur de charge : ×3 dès que 20 agents ou plus tournent en même temps (classe 2 mesurée :
+médiane 5,6 min à moins de 5 agents concurrents, 16,3 min à 20 ou plus, soit ×2,9 ; ×2 entre 5 et 19,
+médiane 11,5 min). Une tâche qui n'entre dans aucune classe se range dans la plus longue, jamais sous
+7 min. Non classé : les lancements sans `BUDGET :` et les agents d'autres types que general-purpose.
+Les classes sont définies par le budget que l'auteur avait déclaré, donc biaisées par son anticipation :
+les re-mesurer à chaque campagne (`convergence.py --historique`).
 
 **Bloc de fin de salle, obligatoire et STRUCTURÉ** — dernières lignes du rendu de toute
 salle de travail, un slot par ligne :
