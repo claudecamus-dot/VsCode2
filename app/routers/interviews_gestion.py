@@ -16,12 +16,13 @@ from fastapi import (
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from ..db import get_session
+from ..db import RECORDINGS_DIR, get_session
 from ..models import (
     Answer,
     Interview,
     Verbatim,
 )
+from ..services import mission_backups
 from .interviews_commun import (
     _get_mission,
 )
@@ -52,13 +53,16 @@ def import_interview_confirm(
     except ValueError:
         parsed_date = None
 
+    audio_backup_path, _ = mission_backups.references_audio_sures(
+        mission_id, identity.get("audio_backup_path"), [], RECORDINGS_DIR,
+    )
     interview = Interview(
         mission_id=mission_id,
         interviewee_name=(identity.get("interviewee_name") or "").strip() or "Sans nom",
         interviewee_role=(identity.get("interviewee_role") or "").strip() or None,
         interviewee_entity=(identity.get("interviewee_entity") or "").strip() or None,
         interview_date=parsed_date,
-        audio_backup_path=identity.get("audio_backup_path") or None,
+        audio_backup_path=audio_backup_path,
         # Présent seulement pour le flux d'enregistrement audio
         # (record_interview()) — l'import .docx ne met jamais "transcript"
         # dans identity, l'utilisateur gardant déjà son fichier source.

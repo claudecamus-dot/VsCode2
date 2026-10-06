@@ -20,13 +20,13 @@ from fastapi import (
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 
-from ..db import get_session
+from ..db import RECORDINGS_DIR, get_session
 from ..models import (
     Interview,
     InterviewTurn,
     Mission,
 )
-from ..services import audio_transcribe
+from ..services import audio_transcribe, mission_backups
 from ..services.interview_libre_extract_ai import (
     InterviewLibreExtractAIError,
     generate_repartition_from_turns,
@@ -408,6 +408,12 @@ def _creer_interview_libre(
     except ValueError:
         parsed_date = None
 
+    audio_backup_path, audio_segments = mission_backups.references_audio_sures(
+        mission_id,
+        identity.get("audio_backup_path"),
+        _parse_audio_segments(identity.get("audio_segments", "[]")),
+        RECORDINGS_DIR,
+    )
     interview = Interview(
         mission_id=mission_id,
         mode="libre",
@@ -416,8 +422,8 @@ def _creer_interview_libre(
         interviewee_role=identity.get("interviewee_role", "").strip() or None,
         interviewee_entity=identity.get("interviewee_entity", "").strip() or None,
         interview_date=parsed_date,
-        audio_backup_path=identity.get("audio_backup_path") or None,
-        audio_segments=_parse_audio_segments(identity.get("audio_segments", "[]")),
+        audio_backup_path=audio_backup_path,
+        audio_segments=audio_segments,
         resume=resume.strip() or None,
         repartition=repartition,
         # La transcription brute était postée par l'écran de revue mais jamais

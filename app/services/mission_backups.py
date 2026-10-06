@@ -172,6 +172,44 @@ def mission_id_du_fichier(nom: str) -> int | None:
     return valeur
 
 
+def _reference_sure(nom, mission_id: int, recordings_dir: Path) -> bool:
+    """Un nom de fichier venu du CLIENT désigne-t-il un enregistrement réel de
+    cette mission ? Préfixe canonique `{mission_id}_` (`mission_id_du_fichier`),
+    aucun séparateur de chemin, et le fichier existe dans `recordings_dir`."""
+    if not isinstance(nom, str) or not nom:
+        return False
+    if "/" in nom or "\\" in nom or ".." in nom:
+        return False
+    if mission_id_du_fichier(nom) != mission_id:
+        return False
+    return (recordings_dir / nom).is_file()
+
+
+def references_audio_sures(
+    mission_id: int, audio_backup_path, audio_segments, recordings_dir: Path,
+) -> tuple[str | None, list[dict]]:
+    """Valide les références audio postées en champ caché avant de les persister.
+
+    `audio_backup_path` et `audio_segments` arrivent d'un champ de formulaire :
+    persistés tels quels (revue du 2026-10-06, constat M2), un élément non-dict
+    faisait lever `segment.get("filename")` dans `lister_orphelins_globaux`, et
+    un nom arbitraire était rattaché à l'entretien. Seuls survivent les noms
+    au préfixe de la mission, sans chemin, et présents sur disque ; un segment
+    non-dict ou invalide est écarté. Un seul validateur pour les deux sites
+    d'écriture (`_creer_interview_libre`, `import_interview_confirm`)."""
+    chemin = (
+        audio_backup_path
+        if _reference_sure(audio_backup_path, mission_id, recordings_dir)
+        else None
+    )
+    segments = [
+        seg for seg in (audio_segments if isinstance(audio_segments, list) else [])
+        if isinstance(seg, dict)
+        and _reference_sure(seg.get("filename"), mission_id, recordings_dir)
+    ]
+    return chemin, segments
+
+
 def media_type_audio(filename: str) -> str:
     """Type MIME d'un enregistrement d'apres son extension.
 
