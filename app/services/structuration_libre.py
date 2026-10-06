@@ -258,7 +258,10 @@ def structurer_entretien(interview_id: int) -> bool:
             )
             manquantes = extracted["tranches_manquantes"]
             turns = extracted["turns"]
-            statut = "echec" if (not turns and manquantes and jeton) else "fait"
+            # Aucun tour ET une perte signalée : rien de structuré, relançable.
+            # Sans condition sur le jeton : un entretien court n'a pas de jobs
+            # de tranche, et sa relance repart de la transcription entière.
+            statut = "echec" if (not turns and manquantes) else "fait"
             detectee = extracted.get("identity") or {}
             if interview.interviewee_name == "Sans nom" and (
                 detectee.get("interviewee_name") or ""

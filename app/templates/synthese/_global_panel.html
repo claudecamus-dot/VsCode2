@@ -77,6 +77,7 @@
      répartition est INVISIBLE de la synthèse alors qu'il s'affiche « Terminé »
      ailleurs — sans ce renvoi, l'écran disait « rien à synthétiser » sans
      jamais nommer l'étape manquante. #}
+  {% include "interviews/_avertissement_non_structures.html" %}
   {% if libres_sans_analyse %}
   <p class="muted ai-hint">⚠ {{ libres_sans_analyse|length }} entretien{{ libres_sans_analyse|length|pluriel }}
     libre{{ libres_sans_analyse|length|pluriel }} sans analyse — il{{ libres_sans_analyse|length|pluriel }} ne

@@ -425,3 +425,64 @@ def test_num_thread_optionnel(monkeypatch) -> None:
     assert "num_thread" not in envoyes[0]["options"]
     assert envoyes[1]["options"]["num_thread"] == 3
     assert "num_thread" not in envoyes[2]["options"]
+
+# --------------------------------------------------------------------------- #
+# Écrans : badge sur la fiche, avertissement là où les entretiens sont listés
+# --------------------------------------------------------------------------- #
+def test_fiche_libre_affiche_badge_et_bouton(client: TestClient) -> None:
+    interview_id = _creer_a_traiter(_mission(client), statut="echec")
+    html = client.get(f"/interviews/{interview_id}").text
+    assert 'id="structuration-statut"' in html
+    assert "badge-echec" in html
+    assert f'action="/interviews/{interview_id}/structurer"' in html
+    assert "Relancer" in html
+
+
+def test_fiche_libre_structuree_sans_sondage(client: TestClient) -> None:
+    interview_id = _creer_a_traiter(_mission(client), statut="fait")
+    html = client.get(f"/interviews/{interview_id}").text
+    assert "badge-fait" in html
+    assert 'hx-trigger="every 3s"' not in html
+
+
+@pytest.mark.parametrize(
+    "url", ["/missions/{m}", "/missions/{m}/synthese/globale"],
+)
+def test_ecrans_de_mission_avertissent_des_entretiens_non_structures(
+    client: TestClient, url
+) -> None:
+    mission_id = _mission(client)
+    _creer_a_traiter(mission_id, statut="a_traiter")
+    html = client.get(url.format(m=mission_id)).text
+    assert "pas encore structuré" in html
+    assert "(à traiter)" in html
+
+
+def test_ecran_de_mission_sans_entretien_non_structure_n_avertit_pas(client: TestClient) -> None:
+    mission_id = _mission(client)
+    _creer_a_traiter(mission_id, statut="fait")
+    assert "pas encore structuré" not in client.get(f"/missions/{mission_id}").text
+
+
+def test_finaliser_avertit_de_la_structuration_en_attente(client: TestClient, monkeypatch) -> None:
+    _espion_ia(monkeypatch)
+    _programmes(monkeypatch)
+    mission_id = _mission(client, nommee=False)
+    response = client.post(
+        f"/missions/{mission_id}/interviews/record-libre/enregistrer",
+        data={"transcript": "x"}, follow_redirects=True,
+    )
+    assert "pas encore structuré" in response.text
+
+def test_structurer_sans_jeton_ia_en_panne_laisse_echec_relancable(client: TestClient, monkeypatch) -> None:
+    """Vu par l'e2e réel : un entretien court n'a pas de jobs de tranche (jeton
+    vide). Une panne IA le laissait « fait » à 0 tour — plus relançable."""
+    from app.services.interview_libre_extract_ai import InterviewLibreExtractAIError
+
+    _espion_ia(monkeypatch, exc=InterviewLibreExtractAIError("panne"))
+    interview_id = _creer_a_traiter(_mission(client), jeton=None)
+    assert structuration_libre.structurer_entretien(interview_id) is False
+    with SessionLocal() as db:
+        assert db.get(Interview, interview_id).structuration_status == "echec"
+    _espion_ia(monkeypatch)
+    assert structuration_libre.structurer_entretien(interview_id) is True

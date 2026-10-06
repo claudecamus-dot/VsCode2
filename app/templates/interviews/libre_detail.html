@@ -35,6 +35,10 @@
    utilisateur 2026-09-04) : ce bandeau est la contrepartie du déblocage — le
    tour de table est incomplet, et personne ne doit l'apprendre en comptant les
    tours. « Relancer la transcription » repart de l'audio conservé. #}
+{# Structuration différée (2026-10-06) : badge + « Structurer maintenant » /
+   « Relancer », hors du formulaire d'édition (pas de formulaire imbriqué). #}
+{% include "interviews/_structuration_statut.html" %}
+
 {% if ident_date_invalide %}
 <p class="ai-error">⚠ La date de l'entretien saisie n'a pas pu être lue et n'a pas été enregistrée — voir l'onglet <strong>Tour de table</strong>, pavé Identité.</p>
 {% endif %}

@@ -1,0 +1,19 @@
+{# Avertissement partagé (2026-10-06, structuration différée) : un entretien
+   libre enregistré mais pas encore structuré n'a AUCUN tour de parole — il
+   compte pour zéro dans la synthèse et le deck. On le DIT là où les entretiens
+   sont listés, au lieu de le laisser compter pour rien en silence.
+   Contexte attendu : `mission` (ses `interviews`). #}
+{% set non_structures = mission.interviews
+     | selectattr('mode', 'equalto', 'libre')
+     | rejectattr('structuration_status', 'equalto', 'fait')
+     | list %}
+{% if non_structures %}
+<p class="ai-error avertissement-non-structures" role="status">
+  ⚠ {{ non_structures | length }} entretien{{ 's' if non_structures | length > 1 else '' }}
+  libre{{ 's' if non_structures | length > 1 else '' }} pas encore structuré{{ 's' if non_structures | length > 1 else '' }}
+  en tours de parole — sans tours, il{{ 's' if non_structures | length > 1 else '' }} ne
+  compte{{ 'nt' if non_structures | length > 1 else '' }} pas dans la synthèse ni dans le deck :
+  {% for iv in non_structures %}<a href="/interviews/{{ iv.id }}">{{ iv.interviewee_name or 'entretien ' ~ iv.id }}</a>
+  ({{ {'a_traiter': 'à traiter', 'en_cours': 'en cours', 'echec': 'échec'}.get(iv.structuration_status, iv.structuration_status) }}){{ ", " if not loop.last }}{% endfor %}.
+</p>
+{% endif %}

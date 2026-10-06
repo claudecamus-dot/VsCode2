@@ -114,6 +114,7 @@ class FauxOllama:
     def __init__(self) -> None:
         self.extractions = 0
         self.repartitions = 0
+        self.panne = False
         self.requetes: list[dict] = []
         self._verrou = threading.Lock()
         faux = self
@@ -142,6 +143,10 @@ class FauxOllama:
                     return
                 systeme = str(messages[0].get("content", ""))
                 prompt = str(messages[-1].get("content", ""))
+                if faux.panne and '"turns"' in systeme:
+                    # Panne simulée de l'extraction (structuration différée).
+                    self._json({"error": "panne simulée"})
+                    return
                 with faux._verrou:
                     faux.requetes.append({"systeme": systeme[:200], "prompt": prompt[:500]})
                     contenu = faux._repondre(systeme, prompt)
@@ -276,31 +281,7 @@ def _enregistrer_un_entretien_libre(nav: Navigateur, base: str, nom: str) -> tup
     nav.naviguer(base + "/")
     nav.cliquer_et_attendre("form[action='/mode/reel'] button[type=submit]")
     nav.cliquer_et_attendre("form[action='/entretiens/libre/nouveau'] button[type=submit]")
-    assert nav.url().rstrip("/").endswith("/record-libre"), nav.url()
-    assert not nav.evaluer("document.getElementById('rec-start').disabled"), (
-        "Démarrer est désactivé : " + nav.evaluer("document.getElementById('rec-status').textContent")
-    )
-    nav.remplir("input[name=interviewee_name]", nom)
-
-    nav.cliquer("#rec-start")
-    _attendre(nav, "!document.getElementById('rec-stop').hidden", 30, "Démarrer (micro accordé)")
-    time.sleep(_DUREE_ENREGISTREMENT_S)
-    nav.cliquer("#rec-stop")
-
-    texte = _attendre(
-        nav, "document.getElementById('rec-transcript').value.trim()",
-        _DELAI_TRANSCRIPTION_S, "transcription de la dernière tranche",
-    )
-    assert re.search(r"test|record|transcri|pipeline|hello", texte, re.I), (
-        f"le texte transcrit ne ressemble pas au clip : {texte!r}"
-    )
-    repartition = _attendre(
-        nav, "document.getElementById('rec-repartition').innerText.trim()",
-        90, "répartition Q/R (tours extraits par l'IA)",
-    )
-    assert "Extraction n°" in repartition, repartition
-    _attendre(nav, "!document.getElementById('rec-submit').disabled", 60, "bouton Enregistrer l'entretien")
-    _sans_erreur(nav, "Enregistrement libre à l'écran")
+    texte = _parler_et_attendre_le_tour_de_table(nav, nom)
 
     nav.cliquer_et_attendre("#rec-submit")
     # Écran d'attente possible (extraction encore en vol) : il repost tout seul,
@@ -319,6 +300,39 @@ def _enregistrer_un_entretien_libre(nav: Navigateur, base: str, nom: str) -> tup
     url = nav.url()
     assert re.search(r"/interviews/\d+/?$", url), url
     return url, texte
+
+
+def _parler_et_attendre_le_tour_de_table(nav: Navigateur, nom: str, repartition_attendue: bool = True) -> str:
+    """Sur l'écran d'enregistrement libre : nom, Démarrer, parler (faux micro),
+    Arrêter, attendre transcription + répartition Q/R et le bouton
+    « Enregistrer l'entretien ». Rend le texte transcrit."""
+    assert nav.url().rstrip("/").endswith("/record-libre"), nav.url()
+    assert not nav.evaluer("document.getElementById('rec-start').disabled"), (
+        "Démarrer est désactivé : " + nav.evaluer("document.getElementById('rec-status').textContent")
+    )
+    nav.remplir("input[name=interviewee_name]", nom)
+
+    nav.cliquer("#rec-start")
+    _attendre(nav, "!document.getElementById('rec-stop').hidden", 30, "Démarrer (micro accordé)")
+    time.sleep(_DUREE_ENREGISTREMENT_S)
+    nav.cliquer("#rec-stop")
+
+    texte = _attendre(
+        nav, "document.getElementById('rec-transcript').value.trim()",
+        _DELAI_TRANSCRIPTION_S, "transcription de la dernière tranche",
+    )
+    assert re.search(r"test|record|transcri|pipeline|hello", texte, re.I), (
+        f"le texte transcrit ne ressemble pas au clip : {texte!r}"
+    )
+    if repartition_attendue:
+        repartition = _attendre(
+            nav, "document.getElementById('rec-repartition').innerText.trim()",
+            90, "répartition Q/R (tours extraits par l'IA)",
+        )
+        assert "Extraction n°" in repartition, repartition
+    _attendre(nav, "!document.getElementById('rec-submit').disabled", 60, "bouton Enregistrer l'entretien")
+    _sans_erreur(nav, "Enregistrement libre à l'écran")
+    return texte
 
 
 def test_l_enregistrement_libre_transcrit_la_parole_et_s_enregistre(
@@ -373,3 +387,65 @@ def test_le_tour_de_table_se_rejoue_autant_de_fois_que_necessaire(
         assert f"Extraction n°{attendu - 1}" not in tours, "l'ancien tour de table n'a pas été remplacé"
         _sans_erreur(nav, f"Rejeu {rejeu}")
     assert faux_ollama.extractions == avant + 2
+
+
+def test_enregistrer_ouvre_la_fiche_tout_de_suite_puis_structurer_en_tache_de_fond(
+    serveur: str, nav: Navigateur, faux_ollama: FauxOllama,
+) -> None:
+    """Structuration différée (2026-10-06) : « Enregistrer l'entretien » sur une
+    mission NOMMÉE ouvre la fiche de l'entretien tout de suite, avec son badge
+    de structuration — l'IA tourne ensuite en tâche de fond. Faux Ollama en
+    panne d'extraction : la fiche passe en « échec » et propose « Relancer » ;
+    Ollama rétabli, le clic Relancer structure l'entretien (badge « fait »,
+    tour de table rempli). Jamais de vrai Ollama."""
+    # Une mission nommée (premier entretien du parcours habituel).
+    _enregistrer_un_entretien_libre(nav, serveur, "E2E Async 1")
+    nav.naviguer(nav.url())
+    mission_href = nav.evaluer(
+        "document.querySelector('.breadcrumb a[href^=\"/missions/\"]:not([href=\"/missions\"])')"
+        ".getAttribute('href')"
+    )
+    assert re.search(r"^/missions/\d+$", mission_href or ""), mission_href
+
+    # Panne d'extraction dès l'enregistrement : ni la répartition à l'écran ni
+    # la structuration de fond n'aboutissent — l'entretien s'enregistre quand
+    # même, et sa fiche le dit.
+    faux_ollama.panne = True
+    try:
+        nav.naviguer(serveur + mission_href + "/interviews/record-libre")
+        _parler_et_attendre_le_tour_de_table(nav, "E2E Async 2", repartition_attendue=False)
+        debut = time.monotonic()
+        nav.cliquer_et_attendre("#rec-submit")
+        assert re.search(r"/interviews/\d+/?(\?.*)?$", nav.url()), nav.url()
+        assert time.monotonic() - debut < 30, "l'enregistrement a attendu l'IA"
+        statut = nav.evaluer(
+            "(document.getElementById('structuration-statut')||{dataset:{}}).dataset.statut||''"
+        )
+        assert statut in ("a_traiter", "en_cours", "echec"), statut
+        assert nav.evaluer(
+            "document.getElementById('structuration-statut').getAttribute('aria-live')"
+        ) == "polite"
+        # Le sondage HTMX recharge la fiche à l'arrivée sur l'état terminal.
+        _attendre(
+            nav,
+            "(document.getElementById('structuration-statut')||{dataset:{}}).dataset.statut==='echec'",
+            90, "badge « échec » (panne simulée)",
+        )
+        assert "Relancer" in nav.texte()
+    finally:
+        faux_ollama.panne = False
+
+    avant = faux_ollama.extractions
+    nav.cliquer_et_attendre("form[action$='/structurer'] button[type=submit]")
+    _attendre(
+        nav,
+        "(document.getElementById('structuration-statut')||{dataset:{}}).dataset.statut==='fait'",
+        90, "badge « fait » après Relancer",
+    )
+    assert faux_ollama.extractions > avant
+    nav.cliquer(".rec-tab[data-turntab=tours]")
+    assert "Extraction n°" in _tour_de_table(nav)
+    assert not nav.evaluer(
+        "!!document.querySelector('#structuration-statut[hx-trigger]')"
+    ), "le sondage continue sur un état terminal"
+    _sans_erreur(nav, "Structuration différée")

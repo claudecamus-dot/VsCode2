@@ -67,6 +67,7 @@
     </div>
   </div>
   {% if mission.interviews %}
+    {% include "interviews/_avertissement_non_structures.html" %}
     <table class="table">
       <thead>
         <tr><th>Interviewé·e</th><th>Date</th><th>Couverture</th><th>Statut</th><th></th></tr>
@@ -79,6 +80,9 @@
             <a href="/interviews/{{ iv.id }}">{{ iv.interviewee_name }}</a>
             {% if iv.interviewee_role %}<span class="muted">— {{ iv.interviewee_role }}</span>{% endif %}
             {% if iv.mode == 'libre' %}<span class="pill">Libre</span>{% endif %}
+            {% if iv.mode == 'libre' and iv.structuration_status and iv.structuration_status != 'fait' %}
+            <span class="badge badge-structuration badge-{{ iv.structuration_status }}">{{ {'a_traiter': 'à structurer', 'en_cours': 'structuration en cours', 'echec': 'structuration en échec'}.get(iv.structuration_status, iv.structuration_status) }}</span>
+            {% endif %}
           </td>
           <td>{{ iv.interview_date.strftime('%d/%m/%Y') if iv.interview_date else '—' }}</td>
           <td>{% if iv.mode == 'libre' %}{{ iv.turns | length }} tour{{ iv.turns|length|pluriel }}{% else %}{{ done }}/{{ question_count }}{% endif %}</td>
