@@ -11,6 +11,13 @@ Seul écart au déplacement : `_tours_vides` construisait son identité vide par
 """
 from __future__ import annotations
 
+import logging
+import time
+
+from sqlalchemy import delete, update
+
+from .. import db as _db
+from ..models import Interview, InterviewTurn
 from .interview_libre_extract_ai import (
     InterviewLibreExtractAIError,
     extract_turns_from_text,
@@ -73,7 +80,7 @@ def _tours_vides() -> dict:
     }
 
 
-def _extraire_tours_libre(db, transcript, session_token, segment_tail):
+def _extraire_tours_libre(db, transcript, session_token, segment_tail, supprimer_jobs=True):
     """Produit les tours de parole d'un entretien libre — et n'échoue JAMAIS.
 
     Rend `{"turns", "identity", "tranches_manquantes"}`. La répartition Q/R est
@@ -171,6 +178,122 @@ def _extraire_tours_libre(db, transcript, session_token, segment_tail):
     # nettoie. Leur texte est déjà dans la transcription postée par l'écran,
     # que `_creer_interview_libre` enregistre en entier — y compris celui des
     # tranches non structurées.
-    delete_segment_jobs(db, session_token)
+    # `supprimer_jobs=False` (structuration différée, 2026-10-06) : c'est
+    # `structurer_entretien` qui décide, selon l'issue, de les garder pour une
+    # relance.
+    if supprimer_jobs:
+        delete_segment_jobs(db, session_token)
     extracted["tranches_manquantes"] = manquantes
     return extracted
+
+
+# --------------------------------------------------------------------------- #
+# Structuration DIFFÉRÉE (2026-10-06, demande utilisateur : « enregistrer
+# l'entretien libre avec l'audio et la transcription dans un premier temps et
+# après traiter le reste en asynchrone »). L'enregistrement crée l'entretien
+# tout de suite (`structuration_status="a_traiter"`, aucun appel IA) ; cette
+# fonction, lancée en tâche de fond ou relancée depuis la fiche, produit les
+# tours de parole.
+# --------------------------------------------------------------------------- #
+logger = logging.getLogger("app.services.structuration_libre")
+
+# Attente des tranches encore en traitement au fil de l'eau (l'écran d'attente
+# de l'enregistrement a disparu de ce chemin) : bornée. Au-delà, l'extraction
+# part quand même — une tranche toujours en vol y est comptée manquante.
+ATTENTE_TRANCHES_S = 30 * 60
+ATTENTE_PAS_S = 2.0
+
+_STATUTS_LANCABLES = ("a_traiter", "echec")
+
+
+def _attendre_les_tranches(db, jeton: str | None) -> None:
+    if not jeton:
+        return
+    limite = time.monotonic() + ATTENTE_TRANCHES_S
+    while True:
+        status = segment_jobs_status(db, jeton)
+        if status["total"] == 0 or status["all_done"] or status["any_failed"]:
+            return
+        if time.monotonic() >= limite:
+            return
+        db.expire_all()
+        time.sleep(ATTENTE_PAS_S)
+
+
+def structurer_entretien(interview_id: int) -> bool:
+    """Structure un entretien libre en tours de parole, hors requête HTTP.
+
+    Idempotent : la bascule `a_traiter|echec -> en_cours` est un UPDATE
+    CONDITIONNEL ; si une autre exécution l'a déjà prise (double clic, tâche
+    auto + relance), rowcount vaut 0 et rien n'est fait — un seul appel IA.
+    Tours + `tranches_manquantes` + `fait` sont écrits dans UNE transaction.
+    Toute exception, ou une extraction sans aucun tour alors que des tranches
+    ont échoué, laisse `echec` (relançable) et garde les jobs de tranche ;
+    `fait` les supprime (comme le faisait l'enregistrement synchrone).
+
+    Rend True si cette exécution a structuré l'entretien."""
+    db = _db.SessionLocal()
+    try:
+        pris = db.execute(
+            update(Interview)
+            .where(
+                Interview.id == interview_id,
+                Interview.structuration_status.in_(_STATUTS_LANCABLES),
+            )
+            .values(structuration_status="en_cours")
+        ).rowcount
+        db.commit()
+        if not pris:
+            return False
+        interview = db.get(Interview, interview_id)
+        jeton = interview.segment_token or ""
+        try:
+            _attendre_les_tranches(db, jeton)
+            extracted = _extraire_tours_libre(
+                db,
+                interview.raw_transcript or "",
+                jeton,
+                interview.segment_tail or "",
+                supprimer_jobs=False,
+            )
+            manquantes = extracted["tranches_manquantes"]
+            turns = extracted["turns"]
+            statut = "echec" if (not turns and manquantes and jeton) else "fait"
+            detectee = extracted.get("identity") or {}
+            if interview.interviewee_name == "Sans nom" and (
+                detectee.get("interviewee_name") or ""
+            ).strip():
+                interview.interviewee_name = detectee["interviewee_name"].strip()
+            for champ in ("interviewee_role", "interviewee_entity"):
+                if not getattr(interview, champ) and (detectee.get(champ) or "").strip():
+                    setattr(interview, champ, detectee[champ].strip())
+            db.execute(delete(InterviewTurn).where(InterviewTurn.interview_id == interview_id))
+            for position, turn in enumerate(turns):
+                db.add(
+                    InterviewTurn(
+                        interview_id=interview_id,
+                        position=position,
+                        interlocuteur=turn["interlocuteur"],
+                        question=turn["question"],
+                        remarque=turn["remarque"],
+                        section_title=turn["section_title"],
+                    )
+                )
+            interview.tranches_manquantes = max(0, manquantes)
+            interview.structuration_status = statut
+            db.commit()
+        except Exception:
+            db.rollback()
+            logger.exception("Structuration de l'entretien %s en échec", interview_id)
+            db.execute(
+                update(Interview)
+                .where(Interview.id == interview_id)
+                .values(structuration_status="echec")
+            )
+            db.commit()
+            return False
+        if statut == "fait" and jeton:
+            delete_segment_jobs(db, jeton)
+        return statut == "fait"
+    finally:
+        db.close()

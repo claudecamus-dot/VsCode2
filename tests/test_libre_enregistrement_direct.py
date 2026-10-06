@@ -317,11 +317,21 @@ def test_enregistrement_direct_echec_ia_enregistre_quand_meme_et_signale(
 # --------------------------------------------------------------------------- #
 # Tranches traitées en tâche de fond
 # --------------------------------------------------------------------------- #
-def test_enregistrement_direct_attend_les_tranches_encore_en_cours(
+def test_enregistrement_direct_n_attend_plus_les_tranches_en_cours(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """RÉÉCRIT le 2026-10-06 (structuration différée, arbitrage utilisateur) :
+    l'ancien contrat — écran d'attente « Traitement des tranches en cours… »,
+    aucun entretien créé tant que les tranches tournent — est remplacé par un
+    enregistrement IMMÉDIAT. Les tranches restent en base pour la
+    structuration de fond, qui les attend elle-même."""
     mission_id = _mission_brouillon(client)
-    _patch_extract(monkeypatch)
+    spy: list = []
+    _patch_extract(monkeypatch, spy=spy)
+    programmes: list[int] = []
+    monkeypatch.setattr(
+        "app.routers.interviews_libre.structurer_entretien", programmes.append
+    )
     _seed_job("tok-attente-enr", 0, "running", text="tranche 1")
 
     response = client.post(
@@ -330,13 +340,22 @@ def test_enregistrement_direct_attend_les_tranches_encore_en_cours(
         follow_redirects=False,
     )
 
-    assert response.status_code == 200
-    # L'attente enchaîne sur l'ENREGISTREMENT, pas sur la revue des tours.
-    assert (
-        f'action="/missions/{mission_id}/interviews/record-libre/enregistrer/from-jobs"'
-        in response.text
-    )
-    assert _entretiens(mission_id) == []
+    assert response.status_code == 303
+    entretiens = _entretiens(mission_id)
+    assert len(entretiens) == 1
+    assert entretiens[0].structuration_status == "a_traiter"
+    assert entretiens[0].segment_token == "tok-attente-enr"
+    assert programmes == [entretiens[0].id]
+    assert spy == []
+    db = SessionLocal()
+    try:
+        assert db.scalar(
+            select(InterviewSegmentJob).where(
+                InterviewSegmentJob.session_token == "tok-attente-enr"
+            )
+        ) is not None
+    finally:
+        db.close()
 
 
 def test_ecran_attente_du_wizard_historique_pointe_toujours_vers_from_jobs(

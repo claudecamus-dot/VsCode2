@@ -12,12 +12,15 @@ from itertools import zip_longest
 
 from fastapi import (
     APIRouter,
+    BackgroundTasks,
     Depends,
     Form,
     HTTPException,
     Request,
 )
 from fastapi.responses import RedirectResponse
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..db import RECORDINGS_DIR, get_session
@@ -31,10 +34,8 @@ from ..services.interview_libre_extract_ai import (
     InterviewLibreExtractAIError,
     generate_repartition_from_turns,
 )
-from ..services.interview_segment_jobs import (
-    segment_jobs_status,
-)
 from ..services.mission_axes import axes_of
+from ..services.structuration_libre import structurer_entretien
 from ..templating import templates
 from .interviews_commun import (
     REPARTITION_KEYS,
@@ -45,10 +46,7 @@ from .interviews_creation import (
     _build_identity,
 )
 from .interviews_record import (
-    _ecran_attente_tranches,
-    _extraire_tours_libre,
     _finalize_libre_turns,
-    _identite_fusionnee,
     _libre_turns_error,
 )
 
@@ -103,24 +101,46 @@ def _refus_texte_vide(request, mission, identity, transcript):
 
 def _enregistrer_libre_direct(
     db, request, mission, identity, transcript, session_token, segment_tail,
+    background_tasks: BackgroundTasks,
 ):
-    """Extrait les tours puis enregistre DÉFINITIVEMENT l'entretien, sans passer
-    par les écrans de revue des tours ni de synthèse (désactivés de l'UI le
-    2026-07-29 : la revue des tours doublonnait l'onglet « Répartition (Q/R) »
-    de l'écran d'enregistrement, et la synthèse est une génération IA longue
-    qui retenait l'entretien en otage). Résumé et répartition restent vides —
-    ils se génèrent plus tard depuis l'aperçu (« Régénérer l'analyse »)."""
-    extracted = _extraire_tours_libre(db, transcript, session_token, segment_tail)
-    interview = _creer_interview_libre(
-        db,
-        mission.id,
-        _identite_fusionnee(identity, extracted),
-        extracted["turns"],
-        transcript,
-        resume="",
-        repartition=None,
-        tranches_manquantes=extracted["tranches_manquantes"],
-    )
+    """Enregistre DÉFINITIVEMENT l'entretien — texte, audio, jeton des tranches —
+    SANS appel IA, puis programme sa structuration en tâche de fond.
+
+    Demande utilisateur du 2026-10-06 : « enregistrer l'entretien libre avec
+    l'audio et la transcription dans un premier temps et après traiter le reste
+    en asynchrone ». Avant, ce POST enchaînait l'extraction des tours en
+    synchrone (des minutes, PC figé derrière « Traitement des tranches en
+    cours… »). Les jobs de tranche ne sont PAS supprimés ici : la structuration
+    (`structurer_entretien`) les consomme, et les garde si elle échoue.
+
+    Double POST du même `session_token` (double clic, F5) : l'index unique
+    partiel (mission, segment_token) refuse le second ; on redirige vers
+    l'entretien déjà créé, sans seconde structuration (M1)."""
+    jeton = session_token.strip() or None
+    try:
+        interview = _creer_interview_libre(
+            db,
+            mission.id,
+            identity,
+            [],
+            transcript,
+            resume="",
+            repartition=None,
+            segment_token=jeton,
+            segment_tail=segment_tail,
+            structuration_status="a_traiter",
+        )
+    except IntegrityError:
+        db.rollback()
+        existant = db.scalar(
+            select(Interview).where(
+                Interview.mission_id == mission.id, Interview.segment_token == jeton,
+            )
+        )
+        if existant is None:
+            raise
+        return _redirection_apres_enregistrement(mission, existant)
+    background_tasks.add_task(structurer_entretien, interview.id)
     return _redirection_apres_enregistrement(
         mission, interview, _date_illisible(identity.get("interview_date")),
     )
@@ -130,6 +150,7 @@ def _enregistrer_libre_direct(
 def record_libre_enregistrer(
     mission_id: int,
     request: Request,
+    background_tasks: BackgroundTasks,
     transcript: str = Form(""),
     interviewee_name: str = Form(""),
     interviewee_role: str = Form(""),
@@ -161,16 +182,11 @@ def record_libre_enregistrer(
     if (refus := _refus_texte_vide(request, mission, identity, transcript)) is not None:
         return refus
 
-    status = segment_jobs_status(db, session_token)
-    if status["total"] > 0 and not status["all_done"] and not status["any_failed"]:
-        return _ecran_attente_tranches(
-            request, mission, identity, transcript, session_token, segment_tail, status,
-            f"/missions/{mission.id}/interviews/record-libre/enregistrer/from-jobs",
-            "enregistrement de l'entretien",
-        )
-
+    # Plus d'écran d'attente des tranches sur ce chemin (2026-10-06) : la
+    # structuration différée les attend elle-même, hors requête.
     return _enregistrer_libre_direct(
         db, request, mission, identity, transcript, session_token, segment_tail,
+        background_tasks,
     )
 
 
@@ -178,6 +194,7 @@ def record_libre_enregistrer(
 def record_libre_enregistrer_from_jobs(
     mission_id: int,
     request: Request,
+    background_tasks: BackgroundTasks,
     transcript: str = Form(""),
     interviewee_name: str = Form(""),
     interviewee_role: str = Form(""),
@@ -207,6 +224,7 @@ def record_libre_enregistrer_from_jobs(
         return refus
     return _enregistrer_libre_direct(
         db, request, mission, identity, transcript, session_token, segment_tail,
+        background_tasks,
     )
 
 
@@ -402,6 +420,8 @@ def _parse_turns_from_form(
 def _creer_interview_libre(
     db, mission_id: int, identity: dict, turns: list[dict], transcript: str,
     resume: str, repartition: dict | None, tranches_manquantes: int = 0,
+    segment_token: str | None = None, segment_tail: str | None = None,
+    structuration_status: str = "fait",
 ) -> Interview:
     """Crée l'entretien libre et ses tours de parole, puis commit.
 
@@ -451,6 +471,9 @@ def _creer_interview_libre(
         # est alors l'artefact le plus précieux (revue adversariale 2026-07-27).
         raw_transcript=transcript.strip() or None,
         tranches_manquantes=max(0, tranches_manquantes),
+        structuration_status=structuration_status,
+        segment_token=segment_token,
+        segment_tail=(segment_tail or "").strip() or None,
     )
     db.add(interview)
     db.flush()  # attribue interview.id avant de créer les tours liés
