@@ -23,6 +23,7 @@ import types
 
 from fastapi import APIRouter
 
+from ..services import structuration_libre
 from . import (
     interviews_analyse,
     interviews_backup,
@@ -54,7 +55,10 @@ router = APIRouter()
 for _module in _SOUS_MODULES:
     router.include_router(_module.router)
 
-_TOUS = (interviews_commun, *_SOUS_MODULES)
+# `structuration_libre` (service) porte depuis le 2026-10-06 l'extraction des
+# tours déplacée hors de `interviews_record` : il est dans l'agrégat pour qu'un
+# `monkeypatch` sur `app.routers.interviews.<nom>` l'atteigne comme avant.
+_TOUS = (interviews_commun, *_SOUS_MODULES, structuration_libre)
 
 
 class _Agregat(types.ModuleType):

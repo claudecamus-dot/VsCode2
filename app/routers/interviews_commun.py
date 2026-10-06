@@ -22,6 +22,10 @@ from ..models import (
     Question,
     Verbatim,
 )
+from ..services.structuration_libre import (  # noqa: F401  (ré-export)
+    RECUP_TRANCHES_MAX,
+    _fenetre_recuperation,
+)
 from ..templating import templates
 
 
@@ -139,34 +143,3 @@ def _verbatims_response(request: Request, verbatims: list[Verbatim]):
 
 
 
-# Récupération synchrone d'une tranche d'extraction non aboutie, dans la requête
-# « Voir le résultat » : plafonnée, sinon un Ollama indisponible transforme ce
-# POST en attente de plusieurs heures (cf. `retranscrire_appliquer`). Ce qui
-# reste est signalé à l'écran et rattrapé par une relance.
-RECUP_TRANCHES_MAX = 3
-
-
-def _fenetre_recuperation(jobs, deja_abouti):
-    """Fenêtre de récupération synchrone : au plus ``RECUP_TRANCHES_MAX``
-    tranches par envoi, choisies pour ne pas affamer (revue R3-M1/M3 du
-    2026-08-31, partagée par les TROIS appelants de
-    ``recover_stalled_or_failed_jobs`` — la version précédente du plafond
-    n'existait que sur le chemin libre, et en préfixe fixe).
-
-    - même filtre de matière que le décompte de perte (``still_ko``) : une
-      tranche sans texte n'est ni récupérable ni une perte — sans ce filtre
-      elle consommait un créneau de récupération à CHAQUE envoi, éternellement ;
-    - les tranches jamais tombées en erreur passent AVANT celles qui portent
-      déjà un ``error`` : trois échecs déterministes en tête de liste
-      monopolisaient sinon le préfixe ``[:RECUP_TRANCHES_MAX]`` et les
-      suivantes n'étaient JAMAIS tentées, pendant que le message promettait
-      « relance l'envoi » à l'infini.
-
-    Limite assumée : quand TOUTES les tranches restantes portent une erreur,
-    la fenêtre redevient un préfixe stable (aucun compteur de tentatives en
-    base) — le bandeau `tranches_manquantes` de l'écran d'arrivée couvre ce
-    cas depuis le 2026-09-04 (l'enregistrement n'est plus bloqué dessus).
-    """
-    candidats = [j for j in jobs if not deja_abouti(j) and j.text.strip()]
-    candidats.sort(key=lambda j: (j.error is not None, j.position))
-    return candidats[:RECUP_TRANCHES_MAX]

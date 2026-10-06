@@ -24,16 +24,15 @@ from ..services.interview_extract_ai import (
     InterviewExtractAIError,
     extract_answers_from_text,
 )
-from ..services.interview_libre_extract_ai import (
-    InterviewLibreExtractAIError,
-    extract_turns_from_text,
-)
 from ..services.interview_segment_jobs import (
     delete_segment_jobs,
     merge_segment_answers,
-    merge_segment_turns,
     recover_stalled_or_failed_jobs,
     segment_jobs_status,
+)
+from ..services.structuration_libre import (  # noqa: F401  (ré-export)
+    _extraire_tours_libre,
+    _tours_vides,
 )
 from ..templating import templates
 from .interviews_commun import (
@@ -366,116 +365,6 @@ def _libre_turns_error(request, mission, identity, message):
             "identity": identity,
         },
     )
-
-
-def _tours_vides() -> dict:
-    return {
-        "turns": [],
-        "identity": _build_identity(),
-    }
-
-
-def _extraire_tours_libre(db, transcript, session_token, segment_tail):
-    """Produit les tours de parole d'un entretien libre — et n'échoue JAMAIS.
-
-    Rend `{"turns", "identity", "tranches_manquantes"}`. La répartition Q/R est
-    un CONFORT (elle structure un texte qu'on a déjà) : depuis la demande
-    utilisateur du 2026-09-04, son échec ne peut plus retenir l'entretien.
-    Avant, une seule tranche qu'Ollama ne digérait pas rendait l'entretien non
-    enregistrable — l'utilisateur devait relancer l'envoi, régler des variables
-    d'environnement, ou cliquer une porte de sortie ; sur un poste lent, il
-    perdait la séance. Le texte, lui, est intégralement conservé dans
-    `raw_transcript` (`_creer_interview_libre`) : ce qui manque d'une tranche
-    non structurée manque du TOUR DE TABLE, jamais de la transcription.
-
-    `tranches_manquantes` porte ce qui n'a pas abouti, pour que l'écran
-    d'arrivée le dise — l'ancien blocage protégeait la matière contre une perte
-    SILENCIEUSE, et c'est ce silence-là qu'il faut continuer d'empêcher, pas
-    l'enregistrement.
-
-    Palier 2 (revue du 2026-07-20 : la 1ère version retombait sur
-    `extract_turns_from_text(transcript_ENTIER)` dès qu'un job n'était pas
-    `done`, réintroduisant le mur synchrone multi-heures que le Palier 2
-    devait précisément éviter — corrigé ici). Si aucun job n'existe (entretien
-    < 30min), chemin synchrone historique inchangé. Sinon : chaque job `failed`
-    ou bloqué (`recover_stalled_or_failed_jobs`) est re-traité INDIVIDUELLEMENT
-    sur sa seule tranche (~30min max), jamais sur la transcription complète —
-    puis fusion de tous les tours (jobs + reliquat final). Coût borné au nombre
-    de tranches à récupérer, pas à la durée totale de l'entretien."""
-    status = segment_jobs_status(db, session_token)
-
-    manquantes = 0
-
-    if status["total"] == 0:
-        try:
-            extracted = extract_turns_from_text(transcript)
-        except InterviewLibreExtractAIError:
-            extracted = _tours_vides()
-        if not extracted["turns"]:
-            # L'IA peut répondre sans lever d'exception et sans détecter aucun
-            # tour (silence, transcription trop courte, échec silencieux malgré
-            # les relances internes de `extract_turns_from_text`). L'entretien
-            # part quand même — avec sa transcription, qui est la matière
-            # précieuse — mais le compteur fait dire à l'écran d'arrivée que le
-            # tour de table est vide (revue adversariale 2026-07-29 : ce cas
-            # créait un entretien `status="done"` sans contenu NI message).
-            manquantes = 1
-    else:
-        # Récupération PLAFONNÉE et perte partielle SIGNALÉE — les deux garde-fous
-        # posés le 2026-07-31 sur `retranscrire_appliquer` (d36aef6) manquaient ici,
-        # c'est-à-dire sur le chemin NOMINAL du mode libre (revue du 2026-08-31).
-        # Sans plafond, un Ollama saturé sur un entretien de 2 h faisait enchaîner
-        # 24 × (timeout + relance) dans un seul POST. Sans détection, les tranches
-        # restées en échec disparaissaient du tour de table SANS un mot, et le
-        # `delete_segment_jobs` de la fin détruisait le texte qui les portait :
-        # l'entretien était créé `status="done"`, amputé, sans trace.
-        # Fenêtre partagée `_fenetre_recuperation` (revue R3-M3) : même filtre
-        # de matière que `still_ko` ci-dessous (une tranche sans texte ne
-        # consomme plus un créneau à chaque envoi), et les tranches jamais
-        # tentées passent avant les échecs déjà constatés (plus de préfixe
-        # fixe qui affamait les tranches 4..N).
-        # `j.status == "done"` et NON `bool(j.turns_result)` — alignement sur le
-        # mode paramétré (plus haut), qui l'a toujours fait. L'équivalence
-        # « porte un résultat » = « a abouti sur son texte COURANT » était vraie
-        # jusqu'au 2026-09-10 ; elle ne l'est plus depuis qu'une tranche
-        # re-soumise avec un texte plus long conserve son ancien résultat en
-        # attendant la ré-extraction (correctif M3, pour ne pas jeter un appel
-        # IA déjà payé si la ré-extraction échoue). Sur `turns_result`, une
-        # telle tranche était prise pour aboutie : ni relancée, ni comptée
-        # manquante — le deck partait avec la tranche TRONQUÉE et sans un mot à
-        # l'utilisateur (revue adversariale du 2026-09-10, 4e passe, P1).
-        tentees = _fenetre_recuperation(
-            status["jobs"], lambda j: j.status == "done"
-        )
-        recover_stalled_or_failed_jobs(db, tentees)
-        # `j.text.strip()` : une tranche sans matière n'est pas une perte (parité
-        # avec le mode paramétré, plus haut).
-        still_ko = [j for j in status["jobs"] if j.status != "done" and j.text.strip()]
-        manquantes = len(still_ko)
-        try:
-            tail_result = None
-            if segment_tail.strip():
-                tail_result = extract_turns_from_text(segment_tail)
-        except InterviewLibreExtractAIError:
-            # Le reliquat (≤ 5 min de parole) compte comme une tranche perdue du
-            # tour de table : son texte est dans la transcription, pas dans les
-            # tours.
-            tail_result = None
-            manquantes += 1
-        extracted = merge_segment_turns(status["jobs"], tail_result)
-        if not extracted["turns"] and not manquantes:
-            # Ni tour, ni tranche identifiée comme perdue : tranches vides de
-            # matière. On le signale quand même plutôt que de rendre une fiche
-            # muette (parité avec le chemin synchrone ci-dessus).
-            manquantes = 1
-
-    # Jobs consommés (leur seul rôle était d'alimenter l'écran suivant) : on
-    # nettoie. Leur texte est déjà dans la transcription postée par l'écran,
-    # que `_creer_interview_libre` enregistre en entier — y compris celui des
-    # tranches non structurées.
-    delete_segment_jobs(db, session_token)
-    extracted["tranches_manquantes"] = manquantes
-    return extracted
 
 
 def _identite_fusionnee(identity: dict, extracted: dict) -> dict:
