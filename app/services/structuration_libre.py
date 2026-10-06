@@ -340,7 +340,14 @@ def structurer_entretien(interview_id: int) -> bool:
             db.commit()
             return False
         if statut == "fait" and jeton:
-            delete_segment_jobs(db, jeton)
+            # Ménage seulement (F6) : l'entretien est déjà écrit « fait ». Un
+            # échec ici ne doit ni lever ni le faire passer pour raté — la
+            # purge des 7 jours rattrapera les jobs.
+            try:
+                delete_segment_jobs(db, jeton)
+            except Exception:
+                db.rollback()
+                logger.exception("Jobs de tranche %s non supprimés", jeton)
         return statut == "fait"
     finally:
         db.close()

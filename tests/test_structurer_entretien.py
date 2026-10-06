@@ -660,3 +660,36 @@ def test_verrou_ollama_attente_bornee(monkeypatch) -> None:
             ai_common._call_ollama_once(b"{}", "m")
     finally:
         ai_common._OLLAMA_UN_A_LA_FOIS.release()
+
+# --------------------------------------------------------------------------- #
+# F6
+# --------------------------------------------------------------------------- #
+def test_menage_des_jobs_en_echec_ne_casse_pas_un_fait(client: TestClient, monkeypatch) -> None:
+    """Échoue sur le code d'avant : l'exception du ménage remontait du worker."""
+    _espion_ia(monkeypatch)
+
+    def _boom(db, jeton):
+        raise RuntimeError("disque verrouillé")
+
+    monkeypatch.setattr(structuration_libre, "delete_segment_jobs", _boom)
+    interview_id = _creer_a_traiter(_mission(client), jeton="tok-f6")
+    assert structuration_libre.structurer_entretien(interview_id) is True
+    with SessionLocal() as db:
+        assert db.get(Interview, interview_id).structuration_status == "fait"
+
+
+def test_conflit_d_unicite_sans_entretien_existant_rend_409(client: TestClient, monkeypatch) -> None:
+    """Échoue sur le code d'avant : `raise` nu, donc une 500."""
+    from sqlalchemy.exc import IntegrityError
+
+    def _conflit(*a, **k):
+        raise IntegrityError("INSERT", {}, Exception("UNIQUE"))
+
+    monkeypatch.setattr("app.routers.interviews_libre._creer_interview_libre", _conflit)
+    mission_id = _mission(client)
+    r = client.post(
+        f"/missions/{mission_id}/interviews/record-libre/enregistrer",
+        data={"transcript": "x", "session_token": "tok-fantome"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 409

@@ -194,7 +194,13 @@ def _enregistrer_libre_direct(
             )
         )
         if existant is None:
-            raise
+            # Contrainte violée mais aucun entretien de ce jeton dans cette
+            # mission (F6) : refus clair plutôt qu'une 500 nue.
+            raise HTTPException(
+                status_code=409,
+                detail="Cet enregistrement n'a pas pu être enregistré (conflit) — "
+                "recharge la mission pour vérifier s'il existe déjà.",
+            ) from None
         return _redirection_apres_enregistrement(mission, existant)
     background_tasks.add_task(planifier_structuration, interview.id)
     return _redirection_apres_enregistrement(
