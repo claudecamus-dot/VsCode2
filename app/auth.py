@@ -65,6 +65,19 @@ _echecs: dict[str, list[float]] = {}
 _verrou_echecs = threading.Lock()
 
 
+def _cookie_secure(request: Request) -> bool:
+    """`Secure` sur le cookie de session : forcé par APP_AUTH_COOKIE_SECURE=1,
+    interdit par =0, sinon DÉTECTÉ (requête HTTPS, directe ou derrière un proxy
+    qui pose X-Forwarded-Proto). Le http://127.0.0.1 local reste sans `Secure`."""
+    force = os.environ.get("APP_AUTH_COOKIE_SECURE")
+    if force == "1":
+        return True
+    if force == "0":
+        return False
+    proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip().lower()
+    return (proto or request.url.scheme) == "https"
+
+
 def _client(request: Request) -> str:
     return request.client.host if request.client else "?"
 
@@ -240,7 +253,7 @@ def connexion(request: Request, mot_de_passe_saisi: str = Form(alias="mot_de_pas
         # `secure` seulement derrière HTTPS : en local (http://127.0.0.1) un
         # cookie `Secure` ne serait jamais renvoyé et l'app deviendrait
         # inutilisable. Le lot « hébergement » posera APP_AUTH_COOKIE_SECURE=1.
-        secure=os.environ.get("APP_AUTH_COOKIE_SECURE") == "1",
+        secure=_cookie_secure(request),
     )
     return reponse
 

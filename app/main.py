@@ -138,11 +138,13 @@ async def lifespan(_app: FastAPI):
     try:
         audio_transcribe.warm_up()
     except Exception:
-        pass  # le premier enregistrement réel retentera et remontera une erreur normale
+        # non fatal : le premier enregistrement réel retentera et remontera l'erreur
+        logging.getLogger(__name__).exception("préchauffage Whisper échoué au démarrage")
     try:
         warm_up_ollama()
     except Exception:
-        pass  # le premier appel IA réel retentera et remontera une erreur normale
+        # non fatal : le premier appel IA réel retentera et remontera l'erreur
+        logging.getLogger(__name__).exception("préchauffage Ollama échoué au démarrage")
     yield
 
 

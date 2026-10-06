@@ -237,3 +237,41 @@ def test_une_connexion_reussie_remet_le_compteur_a_zero() -> None:
     assert _poster(client, MOT_DE_PASSE).status_code in (302, 303)
     for _ in range(auth.MAX_ECHECS):
         assert _poster(client, "faux").status_code == 401
+
+
+def _set_cookie_connexion(monkeypatch, entetes=None, base="http://testserver", force=None):
+    if force is None:
+        monkeypatch.delenv("APP_AUTH_COOKIE_SECURE", raising=False)
+    else:
+        monkeypatch.setenv("APP_AUTH_COOKIE_SECURE", force)
+    from app.main import app
+
+    client = TestClient(app, base_url=base)
+    client.headers.pop("Authorization", None)
+    r = client.post(
+        "/connexion", data={"mot_de_passe": MOT_DE_PASSE},
+        headers=entetes or {}, follow_redirects=False,
+    )
+    assert r.status_code == 303
+    return r.headers["set-cookie"].lower()
+
+
+def test_cookie_sans_secure_en_http_local(monkeypatch) -> None:
+    assert "secure" not in _set_cookie_connexion(monkeypatch)
+
+
+def test_cookie_secure_detecte_en_https_direct(monkeypatch) -> None:
+    assert "secure" in _set_cookie_connexion(monkeypatch, base="https://testserver")
+
+
+def test_cookie_secure_detecte_derriere_proxy(monkeypatch) -> None:
+    assert "secure" in _set_cookie_connexion(
+        monkeypatch, entetes={"X-Forwarded-Proto": "https"}
+    )
+
+
+def test_cookie_secure_force_et_interdit_par_env(monkeypatch) -> None:
+    assert "secure" in _set_cookie_connexion(monkeypatch, force="1")
+    assert "secure" not in _set_cookie_connexion(
+        monkeypatch, base="https://testserver", force="0"
+    )
