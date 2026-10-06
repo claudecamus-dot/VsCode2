@@ -542,3 +542,46 @@ def test_structurer_d_un_entretien_supprime_ne_laisse_aucun_tour_orphelin(
             InterviewTurn.interview_id == interview_id)).all() == []
         assert db.scalar(select(InterviewSegmentJob).where(
             InterviewSegmentJob.session_token == "tok-supprime")) is None
+
+# --------------------------------------------------------------------------- #
+# F2 : l'attente ne s'arrête pas au premier échec tant que d'autres tournent
+# --------------------------------------------------------------------------- #
+def test_attente_continue_tant_qu_une_tranche_tourne_malgre_un_echec(monkeypatch) -> None:
+    """Échoue sur le code d'avant : `any_failed` arrêtait l'attente alors que
+    la tranche voisine était encore `running`."""
+    import threading
+    import time as _time
+
+    monkeypatch.setattr(structuration_libre, "ATTENTE_PAS_S", 0.05)
+    monkeypatch.setattr(structuration_libre, "ATTENTE_TRANCHES_S", 20)
+    with SessionLocal() as db:
+        db.add(InterviewSegmentJob(session_token="tok-f2", position=0, status="failed", text="a"))
+        db.add(InterviewSegmentJob(session_token="tok-f2", position=1, status="running", text="b"))
+        db.commit()
+
+    def _terminer():
+        _time.sleep(0.5)
+        with SessionLocal() as db:
+            job = db.scalar(select(InterviewSegmentJob).where(
+                InterviewSegmentJob.session_token == "tok-f2",
+                InterviewSegmentJob.position == 1))
+            job.status = "done"
+            db.commit()
+
+    fil = threading.Thread(target=_terminer)
+    fil.start()
+    structuration_libre._attendre_les_tranches("tok-f2")
+    with SessionLocal() as db:
+        statuts = {j.position: j.status for j in db.scalars(select(InterviewSegmentJob).where(
+            InterviewSegmentJob.session_token == "tok-f2"))}
+    fil.join()
+    assert statuts[1] == "done"
+
+
+def test_attente_bornee_par_l_echeance(monkeypatch) -> None:
+    monkeypatch.setattr(structuration_libre, "ATTENTE_PAS_S", 0.02)
+    monkeypatch.setattr(structuration_libre, "ATTENTE_TRANCHES_S", 0.2)
+    with SessionLocal() as db:
+        db.add(InterviewSegmentJob(session_token="tok-f2b", position=0, status="running", text="a"))
+        db.commit()
+    structuration_libre._attendre_les_tranches("tok-f2b")  # rend la main

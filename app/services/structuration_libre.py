@@ -206,17 +206,27 @@ ATTENTE_PAS_S = 2.0
 _STATUTS_LANCABLES = ("a_traiter", "echec")
 
 
-def _attendre_les_tranches(db, jeton: str | None) -> None:
+def _tranches_en_vol(jeton: str) -> int:
+    """Jobs encore `pending`/`running` du jeton — lus dans une session COURTE
+    (aucune session tenue pendant l'attente)."""
+    with _db.SessionLocal() as db:
+        jobs = segment_jobs_status(db, jeton)["jobs"]
+        return sum(1 for j in jobs if j.status in ("pending", "running"))
+
+
+def _attendre_les_tranches(jeton: str | None) -> None:
+    """Attend que PLUS AUCUNE tranche ne soit en vol, ou l'échéance.
+
+    Revue 2026-10-06 (F2) : s'arrêter au premier job `failed`/stale
+    (`any_failed`) abandonnait les tranches voisines encore en traitement,
+    comptées alors manquantes. Le drapeau stale n'est PAS consulté : son
+    horloge part de `created_at` (`_is_stale`) et ne se met pas en pause
+    pendant qu'une tranche attend le verrou Ollama — une tranche simplement
+    retardée y passerait pour morte. Seule l'échéance borne l'attente."""
     if not jeton:
         return
     limite = time.monotonic() + ATTENTE_TRANCHES_S
-    while True:
-        status = segment_jobs_status(db, jeton)
-        if status["total"] == 0 or status["all_done"] or status["any_failed"]:
-            return
-        if time.monotonic() >= limite:
-            return
-        db.expire_all()
+    while _tranches_en_vol(jeton) and time.monotonic() < limite:
         time.sleep(ATTENTE_PAS_S)
 
 
@@ -248,7 +258,7 @@ def structurer_entretien(interview_id: int) -> bool:
         interview = db.get(Interview, interview_id)
         jeton = interview.segment_token or ""
         try:
-            _attendre_les_tranches(db, jeton)
+            _attendre_les_tranches(jeton)
             extracted = _extraire_tours_libre(
                 db,
                 interview.raw_transcript or "",
