@@ -83,6 +83,12 @@ def _add_missing_columns() -> None:
             # query string sur la redirection d'enregistrement — un simple F5
             # sur la fiche le perdait, sans qu'aucune trace ne subsiste.
             "tranches_manquantes": "INTEGER DEFAULT 0",
+            # Structuration différée de l'entretien libre (2026-10-06) : tout
+            # entretien existant est déjà structuré (ou ne le sera jamais par ce
+            # flux) — d'où 'fait' par défaut.
+            "structuration_status": "VARCHAR(20) DEFAULT 'fait'",
+            "segment_token": "VARCHAR(100)",
+            "segment_tail": "TEXT",
         },
         # Axes de synthèse configurables (2026-07-27) : le contenu passe des 5
         # colonnes figées à un dictionnaire par clé d'axe. Les colonnes
@@ -170,6 +176,29 @@ _INDEX_UNIQUES = [
 ]
 
 
+# Index uniques PARTIELS (nom, table, colonnes, condition). Hors de
+# `_INDEX_UNIQUES` : celui-ci dédoublonne puis détecte par colonnes en ignorant
+# exprès les index partiels. Ici la détection se fait par NOM — le modèle
+# déclare le même nom (`Index(..., sqlite_where=...)`), donc `create_all` le pose
+# à l'identique sur une base neuve. Aucun dédoublonnage : la colonne est neuve,
+# toutes les lignes existantes y sont NULL, donc hors de la condition.
+_INDEX_UNIQUES_PARTIELS = [
+    # (2026-10-06, M1) un jeton de tranches = un entretien par mission.
+    (
+        "uq_interview_mission_segment_token",
+        "interviews",
+        ("mission_id", "segment_token"),
+        "segment_token IS NOT NULL",
+    ),
+]
+
+
+def _index_nomme_existe(conn, table: str, nom: str) -> bool:
+    return any(
+        row[1] == nom for row in conn.exec_driver_sql(f"PRAGMA index_list({table})")
+    )
+
+
 def _add_missing_indexes() -> None:
     """Pose les contraintes d'unicité que `create_all` n'applique qu'aux bases
     NEUVES, sur les bases déjà créées.
@@ -189,6 +218,12 @@ def _add_missing_indexes() -> None:
     """
     with engine.begin() as conn:
         _poser_index_uniques(conn, _INDEX_UNIQUES)
+        for nom, table, colonnes, condition in _INDEX_UNIQUES_PARTIELS:
+            if not _index_nomme_existe(conn, table, nom):
+                conn.exec_driver_sql(
+                    f"CREATE UNIQUE INDEX IF NOT EXISTS {nom} ON {table} "
+                    f"({', '.join(colonnes)}) WHERE {condition}"
+                )
 
 
 # Tables dont le modèle a été RETIRÉ du code. `create_all` ne supprime jamais
@@ -342,6 +377,9 @@ def ecarts_de_schema() -> list[str]:
             )
         for nom, table, colonnes, _ordre in _INDEX_UNIQUES:
             if not _index_unique_existe(conn, table, colonnes):
+                ecarts.append(f"index unique {nom} sur {table}")
+        for nom, table, _colonnes, _condition in _INDEX_UNIQUES_PARTIELS:
+            if not _index_nomme_existe(conn, table, nom):
                 ecarts.append(f"index unique {nom} sur {table}")
     return ecarts
 

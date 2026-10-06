@@ -16,12 +16,14 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Table,
     Text,
     UniqueConstraint,
 )
+from sqlalchemy import text as sql_text
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -238,8 +240,24 @@ class Question(Base):
         return QUESTION_TYPE_LABELS.get(self.qtype, self.qtype)
 
 
+STRUCTURATION_STATUTS = ("a_traiter", "en_cours", "fait", "echec")
+
+
 class Interview(Base):
     __tablename__ = "interviews"
+    # Un même jeton de tranches ne crée qu'UN entretien par mission : un double
+    # POST d'« Enregistrer » (double clic, F5 sur la redirection) bute ici et la
+    # route redirige vers l'entretien existant (2026-10-06, M1). Index PARTIEL :
+    # les entretiens sans jeton (import, saisie, historiques) n'y entrent pas.
+    __table_args__ = (
+        Index(
+            "uq_interview_mission_segment_token",
+            "mission_id",
+            "segment_token",
+            unique=True,
+            sqlite_where=sql_text("segment_token IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     mission_id: Mapped[int] = mapped_column(
@@ -291,6 +309,17 @@ class Interview(Base):
     # simple F5 de la fiche (avant ce champ, le compteur ne voyageait qu'en
     # query string sur la redirection d'enregistrement).
     tranches_manquantes: Mapped[int] = mapped_column(Integer, default=0)
+    # Structuration IA différée de l'entretien libre (2026-10-06) : l'entretien
+    # est enregistré tout de suite (texte + audio), la répartition en tours de
+    # parole tourne ensuite en tâche de fond. a_traiter|en_cours|fait|echec ;
+    # 'fait' par défaut pour tout entretien existant ou créé sans ce flux.
+    structuration_status: Mapped[str] = mapped_column(
+        String(20), default="fait", server_default="fait"
+    )
+    # Jeton des tranches traitées au fil de l'eau (`InterviewSegmentJob`) et
+    # reliquat final non découpé : ce qu'il faut pour structurer plus tard.
+    segment_token: Mapped[str | None] = mapped_column(String(100), default=None)
+    segment_tail: Mapped[str | None] = mapped_column(Text, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
     mission: Mapped[Mission] = relationship(back_populates="interviews")

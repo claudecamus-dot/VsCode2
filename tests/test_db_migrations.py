@@ -92,6 +92,61 @@ def test_migration_rattrape_une_base_ancienne(moteur_jetable: Engine) -> None:
     assert _derives_modeles_vs_base(moteur_jetable) == []
 
 
+def test_migration_structuration_differee_entretien_libre(moteur_jetable: Engine) -> None:
+    """2026-10-06 : `structuration_status` (défaut 'fait' pour l'existant),
+    `segment_token`, `segment_tail` et l'index unique PARTIEL
+    (mission_id, segment_token) rattrapés sur une base d'avant."""
+    import sqlalchemy
+
+    db.init_db()
+    with moteur_jetable.begin() as conn:
+        conn.exec_driver_sql("DROP INDEX uq_interview_mission_segment_token")
+        for col in ("structuration_status", "segment_token", "segment_tail"):
+            conn.exec_driver_sql(f"ALTER TABLE interviews DROP COLUMN {col}")
+        # Moteur jetable sans PRAGMA foreign_keys : pas besoin de mission réelle.
+        conn.exec_driver_sql(
+            "INSERT INTO interviews (mission_id, interviewee_name, status, mode, repartition, audio_segments, tranches_manquantes, created_at)"
+            " VALUES (1, 'ancien', 'done', 'libre', '{}', '[]', 0, '2026-01-01')"
+        )
+
+    db.init_db()
+
+    assert {"structuration_status", "segment_token", "segment_tail"} <= _colonnes(
+        moteur_jetable, "interviews"
+    )
+    assert db.ecarts_de_schema() == []
+    with moteur_jetable.begin() as conn:
+        assert conn.exec_driver_sql(
+            "SELECT structuration_status FROM interviews WHERE interviewee_name='ancien'"
+        ).scalar() == "fait"
+        # Plusieurs entretiens SANS jeton : hors de l'index partiel.
+        conn.exec_driver_sql(
+            "INSERT INTO interviews (mission_id, interviewee_name, status, mode, repartition, audio_segments, tranches_manquantes, created_at)"
+            " VALUES (1, 'sans jeton', 'done', 'libre', '{}', '[]', 0, '2026-01-01')"
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO interviews (mission_id, interviewee_name, status, mode, repartition, audio_segments, tranches_manquantes, created_at,"
+            " segment_token) VALUES (1, 'a', 'done', 'libre', '{}', '[]', 0, '2026-01-01', 'tok')"
+        )
+    with pytest.raises(sqlalchemy.exc.IntegrityError):
+        with moteur_jetable.begin() as conn:
+            conn.exec_driver_sql(
+                "INSERT INTO interviews (mission_id, interviewee_name, status, mode,"
+                " repartition, audio_segments, tranches_manquantes,"
+                " created_at, segment_token) VALUES (1, 'b', 'done', 'libre', '{}', '[]', 0,"
+                " '2026-01-01', 'tok')"
+            )
+
+
+def test_index_partiel_absent_fait_refuser_la_base_par_defaut(moteur_jetable: Engine) -> None:
+    db.init_db()
+    with moteur_jetable.begin() as conn:
+        conn.exec_driver_sql("DROP INDEX uq_interview_mission_segment_token")
+    assert "index unique uq_interview_mission_segment_token sur interviews" in (
+        db.ecarts_de_schema()
+    )
+
+
 def test_schema_migre_couvre_les_modeles(moteur_jetable: Engine) -> None:
     """Garde anti-dérive : après init_db, TOUTE colonne déclarée dans les modèles
     existe en base. Échoue si une colonne est ajoutée à un modèle sans son entrée
