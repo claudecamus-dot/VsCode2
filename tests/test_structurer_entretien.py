@@ -78,7 +78,7 @@ def _espion_ia(monkeypatch, turns=None, exc=None) -> list:
 def _programmes(monkeypatch) -> list:
     programmes: list = []
     monkeypatch.setattr(
-        "app.routers.interviews_libre.structurer_entretien", programmes.append
+        "app.routers.interviews_libre.planifier_structuration", programmes.append
     )
     return programmes
 
@@ -585,3 +585,43 @@ def test_attente_bornee_par_l_echeance(monkeypatch) -> None:
         db.add(InterviewSegmentJob(session_token="tok-f2b", position=0, status="running", text="a"))
         db.commit()
     structuration_libre._attendre_les_tranches("tok-f2b")  # rend la main
+
+# --------------------------------------------------------------------------- #
+# F1 : worker dédié, dédoublonné ; verrou Ollama à attente bornée
+# --------------------------------------------------------------------------- #
+def test_planifier_ne_bloque_pas_l_appelant_et_dedoublonne(monkeypatch) -> None:
+    """Échoue sur le code d'avant : la structuration s'exécutait DANS
+    l'appelant (thread du pool partagé), bloqué jusqu'à la fin."""
+    import threading
+    import time as _time
+
+    monkeypatch.setattr(structuration_libre, "EXECUTION_SYNCHRONE", False)
+    libere = threading.Event()
+    appels: list[int] = []
+
+    def _lent(interview_id):
+        appels.append(interview_id)
+        libere.wait(3)
+
+    monkeypatch.setattr(structuration_libre, "structurer_entretien", _lent)
+    debut = _time.monotonic()
+    assert structuration_libre.planifier_structuration(424242) is True
+    assert _time.monotonic() - debut < 1.0
+    assert structuration_libre.planifier_structuration(424242) is False  # déjà en file
+    assert structuration_libre.est_en_vol(424242)
+    libere.set()
+    structuration_libre._file.join()
+    assert appels == [424242]
+    assert not structuration_libre.est_en_vol(424242)
+
+
+def test_verrou_ollama_attente_bornee(monkeypatch) -> None:
+    from app.services import ai_common
+
+    monkeypatch.setenv("OLLAMA_VERROU_TIMEOUT", "0.1")
+    assert ai_common._OLLAMA_UN_A_LA_FOIS.acquire(timeout=1)
+    try:
+        with pytest.raises(ai_common.AIError, match="occupé"):
+            ai_common._call_ollama_once(b"{}", "m")
+    finally:
+        ai_common._OLLAMA_UN_A_LA_FOIS.release()

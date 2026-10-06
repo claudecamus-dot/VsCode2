@@ -12,6 +12,8 @@ Seul écart au déplacement : `_tours_vides` construisait son identité vide par
 from __future__ import annotations
 
 import logging
+import queue
+import threading
 import time
 
 from sqlalchemy import delete, update
@@ -255,10 +257,16 @@ def structurer_entretien(interview_id: int) -> bool:
         db.commit()
         if not pris:
             return False
-        interview = db.get(Interview, interview_id)
-        jeton = interview.segment_token or ""
+        jeton = db.get(Interview, interview_id).segment_token or ""
+        # Aucune session tenue pendant l'attente des tranches (F1) : on la
+        # ferme, on attend (sessions courtes), puis on en rouvre une.
+        db.close()
         try:
             _attendre_les_tranches(jeton)
+            db = _db.SessionLocal()
+            interview = db.get(Interview, interview_id)
+            if interview is None:
+                return False
             extracted = _extraire_tours_libre(
                 db,
                 interview.raw_transcript or "",
@@ -336,6 +344,73 @@ def structurer_entretien(interview_id: int) -> bool:
         return statut == "fait"
     finally:
         db.close()
+
+# --------------------------------------------------------------------------- #
+# Worker DÉDIÉ (revue 2026-10-06, F1). Une BackgroundTask synchrone tourne dans
+# le pool de threads partagé d'anyio : y dormir jusqu'à 30 min (attente des
+# tranches) puis enchaîner des appels IA y bloquait un thread de requêtes. Un
+# seul fil démon, une file, une structuration à la fois, dédoublonnée par
+# entretien : une relance déjà en file ou en cours est un no-op.
+# --------------------------------------------------------------------------- #
+# Tests : exécution immédiate dans l'appelant (posé par tests/conftest.py).
+EXECUTION_SYNCHRONE = False
+
+_file: queue.Queue[int] = queue.Queue()
+_en_vol: dict[int, float] = {}  # id -> instant (monotonic) de mise en file
+_verrou_registre = threading.Lock()
+_fil: threading.Thread | None = None
+
+
+def est_en_vol(interview_id: int) -> bool:
+    """En file ou en cours dans CE processus (registre en mémoire)."""
+    with _verrou_registre:
+        return interview_id in _en_vol
+
+
+def _liberer(interview_id: int) -> None:
+    with _verrou_registre:
+        _en_vol.pop(interview_id, None)
+
+
+def _boucle() -> None:
+    while True:
+        interview_id = _file.get()
+        try:
+            structurer_entretien(interview_id)
+        except Exception:
+            logger.exception("Worker de structuration : entretien %s", interview_id)
+        finally:
+            _liberer(interview_id)
+            _file.task_done()
+
+
+def _demarrer_worker() -> None:
+    global _fil
+    with _verrou_registre:
+        if _fil is None or not _fil.is_alive():
+            _fil = threading.Thread(
+                target=_boucle, name="structuration-libre", daemon=True
+            )
+            _fil.start()
+
+
+def planifier_structuration(interview_id: int) -> bool:
+    """Met l'entretien en file de structuration. False si déjà en file ou en
+    cours (dédoublonnage). Ne bloque jamais l'appelant."""
+    with _verrou_registre:
+        if interview_id in _en_vol:
+            return False
+        _en_vol[interview_id] = time.monotonic()
+    if EXECUTION_SYNCHRONE:
+        try:
+            structurer_entretien(interview_id)
+        finally:
+            _liberer(interview_id)
+        return True
+    _demarrer_worker()
+    _file.put(interview_id)
+    return True
+
 
 def reconcile_en_cours_on_startup() -> int:
     """Au démarrage : une structuration `en_cours` a été tuée par l'arrêt du

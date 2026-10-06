@@ -502,9 +502,29 @@ def _call_ollama_once(payload: bytes, model: str) -> dict:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with _OLLAMA_UN_A_LA_FOIS:
+    # Attente BORNÉE du verrou (revue 2026-10-06, F1) : derrière une génération
+    # bloquée, une attente sans fin figeait l'appelant pour toujours.
+    if not _OLLAMA_UN_A_LA_FOIS.acquire(timeout=ollama_verrou_timeout()):
+        raise AIError(
+            "Ollama est occupé par une autre génération depuis trop longtemps — "
+            "réessaie dans quelques minutes (OLLAMA_VERROU_TIMEOUT)."
+        )
+    try:
         with urllib.request.urlopen(req, timeout=ollama_timeout()) as resp:
             return json.loads(resp.read().decode("utf-8"))
+    finally:
+        _OLLAMA_UN_A_LA_FOIS.release()
+
+
+def ollama_verrou_timeout() -> float:
+    """Attente maximale du verrou Ollama : `OLLAMA_VERROU_TIMEOUT` (s), sinon
+    4 × `ollama_timeout()` — le temps de laisser finir un appel en cours et sa
+    relance, avec marge."""
+    try:
+        valeur = float(os.environ.get("OLLAMA_VERROU_TIMEOUT", "") or 0)
+    except ValueError:
+        valeur = 0
+    return valeur if valeur > 0 else 4.0 * ollama_timeout()
 
 
 def _call_ollama(system: str, prompt: str, schema: dict, json_hint: str, model: str, max_tokens: int) -> str:

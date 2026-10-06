@@ -330,7 +330,7 @@ def test_enregistrement_direct_n_attend_plus_les_tranches_en_cours(
     _patch_extract(monkeypatch, spy=spy)
     programmes: list[int] = []
     monkeypatch.setattr(
-        "app.routers.interviews_libre.structurer_entretien", programmes.append
+        "app.routers.interviews_libre.planifier_structuration", programmes.append
     )
     _seed_job("tok-attente-enr", 0, "running", text="tranche 1")
 

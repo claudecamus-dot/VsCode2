@@ -35,7 +35,7 @@ from ..services.interview_libre_extract_ai import (
     generate_repartition_from_turns,
 )
 from ..services.mission_axes import axes_of
-from ..services.structuration_libre import structurer_entretien
+from ..services.structuration_libre import planifier_structuration
 from ..templating import templates
 from .interviews_commun import (
     REPARTITION_KEYS,
@@ -110,7 +110,7 @@ def structurer_maintenant(
     re-vérifie par UPDATE conditionnel (double clic : un seul appel IA)."""
     interview = _entretien_libre(db, interview_id)
     if interview.structuration_status in _STRUCTURATION_LANCABLE:
-        background_tasks.add_task(structurer_entretien, interview.id)
+        background_tasks.add_task(planifier_structuration, interview.id)
     return RedirectResponse(f"/interviews/{interview.id}", status_code=303)
 
 
@@ -184,7 +184,7 @@ def _enregistrer_libre_direct(
         if existant is None:
             raise
         return _redirection_apres_enregistrement(mission, existant)
-    background_tasks.add_task(structurer_entretien, interview.id)
+    background_tasks.add_task(planifier_structuration, interview.id)
     return _redirection_apres_enregistrement(
         mission, interview, _date_illisible(identity.get("interview_date")),
     )

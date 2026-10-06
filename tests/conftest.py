@@ -388,6 +388,21 @@ def _constats_ia_neutres(monkeypatch: pytest.MonkeyPatch):
                         lambda *a, **k: {"constats": [], "ids_rejetes": []})
 
 
+@pytest.fixture(autouse=True)
+def _structuration_synchrone(monkeypatch: pytest.MonkeyPatch):
+    """La structuration différée tourne sur un fil démon dédié
+    (`structuration_libre`, F1) : en test, elle s'exécute dans l'appelant pour
+    rester déterministe, et l'attente des tranches en vol est bornée court (un
+    job `running` jamais terminé ferait sinon attendre 30 min). Les tests du
+    worker et de l'attente reposent leurs propres valeurs. Les e2e lancent un
+    vrai uvicorn (sous-processus) : ils gardent le vrai worker."""
+    from app.services import structuration_libre
+
+    monkeypatch.setattr(structuration_libre, "EXECUTION_SYNCHRONE", True)
+    monkeypatch.setattr(structuration_libre, "ATTENTE_TRANCHES_S", 1.0)
+    monkeypatch.setattr(structuration_libre, "ATTENTE_PAS_S", 0.05)
+
+
 @pytest.fixture
 def tmp_path_git(monkeypatch: pytest.MonkeyPatch):
     """Un dossier temporaire où `git` FONCTIONNE même quand la suite tourne
