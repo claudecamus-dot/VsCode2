@@ -61,7 +61,12 @@ def prompt_capture(monkeypatch: pytest.MonkeyPatch) -> list[str]:
         stderr = ""
 
     def _faux_run(cmd, **kwargs):  # noqa: ANN001, ARG001
-        captures.append(cmd[-1])  # le prompt est le dernier argument
+        # Le prompt n'est plus en argv : il est joint par --file (lu ici, avant
+        # que le dossier temporaire ne soit detruit au retour).
+        assert all("IGNORE" not in a and "DONNEES-" not in a for a in cmd)
+        fichier = cmd[cmd.index("--file") + 1]
+        with open(fichier, encoding="utf-8") as f:
+            captures.append(f.read())
         return _Resultat()
 
     monkeypatch.setattr(openhub_agents.subprocess, "run", _faux_run)
