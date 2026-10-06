@@ -192,3 +192,22 @@ def test_jeton_de_tranche_normalise_entre_creation_et_lecture(client: TestClient
     assert r.status_code < 400
     with SessionLocal() as db:
         assert segment_jobs_status(db, "tok-f5")["total"] == 1
+
+def test_jeton_long_lie_l_entretien_a_ses_tranches(client: TestClient, monkeypatch) -> None:
+    """G5. Échoue sur le code d'avant : la tranche était tronquée à 64
+    caractères, l'entretien gardait le jeton entier — plus aucun lien."""
+    from app.services.interview_segment_jobs import segment_jobs_status
+
+    monkeypatch.setattr("app.routers.interviews_segment_jobs.run_segment_job", lambda job_id: None)
+    monkeypatch.setattr("app.routers.interviews_libre.planifier_structuration", lambda i: None)
+    jeton = "t" * 70
+    client.post("/interviews/segment-jobs", data={"session_token": jeton, "position": 0, "text": "t"})
+    mission_id = _nouvelle_mission(client)
+    client.post(
+        f"/missions/{mission_id}/interviews/record-libre/enregistrer",
+        data={"transcript": "x", "session_token": jeton}, follow_redirects=False,
+    )
+    with SessionLocal() as db:
+        interview = db.scalars(select(Interview).where(Interview.mission_id == mission_id)).one()
+        assert interview.segment_token == jeton[:64]
+        assert segment_jobs_status(db, interview.segment_token)["total"] == 1

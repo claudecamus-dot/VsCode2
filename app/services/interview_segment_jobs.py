@@ -309,11 +309,22 @@ def run_segment_job(job_id: int) -> None:
         db.close()
 
 
+JETON_MAX = 64
+
+
+def normaliser_jeton(brut) -> str:
+    """LA normalisation du jeton de tranches (revue 2026-10-06, F5/G5) :
+    espaces retirés puis tronqué à `JETON_MAX`. Partagée par la création des
+    jobs, leurs lectures/suppression ET l'entretien (`segment_token`) — deux
+    normalisations différentes délieraient l'entretien de ses tranches."""
+    return (brut or "").strip()[:JETON_MAX]
+
+
 def segment_jobs_status(db: Session, session_token: str) -> dict:
     """État agrégé des jobs d'une session (pour l'écran de statut et la
     décision de finalisation)."""
     # Jeton normalisé partout (F5) : création, lecture, purge, entretien.
-    session_token = (session_token or "").strip()
+    session_token = normaliser_jeton(session_token)
     if not session_token:
         return {"jobs": [], "total": 0, "done": 0, "failed": 0, "stale": 0,
                 "all_done": False, "any_failed": False}
@@ -385,7 +396,7 @@ def segment_jobs_status_light(
     `total`/`done`/`failed`/`stale` restent calculés sur TOUTES les lignes de
     la session, par agrégats SQL (`func.count`), jamais faussés par le
     curseur — seule la fusion des tours/réponses en profite."""
-    session_token = (session_token or "").strip()
+    session_token = normaliser_jeton(session_token)
     if not session_token:
         return {"jobs": [], "total": 0, "done": 0, "failed": 0, "stale": 0,
                 "all_done": False, "any_failed": False}
@@ -587,7 +598,7 @@ def purge_stale_segment_jobs(db: Session, max_age_days: int = 7) -> None:
 def delete_segment_jobs(db: Session, session_token: str) -> None:
     """Supprime les jobs d'une session une fois consommés (à la finalisation) —
     ils ne servent qu'à alimenter l'écran de revue des tours, inutiles ensuite."""
-    session_token = (session_token or "").strip()
+    session_token = normaliser_jeton(session_token)
     if not session_token:
         return
     for job in db.scalars(

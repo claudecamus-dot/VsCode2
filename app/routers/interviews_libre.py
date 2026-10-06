@@ -34,6 +34,7 @@ from ..services.interview_libre_extract_ai import (
     InterviewLibreExtractAIError,
     generate_repartition_from_turns,
 )
+from ..services.interview_segment_jobs import normaliser_jeton
 from ..services.mission_axes import axes_of
 from ..services.structuration_libre import (
     peut_relancer,
@@ -172,7 +173,7 @@ def _enregistrer_libre_direct(
     Double POST du même `session_token` (double clic, F5) : l'index unique
     partiel (mission, segment_token) refuse le second ; on redirige vers
     l'entretien déjà créé, sans seconde structuration (M1)."""
-    jeton = session_token.strip() or None
+    jeton = normaliser_jeton(session_token) or None  # même règle que les jobs (G5)
     try:
         interview = _creer_interview_libre(
             db,

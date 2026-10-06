@@ -27,6 +27,7 @@ from ..models import (
     InterviewSegmentJob,
 )
 from ..services.interview_segment_jobs import (
+    normaliser_jeton,
     merge_segment_answers,
     merge_segment_turns,
     purge_stale_segment_jobs,
@@ -81,7 +82,7 @@ def create_segment_job(
     # Auto-entretien : les jobs d'une session jamais finalisée (Recommencer,
     # wizard abandonné) portent du contenu d'entretien — balayés passé 7 jours.
     purge_stale_segment_jobs(db)
-    jeton = session_token.strip()[:64]  # normalisé comme partout (F5)
+    jeton = normaliser_jeton(session_token)  # une seule normalisation (G5)
     # Une tranche est identifiée par (session_token, position, kind) et la base
     # le garantit depuis ce lot (2026-09-10 ; le 2026-09-09 est la date du
     # CONSTAT d'audit, pas celle de la garantie). Cette route doit donc être IDEMPOTENTE,
