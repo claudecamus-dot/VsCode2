@@ -344,7 +344,9 @@ def run_audio_file_job(job_id: int) -> None:
                 job.error = f"Échec inattendu ({type(exc).__name__})."
                 db.commit()
         except Exception:
-            pass
+            # Le secours a échoué à son tour : le job peut rester "running"
+            # (le rattrapage au démarrage le libérera) — le dire au journal.
+            logger.exception("Secours d'échec impossible (job %s) : statut peut-être figé", job_id)
     finally:
         # Le fichier importé n'est PLUS supprimé au succès (2026-09-01, règle
         # « l'audio ne se supprime que par une action sur le site »). C'était la

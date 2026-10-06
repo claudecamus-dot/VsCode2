@@ -272,6 +272,7 @@ def _probe_duration_s(content: bytes) -> float | None:
         container.close()
         return (duration / 1_000_000) if duration else None
     except Exception:
+        logger.debug("Durée audio indéterminable, repli séquentiel", exc_info=True)
         return None
 
 
@@ -292,6 +293,7 @@ def _exiger_piste_audio(content: bytes) -> None:
 
         container = av.open(io.BytesIO(content))
     except Exception:
+        logger.debug("Conteneur illisible, contrôle de piste audio ignoré", exc_info=True)
         return
     try:
         sans_audio = not container.streams.audio

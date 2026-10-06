@@ -304,7 +304,7 @@ def run_segment_job(job_id: int) -> None:
                 },
             )
         except Exception:
-            pass
+            logger.exception("Secours d'échec impossible (tranche %s) : statut peut-être figé", job_id)
     finally:
         db.close()
 
