@@ -109,7 +109,9 @@ def _enregistrer_libre_direct(
         repartition=None,
         tranches_manquantes=extracted["tranches_manquantes"],
     )
-    return _redirection_apres_enregistrement(mission, interview)
+    return _redirection_apres_enregistrement(
+        mission, interview, _date_illisible(identity.get("interview_date")),
+    )
 
 
 @router.post("/missions/{mission_id}/interviews/record-libre/enregistrer")
@@ -457,7 +459,22 @@ def _creer_interview_libre(
     return interview
 
 
-def _redirection_apres_enregistrement(mission: Mission, interview: Interview):
+def _date_illisible(valeur) -> bool:
+    """Une date a été saisie mais `date.fromisoformat` la refuse : elle sera
+    écartée à l'enregistrement, et l'écran d'arrivée doit le dire (revue
+    2026-10-06, m5 — elle disparaissait sans un mot)."""
+    if not valeur:
+        return False
+    try:
+        date.fromisoformat(valeur)
+    except ValueError:
+        return True
+    return False
+
+
+def _redirection_apres_enregistrement(
+    mission: Mission, interview: Interview, date_invalide: bool = False,
+):
     """Une mission brouillon reste à nommer/rattacher ; sinon on ouvre
     l'entretien tout juste enregistré.
 
@@ -468,7 +485,8 @@ def _redirection_apres_enregistrement(mission: Mission, interview: Interview):
     un paramètre d'URL se serait perdu au premier rechargement."""
     if mission.is_draft:
         return RedirectResponse(f"/missions/{mission.id}/finaliser", status_code=303)
-    return RedirectResponse(f"/interviews/{interview.id}", status_code=303)
+    suffixe = "?date_invalide=1" if date_invalide else ""
+    return RedirectResponse(f"/interviews/{interview.id}{suffixe}", status_code=303)
 
 
 @router.post("/missions/{mission_id}/interviews/record-libre/synthese")
@@ -633,4 +651,6 @@ def record_libre_confirm(
         resume,
         repartition,
     )
-    return _redirection_apres_enregistrement(mission, interview)
+    return _redirection_apres_enregistrement(
+        mission, interview, _date_illisible(interview_date),
+    )

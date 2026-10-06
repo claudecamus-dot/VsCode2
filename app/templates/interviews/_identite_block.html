@@ -13,14 +13,18 @@
    (cf. `_turn_block.html`), obtenu ici sans une ligne de script.
 
    Contexte attendu : `ident_name`, `ident_role`, `ident_entity`, `ident_date`
-   (chaîne `AAAA-MM-JJ` ou vide), `ident_hint` (facultatif). #}
+   (chaîne `AAAA-MM-JJ` ou vide), `ident_hint` et `ident_date_invalide`
+   (facultatifs ; le second ouvre le pavé pour que le message se voie). #}
 {% set ident_trouvee = (ident_name or '') | trim %}
-<details class="identite-bloc"{% if ident_trouvee %} open{% endif %}>
+<details class="identite-bloc"{% if ident_trouvee or ident_date_invalide %} open{% endif %}>
   <summary>
     {% if ident_trouvee %}Identité de l'interviewé·e{% else %}+ Renseigner l'identité{% endif %}
     {% if not ident_trouvee %}<span class="muted">— aucun nom trouvé</span>{% endif %}
   </summary>
   {% if ident_hint %}<p class="muted">{{ ident_hint }}</p>{% endif %}
+  {% if ident_date_invalide %}
+  <p class="ai-error" role="status">La date saisie n'a pas pu être lue : elle n'a pas été enregistrée. Ressaisis-la ci-dessous.</p>
+  {% endif %}
   <label>
     Nom &amp; prénom de l'interviewé·e
     <input type="text" name="interviewee_name" value="{{ ident_name or '' }}">

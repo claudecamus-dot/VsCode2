@@ -94,6 +94,9 @@ def capture(
                 # l'écran /analyse, directement sur la fiche entretien.
                 "sections": group_turns_into_sections(interview.turns),
                 "tranches_manquantes": interview.tranches_manquantes,
+                # Date saisie illisible, écartée à l'enregistrement : la fiche
+                # le dit au lieu de l'avaler (revue 2026-10-06, m5).
+                "ident_date_invalide": request.query_params.get("date_invalide") == "1",
             },
         )
     # Mission sans trame (entretien structuré créé avant la trame, ou trame
@@ -202,14 +205,17 @@ def save_libre_detail(
     interview.interviewee_name = interviewee_name.strip() or "Sans nom"
     interview.interviewee_role = interviewee_role.strip()
     interview.interviewee_entity = interviewee_entity.strip()
+    date_invalide = False
     try:
         interview.interview_date = date.fromisoformat(interview_date) if interview_date else None
     except ValueError:
         # Même tolérance que les autres routes portant ce champ : une date
         # illisible ne fait pas perdre la saisie des tours qui l'accompagne.
-        pass
+        # Mais elle se DIT (revue 2026-10-06, m5) : drapeau lu par la fiche.
+        date_invalide = True
     db.commit()
-    return RedirectResponse(f"/interviews/{interview.id}", status_code=303)
+    suffixe = "?date_invalide=1" if date_invalide else ""
+    return RedirectResponse(f"/interviews/{interview.id}{suffixe}", status_code=303)
 
 
 @router.post("/interviews/{interview_id}/answers/{question_id}")

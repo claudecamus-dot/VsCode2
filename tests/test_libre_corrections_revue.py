@@ -10,8 +10,9 @@ import re
 import pytest
 from fastapi.testclient import TestClient
 
-from app.db import DB_PATH, engine, init_db
+from app.db import DB_PATH, SessionLocal, engine, init_db
 from app.main import app
+from app.models import Mission
 
 
 def setup_module() -> None:
@@ -87,3 +88,87 @@ def test_revue_des_tours_porte_jeton_et_reliquat_pour_le_retour(
     assert response.status_code == 200
     assert _champ_cache(response.text, "session_token") == "tok-revue"
     assert _champ_cache(response.text, "segment_tail") == "fin"
+
+
+# --------------------------------------------------------------------------- #
+# m5 — date illisible : écartée, mais DITE
+# --------------------------------------------------------------------------- #
+def _mission_nommee(client: TestClient) -> int:
+    mission_id = _nouvelle_mission(client)
+    with SessionLocal() as db:
+        db.get(Mission, mission_id).is_draft = False
+        db.commit()
+    return mission_id
+
+
+def _stub_ia(monkeypatch) -> None:
+    vide = lambda text: {"turns": [], "identity": {}}  # noqa: E731
+    monkeypatch.setattr("app.routers.interviews.extract_turns_from_text", vide)
+    try:
+        monkeypatch.setattr("app.services.structuration_libre.extract_turns_from_text", vide)
+    except (ImportError, AttributeError):
+        pass
+
+
+def test_enregistrement_libre_signale_une_date_illisible(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Échoue sur le code d'avant : la redirection ne portait aucun drapeau,
+    la date disparaissait sans un mot."""
+    _stub_ia(monkeypatch)
+    mission_id = _mission_nommee(client)
+    response = client.post(
+        f"/missions/{mission_id}/interviews/record-libre/enregistrer",
+        data={"transcript": "Du texte.", "interview_date": "31/12/2026"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"].endswith("?date_invalide=1")
+
+
+def test_enregistrement_libre_date_valide_sans_drapeau(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _stub_ia(monkeypatch)
+    mission_id = _mission_nommee(client)
+    response = client.post(
+        f"/missions/{mission_id}/interviews/record-libre/enregistrer",
+        data={"transcript": "Du texte.", "interview_date": "2026-10-06"},
+        follow_redirects=False,
+    )
+    assert "date_invalide" not in response.headers["location"]
+
+
+def test_edition_fiche_libre_signale_une_date_illisible(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Échoue sur le code d'avant : la sauvegarde avalait la date illisible et
+    la fiche rouverte n'en disait rien."""
+    _stub_ia(monkeypatch)
+    mission_id = _mission_nommee(client)
+    cree = client.post(
+        f"/missions/{mission_id}/interviews/record-libre/enregistrer",
+        data={"transcript": "Du texte."},
+        follow_redirects=False,
+    )
+    interview_id = int(cree.headers["location"].split("/")[2].split("?")[0])
+    response = client.post(
+        f"/interviews/{interview_id}/libre",
+        data={"interviewee_name": "X", "interview_date": "2026-13-45"},
+    )
+    assert response.status_code == 200
+    assert 'role="status"' in response.text
+    assert "La date saisie n'a pas pu être lue" in response.text
+
+
+def test_fiche_libre_sans_drapeau_n_affiche_rien(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _stub_ia(monkeypatch)
+    mission_id = _mission_nommee(client)
+    cree = client.post(
+        f"/missions/{mission_id}/interviews/record-libre/enregistrer",
+        data={"transcript": "Du texte."},
+        follow_redirects=True,
+    )
+    assert "La date saisie n'a pas pu être lue" not in cree.text
