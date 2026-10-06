@@ -110,7 +110,7 @@ def _no_shadow(shape):
     # Les autoshapes heritent parfois d'une ombre du theme : on la coupe.
     try:
         shape.shadow.inherit = False
-    except Exception:
+    except (AttributeError, NotImplementedError):
         pass
 
 
@@ -158,7 +158,7 @@ def police_marque(prs):
     from collections import Counter
     try:
         layouts = prs.slide_masters[0].slide_layouts
-    except Exception:
+    except (IndexError, AttributeError, KeyError):
         return None
     compte = Counter()
     for lay in layouts:
@@ -182,7 +182,7 @@ def police_theme(prs):
         from pptx.opc.constants import RELATIONSHIP_TYPE as RT
         xml = prs.slide_masters[0].part.part_related_by(RT.THEME).blob.decode(
             "utf-8", "ignore")
-    except Exception:
+    except (AttributeError, KeyError, IndexError):
         xml = None
     if xml is None:
         try:
@@ -190,7 +190,7 @@ def police_theme(prs):
                 if "theme" in str(part.partname):
                     xml = part.blob.decode("utf-8", "ignore")
                     break
-        except Exception:
+        except (AttributeError, TypeError):
             return None
     if not xml:
         return None
@@ -303,7 +303,7 @@ def add_forme(slide, prst, l, t, w, h, fill=None, line=None, line_w=1.0,
         for i, v in enumerate(adj):
             try:
                 shp.adjustments[i] = v
-            except Exception:
+            except (IndexError, TypeError, ValueError):
                 pass
     if rot:
         shp.rotation = rot
@@ -643,7 +643,7 @@ def verifier_debordements_texte(prs, cpi_pessimiste=CPI_PESSIMISTE, tolerance_in
                     continue  # labels rotés : géométrie non comparable
                 w_in = Emu(sh.width).inches
                 h_in = Emu(sh.height).inches
-            except Exception:
+            except Exception:  # deliberate broad: any unreadable shape is skipped by this heuristic check
                 continue
             if w_in <= 0 or h_in <= 0:
                 continue
@@ -713,7 +713,7 @@ def verifier_geometrie(prs, marge_in=0.02):
         for shp in slide.shapes:
             try:
                 l, t, w, h = shp.left, shp.top, shp.width, shp.height
-            except Exception:
+            except (AttributeError, NotImplementedError, ValueError, TypeError):
                 continue
             if None in (l, t, w, h):
                 continue
@@ -782,7 +782,7 @@ def _xfrm_de_groupe_non_transforme(shp):
         return (off.get("x") == choff.get("x") and off.get("y") == choff.get("y")
                 and ext.get("cx") == chext.get("cx")
                 and ext.get("cy") == chext.get("cy"))
-    except Exception:
+    except (AttributeError, KeyError):
         return False
 
 
@@ -797,7 +797,7 @@ def _bornes_in(shp):
     """(l, t, r, b) en POUCES, ou None si la forme n'a pas de geometrie lisible."""
     try:
         l, t, w, h = shp.left, shp.top, shp.width, shp.height
-    except Exception:
+    except (AttributeError, NotImplementedError, ValueError, TypeError):
         return None
     if None in (l, t, w, h):
         return None
@@ -977,7 +977,7 @@ def theme_colors(prs):
         if theme_part is None:
             return {}
         xml = theme_part.blob.decode("utf-8", "ignore")
-    except Exception:
+    except (AttributeError, IndexError, KeyError, ValueError):
         return {}
     m = re.search(r"<a:clrScheme.*?</a:clrScheme>", xml, re.S)
     if not m:
