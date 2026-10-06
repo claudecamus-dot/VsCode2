@@ -73,6 +73,10 @@
   ],
   [
     "GET",
+    "/interviews/{interview_id}/structurer/statut"
+  ],
+  [
+    "GET",
     "/missions"
   ],
   [
@@ -282,6 +286,10 @@
   [
     "POST",
     "/interviews/{interview_id}/retranscrire/confirmer"
+  ],
+  [
+    "POST",
+    "/interviews/{interview_id}/structurer"
   ],
   [
     "POST",

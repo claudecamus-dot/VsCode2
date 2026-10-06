@@ -31,6 +31,7 @@ import json
 import logging
 import os
 import re
+import threading
 import urllib.error
 import urllib.request
 
@@ -471,6 +472,29 @@ def _is_ollama_timeout(exc: Exception) -> bool:
     )
 
 
+# UN seul appel Ollama à la fois, pour tout le processus (2026-10-06). Le poste
+# figeait quand plusieurs générations tournaient ensemble : tranches au fil de
+# l'eau (BackgroundTasks sans plafond, `interviews_segment_jobs`), structuration
+# différée de l'entretien libre, régénérations. COUPLAGE ASSUMÉ : ce verrou
+# sérialise TOUS ces chemins — une structuration longue fait attendre les
+# tranches d'un autre entretien, et inversement. Il est pris par requête HTTP
+# (`_call_ollama_once`), pas par traitement : deux traitements s'entrelacent
+# tronçon par tronçon au lieu de s'exclure pendant des minutes.
+_OLLAMA_UN_A_LA_FOIS = threading.Semaphore(1)
+
+
+def ollama_num_thread() -> int | None:
+    """`OLLAMA_NUM_THREAD` (entier > 0) borne les cœurs CPU qu'Ollama prend
+    par génération — laisse de quoi faire tourner le poste. Absent ou
+    invalide : None, l'option n'est pas envoyée (comportement d'avant)."""
+    brut = os.environ.get("OLLAMA_NUM_THREAD", "").strip()
+    try:
+        valeur = int(brut)
+    except ValueError:
+        return None
+    return valeur if valeur > 0 else None
+
+
 def _call_ollama_once(payload: bytes, model: str) -> dict:
     req = urllib.request.Request(
         f"{ollama_host()}/api/chat",
@@ -478,11 +502,19 @@ def _call_ollama_once(payload: bytes, model: str) -> dict:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=ollama_timeout()) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    with _OLLAMA_UN_A_LA_FOIS:
+        with urllib.request.urlopen(req, timeout=ollama_timeout()) as resp:
+            return json.loads(resp.read().decode("utf-8"))
 
 
 def _call_ollama(system: str, prompt: str, schema: dict, json_hint: str, model: str, max_tokens: int) -> str:
+    options = {
+        "num_predict": max_tokens,
+        "num_ctx": ollama_num_ctx(),
+        "temperature": ollama_temperature(),
+    }
+    if (num_thread := ollama_num_thread()) is not None:
+        options["num_thread"] = num_thread
     payload = json.dumps({
         "model": model,
         "messages": [
@@ -492,11 +524,7 @@ def _call_ollama(system: str, prompt: str, schema: dict, json_hint: str, model: 
         "format": "json",
         "stream": False,
         "keep_alive": ollama_keep_alive(),
-        "options": {
-            "num_predict": max_tokens,
-            "num_ctx": ollama_num_ctx(),
-            "temperature": ollama_temperature(),
-        },
+        "options": options,
     }).encode("utf-8")
     timeout_msg = (
         "Ollama n'a pas répondu à temps, même après une nouvelle tentative — "

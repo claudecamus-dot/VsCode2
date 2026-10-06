@@ -35,7 +35,7 @@ from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, load_only
 
 from ..db import SessionLocal
-from ..models import InterviewSegmentJob, Mission
+from ..models import Interview, InterviewSegmentJob, Mission
 from .interview_extract_ai import (
     InterviewExtractAIError,
     extract_answers_from_text,
@@ -564,8 +564,18 @@ def purge_stale_segment_jobs(db: Session, max_age_days: int = 7) -> None:
     cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(
         days=max_age_days
     )
+    # Garde (2026-10-06) : les tranches d'un entretien enregistré mais pas
+    # encore structuré (`a_traiter`, `echec` relançable, `en_cours`) sont sa
+    # matière de structuration — les purger rendrait la relance impossible.
+    jetons_proteges = select(Interview.segment_token).where(
+        Interview.segment_token.is_not(None),
+        Interview.structuration_status.in_(("a_traiter", "en_cours", "echec")),
+    )
     for job in db.scalars(
-        select(InterviewSegmentJob).where(InterviewSegmentJob.created_at < cutoff)
+        select(InterviewSegmentJob).where(
+            InterviewSegmentJob.created_at < cutoff,
+            InterviewSegmentJob.session_token.not_in(jetons_proteges),
+        )
     ):
         db.delete(job)
     db.commit()

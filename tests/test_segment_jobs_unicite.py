@@ -839,9 +839,14 @@ def test_une_tranche_re_soumise_non_encore_re_extraite_n_est_pas_prise_pour_abou
     `status`, et c'est cette asymétrie qui a caché le défaut."""
     # Routeur découpé par domaine le 2026-09-23 : les deux chemins vivent dans
     # des modules `interviews_*` distincts — on lit donc tout le routeur.
+    # Le chemin LIBRE a quitté le routeur le 2026-10-06 pour
+    # `services/structuration_libre.py` (structuration différée) : lu aussi.
     brut = chr(10).join(
         p.read_text(encoding="utf-8")
-        for p in sorted((RACINE_APP / "routers").glob("interviews*.py"))
+        for p in [
+            *sorted((RACINE_APP / "routers").glob("interviews*.py")),
+            RACINE_APP / "services" / "structuration_libre.py",
+        ]
     )
     # Les COMMENTAIRES sont retirés : celui qui explique ce correctif cite
     # `bool(j.turns_result)` pour dire de ne pas y revenir, et l'assertion

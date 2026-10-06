@@ -1,0 +1,29 @@
+{# Statut de la structuration DIFFÉRÉE d'un entretien libre (2026-10-06).
+   Fragment rendu dans la fiche (`libre_detail.html`) et par
+   GET /interviews/{id}/structurer/statut, qui le ré-émet en sondage léger
+   tant que l'état n'est pas terminal (à traiter / en cours). Le sondage
+   s'arrête de lui-même : un état terminal rend ce fragment SANS hx-trigger.
+   Le bouton n'a pas de `formaction` : c'est la route qui garde (UPDATE
+   conditionnel, un seul appel IA même sur double clic). #}
+{% set st = interview.structuration_status or 'fait' %}
+{% set libelles = {'a_traiter': 'à traiter', 'en_cours': 'en cours', 'echec': 'échec', 'fait': 'fait'} %}
+<div id="structuration-statut" class="card structuration-statut" aria-live="polite"
+     data-statut="{{ st }}"
+     {% if st in ('a_traiter', 'en_cours') %}
+     hx-get="/interviews/{{ interview.id }}/structurer/statut?suivi=1"
+     hx-trigger="every 3s" hx-swap="outerHTML"
+     {% endif %}>
+  <p>
+    Structuration en tours de parole :
+    <span class="badge badge-structuration badge-{{ st }}">{{ libelles.get(st, st) }}</span>
+    {% if st == 'a_traiter' %}<span class="muted">— l'entretien est enregistré ; la structuration par l'IA démarre en tâche de fond.</span>
+    {% elif st == 'en_cours' %}<span class="muted">— l'IA structure la transcription ; tu peux quitter cette page.</span>
+    {% elif st == 'echec' %}<span class="muted">— la structuration n'a pas abouti. La transcription est intacte : relance quand l'IA est disponible.</span>
+    {% endif %}
+  </p>
+  {% if st in ('a_traiter', 'echec') %}
+  <form method="post" action="/interviews/{{ interview.id }}/structurer">
+    <button class="btn btn-sm" type="submit">{% if st == 'echec' %}Relancer{% else %}Structurer maintenant{% endif %}</button>
+  </form>
+  {% endif %}
+</div>

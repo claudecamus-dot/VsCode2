@@ -297,3 +297,20 @@ def structurer_entretien(interview_id: int) -> bool:
         return statut == "fait"
     finally:
         db.close()
+
+def reconcile_en_cours_on_startup() -> int:
+    """Au démarrage : une structuration `en_cours` a été tuée par l'arrêt du
+    serveur. Elle repasse en `echec` (relançable depuis la fiche) — JAMAIS
+    relancée d'office (arbitrage utilisateur du 2026-10-06 : un redémarrage ne
+    doit pas rallumer une génération de plusieurs minutes). Rend le compte."""
+    db = _db.SessionLocal()
+    try:
+        n = db.execute(
+            update(Interview)
+            .where(Interview.structuration_status == "en_cours")
+            .values(structuration_status="echec")
+        ).rowcount
+        db.commit()
+        return n
+    finally:
+        db.close()

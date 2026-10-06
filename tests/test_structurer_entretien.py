@@ -264,3 +264,164 @@ def test_structurer_relance_un_echec(client: TestClient, monkeypatch) -> None:
     _espion_ia(monkeypatch)
     interview_id = _creer_a_traiter(_mission(client), statut="echec")
     assert structuration_libre.structurer_entretien(interview_id) is True
+
+
+# --------------------------------------------------------------------------- #
+# Routes de relance et de statut
+# --------------------------------------------------------------------------- #
+def test_route_structurer_programme_puis_double_clic_un_seul_appel_ia(
+    client: TestClient, monkeypatch
+) -> None:
+    appels = _espion_ia(monkeypatch)
+    interview_id = _creer_a_traiter(_mission(client), statut="echec")
+    r1 = client.post(f"/interviews/{interview_id}/structurer", follow_redirects=False)
+    r2 = client.post(f"/interviews/{interview_id}/structurer", follow_redirects=False)
+    assert r1.status_code == r2.status_code == 303
+    assert r1.headers["location"] == f"/interviews/{interview_id}"
+    assert len(appels) == 1
+    with SessionLocal() as db:
+        assert db.get(Interview, interview_id).structuration_status == "fait"
+
+
+@pytest.mark.parametrize("statut", ["en_cours", "fait"])
+def test_route_structurer_ne_programme_rien_hors_a_traiter_echec(
+    client: TestClient, monkeypatch, statut
+) -> None:
+    programmes = _programmes(monkeypatch)
+    interview_id = _creer_a_traiter(_mission(client), statut=statut)
+    client.post(f"/interviews/{interview_id}/structurer", follow_redirects=False)
+    assert programmes == []
+
+
+def test_route_structurer_refuse_un_entretien_parametre(client: TestClient) -> None:
+    mission_id = _mission(client)
+    with SessionLocal() as db:
+        interview = Interview(mission_id=mission_id, mode="parametre", interviewee_name="x")
+        db.add(interview)
+        db.commit()
+        interview_id = interview.id
+    assert client.post(f"/interviews/{interview_id}/structurer").status_code == 404
+
+
+@pytest.mark.parametrize(
+    "statut,sonde,bouton",
+    [("a_traiter", True, "Structurer maintenant"), ("en_cours", True, None),
+     ("echec", False, "Relancer"), ("fait", False, None)],
+)
+def test_statut_fragment_sonde_seulement_hors_etat_terminal(
+    client: TestClient, statut, sonde, bouton
+) -> None:
+    interview_id = _creer_a_traiter(_mission(client), statut=statut)
+    html = client.get(f"/interviews/{interview_id}/structurer/statut").text
+    assert 'aria-live="polite"' in html
+    assert f'data-statut="{statut}"' in html
+    assert ('hx-trigger="every 3s"' in html) is sonde
+    assert "formaction" not in html
+    if bouton:
+        assert bouton in html
+    else:
+        assert "<button" not in html
+
+
+def test_statut_suivi_recharge_la_fiche_a_l_arrivee_sur_un_etat_terminal(client: TestClient) -> None:
+    fait = _creer_a_traiter(_mission(client), statut="fait")
+    en_cours = _creer_a_traiter(_mission(client), statut="en_cours")
+    assert client.get(f"/interviews/{fait}/structurer/statut?suivi=1").headers.get("HX-Refresh") == "true"
+    assert "HX-Refresh" not in client.get(f"/interviews/{en_cours}/structurer/statut?suivi=1").headers
+    assert "HX-Refresh" not in client.get(f"/interviews/{fait}/structurer/statut").headers
+
+
+# --------------------------------------------------------------------------- #
+# Démarrage, purge, Ollama
+# --------------------------------------------------------------------------- #
+def test_reconcile_au_demarrage_en_cours_devient_echec_sans_relance(
+    client: TestClient, monkeypatch
+) -> None:
+    appels = _espion_ia(monkeypatch)
+    mission_id = _mission(client)
+    en_cours = _creer_a_traiter(mission_id, statut="en_cours")
+    a_traiter = _creer_a_traiter(mission_id, statut="a_traiter")
+    assert structuration_libre.reconcile_en_cours_on_startup() >= 1
+    with SessionLocal() as db:
+        assert db.get(Interview, en_cours).structuration_status == "echec"
+        assert db.get(Interview, a_traiter).structuration_status == "a_traiter"
+    assert appels == []
+
+
+def test_purge_epargne_les_tranches_d_un_entretien_non_structure(client: TestClient) -> None:
+    from datetime import datetime, timedelta
+
+    from app.services.interview_segment_jobs import purge_stale_segment_jobs
+
+    mission_id = _mission(client)
+    vieux = datetime.now() - timedelta(days=30)
+    _creer_a_traiter(mission_id, jeton="tok-protege", statut="echec")
+    _creer_a_traiter(mission_id, jeton="tok-fait", statut="fait")
+    with SessionLocal() as db:
+        for jeton in ("tok-protege", "tok-fait", "tok-orphelin"):
+            db.add(InterviewSegmentJob(session_token=jeton, position=0, status="done",
+                                       text="t", created_at=vieux))
+        db.commit()
+        purge_stale_segment_jobs(db)
+        restants = set(db.scalars(select(InterviewSegmentJob.session_token)))
+    assert "tok-protege" in restants
+    assert "tok-fait" not in restants
+    assert "tok-orphelin" not in restants
+
+
+def test_un_seul_appel_ollama_a_la_fois(monkeypatch) -> None:
+    import threading
+    import time as _time
+
+    from app.services import ai_common
+
+    en_vol = 0
+    maximum = 0
+    verrou = threading.Lock()
+
+    class _Reponse:
+        def __enter__(self):
+            nonlocal en_vol, maximum
+            with verrou:
+                en_vol += 1
+                maximum = max(maximum, en_vol)
+            _time.sleep(0.05)
+            return self
+
+        def __exit__(self, *exc):
+            nonlocal en_vol
+            with verrou:
+                en_vol -= 1
+
+        def read(self):
+            return b'{"message": {"content": "{}"}}'
+
+    monkeypatch.setattr(ai_common.urllib.request, "urlopen", lambda req, timeout: _Reponse())
+    fils = [threading.Thread(target=ai_common._call_ollama_once, args=(b"{}", "m"))
+            for _ in range(4)]
+    for f in fils:
+        f.start()
+    for f in fils:
+        f.join()
+    assert maximum == 1
+
+
+def test_num_thread_optionnel(monkeypatch) -> None:
+    import json as _json
+
+    from app.services import ai_common
+
+    envoyes = []
+    monkeypatch.setattr(
+        ai_common, "_call_ollama_once",
+        lambda payload, model: envoyes.append(_json.loads(payload)) or {"message": {"content": "{}"}},
+    )
+    monkeypatch.delenv("OLLAMA_NUM_THREAD", raising=False)
+    ai_common._call_ollama("s", "p", {}, "", "m", 10)
+    monkeypatch.setenv("OLLAMA_NUM_THREAD", "3")
+    ai_common._call_ollama("s", "p", {}, "", "m", 10)
+    monkeypatch.setenv("OLLAMA_NUM_THREAD", "abc")
+    ai_common._call_ollama("s", "p", {}, "", "m", 10)
+    assert "num_thread" not in envoyes[0]["options"]
+    assert envoyes[1]["options"]["num_thread"] == 3
+    assert "num_thread" not in envoyes[2]["options"]

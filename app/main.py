@@ -48,6 +48,9 @@ from .services.global_synthesis_job import reconcile_running_on_startup  # noqa:
 from .services.interview_segment_jobs import (  # noqa: E402
     reconcile_running_on_startup as reconcile_segment_jobs_on_startup,
 )
+from .services.structuration_libre import (  # noqa: E402
+    reconcile_en_cours_on_startup as reconcile_structurations_on_startup,
+)
 
 
 def empreinte_code() -> str:
@@ -134,6 +137,13 @@ async def lifespan(_app: FastAPI):
         logging.getLogger(__name__).info(
             "%d transcription(s) de fichier audio interrompue(s) par un "
             "redémarrage, repassée(s) en échec rejouable", audios_liberes,
+        )
+    # Quatrième filet (2026-10-06) : structuration différée d'entretien libre.
+    structurations_liberees = reconcile_structurations_on_startup()
+    if structurations_liberees:
+        logging.getLogger(__name__).info(
+            "%d structuration(s) d'entretien interrompue(s) par un redémarrage, "
+            "repassée(s) en échec relançable", structurations_liberees,
         )
     try:
         audio_transcribe.warm_up()

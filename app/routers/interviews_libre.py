@@ -89,6 +89,50 @@ def record_libre_from_jobs(
     )
 
 
+_STRUCTURATION_LANCABLE = ("a_traiter", "echec")
+
+
+def _entretien_libre(db, interview_id: int) -> Interview:
+    interview = db.get(Interview, interview_id)
+    if interview is None or interview.mode != "libre":
+        raise HTTPException(status_code=404, detail="Entretien libre introuvable.")
+    return interview
+
+
+@router.post("/interviews/{interview_id}/structurer")
+def structurer_maintenant(
+    interview_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_session),
+):
+    """« Structurer maintenant » / « Relancer » depuis la fiche. Idempotent :
+    rien n'est programmé hors `a_traiter|echec`, et `structurer_entretien`
+    re-vérifie par UPDATE conditionnel (double clic : un seul appel IA)."""
+    interview = _entretien_libre(db, interview_id)
+    if interview.structuration_status in _STRUCTURATION_LANCABLE:
+        background_tasks.add_task(structurer_entretien, interview.id)
+    return RedirectResponse(f"/interviews/{interview.id}", status_code=303)
+
+
+@router.get("/interviews/{interview_id}/structurer/statut")
+def structurer_statut(
+    interview_id: int,
+    request: Request,
+    suivi: int = 0,
+    db: Session = Depends(get_session),
+):
+    """Fragment de statut (sondage HTMX). `suivi=1` : la page sondait un état
+    non terminal — à l'arrivée sur un état terminal, `HX-Refresh` recharge la
+    fiche pour afficher les tours produits."""
+    interview = _entretien_libre(db, interview_id)
+    response = templates.TemplateResponse(
+        request, "interviews/_structuration_statut.html", {"interview": interview},
+    )
+    if suivi and interview.structuration_status not in ("a_traiter", "en_cours"):
+        response.headers["HX-Refresh"] = "true"
+    return response
+
+
 def _refus_texte_vide(request, mission, identity, transcript):
     """Garde UNIQUE « aucun texte » des routes de finalisation libre (revue
     2026-10-06, m4 : dupliquée sur deux routes, absente de `/from-jobs`, qui
