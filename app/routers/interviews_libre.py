@@ -207,6 +207,8 @@ def record_libre_retour(
     interview_date: str = Form(""),
     audio_backup_path: str = Form(""),
     audio_segments: str = Form("[]"),
+    session_token: str = Form(""),
+    segment_tail: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Retour de l'étape 2 vers l'étape 1 SANS perdre le travail : la
@@ -229,6 +231,8 @@ def record_libre_retour(
                 audio_backup_path=audio_backup_path,
                 audio_segments=audio_segments,
                 transcript=transcript,
+                session_token=session_token,
+                segment_tail=segment_tail,
             ),
         },
     )

@@ -31,6 +31,10 @@
   <input type="hidden" name="audio_backup_path" value="{{ identity.audio_backup_path or '' }}">
   <input type="hidden" name="audio_segments" value="{{ identity.audio_segments or '[]' }}">
   <input type="hidden" name="transcript" value="{{ transcript or '' }}">
+  {# Portés pour « Retour » (/retour) : sans eux, l'écran de transcription
+     rouvert perdait le jeton des tranches et le reliquat (revue 2026-10-06, m3). #}
+  <input type="hidden" name="session_token" value="{{ identity.session_token or '' }}">
+  <input type="hidden" name="segment_tail" value="{{ identity.segment_tail or '' }}">
 
   {# Identité : pavé repliable DANS le tour de table (demande utilisateur
      2026-07-27) — il vivait dans un onglet séparé, dont le libellé était la

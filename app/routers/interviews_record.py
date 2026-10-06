@@ -486,6 +486,8 @@ def _identite_fusionnee(identity: dict, extracted: dict) -> dict:
     merged["interview_date"] = identity.get("interview_date", "")
     merged["audio_backup_path"] = identity.get("audio_backup_path", "")
     merged["audio_segments"] = identity.get("audio_segments", "[]")
+    merged["session_token"] = identity.get("session_token", "")
+    merged["segment_tail"] = identity.get("segment_tail", "")
     return merged
 
 
