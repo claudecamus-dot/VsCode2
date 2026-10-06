@@ -84,9 +84,21 @@ def record_libre_from_jobs(
         session_token=session_token,
         segment_tail=segment_tail,
     )
+    if (refus := _refus_texte_vide(request, mission, identity, transcript)) is not None:
+        return refus
     return _finalize_libre_turns(
         db, request, mission, identity, transcript, session_token, segment_tail,
     )
+
+
+def _refus_texte_vide(request, mission, identity, transcript):
+    """Garde UNIQUE « aucun texte » des routes de finalisation libre (revue
+    2026-10-06, m4 : dupliquée sur deux routes, absente de `/from-jobs`, qui
+    lançait alors l'extraction IA sur un texte vide). Rend l'écran d'erreur,
+    ou None quand il y a du texte."""
+    if not transcript.strip():
+        return _libre_turns_error(request, mission, identity, "Aucun texte transcrit.")
+    return None
 
 
 def _enregistrer_libre_direct(
@@ -146,8 +158,8 @@ def record_libre_enregistrer(
         segment_tail=segment_tail,
     )
 
-    if not transcript.strip():
-        return _libre_turns_error(request, mission, identity, "Aucun texte transcrit.")
+    if (refus := _refus_texte_vide(request, mission, identity, transcript)) is not None:
+        return refus
 
     status = segment_jobs_status(db, session_token)
     if status["total"] > 0 and not status["all_done"] and not status["any_failed"]:
@@ -191,8 +203,8 @@ def record_libre_enregistrer_from_jobs(
         session_token=session_token,
         segment_tail=segment_tail,
     )
-    if not transcript.strip():
-        return _libre_turns_error(request, mission, identity, "Aucun texte transcrit.")
+    if (refus := _refus_texte_vide(request, mission, identity, transcript)) is not None:
+        return refus
     return _enregistrer_libre_direct(
         db, request, mission, identity, transcript, session_token, segment_tail,
     )

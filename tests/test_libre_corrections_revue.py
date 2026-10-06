@@ -91,6 +91,42 @@ def test_revue_des_tours_porte_jeton_et_reliquat_pour_le_retour(
 
 
 # --------------------------------------------------------------------------- #
+# m4 — une seule garde « aucun texte », sur les trois routes de finalisation
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "route",
+    [
+        "record-libre/from-jobs",
+        "record-libre/enregistrer",
+        "record-libre/enregistrer/from-jobs",
+    ],
+)
+def test_finalisation_refuse_un_texte_vide_sans_appel_ia(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, route: str
+) -> None:
+    """Échoue sur le code d'avant pour `/from-jobs` : sans garde, il lançait
+    l'extraction IA sur un texte vide et ouvrait la revue des tours."""
+    appels = []
+
+    def _espion(text):
+        appels.append(text)
+        return {"turns": [], "identity": {}}
+
+    monkeypatch.setattr("app.routers.interviews.extract_turns_from_text", _espion)
+    mission_id = _nouvelle_mission(client)
+    response = client.post(
+        f"/missions/{mission_id}/interviews/{route}",
+        data={"transcript": "   "},
+        follow_redirects=False,
+    )
+    assert response.status_code == 200
+    assert "Aucun texte transcrit." in response.text
+    assert appels == []
+    with SessionLocal() as db:
+        assert db.get(Mission, mission_id).interviews == []
+
+
+# --------------------------------------------------------------------------- #
 # m5 — date illisible : écartée, mais DITE
 # --------------------------------------------------------------------------- #
 def _mission_nommee(client: TestClient) -> int:
