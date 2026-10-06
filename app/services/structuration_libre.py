@@ -263,13 +263,38 @@ def structurer_entretien(interview_id: int) -> bool:
             # de tranche, et sa relance repart de la transcription entière.
             statut = "echec" if (not turns and manquantes) else "fait"
             detectee = extracted.get("identity") or {}
+            valeurs = {
+                "structuration_status": statut,
+                "tranches_manquantes": max(0, manquantes),
+            }
             if interview.interviewee_name == "Sans nom" and (
                 detectee.get("interviewee_name") or ""
             ).strip():
-                interview.interviewee_name = detectee["interviewee_name"].strip()
+                valeurs["interviewee_name"] = detectee["interviewee_name"].strip()
             for champ in ("interviewee_role", "interviewee_entity"):
                 if not getattr(interview, champ) and (detectee.get(champ) or "").strip():
-                    setattr(interview, champ, detectee[champ].strip())
+                    valeurs[champ] = detectee[champ].strip()
+            # Écriture GARDÉE (revue 2026-10-06, F3) : seulement si l'entretien
+            # existe encore ET est toujours `en_cours` pour CETTE exécution.
+            # Supprimé ou ré-étiqueté entre-temps (réconciliation, relance) :
+            # on n'écrit rien — aucun tour orphelin, aucun « fait » abusif.
+            db.expire_all()
+            ecrit = db.execute(
+                update(Interview)
+                .where(
+                    Interview.id == interview_id,
+                    Interview.structuration_status == "en_cours",
+                )
+                .values(**valeurs)
+                .execution_options(synchronize_session=False)
+            ).rowcount
+            if not ecrit:
+                db.rollback()
+                logger.warning(
+                    "Structuration de l'entretien %s abandonnée : supprimé ou "
+                    "statut changé pendant le traitement", interview_id,
+                )
+                return False
             db.execute(delete(InterviewTurn).where(InterviewTurn.interview_id == interview_id))
             for position, turn in enumerate(turns):
                 db.add(
@@ -282,15 +307,16 @@ def structurer_entretien(interview_id: int) -> bool:
                         section_title=turn["section_title"],
                     )
                 )
-            interview.tranches_manquantes = max(0, manquantes)
-            interview.structuration_status = statut
             db.commit()
         except Exception:
             db.rollback()
             logger.exception("Structuration de l'entretien %s en échec", interview_id)
             db.execute(
                 update(Interview)
-                .where(Interview.id == interview_id)
+                .where(
+                    Interview.id == interview_id,
+                    Interview.structuration_status == "en_cours",
+                )
                 .values(structuration_status="echec")
             )
             db.commit()

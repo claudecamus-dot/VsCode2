@@ -23,6 +23,7 @@ from ..models import (
     Verbatim,
 )
 from ..services import mission_backups
+from ..services.interview_segment_jobs import delete_segment_jobs
 from .interviews_commun import (
     _get_mission,
 )
@@ -101,7 +102,14 @@ def delete_interview(interview_id: int, db: Session = Depends(get_session)):
     interview = db.get(Interview, interview_id)
     mission_id = interview.mission_id if interview else None
     if interview is not None:
+        jeton = interview.segment_token
+        # Tours supprimés par la cascade ORM. Une structuration `en_cours` n'est
+        # pas refusée : son écriture finale est gardée (`structurer_entretien`,
+        # F3) et s'abandonne sur un entretien disparu. Ses jobs de tranche,
+        # eux, ne seraient plus protégés par personne : on les retire ici.
         db.delete(interview)
         db.commit()
+        if jeton:
+            delete_segment_jobs(db, jeton)
     target = f"/missions/{mission_id}" if mission_id else "/missions"
     return RedirectResponse(target, status_code=303)

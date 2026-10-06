@@ -486,3 +486,59 @@ def test_structurer_sans_jeton_ia_en_panne_laisse_echec_relancable(client: TestC
         assert db.get(Interview, interview_id).structuration_status == "echec"
     _espion_ia(monkeypatch)
     assert structuration_libre.structurer_entretien(interview_id) is True
+
+# --------------------------------------------------------------------------- #
+# F3 (revue 2026-10-06) : écriture finale gardée sur `en_cours`
+# --------------------------------------------------------------------------- #
+def _ia_qui_modifie(monkeypatch, action) -> None:
+    def _fake(text):
+        action()
+        return {"turns": [_tour()], "identity": {}}
+
+    monkeypatch.setattr("app.routers.interviews.extract_turns_from_text", _fake)
+
+
+def test_structurer_n_ecrit_rien_si_le_statut_a_change_pendant_le_traitement(
+    client: TestClient, monkeypatch
+) -> None:
+    """Échoue sur le code d'avant : l'écriture finale ignorait le statut
+    courant et posait « fait » + des tours sur un entretien ré-étiqueté."""
+    interview_id = _creer_a_traiter(_mission(client))
+
+    def _reetiqueter():
+        with SessionLocal() as db:
+            db.get(Interview, interview_id).structuration_status = "echec"
+            db.commit()
+
+    _ia_qui_modifie(monkeypatch, _reetiqueter)
+    assert structuration_libre.structurer_entretien(interview_id) is False
+    with SessionLocal() as db:
+        interview = db.get(Interview, interview_id)
+        assert interview.structuration_status == "echec"
+        assert interview.turns == []
+
+
+def test_structurer_d_un_entretien_supprime_ne_laisse_aucun_tour_orphelin(
+    client: TestClient, monkeypatch
+) -> None:
+    from app.models import InterviewTurn
+
+    mission_id = _mission(client)
+    interview_id = _creer_a_traiter(mission_id, jeton="tok-supprime")
+    with SessionLocal() as db:
+        db.add(InterviewSegmentJob(session_token="tok-supprime", position=0,
+                                   status="done", turns_result=[_tour()], text="t"))
+        db.commit()
+    _ia_qui_modifie(
+        monkeypatch,
+        lambda: client.post(f"/interviews/{interview_id}/delete", follow_redirects=False),
+    )
+    monkeypatch.setattr(structuration_libre, "_attendre_les_tranches", lambda *a, **k: None)
+    # Jeton présent, jobs « done » : pas d'appel IA — on supprime donc avant.
+    client.post(f"/interviews/{interview_id}/delete", follow_redirects=False)
+    assert structuration_libre.structurer_entretien(interview_id) is False
+    with SessionLocal() as db:
+        assert db.scalars(select(InterviewTurn).where(
+            InterviewTurn.interview_id == interview_id)).all() == []
+        assert db.scalar(select(InterviewSegmentJob).where(
+            InterviewSegmentJob.session_token == "tok-supprime")) is None
