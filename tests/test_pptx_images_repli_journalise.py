@@ -25,3 +25,20 @@ def test_repli_texte_seul_journalise_un_warning(
     finally:
         monkeypatch.undo()
         importlib.reload(images)
+
+
+def test_import_du_skill_par_sys_path_reussit_et_pointe_le_dossier_du_skill() -> None:
+    """Chemin NOMINAL : l'import par sys.path doit trouver le skill du dépôt.
+    Sans ce test, un dossier renommé/déplacé bascule tous les intercalaires en
+    texte seul sans qu'aucun test ne rougisse."""
+    import app.services.pptx_export.images as images
+    from pathlib import Path
+
+    importlib.reload(images)
+    attendu = Path(images.__file__).resolve().parents[3] / ".claude" / "skills" / "pptx-framed-image" / "scripts"
+    assert images._FRAMED_OK is True
+    assert str(attendu) in sys.path
+    for nom in ("_nature_images", "_stock_images"):
+        assert Path(getattr(images, nom).__file__).resolve().parent == attendu
+    assert Path(images._place_image_in_frame.__code__.co_filename).resolve().parent == attendu
+    assert callable(images._cover_crop_to_aspect)
