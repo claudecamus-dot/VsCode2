@@ -99,7 +99,7 @@ def _no_shadow(shape):
     # Les autoshapes heritent parfois d'une ombre du theme : on la coupe.
     try:
         shape.shadow.inherit = False
-    except Exception:
+    except (AttributeError, NotImplementedError):
         pass
 
 
@@ -1002,7 +1002,7 @@ def _xfrm_de_groupe_non_transforme(shp):
         return (off.get("x") == choff.get("x") and off.get("y") == choff.get("y")
                 and ext.get("cx") == chext.get("cx")
                 and ext.get("cy") == chext.get("cy"))
-    except Exception:
+    except (AttributeError, KeyError):
         return False
 
 
@@ -1017,7 +1017,7 @@ def _bornes_in(shp):
     """(l, t, r, b) en POUCES, ou None si la forme n'a pas de geometrie lisible."""
     try:
         l, t, w, h = shp.left, shp.top, shp.width, shp.height
-    except Exception:
+    except (AttributeError, NotImplementedError, ValueError, TypeError):
         return None
     if None in (l, t, w, h):
         return None

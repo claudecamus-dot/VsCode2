@@ -32,7 +32,9 @@ qui n'est pas chargeable sortait en code 1, non bloquant ; via ce dispatcher,
 c'est un refus (exit 2). Le dispatcher est donc PLUS strict que les entrées
 séparées qu'il remplace, et c'est voulu : une garde absente ne doit jamais
 laisser passer un appel sans contrôle. Une garde qui plante DANS main() reste
-ignorée (journalisée, motif ``crash``), comme avant.
+ignorée (journalisée, motif ``crash``), comme avant — SAUF les gardes CRITIQUES
+(``CRITIQUES``, aujourd'hui guard_destructive_git) : leur plantage est un refus, exit 2
+(compromis D, 2026-10-06).
 
 Every refusal line in the log carries ``gardes``: the guards this run dispatches.
 """
@@ -64,6 +66,16 @@ GARDES = (
 DELAI = 15.0  # < every settings.json PreToolUse timeout (30 s minimum)
 BUDGET_S = 100.0  # < settings.json timeout 130 s, margin for interpreter start-up
 _GARDES_ACTIVES = GARDES  # set by main(); logged with every refusal
+# Guards whose crash INSIDE main() is a refusal (exit 2), not a pass (compromis D,
+# 2026-10-06): the destructive-git guard is the last line before irreversible loss, a
+# payload crafted to crash it must not be a bypass. Other guards stay fail-open (their
+# crash is journaled and shown). Extra names via CLAUDE_DISPATCH_CRITIQUES (tests).
+CRITIQUES = ("guard_destructive_git",)
+
+
+def _critiques():
+    extra = tuple(x for x in os.environ.get("CLAUDE_DISPATCH_CRITIQUES", "").split(",") if x)
+    return CRITIQUES + extra
 
 
 def _budget():
@@ -286,6 +298,14 @@ def _executer(nom, brut):
         except Exception:  # noqa: BLE001
             pass
         code = 1
+        if nom in _critiques():
+            err.write(f"{nom}: garde critique plantee ({type(e).__name__}) - "
+                      "refus prudent, la commande n'a pas pu etre controlee. "
+                      "Diagnostic : .claude/supervision/refus_stdin.jsonl (motif crash). "
+                      "Sortie si le plantage se repete : retirer "
+                      f"{nom}.py des arguments du dispatcher (PreToolUse) dans "
+                      ".claude/settings.json, a la main, puis la corriger\n")
+            code = 2
     return code, out.getvalue(), err.getvalue()
 
 

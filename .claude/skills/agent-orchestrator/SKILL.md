@@ -20,8 +20,8 @@ Détail, mesures et historique de chaque section (divulgation progressive, lot 3
 [routage-bmad](references/routage-bmad.md) · [veille](references/veille.md) ·
 [salles](references/salles.md) · [journal](references/journal.md).
 
-<!-- SOCLE-PROVENANCE: socle : c902bf0 du 2026-10-05 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`c902bf0`, 2026-10-05) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : bcd9159 du 2026-10-06 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`bcd9159`, 2026-10-06) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet

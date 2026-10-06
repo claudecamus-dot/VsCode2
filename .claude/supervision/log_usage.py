@@ -16,6 +16,41 @@ import sys
 _RE_BUDGET = re.compile(r"BUDGET\s*:\s*(\d+)\s*min", re.IGNORECASE)
 
 
+# Derniere ligne « STATUT : <valeur> » du rendu (seule elle compte : un « partiel »
+# cite dans le corps d'un rendu « fini » ne doit pas etre compte).
+_RE_STATUT = re.compile(r"^[ \t*_`#>-]*STATUT\s*:[\s*_`]*([A-Za-z\u00c0-\u00ff]+)",
+                        re.IGNORECASE | re.MULTILINE)
+_RE_EFFORT_REDUIT = re.compile(
+    r"all[e\u00e9]g[e\u00e9]|effort\s+r[e\u00e9]duit|faute\s+de\s+temps", re.IGNORECASE)
+_FENETRE_RENDU = 4000
+_PLAFOND_EFFORT = 200_000
+_STATUTS_RENDU = {"fini": "fini", "partiel": "partiel", "bloque": "bloque",
+                  "bloqu\u00e9": "bloque"}
+
+
+def qualifier_rendu(texte) -> dict:
+    """Qualifie le rendu final d'un sous-agent : `statut_rendu` et `effort_reduit`.
+
+    `statut_rendu` : valeur de la DERNIERE ligne `STATUT :` (fini | partiel | bloque),
+    sinon (ou valeur inconnue) « non declare ». `effort_reduit` : le texte dit
+    « allege », « effort reduit » ou « faute de temps ». Texte absent ou non-chaine :
+    dict vide (fail-open, champs absents de l'evenement).
+    """
+    if not isinstance(texte, str) or not texte.strip():
+        return {}
+    # Le STATUT se lit dans la fin bornee du rendu (seule la derniere ligne compte, et
+    # un rendu geant ne doit pas rendre le hook SubagentStop lent). La reduction
+    # d'effort, elle, se dit souvent EN TETE du rendu : elle se cherche sur tout le
+    # texte, plafonne a _PLAFOND_EFFORT (regex sans retour arriere, temps lineaire).
+    fin = texte[-_FENETRE_RENDU:]
+    trouves = _RE_STATUT.findall(fin)
+    statut = "non declare"
+    if trouves:
+        statut = _STATUTS_RENDU.get(trouves[-1].lower(), "non declare")
+    return {"statut_rendu": statut,
+            "effort_reduit": bool(_RE_EFFORT_REDUIT.search(texte[:_PLAFOND_EFFORT]))}
+
+
 def _budget_declare(prompt):
     """Budget en minutes lu dans le brief, ou None si absent/illisible."""
     if not isinstance(prompt, str):
@@ -106,6 +141,10 @@ def main() -> int:
             if duree is not None:
                 entry["duree_s"] = duree
         entry.update(mesure)
+        try:
+            entry.update(qualifier_rendu(data.get("last_assistant_message")))
+        except Exception:  # fail-open : la qualification ne bloque jamais l'ecriture
+            pass
         _ecrire(entry)
         return 0
 
