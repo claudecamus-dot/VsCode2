@@ -30,6 +30,7 @@ from ..models import (
     Verbatim,
 )
 from ..services import audio_transcribe
+from ..services.structuration_libre import peut_relancer
 from ..services.interview_export import (
     group_turns_into_sections,
     transcript_of,
@@ -97,6 +98,12 @@ def capture(
                 # Date saisie illisible, écartée à l'enregistrement : la fiche
                 # le dit au lieu de l'avaler (revue 2026-10-06, m5).
                 "ident_date_invalide": request.query_params.get("date_invalide") == "1",
+                # Structuration différée (F4) : bouton là où une relance a un
+                # sens, et refus d'une relance DIT plutôt qu'avalé.
+                "structuration_relancable": peut_relancer(interview),
+                "structuration_refusee": (
+                    request.query_params.get("structuration") == "refusee"
+                ),
             },
         )
     # Mission sans trame (entretien structuré créé avant la trame, ou trame

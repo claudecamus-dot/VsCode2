@@ -18,7 +18,7 @@ from fastapi import (
     HTTPException,
     Request,
 )
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -35,7 +35,11 @@ from ..services.interview_libre_extract_ai import (
     generate_repartition_from_turns,
 )
 from ..services.mission_axes import axes_of
-from ..services.structuration_libre import planifier_structuration
+from ..services.structuration_libre import (
+    peut_relancer,
+    planifier_structuration,
+    relancer,
+)
 from ..templating import templates
 from .interviews_commun import (
     REPARTITION_KEYS,
@@ -89,7 +93,6 @@ def record_libre_from_jobs(
     )
 
 
-_STRUCTURATION_LANCABLE = ("a_traiter", "echec")
 
 
 def _entretien_libre(db, interview_id: int) -> Interview:
@@ -106,11 +109,15 @@ def structurer_maintenant(
     db: Session = Depends(get_session),
 ):
     """« Structurer maintenant » / « Relancer » depuis la fiche. Idempotent :
-    rien n'est programmé hors `a_traiter|echec`, et `structurer_entretien`
-    re-vérifie par UPDATE conditionnel (double clic : un seul appel IA)."""
+    `relancer` refuse ce qui est déjà en file/en cours, et `structurer_entretien`
+    re-vérifie par UPDATE conditionnel (double clic : un seul appel IA).
+    Relançable aussi (F4) : un `en_cours` orphelin, un `fait` à 0 tour. Un
+    refus se DIT sur la fiche (`?structuration=refusee`), plus de 303 muet."""
     interview = _entretien_libre(db, interview_id)
-    if interview.structuration_status in _STRUCTURATION_LANCABLE:
-        background_tasks.add_task(planifier_structuration, interview.id)
+    if not relancer(interview.id):
+        return RedirectResponse(
+            f"/interviews/{interview.id}?structuration=refusee", status_code=303
+        )
     return RedirectResponse(f"/interviews/{interview.id}", status_code=303)
 
 
@@ -124,9 +131,14 @@ def structurer_statut(
     """Fragment de statut (sondage HTMX). `suivi=1` : la page sondait un état
     non terminal — à l'arrivée sur un état terminal, `HX-Refresh` recharge la
     fiche pour afficher les tours produits."""
-    interview = _entretien_libre(db, interview_id)
+    interview = db.get(Interview, interview_id)
+    if interview is None or interview.mode != "libre":
+        # 286 : code HTMX « arrête de sonder » (F4) — un entretien supprimé
+        # pendant le sondage ne doit pas faire boucler la page sur des 404.
+        return Response(status_code=286)
     response = templates.TemplateResponse(
-        request, "interviews/_structuration_statut.html", {"interview": interview},
+        request, "interviews/_structuration_statut.html",
+        {"interview": interview, "structuration_relancable": peut_relancer(interview)},
     )
     if suivi and interview.structuration_status not in ("a_traiter", "en_cours"):
         response.headers["HX-Refresh"] = "true"

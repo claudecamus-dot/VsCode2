@@ -412,6 +412,41 @@ def planifier_structuration(interview_id: int) -> bool:
     return True
 
 
+def peut_relancer(interview: Interview) -> bool:
+    """Le bouton « Structurer / Relancer » a-t-il un sens (F4 : aucun état
+    figé) ? `a_traiter`/`echec` hors file ; `en_cours` que le worker de CE
+    processus ne porte pas (orphelin : le statut n'a pas d'horodatage, le
+    registre en mémoire fait foi) ; `fait` sans aucun tour."""
+    if est_en_vol(interview.id):
+        return False
+    statut = interview.structuration_status or "fait"
+    if statut in ("a_traiter", "echec", "en_cours"):
+        return True
+    return statut == "fait" and not interview.turns
+
+
+def relancer(interview_id: int) -> bool:
+    """Remet l'entretien `a_traiter` (UPDATE conditionnel sur le statut lu) et
+    le met en file. False si la relance est refusée (déjà en file, statut
+    changé, ou rien à relancer)."""
+    with _db.SessionLocal() as db:
+        interview = db.get(Interview, interview_id)
+        if interview is None or not peut_relancer(interview):
+            return False
+        statut = interview.structuration_status
+        if statut not in _STATUTS_LANCABLES:
+            ok = db.execute(
+                update(Interview)
+                .where(Interview.id == interview_id,
+                       Interview.structuration_status == statut)
+                .values(structuration_status="a_traiter")
+            ).rowcount
+            db.commit()
+            if not ok:
+                return False
+    return planifier_structuration(interview_id)
+
+
 def reconcile_en_cours_on_startup() -> int:
     """Au démarrage : une structuration `en_cours` a été tuée par l'arrêt du
     serveur. Elle repasse en `echec` (relançable depuis la fiche) — JAMAIS
@@ -419,9 +454,11 @@ def reconcile_en_cours_on_startup() -> int:
     doit pas rallumer une génération de plusieurs minutes). Rend le compte."""
     db = _db.SessionLocal()
     try:
+        # `a_traiter` aussi (F4) : au démarrage, la file du worker est vide —
+        # un `a_traiter` n'a plus personne pour le prendre et resterait figé.
         n = db.execute(
             update(Interview)
-            .where(Interview.structuration_status == "en_cours")
+            .where(Interview.structuration_status.in_(("en_cours", "a_traiter")))
             .values(structuration_status="echec")
         ).rowcount
         db.commit()

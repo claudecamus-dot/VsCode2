@@ -21,9 +21,12 @@
     {% elif st == 'echec' %}<span class="muted">— la structuration n'a pas abouti. La transcription est intacte : relance quand l'IA est disponible.</span>
     {% endif %}
   </p>
-  {% if st in ('a_traiter', 'echec') %}
+  {% if structuration_refusee %}
+  <p class="muted" role="status">Relance non prise en compte : une structuration est déjà en file ou en cours, ou l'entretien est déjà structuré.</p>
+  {% endif %}
+  {% if structuration_relancable %}
   <form method="post" action="/interviews/{{ interview.id }}/structurer">
-    <button class="btn btn-sm" type="submit">{% if st == 'echec' %}Relancer{% else %}Structurer maintenant{% endif %}</button>
+    <button class="btn btn-sm" type="submit">{% if st in ('echec', 'en_cours') %}Relancer{% else %}Structurer maintenant{% endif %}</button>
   </form>
   {% endif %}
 </div>

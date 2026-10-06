@@ -283,14 +283,48 @@ def test_route_structurer_programme_puis_double_clic_un_seul_appel_ia(
         assert db.get(Interview, interview_id).structuration_status == "fait"
 
 
+def test_route_structurer_refuse_un_entretien_deja_structure_et_le_dit(
+    client: TestClient, monkeypatch
+) -> None:
+    """F4 : un refus n'est plus un 303 muet."""
+    appels = _espion_ia(monkeypatch)
+    interview_id = _creer_a_traiter(_mission(client))
+    structuration_libre.structurer_entretien(interview_id)  # fait, 1 tour
+    r = client.post(f"/interviews/{interview_id}/structurer", follow_redirects=False)
+    assert r.headers["location"].endswith("?structuration=refusee")
+    assert "Relance non prise en compte" in client.get(r.headers["location"]).text
+    assert len(appels) == 1
+
+
+def test_route_structurer_refuse_un_entretien_deja_en_file(client: TestClient, monkeypatch) -> None:
+    appels = _espion_ia(monkeypatch)
+    interview_id = _creer_a_traiter(_mission(client), statut="echec")
+    monkeypatch.setitem(structuration_libre._en_vol, interview_id, 0.0)
+    r = client.post(f"/interviews/{interview_id}/structurer", follow_redirects=False)
+    assert r.headers["location"].endswith("?structuration=refusee")
+    assert appels == []
+
+
 @pytest.mark.parametrize("statut", ["en_cours", "fait"])
-def test_route_structurer_ne_programme_rien_hors_a_traiter_echec(
+def test_route_structurer_relance_un_en_cours_orphelin_ou_un_fait_sans_tour(
     client: TestClient, monkeypatch, statut
 ) -> None:
-    programmes = _programmes(monkeypatch)
+    """F4. Échoue sur le code d'avant : seuls a_traiter|echec étaient
+    relançables — un `en_cours` orphelin ou un `fait` à 0 tour restaient figés."""
+    appels = _espion_ia(monkeypatch)
     interview_id = _creer_a_traiter(_mission(client), statut=statut)
     client.post(f"/interviews/{interview_id}/structurer", follow_redirects=False)
-    assert programmes == []
+    assert len(appels) == 1
+    with SessionLocal() as db:
+        interview = db.get(Interview, interview_id)
+        assert interview.structuration_status == "fait"
+        assert len(interview.turns) == 1
+
+
+def test_statut_d_un_entretien_supprime_arrete_le_sondage(client: TestClient) -> None:
+    interview_id = _creer_a_traiter(_mission(client), statut="en_cours")
+    client.post(f"/interviews/{interview_id}/delete", follow_redirects=False)
+    assert client.get(f"/interviews/{interview_id}/structurer/statut?suivi=1").status_code == 286
 
 
 def test_route_structurer_refuse_un_entretien_parametre(client: TestClient) -> None:
@@ -305,8 +339,8 @@ def test_route_structurer_refuse_un_entretien_parametre(client: TestClient) -> N
 
 @pytest.mark.parametrize(
     "statut,sonde,bouton",
-    [("a_traiter", True, "Structurer maintenant"), ("en_cours", True, None),
-     ("echec", False, "Relancer"), ("fait", False, None)],
+    [("a_traiter", True, "Structurer maintenant"), ("en_cours", True, "Relancer"),
+     ("echec", False, "Relancer"), ("fait", False, "Structurer maintenant")],
 )
 def test_statut_fragment_sonde_seulement_hors_etat_terminal(
     client: TestClient, statut, sonde, bouton
@@ -344,7 +378,8 @@ def test_reconcile_au_demarrage_en_cours_devient_echec_sans_relance(
     assert structuration_libre.reconcile_en_cours_on_startup() >= 1
     with SessionLocal() as db:
         assert db.get(Interview, en_cours).structuration_status == "echec"
-        assert db.get(Interview, a_traiter).structuration_status == "a_traiter"
+        # F4 : au démarrage la file est vide, un `a_traiter` serait figé.
+        assert db.get(Interview, a_traiter).structuration_status == "echec"
     assert appels == []
 
 
