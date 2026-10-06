@@ -4,7 +4,7 @@
 # | garder : la signaler au hub, qui corrige le canon et re-synchronise.
 # | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
 # |  n'est pas déployé, il n'existe pas dans ce dépôt.)
-# | Provenance canon : 6b8e1e2 du 2026-10-05 — permet, au prochain sync, de dire si
+# | Provenance canon : cc3bb41 du 2026-10-06 — permet, au prochain sync, de dire si
 # | une différence vient d'une édition locale ou d'une avance du canon (voir
 # | `determiner_cause` dans sync_dispositif.py au hub).
 # +---------------------------------------------------------------------------
@@ -522,6 +522,11 @@ def verifier_gabarit_topologie(run: dict) -> str | None:
             return (f"log_run REFUS : gabarit invalide : {g!r}.\n  Attendu : nom de "
                     "fichier de prompts/*.md SANS extension ni chemin, ou null - ou "
                     "champ absent.")
+    if "session_id" in run and not (isinstance(run["session_id"], str)
+                                    and run["session_id"].strip()):
+        return (f"log_run REFUS : session_id invalide : {run['session_id']!r}.\n"
+                "  Attendu : chaine non vide (session Claude Code du run, sert a "
+                "rattacher les agents de usage.jsonl) - ou champ absent.")
     if "topologie" in run and run["topologie"] not in TOPOLOGIES:
         return (f"log_run REFUS : topologie invalide : {run['topologie']!r}.\n"
                 f"  Attendu : {' | '.join(TOPOLOGIES)} - ou champ absent.")
