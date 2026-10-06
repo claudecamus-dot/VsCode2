@@ -312,6 +312,8 @@ def run_segment_job(job_id: int) -> None:
 def segment_jobs_status(db: Session, session_token: str) -> dict:
     """État agrégé des jobs d'une session (pour l'écran de statut et la
     décision de finalisation)."""
+    # Jeton normalisé partout (F5) : création, lecture, purge, entretien.
+    session_token = (session_token or "").strip()
     if not session_token:
         return {"jobs": [], "total": 0, "done": 0, "failed": 0, "stale": 0,
                 "all_done": False, "any_failed": False}
@@ -383,6 +385,7 @@ def segment_jobs_status_light(
     `total`/`done`/`failed`/`stale` restent calculés sur TOUTES les lignes de
     la session, par agrégats SQL (`func.count`), jamais faussés par le
     curseur — seule la fusion des tours/réponses en profite."""
+    session_token = (session_token or "").strip()
     if not session_token:
         return {"jobs": [], "total": 0, "done": 0, "failed": 0, "stale": 0,
                 "all_done": False, "any_failed": False}
@@ -584,6 +587,7 @@ def purge_stale_segment_jobs(db: Session, max_age_days: int = 7) -> None:
 def delete_segment_jobs(db: Session, session_token: str) -> None:
     """Supprime les jobs d'une session une fois consommés (à la finalisation) —
     ils ne servent qu'à alimenter l'écran de revue des tours, inutiles ensuite."""
+    session_token = (session_token or "").strip()
     if not session_token:
         return
     for job in db.scalars(

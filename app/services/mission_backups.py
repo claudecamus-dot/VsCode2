@@ -178,7 +178,7 @@ def _reference_sure(nom, mission_id: int, recordings_dir: Path) -> bool:
     aucun séparateur de chemin, et le fichier existe dans `recordings_dir`."""
     if not isinstance(nom, str) or not nom:
         return False
-    if "/" in nom or "\\" in nom or ".." in nom:
+    if "/" in nom or "\\" in nom or ".." in nom or ":" in nom:  # ':' : flux ADS / lecteur (F5)
         return False
     if mission_id_du_fichier(nom) != mission_id:
         return False
@@ -202,11 +202,19 @@ def references_audio_sures(
         if _reference_sure(audio_backup_path, mission_id, recordings_dir)
         else None
     )
-    segments = [
-        seg for seg in (audio_segments if isinstance(audio_segments, list) else [])
-        if isinstance(seg, dict)
-        and _reference_sure(seg.get("filename"), mission_id, recordings_dir)
-    ]
+    # Chaque segment est RECONSTRUIT sur une liste blanche (F5) : aucune clé
+    # arbitraire du client n'est persistée ; `position` doit être un entier.
+    segments = []
+    for seg in audio_segments if isinstance(audio_segments, list) else []:
+        if not isinstance(seg, dict):
+            continue
+        if not _reference_sure(seg.get("filename"), mission_id, recordings_dir):
+            continue
+        propre = {"filename": seg["filename"]}
+        position = seg.get("position")
+        if isinstance(position, int) and not isinstance(position, bool):
+            propre["position"] = position
+        segments.append(propre)
     return chemin, segments
 
 

@@ -88,7 +88,8 @@ def test_validateur_ne_garde_que_les_fichiers_reels_de_la_mission(tmp_path) -> N
         tmp_path,
     )
     assert chemin == "7_100_aa.webm"
-    assert segments == [{"filename": "7_100_aa.webm", "index": 0}]
+    # Liste blanche (F5) : la clé inconnue « index » n'est pas persistée.
+    assert segments == [{"filename": "7_100_aa.webm"}]
 
 
 @pytest.mark.parametrize(
@@ -165,3 +166,29 @@ def test_import_confirm_garde_une_reference_audio_reelle(
     interview_id = int(response.headers["location"].rsplit("/", 1)[1])
     with SessionLocal() as db:
         assert db.get(Interview, interview_id).audio_backup_path == vrai
+
+
+def test_validateur_reconstruit_les_segments_sur_liste_blanche(tmp_path) -> None:
+    """F5. Échoue sur le code d'avant : le dict client était persisté tel
+    quel (clés arbitraires), et ':' (flux alterné NTFS) passait."""
+    (tmp_path / "7_100_aa.webm").write_bytes(b"x")
+    _, segments = mission_backups.references_audio_sures(
+        7, None,
+        [{"filename": "7_100_aa.webm", "position": 2, "evil": "<script>"},
+         {"filename": "7_100_aa.webm:flux", "position": 3}],
+        tmp_path,
+    )
+    assert segments == [{"filename": "7_100_aa.webm", "position": 2}]
+
+
+def test_jeton_de_tranche_normalise_entre_creation_et_lecture(client: TestClient, monkeypatch) -> None:
+    """F5. Échoue sur le code d'avant : la tranche était créée sous le jeton
+    brut (espaces compris), l'entretien et la lecture sous le jeton nettoyé."""
+    from app.services.interview_segment_jobs import segment_jobs_status
+
+    monkeypatch.setattr("app.routers.interviews_segment_jobs.run_segment_job", lambda job_id: None)
+    r = client.post("/interviews/segment-jobs",
+                    data={"session_token": "  tok-f5  ", "position": 0, "text": "t"})
+    assert r.status_code < 400
+    with SessionLocal() as db:
+        assert segment_jobs_status(db, "tok-f5")["total"] == 1
