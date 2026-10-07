@@ -23,7 +23,10 @@ from ..models import (
     Verbatim,
 )
 from ..services import mission_backups
-from ..services.interview_segment_jobs import delete_segment_jobs
+from sqlalchemy import delete as sql_delete
+
+from ..models import InterviewSegmentJob
+from ..services.interview_segment_jobs import normaliser_jeton
 from .interviews_commun import (
     _get_mission,
 )
@@ -97,6 +100,16 @@ def import_interview_confirm(
     return RedirectResponse(f"/interviews/{interview.id}", status_code=303)
 
 
+def _supprimer_jobs_du_jeton(db: Session, jeton: str) -> None:
+    """Supprime les jobs de tranche du jeton SANS commit (transaction de
+    l'appelant) — `delete_segment_jobs` commite, lui."""
+    db.execute(
+        sql_delete(InterviewSegmentJob).where(
+            InterviewSegmentJob.session_token == normaliser_jeton(jeton)
+        )
+    )
+
+
 @router.post("/interviews/{interview_id}/delete")
 def delete_interview(interview_id: int, db: Session = Depends(get_session)):
     interview = db.get(Interview, interview_id)
@@ -106,10 +119,11 @@ def delete_interview(interview_id: int, db: Session = Depends(get_session)):
         # Tours supprimés par la cascade ORM. Une structuration `en_cours` n'est
         # pas refusée : son écriture finale est gardée (`structurer_entretien`,
         # F3) et s'abandonne sur un entretien disparu. Ses jobs de tranche,
-        # eux, ne seraient plus protégés par personne : on les retire ici.
+        # eux, ne seraient plus protégés par personne : on les retire ici, dans
+        # la MÊME transaction (G4) — tout ou rien.
         db.delete(interview)
-        db.commit()
         if jeton:
-            delete_segment_jobs(db, jeton)
+            _supprimer_jobs_du_jeton(db, jeton)
+        db.commit()
     target = f"/missions/{mission_id}" if mission_id else "/missions"
     return RedirectResponse(target, status_code=303)

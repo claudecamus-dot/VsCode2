@@ -693,3 +693,28 @@ def test_conflit_d_unicite_sans_entretien_existant_rend_409(client: TestClient, 
         follow_redirects=False,
     )
     assert r.status_code == 409
+
+# --------------------------------------------------------------------------- #
+# G4 : suppression de l'entretien et de ses jobs dans UNE transaction
+# --------------------------------------------------------------------------- #
+def test_suppression_entretien_et_jobs_tout_ou_rien(client: TestClient, monkeypatch) -> None:
+    """Échoue sur le code d'avant : l'entretien était commité supprimé AVANT
+    le ménage des jobs ; un échec de ce ménage laissait l'un sans l'autre."""
+    mission_id = _mission(client)
+    interview_id = _creer_a_traiter(mission_id, jeton="tok-g4", statut="fait")
+    with SessionLocal() as db:
+        db.add(InterviewSegmentJob(session_token="tok-g4", position=0, status="done", text="t"))
+        db.commit()
+
+    def _boom(*a, **k):
+        raise RuntimeError("ménage impossible")
+
+    monkeypatch.setattr("app.routers.interviews_gestion._supprimer_jobs_du_jeton", _boom, raising=False)
+    monkeypatch.setattr("app.routers.interviews_gestion.delete_segment_jobs", _boom, raising=False)
+    TestClient(app, raise_server_exceptions=False).post(
+        f"/interviews/{interview_id}/delete", follow_redirects=False
+    )
+    with SessionLocal() as db:
+        assert db.get(Interview, interview_id) is not None
+        assert db.scalar(select(InterviewSegmentJob).where(
+            InterviewSegmentJob.session_token == "tok-g4")) is not None
