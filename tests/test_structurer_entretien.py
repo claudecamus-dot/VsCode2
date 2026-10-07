@@ -807,3 +807,57 @@ def test_relance_immediate_apres_echec_acceptee(client: TestClient, monkeypatch)
     structuration_libre._liberer(interview_id, ancienne)
     with SessionLocal() as db:
         assert db.get(Interview, interview_id).structuration_status == "fait"
+# --------------------------------------------------------------------------- #
+# Ronde 3 : pas de boucle chaude ; jamais figé `en_cours` sur exception
+# --------------------------------------------------------------------------- #
+def test_deux_entretiens_en_attente_le_worker_dort(monkeypatch) -> None:
+    """Échoue sur le code d'avant : `_file.empty()` est faux dès deux
+    entretiens en attente de tranches, le fil tournait sans jamais dormir."""
+    import queue as _queue
+
+    file = _queue.Queue()
+    monkeypatch.setattr(structuration_libre, "_file", file)
+    monkeypatch.setattr(structuration_libre, "_attentes_sans_progres", 0)
+    monkeypatch.setattr(structuration_libre, "_tranches_en_vol", lambda jeton: 1)
+    sommes: list[float] = []
+    import time as _time
+    import types
+
+    monkeypatch.setattr(structuration_libre, "time", types.SimpleNamespace(
+        monotonic=_time.monotonic, sleep=sommes.append))
+    echeance = _time.monotonic() + 60
+    file.put((1, object(), echeance, "tok-a"))
+    file.put((2, object(), echeance, "tok-b"))
+    for _ in range(6):  # trois tours complets de file
+        structuration_libre._traiter(file.get())
+    assert len(sommes) == 3
+
+
+def test_exception_pendant_l_attente_laisse_echec(client: TestClient, monkeypatch) -> None:
+    """Échoue sur le code d'avant : l'exception de `_tranches_en_vol` était
+    journalisée et l'entretien restait `en_cours` sans jamais finir."""
+
+    def _boom(jeton):
+        raise RuntimeError("base verrouillée")
+
+    monkeypatch.setattr(structuration_libre, "_tranches_en_vol", _boom)
+    interview_id = _creer_a_traiter(_mission(client), jeton="tok-r3")
+    structuration_libre._traiter((interview_id, object(), None, None))
+    with SessionLocal() as db:
+        assert db.get(Interview, interview_id).structuration_status == "echec"
+
+
+def test_exception_dans_la_prise_apres_commit_laisse_echec(client: TestClient, monkeypatch) -> None:
+    """Relecture ronde 3 : `_prendre` peut lever après avoir commité
+    `en_cours` ; l'échéance n'était pas encore posée, l'entretien restait figé."""
+    interview_id = _creer_a_traiter(_mission(client))
+    vraie_prise = structuration_libre._prendre
+
+    def _prise_puis_boom(i):
+        vraie_prise(i)
+        raise RuntimeError("database is locked")
+
+    monkeypatch.setattr(structuration_libre, "_prendre", _prise_puis_boom)
+    structuration_libre._traiter((interview_id, object(), None, None))
+    with SessionLocal() as db:
+        assert db.get(Interview, interview_id).structuration_status == "echec"

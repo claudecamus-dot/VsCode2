@@ -409,8 +409,31 @@ def _liberer(interview_id: int, marque: object | None = None) -> None:
             _en_vol.pop(interview_id, None)
 
 
+def _marquer_echec(interview_id: int) -> None:
+    """`en_cours -> echec` conditionnel, best effort : un entretien pris ne
+    reste jamais figé `en_cours` après une exception du worker (ronde 3)."""
+    try:
+        with _db.SessionLocal() as db:
+            db.execute(
+                update(Interview)
+                .where(
+                    Interview.id == interview_id,
+                    Interview.structuration_status == "en_cours",
+                )
+                .values(structuration_status="echec")
+            )
+            db.commit()
+    except Exception:
+        logger.exception("Entretien %s : statut echec non écrit", interview_id)
+
+
+# Attentes consécutives sans aucun progrès (lu/écrit par le seul fil worker).
+_attentes_sans_progres = 0
+
+
 def _traiter(element) -> None:
     """Une étape du worker : prise, attente NON bloquante, ou fin."""
+    global _attentes_sans_progres
     interview_id, marque, echeance, jeton = element
     termine = True
     try:
@@ -421,14 +444,23 @@ def _traiter(element) -> None:
             echeance = time.monotonic() + ATTENTE_TRANCHES_S
         if jeton and _tranches_en_vol(jeton) and time.monotonic() < echeance:
             termine = False
-            seul = _file.empty()
+            # Ronde 3 : `_file.empty()` était faux dès DEUX entretiens en
+            # attente — le fil sondait la base sans jamais dormir. On dort une
+            # fois qu'un tour COMPLET de la file n'a fait qu'attendre.
+            _attentes_sans_progres += 1
+            tour_complet = _attentes_sans_progres > _file.qsize()
             _file.put((interview_id, marque, echeance, jeton))
-            if seul:  # personne d'autre à servir : ne pas boucler à vide
+            if tour_complet:
+                _attentes_sans_progres = 0
                 time.sleep(ATTENTE_PAS_S)
             return
+        _attentes_sans_progres = 0
         _finir(interview_id, jeton)
     except Exception:
         logger.exception("Worker de structuration : entretien %s", interview_id)
+        # Sans condition : `_prendre` peut lever APRÈS son commit `en_cours`
+        # (echeance encore None) ; l'UPDATE conditionnel ne touche rien sinon.
+        _marquer_echec(interview_id)
     finally:
         if termine:
             _liberer(interview_id, marque)
