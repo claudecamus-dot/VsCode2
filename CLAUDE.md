@@ -10,7 +10,7 @@ Le venv du projet porte les dépendances — `py -m pytest` échoue en collecte
 (`ModuleNotFoundError: fastapi`), il pointe le Python global.
 
 ```bash
-.venv/Scripts/python.exe -m pytest -q                      # suite complète (48 min 47 s mesurées le 2026-09-30, 1444 tests)
+.venv/Scripts/python.exe -m pytest -q                      # suite complète (29 min 32 s mesurées le 2026-10-07, 1592 tests)
 .venv/Scripts/python.exe -m pytest tests/test_swot.py -q   # un fichier
 .venv/Scripts/python.exe -m pytest -q -k "nom_du_test"     # un test unique
 ```
@@ -79,7 +79,7 @@ Le contexte est un cache actif facturé à chaque tour, pas une mémoire gratuit
   (skills BMAD installées) sauf demande explicite.
 - **Lire avant d'écrire**, grep les appelants avant de modifier une route/service partagé
   (cf. la règle de rejeu des tests ci-dessus, même logique côté lecture).
-- **Sous-agent pour toute sortie volumineuse** (suite complète ~49 min, logs longs).
+- **Sous-agent pour toute sortie volumineuse** (suite complète ~30 min, logs longs).
 - **`/compact` dès ~40 %** de fenêtre utilisée si la session doit continuer longtemps.
 - **`/clear` (pas une 3e rustine) après deux corrections ratées consécutives** sur le
   même problème — repartir à froid avec un meilleur prompt bat l'insistance.
