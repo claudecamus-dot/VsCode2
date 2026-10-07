@@ -638,7 +638,8 @@ def test_planifier_ne_bloque_pas_l_appelant_et_dedoublonne(monkeypatch) -> None:
         appels.append(interview_id)
         libere.wait(3)
 
-    monkeypatch.setattr(structuration_libre, "structurer_entretien", _lent)
+    monkeypatch.setattr(structuration_libre, "_prendre", lambda i: "")
+    monkeypatch.setattr(structuration_libre, "_finir", lambda i, jeton: _lent(i))
     debut = _time.monotonic()
     assert structuration_libre.planifier_structuration(424242) is True
     assert _time.monotonic() - debut < 1.0
@@ -747,3 +748,44 @@ def test_supprime_pendant_l_attente_aucun_appel_ia(client: TestClient, monkeypat
     )
     assert structuration_libre.structurer_entretien(interview_id) is False
     assert appels == []
+
+# --------------------------------------------------------------------------- #
+# G1 : pas de blocage en tête de file
+# --------------------------------------------------------------------------- #
+def test_une_tranche_bloquee_ne_bloque_pas_la_file(client: TestClient, monkeypatch) -> None:
+    """Échoue sur le code d'avant : le worker attendait l'échéance du premier
+    entretien (tranche jamais terminée) avant de servir le second."""
+    import time as _time
+
+    monkeypatch.setattr(structuration_libre, "EXECUTION_SYNCHRONE", False)  # vrai worker
+    monkeypatch.setattr(structuration_libre, "ATTENTE_TRANCHES_S", 30)
+    monkeypatch.setattr(structuration_libre, "ATTENTE_PAS_S", 0.05)
+    _espion_ia(monkeypatch)
+    mission_id = _mission(client)
+    bloque = _creer_a_traiter(mission_id, jeton="tok-g1-bloque")
+    libre = _creer_a_traiter(mission_id)
+    with SessionLocal() as db:
+        db.add(InterviewSegmentJob(session_token="tok-g1-bloque", position=0,
+                                   status="running", text="t"))
+        db.commit()
+    try:
+        assert structuration_libre.planifier_structuration(bloque)
+        assert structuration_libre.planifier_structuration(libre)
+        limite = _time.monotonic() + 8
+        statut = None
+        while _time.monotonic() < limite:
+            with SessionLocal() as db:
+                statut = db.get(Interview, libre).structuration_status
+            if statut == "fait":
+                break
+            _time.sleep(0.1)
+        assert statut == "fait", "le second entretien attendait le premier"
+        with SessionLocal() as db:
+            assert db.get(Interview, bloque).structuration_status == "en_cours"
+    finally:
+        with SessionLocal() as db:
+            job = db.scalar(select(InterviewSegmentJob).where(
+                InterviewSegmentJob.session_token == "tok-g1-bloque"))
+            job.status = "done"
+            db.commit()
+        structuration_libre._file.join()

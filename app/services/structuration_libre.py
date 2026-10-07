@@ -244,8 +244,18 @@ def structurer_entretien(interview_id: int) -> bool:
     `fait` les supprime (comme le faisait l'enregistrement synchrone).
 
     Rend True si cette exécution a structuré l'entretien."""
-    db = _db.SessionLocal()
-    try:
+    jeton = _prendre(interview_id)
+    if jeton is None:
+        return False
+    _attendre_les_tranches(jeton)
+    return _finir(interview_id, jeton)
+
+
+def _prendre(interview_id: int) -> str | None:
+    """Bascule CONDITIONNELLE `a_traiter|echec -> en_cours`. Rend le jeton des
+    tranches ('' sans tranches), ou None si l'entretien n'a pas été pris (déjà
+    pris, supprimé). Session courte : rien n'est tenu pendant l'attente (F1)."""
+    with _db.SessionLocal() as db:
         pris = db.execute(
             update(Interview)
             .where(
@@ -256,17 +266,18 @@ def structurer_entretien(interview_id: int) -> bool:
         ).rowcount
         db.commit()
         if not pris:
-            return False
+            return None
         prise = db.get(Interview, interview_id)
         if prise is None:  # supprimé entre l'UPDATE et la lecture (G3)
-            return False
-        jeton = prise.segment_token or ""
-        # Aucune session tenue pendant l'attente des tranches (F1) : on la
-        # ferme, on attend (sessions courtes), puis on en rouvre une.
-        db.close()
+            return None
+        return prise.segment_token or ""
+
+
+def _finir(interview_id: int, jeton: str) -> bool:
+    """Extraction + écriture gardée, une fois les tranches attendues."""
+    db = _db.SessionLocal()
+    try:
         try:
-            _attendre_les_tranches(jeton)
-            db = _db.SessionLocal()
             interview = db.get(Interview, interview_id)
             # Supprimé ou ré-étiqueté PENDANT l'attente (G3) : on sort AVANT
             # tout appel IA — pas d'extraction gâchée sous le verrou Ollama.
@@ -361,14 +372,27 @@ def structurer_entretien(interview_id: int) -> bool:
 # Worker DÉDIÉ (revue 2026-10-06, F1). Une BackgroundTask synchrone tourne dans
 # le pool de threads partagé d'anyio : y dormir jusqu'à 30 min (attente des
 # tranches) puis enchaîner des appels IA y bloquait un thread de requêtes. Un
-# seul fil démon, une file, une structuration à la fois, dédoublonnée par
-# entretien : une relance déjà en file ou en cours est un no-op.
+# seul fil démon, une file, dédoublonnée par entretien : une relance déjà en
+# file ou en cours est un no-op.
+#
+# Pas de blocage en tête de file (G1) : un entretien dont des tranches sont
+# encore en vol est REMIS en file avec son échéance, et le fil passe au
+# suivant — seul le travail IA reste un à la fois.
+#
+# DETTE ASSUMÉE — hypothèse MONO-PROCESSUS : ce registre et cette file vivent
+# dans la mémoire d'UN processus. Deux processus serveur sur la même base
+# peuvent structurer deux fois le même entretien, ou la réconciliation de
+# démarrage de l'un passer en `echec` ce que l'autre traite (revue du
+# 2026-10-06, Grumbal 2/3, Boundary 4). Non corrigé : un seul uvicorn par base.
 # --------------------------------------------------------------------------- #
 # Tests : exécution immédiate dans l'appelant (posé par tests/conftest.py).
 EXECUTION_SYNCHRONE = False
 
-_file: queue.Queue[int] = queue.Queue()
-_en_vol: dict[int, float] = {}  # id -> instant (monotonic) de mise en file
+# Éléments de file : (id, marque, échéance | None, jeton | None).
+_file: queue.Queue = queue.Queue()
+# id -> marque de l'inscription en cours. La marque empêche la fin d'une
+# exécution ancienne d'effacer l'inscription d'une relance plus récente (G2).
+_en_vol: dict[int, object] = {}
 _verrou_registre = threading.Lock()
 _fil: threading.Thread | None = None
 
@@ -379,20 +403,43 @@ def est_en_vol(interview_id: int) -> bool:
         return interview_id in _en_vol
 
 
-def _liberer(interview_id: int) -> None:
+def _liberer(interview_id: int, marque: object | None = None) -> None:
     with _verrou_registre:
-        _en_vol.pop(interview_id, None)
+        if marque is None or _en_vol.get(interview_id) is marque:
+            _en_vol.pop(interview_id, None)
+
+
+def _traiter(element) -> None:
+    """Une étape du worker : prise, attente NON bloquante, ou fin."""
+    interview_id, marque, echeance, jeton = element
+    termine = True
+    try:
+        if echeance is None:
+            jeton = _prendre(interview_id)
+            if jeton is None:
+                return
+            echeance = time.monotonic() + ATTENTE_TRANCHES_S
+        if jeton and _tranches_en_vol(jeton) and time.monotonic() < echeance:
+            termine = False
+            seul = _file.empty()
+            _file.put((interview_id, marque, echeance, jeton))
+            if seul:  # personne d'autre à servir : ne pas boucler à vide
+                time.sleep(ATTENTE_PAS_S)
+            return
+        _finir(interview_id, jeton)
+    except Exception:
+        logger.exception("Worker de structuration : entretien %s", interview_id)
+    finally:
+        if termine:
+            _liberer(interview_id, marque)
 
 
 def _boucle() -> None:
     while True:
-        interview_id = _file.get()
+        element = _file.get()
         try:
-            structurer_entretien(interview_id)
-        except Exception:
-            logger.exception("Worker de structuration : entretien %s", interview_id)
+            _traiter(element)
         finally:
-            _liberer(interview_id)
             _file.task_done()
 
 
@@ -409,18 +456,19 @@ def _demarrer_worker() -> None:
 def planifier_structuration(interview_id: int) -> bool:
     """Met l'entretien en file de structuration. False si déjà en file ou en
     cours (dédoublonnage). Ne bloque jamais l'appelant."""
+    marque = object()
     with _verrou_registre:
         if interview_id in _en_vol:
             return False
-        _en_vol[interview_id] = time.monotonic()
+        _en_vol[interview_id] = marque
     if EXECUTION_SYNCHRONE:
         try:
             structurer_entretien(interview_id)
         finally:
-            _liberer(interview_id)
+            _liberer(interview_id, marque)
         return True
     _demarrer_worker()
-    _file.put(interview_id)
+    _file.put((interview_id, marque, None, None))
     return True
 
 
