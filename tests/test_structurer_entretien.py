@@ -718,3 +718,32 @@ def test_suppression_entretien_et_jobs_tout_ou_rien(client: TestClient, monkeypa
         assert db.get(Interview, interview_id) is not None
         assert db.scalar(select(InterviewSegmentJob).where(
             InterviewSegmentJob.session_token == "tok-g4")) is not None
+
+# --------------------------------------------------------------------------- #
+# G3 : sortie AVANT tout appel IA si l'entretien a changé pendant l'attente
+# --------------------------------------------------------------------------- #
+def test_reetiquete_pendant_l_attente_aucun_appel_ia(client: TestClient, monkeypatch) -> None:
+    """Échoue sur le code d'avant : l'extraction partait quand même (appel IA
+    gâché sous le verrou Ollama), seule l'écriture finale s'annulait."""
+    appels = _espion_ia(monkeypatch)
+    interview_id = _creer_a_traiter(_mission(client))
+
+    def _pendant_l_attente(jeton):
+        with SessionLocal() as db:
+            db.get(Interview, interview_id).structuration_status = "echec"
+            db.commit()
+
+    monkeypatch.setattr(structuration_libre, "_attendre_les_tranches", _pendant_l_attente)
+    assert structuration_libre.structurer_entretien(interview_id) is False
+    assert appels == []
+
+
+def test_supprime_pendant_l_attente_aucun_appel_ia(client: TestClient, monkeypatch) -> None:
+    appels = _espion_ia(monkeypatch)
+    interview_id = _creer_a_traiter(_mission(client))
+    monkeypatch.setattr(
+        structuration_libre, "_attendre_les_tranches",
+        lambda jeton: client.post(f"/interviews/{interview_id}/delete", follow_redirects=False),
+    )
+    assert structuration_libre.structurer_entretien(interview_id) is False
+    assert appels == []

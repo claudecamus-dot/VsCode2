@@ -257,7 +257,10 @@ def structurer_entretien(interview_id: int) -> bool:
         db.commit()
         if not pris:
             return False
-        jeton = db.get(Interview, interview_id).segment_token or ""
+        prise = db.get(Interview, interview_id)
+        if prise is None:  # supprimé entre l'UPDATE et la lecture (G3)
+            return False
+        jeton = prise.segment_token or ""
         # Aucune session tenue pendant l'attente des tranches (F1) : on la
         # ferme, on attend (sessions courtes), puis on en rouvre une.
         db.close()
@@ -265,7 +268,9 @@ def structurer_entretien(interview_id: int) -> bool:
             _attendre_les_tranches(jeton)
             db = _db.SessionLocal()
             interview = db.get(Interview, interview_id)
-            if interview is None:
+            # Supprimé ou ré-étiqueté PENDANT l'attente (G3) : on sort AVANT
+            # tout appel IA — pas d'extraction gâchée sous le verrou Ollama.
+            if interview is None or interview.structuration_status != "en_cours":
                 return False
             extracted = _extraire_tours_libre(
                 db,
