@@ -31,7 +31,7 @@ import logging
 import os
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, load_only
 
 from ..db import SessionLocal
@@ -581,9 +581,14 @@ def purge_stale_segment_jobs(db: Session, max_age_days: int = 7) -> None:
     # Garde (2026-10-06) : les tranches d'un entretien enregistré mais pas
     # encore structuré (`a_traiter`, `echec` relançable, `en_cours`) sont sa
     # matière de structuration — les purger rendrait la relance impossible.
+    # Et (2026-10-07) un `fait` PARTIEL : il garde ses jobs tant qu'une tranche
+    # manque (c'est ce qui rend « Relancer les tranches en échec » possible).
     jetons_proteges = select(Interview.segment_token).where(
         Interview.segment_token.is_not(None),
-        Interview.structuration_status.in_(("a_traiter", "en_cours", "echec")),
+        or_(
+            Interview.structuration_status.in_(("a_traiter", "en_cours", "echec")),
+            Interview.tranches_manquantes > 0,
+        ),
     )
     for job in db.scalars(
         select(InterviewSegmentJob).where(
@@ -593,6 +598,14 @@ def purge_stale_segment_jobs(db: Session, max_age_days: int = 7) -> None:
     ):
         db.delete(job)
     db.commit()
+
+
+def tranches_a_rattraper(jobs: list[InterviewSegmentJob]) -> list[InterviewSegmentJob]:
+    """Tranches pas encore abouties ET portant du texte (`failed`, mais aussi
+    `pending`/`running` : une tranche encore en vol reste à rattraper tant
+    qu'elle n'est pas `done`). Même définition que `still_ko` des chemins de
+    finalisation, nommée une fois pour la fiche."""
+    return [j for j in jobs if j.status != "done" and j.text.strip()]
 
 
 def delete_segment_jobs(db: Session, session_token: str) -> None:

@@ -17,6 +17,7 @@ import threading
 import time
 
 from sqlalchemy import delete, update
+from sqlalchemy.orm import object_session
 
 from .. import db as _db
 from ..models import Interview, InterviewTurn
@@ -29,6 +30,7 @@ from .interview_segment_jobs import (
     merge_segment_turns,
     recover_stalled_or_failed_jobs,
     segment_jobs_status,
+    tranches_a_rattraper,
 )
 
 
@@ -329,7 +331,12 @@ def _finir(interview_id: int, jeton: str) -> bool:
                     "statut changé pendant le traitement", interview_id,
                 )
                 return False
-            db.execute(delete(InterviewTurn).where(InterviewTurn.interview_id == interview_id))
+            # Les tours existants ne sont remplacés que par DES tours : une relance
+            # d'un `fait` partiel qui n'en rend aucun (IA en panne, `echec`) ne doit
+            # pas effacer un tour de table déjà là, corrections manuelles comprises
+            # (revue 2026-10-07).
+            if turns:
+                db.execute(delete(InterviewTurn).where(InterviewTurn.interview_id == interview_id))
             for position, turn in enumerate(turns):
                 db.add(
                     InterviewTurn(
@@ -355,7 +362,10 @@ def _finir(interview_id: int, jeton: str) -> bool:
             )
             db.commit()
             return False
-        if statut == "fait" and jeton:
+        if statut == "fait" and jeton and not manquantes:
+            # Jobs CONSERVÉS tant qu'une tranche manque (2026-10-07) : c'est ce
+            # qui rend la relance des tranches en échec possible ; sans eux,
+            # seule la retranscription complète de l'audio rattrape.
             # Ménage seulement (F6) : l'entretien est déjà écrit « fait ». Un
             # échec ici ne doit ni lever ni le faire passer pour raté — la
             # purge des 7 jours rattrapera les jobs.
@@ -504,6 +514,18 @@ def planifier_structuration(interview_id: int) -> bool:
     return True
 
 
+def nb_tranches_a_rattraper(interview: Interview) -> int:
+    """Jobs de tranche encore à rattraper pour le jeton de cet entretien. 0 sans
+    jeton ou sans session (objet détaché). Les jobs sont la vérité de la relance ;
+    `Interview.tranches_manquantes` (persisté) peut dire plus — reliquat final
+    en échec, jobs supprimés avant le 2026-10-07 — sans rien à relancer."""
+    jeton = interview.segment_token
+    db = object_session(interview)
+    if not jeton or db is None:
+        return 0
+    return len(tranches_a_rattraper(segment_jobs_status(db, jeton)["jobs"]))
+
+
 def peut_relancer(interview: Interview) -> bool:
     """Le bouton « Structurer / Relancer » a-t-il un sens (F4 : aucun état
     figé) ? `a_traiter`/`echec` hors file ; `en_cours` que le worker de CE
@@ -513,7 +535,15 @@ def peut_relancer(interview: Interview) -> bool:
     # G2 : un statut TERMINAL en base l'emporte sur le registre — le worker
     # écrit `echec` avant de se désinscrire, et une relance immédiate tombait
     # dans cette fenêtre (refus « déjà en file » faux).
-    terminal = statut == "echec" or (statut == "fait" and not interview.turns)
+    # `fait` PARTIEL (2026-10-07, demande utilisateur : « relancer les segments
+    # failed ») : des tours existent mais des tranches sont restées en échec, et
+    # leurs jobs sont conservés — la relance les reprend, les tranches réussies
+    # sont reprises telles quelles.
+    terminal = (
+        statut == "echec"
+        or (statut == "fait" and not interview.turns)
+        or (statut == "fait" and nb_tranches_a_rattraper(interview) > 0)
+    )
     if est_en_vol(interview.id) and not terminal:
         return False
     if statut in ("a_traiter", "echec", "en_cours"):

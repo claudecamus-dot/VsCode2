@@ -980,3 +980,55 @@ def test_la_capture_du_harnais_rend_un_png_reel(
     assert octets[:8] == b"\x89PNG\r\n\x1a\n", octets[:16]
     # Une page rendue pèse plus qu'un PNG vide de quelques dizaines d'octets.
     assert len(octets) > 5000, len(octets)
+
+
+_SEED_TOUR_DE_TABLE = r"""
+from app.db import SessionLocal, init_db
+from app.models import Interview, Mission
+init_db()
+db = SessionLocal()
+m = Mission(name="E2E tour de table")
+db.add(m); db.flush()
+i = Interview(mission_id=m.id, mode="libre", status="done", interviewee_name="Témoin",
+              raw_transcript="Bonjour, voici l'entretien.", structuration_status="fait")
+db.add(i); db.commit()
+print(m.id, i.id)
+"""
+
+_LIRE_STATUT_STRUCTURATION = r"""
+import sys
+from app.db import SessionLocal
+from app.models import Interview
+print(SessionLocal().get(Interview, int(sys.argv[1])).structuration_status)
+"""
+
+
+def test_lancer_le_tour_de_table_depuis_la_fiche(
+    tmp_path_factory: pytest.TempPathFactory, nav: Navigateur
+) -> None:
+    """Demande utilisateur du 2026-10-07 : après enregistrement, le tour de table
+    doit pouvoir être lancé depuis la fiche. Entretien `fait` sans aucun tour : le
+    bouton « Lancer le tour de table » est visible, son clic (POST /structurer, en
+    vrai navigateur : pas de 403 CSRF) fait quitter l'état `fait` — Ollama
+    injoignable exprès, il finit en échec relançable, jamais figé."""
+    import time
+
+    dossier = tmp_path_factory.mktemp("e2e-tour")
+    base_db = dossier / "e2e.db"
+    mid, iid = _python_sur_base(base_db, _SEED_TOUR_DE_TABLE).split()
+    with serveur_uvicorn(dossier, OLLAMA_HOST="http://127.0.0.1:9") as base:
+        nav.naviguer(f"{base}/interviews/{iid}")
+        _sans_erreur(nav, "Ouvrir la fiche")
+        assert "Lancer le tour de table" in nav.texte()
+        nav.cliquer_et_attendre(f"form[action='/interviews/{iid}/structurer'] button[type=submit]")
+        _sans_erreur(nav, "Lancer le tour de table", sauf=())
+        fin = time.monotonic() + 30
+        statut = "fait"
+        while time.monotonic() < fin:
+            statut = _python_sur_base(base_db, _LIRE_STATUT_STRUCTURATION, iid)
+            if statut == "echec":
+                break
+            time.sleep(0.5)
+        assert statut == "echec", f"le clic n'a pas lancé la structuration (statut {statut})"
+        nav.naviguer(f"{base}/interviews/{iid}")
+        assert "Relancer" in nav.texte()

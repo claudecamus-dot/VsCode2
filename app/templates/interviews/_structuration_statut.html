@@ -9,7 +9,11 @@
 {% set libelles = {'a_traiter': 'à traiter', 'en_cours': 'en cours', 'echec': 'échec', 'fait': 'fait'} %}
 <div id="structuration-statut" class="card structuration-statut" aria-live="polite"
      data-statut="{{ st }}"
-     {% if st in ('a_traiter', 'en_cours') %}
+     {# Le sondage s'arrête sur un `en_cours` ORPHELIN (relançable : aucun worker de
+        ce processus ne le porte) — sinon « l'IA structure… » mentirait sans fin
+        (2026-10-07). Jamais sur `a_traiter` : juste après l'enregistrement, le
+        worker n'est pas encore inscrit au registre (revue 2026-10-07). #}
+     {% if st == 'a_traiter' or (st == 'en_cours' and not structuration_relancable) %}
      hx-get="/interviews/{{ interview.id }}/structurer/statut?suivi=1"
      hx-trigger="every 3s" hx-swap="outerHTML"
      {% endif %}>
@@ -18,6 +22,10 @@
     <span class="badge badge-structuration badge-{{ st }}">{{ libelles.get(st, st) }}</span>
     {% if st == 'a_traiter' %}<span class="muted">— l'entretien est enregistré ; la structuration par l'IA démarre en tâche de fond.</span>
     {% elif st == 'en_cours' %}<span class="muted">— l'IA structure la transcription ; tu peux quitter cette page.</span>
+    {% elif st == 'fait' and not interview.turns %}<span class="muted">— l'entretien est enregistré mais son tour de table est vide : lance-le.</span>
+    {% elif st == 'fait' and interview.tranches_manquantes %}<span class="muted">— {{ interview.tranches_manquantes }} tranche{{ 's' if interview.tranches_manquantes > 1 else '' }} en échec : leur texte est dans la transcription, pas dans le tour de table.
+      {%- if structuration_relancable %} La relance reprend ces tranches seules.
+      {%- else %} Plus rien à relancer ici : « ↻ Relancer la transcription (audio) » les rattrape.{% endif %}</span>
     {% elif st == 'echec' %}<span class="muted">— la structuration n'a pas abouti. La transcription est intacte : relance quand l'IA est disponible.</span>
     {% endif %}
   </p>
@@ -26,7 +34,16 @@
   {% endif %}
   {% if structuration_relancable %}
   <form method="post" action="/interviews/{{ interview.id }}/structurer">
-    <button class="btn btn-sm" type="submit">{% if st in ('echec', 'en_cours') %}Relancer{% else %}Structurer maintenant{% endif %}</button>
+    {# Relancer un `fait` partiel RÉÉCRIT le tour de table : tranches réussies
+       reprises telles quelles, mais les corrections faites à la main sur les tours
+       sont remplacées — d'où le confirm(). #}
+    <button class="btn btn-sm" type="submit"
+            {% if st == 'fait' and interview.turns %}onclick="return confirm('Relancer les tranches en échec ?\n\nLe tour de table sera réécrit : les modifications faites à la main sur les tours seront remplacées.');"{% endif %}>
+      {%- if st in ('echec', 'en_cours') %}Relancer
+      {%- elif st == 'fait' and not interview.turns %}Lancer le tour de table
+      {%- elif st == 'fait' %}Relancer les tranches en échec
+      {%- else %}Structurer maintenant{% endif -%}
+    </button>
   </form>
   {% endif %}
 </div>

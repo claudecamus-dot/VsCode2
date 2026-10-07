@@ -18,7 +18,7 @@ from sqlalchemy import select
 
 from app.db import DB_PATH, SessionLocal, engine, init_db
 from app.main import app
-from app.models import Interview, InterviewSegmentJob, Mission
+from app.models import Interview, InterviewSegmentJob, InterviewTurn, Mission
 from app.services import structuration_libre
 
 
@@ -339,8 +339,12 @@ def test_route_structurer_refuse_un_entretien_parametre(client: TestClient) -> N
 
 @pytest.mark.parametrize(
     "statut,sonde,bouton",
-    [("a_traiter", True, "Structurer maintenant"), ("en_cours", True, "Relancer"),
-     ("echec", False, "Relancer"), ("fait", False, "Structurer maintenant")],
+    # `en_cours` ORPHELIN (aucun worker de ce processus ; le cas « en vol » est
+    # couvert plus bas) : plus de sondage, le bouton « Relancer » suffit
+    # (2026-10-07). `a_traiter` sonde TOUJOURS (le worker n'est pas encore inscrit
+    # juste après l'enregistrement). `fait` à 0 tour : « Lancer le tour de table ».
+    [("a_traiter", True, "Structurer maintenant"), ("en_cours", False, "Relancer"),
+     ("echec", False, "Relancer"), ("fait", False, "Lancer le tour de table")],
 )
 def test_statut_fragment_sonde_seulement_hors_etat_terminal(
     client: TestClient, statut, sonde, bouton
@@ -861,3 +865,160 @@ def test_exception_dans_la_prise_apres_commit_laisse_echec(client: TestClient, m
     structuration_libre._traiter((interview_id, object(), None, None))
     with SessionLocal() as db:
         assert db.get(Interview, interview_id).structuration_status == "echec"
+
+
+# --------------------------------------------------------------------------- #
+# Relance du tour de table / des tranches en échec (2026-10-07)
+# --------------------------------------------------------------------------- #
+def test_fragment_en_cours_reellement_en_vol_sonde_sans_bouton(client: TestClient, monkeypatch) -> None:
+    """Un `en_cours` porté par le worker de CE processus : on sonde, aucun
+    bouton (un clic de plus doublerait l'appel IA)."""
+    interview_id = _creer_a_traiter(_mission(client), statut="en_cours")
+    monkeypatch.setitem(structuration_libre._en_vol, interview_id, object())
+    html = client.get(f"/interviews/{interview_id}/structurer/statut").text
+    assert 'hx-trigger="every 3s"' in html
+    assert "<button" not in html
+
+
+def test_fragment_en_cours_orphelin_ne_sonde_plus_et_propose_relancer(client: TestClient) -> None:
+    """P1 : avant, le sondage tournait indéfiniment sur « l'IA structure… »."""
+    interview_id = _creer_a_traiter(_mission(client), statut="en_cours")
+    html = client.get(f"/interviews/{interview_id}/structurer/statut").text
+    assert 'hx-trigger="every 3s"' not in html
+    assert "Relancer" in html
+
+
+def _entretien_fait_partiel(client: TestClient, monkeypatch, jeton: str) -> int:
+    """`fait` avec 1 tour (tranche 0 réussie) et la tranche 1 restée en échec."""
+    from app.services.interview_libre_extract_ai import InterviewLibreExtractAIError
+
+    _espion_ia(monkeypatch, exc=InterviewLibreExtractAIError("panne"))
+    monkeypatch.setattr(structuration_libre, "recover_stalled_or_failed_jobs", lambda db, jobs: None)
+    with SessionLocal() as db:
+        db.add(InterviewSegmentJob(
+            session_token=jeton, position=0, status="done", text="a",
+            turns_result={"turns": [_tour("a")], "identity": {}},
+        ))
+        db.add(InterviewSegmentJob(session_token=jeton, position=1, status="failed", text="b"))
+        db.commit()
+    interview_id = _creer_a_traiter(_mission(client), jeton=jeton)
+    assert structuration_libre.structurer_entretien(interview_id) is True
+    return interview_id
+
+
+def test_fait_partiel_garde_les_jobs_et_propose_de_relancer_les_tranches(
+    client: TestClient, monkeypatch
+) -> None:
+    """P1 : avant, un `fait` avec des tranches manquantes SUPPRIMAIT ses jobs et
+    n'offrait plus aucune relance (seule la retranscription complète de l'audio)."""
+    interview_id = _entretien_fait_partiel(client, monkeypatch, "tok-partiel")
+    with SessionLocal() as db:
+        interview = db.get(Interview, interview_id)
+        assert interview.structuration_status == "fait"
+        assert interview.tranches_manquantes == 1
+        assert len(interview.turns) == 1
+        assert structuration_libre.nb_tranches_a_rattraper(interview) == 1
+        assert structuration_libre.peut_relancer(interview) is True
+    html = client.get(f"/interviews/{interview_id}/structurer/statut").text
+    assert "Relancer les tranches en échec" in html
+    assert "confirm(" in html  # le tour de table sera réécrit : on prévient
+
+
+def test_fait_complet_ou_sans_job_ne_propose_pas_de_relance(client: TestClient, monkeypatch) -> None:
+    """Garde-fou : `fait` avec tours et rien à rattraper reste sans bouton."""
+    interview_id = _creer_a_traiter(_mission(client), statut="fait", jeton="tok-vide")
+    with SessionLocal() as db:
+        db.add(InterviewTurn(interview_id=interview_id, position=0, interlocuteur="A", remarque="x"))
+        db.commit()
+        interview = db.get(Interview, interview_id)
+        assert structuration_libre.nb_tranches_a_rattraper(interview) == 0
+        assert structuration_libre.peut_relancer(interview) is False
+    assert "<button" not in client.get(f"/interviews/{interview_id}/structurer/statut").text
+
+
+def test_fait_partiel_relance_reprend_la_tranche_en_echec(client: TestClient, monkeypatch) -> None:
+    """La relance depuis la fiche rattrape la tranche 1 ; la tranche 0 est
+    reprise telle quelle, et les jobs sont alors supprimés."""
+    interview_id = _entretien_fait_partiel(client, monkeypatch, "tok-rattrape")
+
+    def _recover(db, jobs):
+        for j in jobs:
+            if j.status != "done":
+                j.turns_result = {"turns": [_tour("b")], "identity": {}}
+                j.status = "done"
+        db.commit()
+
+    monkeypatch.setattr(structuration_libre, "recover_stalled_or_failed_jobs", _recover)
+    assert structuration_libre.relancer(interview_id) is True  # file synchrone en test
+    with SessionLocal() as db:
+        interview = db.get(Interview, interview_id)
+        assert [t.remarque for t in interview.turns] == ["a", "b"]
+        assert interview.tranches_manquantes == 0
+        assert structuration_libre.nb_tranches_a_rattraper(interview) == 0
+
+
+def test_fragment_a_traiter_sonde_meme_hors_registre(client: TestClient) -> None:
+    """Revue 2026-10-07 : juste apres l'enregistrement le worker n'est pas encore
+    inscrit ; couper le sondage figeait l'ecran sur « a traiter »."""
+    interview_id = _creer_a_traiter(_mission(client), statut="a_traiter")
+    html = client.get(f"/interviews/{interview_id}/structurer/statut").text
+    assert 'hx-trigger="every 3s"' in html
+
+
+def test_fait_partiel_sans_job_ne_promet_pas_de_relance(client: TestClient) -> None:
+    """Revue 2026-10-07 : `tranches_manquantes` persiste alors que les jobs ont
+    disparu (entretiens d'avant le correctif, reliquat final en echec) — le
+    bandeau ne doit pas promettre un bouton absent."""
+    interview_id = _creer_a_traiter(_mission(client), statut="fait", jeton="tok-sans-job")
+    with SessionLocal() as db:
+        db.add(InterviewTurn(interview_id=interview_id, position=0, interlocuteur="A", remarque="x"))
+        db.get(Interview, interview_id).tranches_manquantes = 2
+        db.commit()
+    html = client.get(f"/interviews/{interview_id}/structurer/statut").text
+    assert "<button" not in html
+    assert "La relance reprend" not in html
+    assert "Relancer la transcription (audio)" in html
+
+
+def test_purge_epargne_les_jobs_d_un_fait_partiel(client: TestClient) -> None:
+    """Revue 2026-10-07 : sans cette garde, la purge des 7 jours supprimait les
+    jobs d'un `fait` partiel et le rattrapage disparaissait en silence."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.services.interview_segment_jobs import purge_stale_segment_jobs
+
+    interview_id = _creer_a_traiter(_mission(client), statut="fait", jeton="tok-purge")
+    vieux = datetime.now(UTC).replace(tzinfo=None) - timedelta(days=30)
+    with SessionLocal() as db:
+        db.get(Interview, interview_id).tranches_manquantes = 1
+        db.add(InterviewSegmentJob(session_token="tok-purge", position=0, status="failed",
+                                   text="t", created_at=vieux))
+        db.add(InterviewSegmentJob(session_token="tok-orphelin", position=0, status="failed",
+                                   text="t", created_at=vieux))
+        db.commit()
+        purge_stale_segment_jobs(db)
+        restants = {j.session_token for j in db.scalars(select(InterviewSegmentJob))}
+    assert "tok-purge" in restants
+    assert "tok-orphelin" not in restants
+
+
+def test_relance_sans_aucun_tour_n_efface_pas_le_tour_de_table_existant(
+    client: TestClient, monkeypatch
+) -> None:
+    """Revue 2026-10-07 : relancer un `fait` partiel dont l'extraction ne rend
+    aucun tour passe l'entretien en `echec` ; les tours deja la (corrections a la
+    main comprises) ne doivent pas disparaitre."""
+    from app.services.interview_libre_extract_ai import InterviewLibreExtractAIError
+
+    interview_id = _creer_a_traiter(_mission(client), statut="a_traiter", jeton="tok-n-efface")
+    with SessionLocal() as db:
+        db.add(InterviewTurn(interview_id=interview_id, position=0, interlocuteur="A", remarque="corrige"))
+        db.add(InterviewSegmentJob(session_token="tok-n-efface", position=0, status="failed", text="t"))
+        db.commit()
+    _espion_ia(monkeypatch, exc=InterviewLibreExtractAIError("panne"))
+    monkeypatch.setattr(structuration_libre, "recover_stalled_or_failed_jobs", lambda db, jobs: None)
+    assert structuration_libre.structurer_entretien(interview_id) is False
+    with SessionLocal() as db:
+        interview = db.get(Interview, interview_id)
+        assert interview.structuration_status == "echec"
+        assert [t.remarque for t in interview.turns] == ["corrige"]
