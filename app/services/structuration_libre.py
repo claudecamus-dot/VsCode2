@@ -477,12 +477,16 @@ def peut_relancer(interview: Interview) -> bool:
     figé) ? `a_traiter`/`echec` hors file ; `en_cours` que le worker de CE
     processus ne porte pas (orphelin : le statut n'a pas d'horodatage, le
     registre en mémoire fait foi) ; `fait` sans aucun tour."""
-    if est_en_vol(interview.id):
-        return False
     statut = interview.structuration_status or "fait"
+    # G2 : un statut TERMINAL en base l'emporte sur le registre — le worker
+    # écrit `echec` avant de se désinscrire, et une relance immédiate tombait
+    # dans cette fenêtre (refus « déjà en file » faux).
+    terminal = statut == "echec" or (statut == "fait" and not interview.turns)
+    if est_en_vol(interview.id) and not terminal:
+        return False
     if statut in ("a_traiter", "echec", "en_cours"):
         return True
-    return statut == "fait" and not interview.turns
+    return terminal
 
 
 def relancer(interview_id: int) -> bool:
@@ -504,6 +508,10 @@ def relancer(interview_id: int) -> bool:
             db.commit()
             if not ok:
                 return False
+    # Inscription d'une exécution qui a déjà écrit son statut terminal (G2) :
+    # retirée ici ; sa propre désinscription, marquée, ne touchera pas la
+    # nouvelle.
+    _liberer(interview_id)
     return planifier_structuration(interview_id)
 
 

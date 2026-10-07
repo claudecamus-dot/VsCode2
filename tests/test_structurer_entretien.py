@@ -298,8 +298,8 @@ def test_route_structurer_refuse_un_entretien_deja_structure_et_le_dit(
 
 def test_route_structurer_refuse_un_entretien_deja_en_file(client: TestClient, monkeypatch) -> None:
     appels = _espion_ia(monkeypatch)
-    interview_id = _creer_a_traiter(_mission(client), statut="echec")
-    monkeypatch.setitem(structuration_libre._en_vol, interview_id, 0.0)
+    interview_id = _creer_a_traiter(_mission(client), statut="a_traiter")
+    monkeypatch.setitem(structuration_libre._en_vol, interview_id, object())
     r = client.post(f"/interviews/{interview_id}/structurer", follow_redirects=False)
     assert r.headers["location"].endswith("?structuration=refusee")
     assert appels == []
@@ -789,3 +789,21 @@ def test_une_tranche_bloquee_ne_bloque_pas_la_file(client: TestClient, monkeypat
             job.status = "done"
             db.commit()
         structuration_libre._file.join()
+
+# --------------------------------------------------------------------------- #
+# G2 : relance immédiate après un échec
+# --------------------------------------------------------------------------- #
+def test_relance_immediate_apres_echec_acceptee(client: TestClient, monkeypatch) -> None:
+    """Échoue sur le code d'avant : le worker écrit `echec` PUIS se
+    désinscrit ; une relance dans cette fenêtre était refusée « déjà en file »."""
+    appels = _espion_ia(monkeypatch)
+    interview_id = _creer_a_traiter(_mission(client), statut="echec")
+    ancienne = object()
+    monkeypatch.setitem(structuration_libre._en_vol, interview_id, ancienne)
+    r = client.post(f"/interviews/{interview_id}/structurer", follow_redirects=False)
+    assert "refusee" not in r.headers["location"]
+    assert len(appels) == 1
+    # La désinscription tardive de l'ancienne exécution ne touche rien.
+    structuration_libre._liberer(interview_id, ancienne)
+    with SessionLocal() as db:
+        assert db.get(Interview, interview_id).structuration_status == "fait"
