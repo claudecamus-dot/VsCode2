@@ -375,6 +375,8 @@ def transcribe_file_status(
         "done": len(blocks),
         "total": job.total_blocks,
         "error": error,
+        # Bilan de complétude cumulé (dict) ou null pour un job ancien.
+        "completude": job.completude,
         # Nom du fichier importé (2026-09-01), pour que le client le RATTACHE à
         # l'entretien via `audio_segments`. Sans ce rattachement, l'audio
         # importé survit désormais sur le disque mais reste un orphelin :

@@ -581,6 +581,68 @@ def _transcrire_bloc_sequentiel(blocs: list, index: int, total: int,
             time.sleep(BLOC_RETRY_PAUSE_S)
 
 
+TOLERANCE_ECART_MIN_S = 2.0
+TOLERANCE_ECART_RATIO = 0.02
+
+
+def bilan_completude(
+    duree_conteneur_s, duree_decodee_s, blocs, block_s, tranches_ignorees,
+    blocs_rejoues, termine=True,
+) -> dict:
+    """Bilan de complétude d'une transcription de fichier — fonction PURE.
+
+    Un job pouvait finir `done` avec des blocs vides ou des tranches ignorées
+    sans que rien ne l'indique. Trois signes d'incomplétude : un bloc au texte
+    vide, une tranche ignorée (`tranches_ignorees`, rangs, jamais un chemin), un
+    conteneur plus LONG que l'audio décodé de plus de `max(2 s, 2 %)` (de l'audio
+    a été perdu au décodage). L'inverse — décodé plus long que ce qu'annonce le
+    conteneur — n'est PAS un signe d'incomplétude : la durée d'un `.webm` de
+    MediaRecorder est souvent approximative, et alarmer à tort détruirait la
+    confiance dans l'alerte ; l'écart reste exposé (`ecart_s` négatif).
+    Un conteneur sans durée lisible rend l'écart non évaluable : `non_evaluable`,
+    SAUF si un autre signe prouve déjà `incomplet` (incomplet l'emporte). Tant
+    que le job n'est pas `termine` (échec, reprise en cours), les durées
+    cumulées sont partielles : jamais « complet » sur cette base. Un bloc
+    rejoué puis réussi (`blocs_rejoues`) est un échec masqué : exposé, mais il
+    ne rend PAS incomplet. `block_s` n'entre dans aucun calcul : la couverture
+    par simple découpage des blocs est tautologique, on ne la compte pas.
+
+    Espaces d'index, à ne pas confondre : `blocs_vides` et `blocs_rejoues` sont
+    des index 0-based dans `job.blocks` (ensemble du job) ; `tranches_ignorees`
+    sont des RANGS 1-based de tranche.
+
+    Ne contient ni texte transcrit ni chemin : seulement des index et des durées."""
+    vides = [i for i, b in enumerate(blocs or []) if not (b or "").strip()]
+    ignorees = list(dict.fromkeys(tranches_ignorees or []))
+    rejoues = sorted(set(blocs_rejoues or []))
+    ecart = None
+    if duree_conteneur_s is not None and duree_decodee_s is not None:
+        ecart = round(duree_conteneur_s - duree_decodee_s, 2)
+    if vides or ignorees:
+        statut = "incomplet"
+    elif ecart is None or not termine:
+        statut = "non_evaluable"
+    elif ecart > max(
+        TOLERANCE_ECART_MIN_S, TOLERANCE_ECART_RATIO * duree_conteneur_s
+    ):
+        statut = "incomplet"
+    else:
+        statut = "complet"
+    return {
+        "duree_conteneur_s": (
+            None if duree_conteneur_s is None else round(duree_conteneur_s, 2)
+        ),
+        "duree_decodee_s": (
+            None if duree_decodee_s is None else round(duree_decodee_s, 2)
+        ),
+        "ecart_s": ecart,
+        "blocs_vides": vides,
+        "tranches_ignorees": ignorees,
+        "blocs_rejoues": rejoues,
+        "statut": statut,
+    }
+
+
 def iter_transcribe_blocks(
     content: bytes, block_s: int | None = None, start_index: int = 0,
     stats: dict | None = None,
@@ -621,11 +683,14 @@ def iter_transcribe_blocks(
     compris), AVANT d'être rendu : un échec dans le pool fait descendre d'un
     palier à partir du bloc fautif, puis le séquentiel prend les tentatives
     restantes. `stats` (optionnel, rempli en place) reçoit `blocs_rejoues`
-    (index des blocs ayant eu besoin de plus d'une tentative) et
-    `duree_decodee_s` (durée du PCM décodé).
+    (index des blocs ayant eu besoin de plus d'une tentative),
+    `duree_conteneur_s` (durée annoncée par le conteneur, `None` si illisible —
+    cas probable d'un `.webm` de MediaRecorder) et `duree_decodee_s` (durée du
+    PCM décodé, absente si le décodage échoue).
     """
     if stats is not None:
         stats["blocs_rejoues"] = []
+        stats["duree_conteneur_s"] = _probe_duration_s(content) if content else None
     tentatives: dict[int, int] = {}
     if not content:
         raise TranscriptionError("Aucun enregistrement reçu.")

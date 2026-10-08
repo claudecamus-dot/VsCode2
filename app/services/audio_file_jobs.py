@@ -16,6 +16,7 @@ un fichier importé et un enregistrement micro sont indiscernables.
 """
 from __future__ import annotations
 
+import inspect
 import logging
 import os
 from datetime import UTC, datetime, timedelta
@@ -74,6 +75,27 @@ def tranches_extraction(blocs: list[str]) -> list[str]:
         for i in range(0, len(blocs), BLOCS_PAR_TRANCHE_IA)
     ]
     return ["\n\n".join(b for b in g if (b or "").strip()) for g in groupes]
+
+
+def _accepte_stats(fonction) -> bool:
+    """Vrai si `fonction` accepte `stats=` (le vrai `iter_transcribe_blocks`).
+    Un double qui n'expose pas ce paramètre reste appelable : son bilan n'a
+    alors ni durée ni bloc rejoué, donc `non_evaluable` au pire."""
+    try:
+        params = inspect.signature(fonction).parameters
+    except (TypeError, ValueError):
+        return False
+    return "stats" in params or any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
+    )
+
+
+def _somme_durees(total: float | None, ajout) -> float | None:
+    """Cumul de durées où `None` (durée illisible) est contagieux : une somme
+    dont un terme est inconnu est inconnue, jamais sous-estimée en silence."""
+    if total is None or ajout is None:
+        return None
+    return total + ajout
 
 
 def _battement(db, job: AudioFileJob) -> None:
@@ -210,6 +232,7 @@ def run_audio_file_job(job_id: int) -> None:
     (`len(blocks) - blocks_before_file`) — les tranches déjà transcrites ne sont
     jamais re-décodées."""
     db = SessionLocal()
+    _noter_bilan = None   # défini plus bas ; le filet `except Exception` le teste
     try:
         job = db.get(AudioFileJob, job_id)
         if job is None:
@@ -218,15 +241,50 @@ def run_audio_file_job(job_id: int) -> None:
         job.error = None
         db.commit()
         incidents: list[str] = []
+        # Bilan de complétude CUMULÉ sur les exécutions : on repart de ce qui est
+        # déjà persisté (`job.error` est remis à None à la reprise, les incidents
+        # d'avant la coupure n'y survivent pas). Les durées ne couvrent que les
+        # fichiers ENTIÈREMENT traités ; celui en cours est re-décodé en entier à
+        # la reprise, le compter avant la fin le doublerait.
+        acquis = job.completude if isinstance(job.completude, dict) else {}
+        rejoues: set[int] = {
+            i for i in (acquis.get("blocs_rejoues") or []) if isinstance(i, int)
+        }
+        ignorees: list[int] = [
+            r for r in (acquis.get("tranches_ignorees") or []) if isinstance(r, int)
+        ]
+        if job.filenames and (job.files_done or 0) > 0:
+            durees = {
+                "conteneur": acquis.get("duree_conteneur_s"),
+                "decodee": acquis.get("duree_decodee_s"),
+            }
+        else:
+            durees = {"conteneur": 0.0, "decodee": 0.0}
+        avec_stats = _accepte_stats(audio_transcribe.iter_transcribe_blocks)
+
+        def _noter_bilan(termine: bool = False) -> dict:
+            # `termine` : seul le passage final d'un job mené au bout peut dire
+            # « complet » ; un bilan d'échec ou de reprise garde ses durées
+            # (la reprise les relit) mais n'affirme rien sur l'écart.
+            job.completude = audio_transcribe.bilan_completude(
+                durees["conteneur"], durees["decodee"], list(job.blocks or []),
+                job.block_seconds, ignorees, rejoues, termine=termine,
+            )
+            return job.completude
+
         try:
             rang = job.files_done or 0
             for fichier in _fichiers_a_traiter(job):
                 rang += 1
+                stats: dict = {}
+                # Les index de `stats` sont relatifs à la tranche en cours.
+                decalage = (job.blocks_before_file or 0) if job.filenames else 0
                 try:
                     content = (RECORDINGS_DIR / fichier).read_bytes()
                     depart = len(job.blocks or []) - (job.blocks_before_file or 0)
                     for _index, total, text in audio_transcribe.iter_transcribe_blocks(
-                        content, job.block_seconds, start_index=max(0, depart)
+                        content, job.block_seconds, start_index=max(0, depart),
+                        **({"stats": stats} if avec_stats else {}),
                     ):
                         # Réassignation (pas .append) : SQLAlchemy ne détecte pas
                         # la mutation en place d'une colonne JSON.
@@ -238,7 +296,21 @@ def run_audio_file_job(job_id: int) -> None:
                         # la relance proposée par l'écran doublonne la tâche de
                         # fond en cours (deux sessions écrivant `job.blocks`).
                         job.created_at = datetime.now(UTC).replace(tzinfo=None)
+                        # Un bloc rejoué est un échec masqué : le persister dès
+                        # qu'il apparaît, pour qu'une coupure ne l'efface pas.
+                        nouveaux = {
+                            decalage + i for i in stats.get("blocs_rejoues", [])
+                        } - rejoues
+                        if nouveaux:
+                            rejoues |= nouveaux
+                            _noter_bilan()
                         db.commit()
+                    durees["conteneur"] = _somme_durees(
+                        durees["conteneur"], stats.get("duree_conteneur_s")
+                    )
+                    durees["decodee"] = _somme_durees(
+                        durees["decodee"], stats.get("duree_decodee_s")
+                    )
                 except audio_transcribe.NoSpeechError as exc:
                     if not job.filenames:
                         raise
@@ -251,6 +323,8 @@ def run_audio_file_job(job_id: int) -> None:
                     # adversariale du 2026-09-10, 2e passe, N5.
                     logger.info("Tranche %s sans parole détectée", rang)
                     incidents.append(f"tranche {rang} ignorée ({exc})")
+                    if rang not in ignorees:
+                        ignorees.append(rang)
                 except (audio_transcribe.TranscriptionError, OSError):
                     if not job.filenames:
                         # Import d'un fichier UNIQUE : l'abandon du job est le
@@ -272,15 +346,23 @@ def run_audio_file_job(job_id: int) -> None:
                     # que `tests/test_pas_de_fuite_de_chemin.py` interdit.
                     logger.exception("Tranche %s ignorée (audio illisible)", rang)
                     incidents.append(f"tranche {rang} ignorée (illisible)")
+                    if rang not in ignorees:
+                        ignorees.append(rang)
+                finally:
+                    # Même si la tranche échoue : les rejeux déjà survenus restent
+                    # acquis (index rapportés à l'ensemble des blocs du job).
+                    rejoues |= {decalage + i for i in stats.get("blocs_rejoues", [])}
                 if job.filenames:
                     # Tranche terminée (ou ignorée) : la suivante repart de son
                     # bloc 0, et une reprise après échec ne la re-décodera pas.
                     job.files_done = (job.files_done or 0) + 1
                     job.blocks_before_file = len(job.blocks or [])
+                    _noter_bilan()
                     db.commit()
         except audio_transcribe.TranscriptionError as exc:
             job.status = "failed"
             job.error = str(exc)
+            _noter_bilan()
             db.commit()
             return
         except OSError:
@@ -289,9 +371,11 @@ def run_audio_file_job(job_id: int) -> None:
             # absolu. Détail au journal serveur (même règle que ci-dessus).
             logger.exception("Fichier audio introuvable ou illisible (job %s)", job_id)
             job.error = "Fichier audio introuvable ou illisible."
+            _noter_bilan()
             db.commit()
             return
-        if not any((b or "").strip() for b in (job.blocks or [])):
+        bilan = _noter_bilan(termine=True)
+        if len(bilan["blocs_vides"]) == len(job.blocks or []):
             # Parité avec `transcribe_audio()`, qui lève « Aucune parole
             # détectée » : sans ce contrôle, un fichier muet (ou entièrement
             # coupé par le VAD) finissait `done` avec des blocs vides et l'UI
@@ -301,9 +385,14 @@ def run_audio_file_job(job_id: int) -> None:
             # Si TOUTES les tranches ont été ignorées, le dire : « aucune parole
             # détectée » enverrait l'utilisateur chercher un problème de micro
             # alors que ses fichiers sont illisibles.
+            # Tranches ignorées avant une coupure : seul leur rang est conservé, on
+            # les nomme sans motif plutôt que de les taire.
+            avant = [f"tranche {r} ignorée" for r in ignorees
+                     if not any(i.startswith(f"tranche {r} ") for i in incidents)]
+            motifs = avant + incidents
             job.error = (
-                "Aucune tranche exploitable — " + " ; ".join(incidents)
-                if incidents
+                "Aucune tranche exploitable — " + " ; ".join(motifs)
+                if motifs
                 else "Aucune parole détectée dans l'enregistrement."
             )
             db.commit()
@@ -337,6 +426,13 @@ def run_audio_file_job(job_id: int) -> None:
             job = db.get(AudioFileJob, job_id)
             if job is not None:
                 job.status = "failed"
+                if _noter_bilan is not None:
+                    try:
+                        _noter_bilan()   # les rejoués/ignorés déjà connus restent acquis
+                    except Exception:
+                        # Le filet ne doit JAMAIS dépendre du bilan : s'il lève à
+                        # son tour, le job resterait « running ».
+                        logger.exception("Bilan de complétude impossible (job %s)", job_id)
                 # Le TYPE seul, jamais le texte : `str(exc)` d'une exception
                 # quelconque porte volontiers un chemin du poste, et ce champ
                 # est rendu au navigateur. Le détail complet est au journal.

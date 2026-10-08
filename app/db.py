@@ -140,6 +140,8 @@ def _add_missing_columns() -> None:
             "interview_id": "INTEGER",
             "files_done": "INTEGER DEFAULT 0",
             "blocks_before_file": "INTEGER DEFAULT 0",
+            # Bilan de complétude cumulé (lot « transcription fiable »).
+            "completude": "JSON",
         },
         # I2 tranche 2 : la table existe déjà sur les bases qui ont démarré
         # après la tranche 1 (create_all), la colonne doit donc s'y ajouter.
