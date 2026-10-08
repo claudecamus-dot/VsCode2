@@ -228,6 +228,23 @@ class TranscriptionBusyError(TranscriptionError):
     retry_after_s: float = 0.0
 
 
+def corps_erreur_transcription(exc: "TranscriptionError") -> dict:
+    """Corps JSON d'un refus 422 de transcription (routes segment et dictée).
+
+    `code: "transient"` ne qualifie QUE l'échec de transcription lui-même
+    (`ECHEC_TRANSCRIPTION` : worker tué par la mémoire, erreur Whisper sur ce
+    chunk) : l'audio est intact et le même segment peut être REJOUÉ. Tout autre
+    refus (fichier illisible, aucun enregistrement, modèle absent…) est
+    définitif pour ces octets et reste sans code. Les sous-classes
+    (`NoSpeechError`, `TranscriptionBusyError`) ont leurs propres codes, posés
+    par les routes. Le client ne doit jamais deviner la rejouabilité d'après le
+    texte français."""
+    corps = {"error": str(exc)}
+    if type(exc) is TranscriptionError and str(exc) == ECHEC_TRANSCRIPTION:
+        corps["code"] = "transient"
+    return corps
+
+
 def _faster_whisper():
     try:
         import faster_whisper

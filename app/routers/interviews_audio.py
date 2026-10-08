@@ -80,7 +80,14 @@ async def transcribe_segment(file: UploadFile = File(...)):
             headers={"Retry-After": str(retry_after)},
         )
     except audio_transcribe.TranscriptionError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=422)
+        corps = audio_transcribe.corps_erreur_transcription(exc)
+        # Journal d'échec des segments du direct : ils ne sont pas persistés,
+        # sans cette ligne le critère « aucun segment en échec du 1er coup »
+        # n'est pas mesurable côté serveur. Ni texte ni chemin : le code seul.
+        logger.warning(
+            "Segment direct refusé (422, code=%s)", corps.get("code", "definitif")
+        )
+        return JSONResponse(corps, status_code=422)
     except Exception:
         # Message FIXE, jamais `str(exc)` : sur ce chemin l'exception est
         # quelconque (OSError de whisper, disque plein…) et son texte porte
