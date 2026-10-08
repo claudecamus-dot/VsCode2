@@ -65,6 +65,7 @@ import logging
 import multiprocessing
 import os
 import threading
+import time
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 
@@ -96,6 +97,13 @@ def _entier_env(nom: str, defaut: int) -> int:
 # d'interface, pas un diagnostic. Le diagnostic, lui, est journalisé à chacun
 # de ces 4 endroits.
 ECHEC_TRANSCRIPTION = "Échec de la transcription de l'audio."
+
+# Filet « transcription fiable » : un bloc est tenté au plus BLOC_MAX_TENTATIVES
+# fois AU TOTAL (pool compris) avant d'échouer ; la reprise par `start_index`
+# fait le reste. Un retry réussi n'est pas un succès propre : il est compté
+# dans `stats["blocs_rejoues"]` de `iter_transcribe_blocks`.
+BLOC_MAX_TENTATIVES = 3
+BLOC_RETRY_PAUSE_S = 2.0
 
 MODEL_SIZE = os.environ.get("WHISPER_MODEL", "medium")
 BEAM_SIZE = _entier_env("WHISPER_BEAM_SIZE", 2)
@@ -544,8 +552,38 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int):
             _GLOBAL_WORKERS_SEMAPHORE.release()
 
 
+def _noter_rejeu(stats: dict | None, index: int) -> None:
+    """Consigne qu'un bloc a nécessité plus d'une tentative (échec masqué)."""
+    if stats is not None and index not in stats["blocs_rejoues"]:
+        stats["blocs_rejoues"].append(index)
+
+
+def _transcrire_bloc_sequentiel(blocs: list, index: int, total: int,
+                                tentatives: dict, stats: dict | None) -> str:
+    """Transcrit `blocs[index]` dans le processus courant, avec les tentatives
+    restantes. Définitifs, jamais rejoués : `TranscriptionError` (dont
+    `NoSpeechError`) et `OSError`. Épuisement : `TranscriptionError`."""
+    while True:
+        tentatives[index] = tentatives.get(index, 0) + 1
+        try:
+            return _transcribe_pcm_sequential(blocs[index])
+        except Exception as exc:
+            if (isinstance(exc, (TranscriptionError, OSError))
+                    or tentatives[index] >= BLOC_MAX_TENTATIVES):
+                logger.exception("Échec de la transcription d'un bloc audio")
+                raise TranscriptionError(ECHEC_TRANSCRIPTION) from exc
+            _noter_rejeu(stats, index)
+            logger.warning(
+                "Bloc %d/%d en échec (%s) — tentative %d/%d.",
+                index + 1, total, type(exc).__name__,
+                tentatives[index] + 1, BLOC_MAX_TENTATIVES,
+            )
+            time.sleep(BLOC_RETRY_PAUSE_S)
+
+
 def iter_transcribe_blocks(
-    content: bytes, block_s: int | None = None, start_index: int = 0
+    content: bytes, block_s: int | None = None, start_index: int = 0,
+    stats: dict | None = None,
 ):
     """Génère `(index, total, texte)` bloc par bloc pour un fichier audio
     importé — équivalent serveur de la rotation de segments du direct.
@@ -578,7 +616,17 @@ def iter_transcribe_blocks(
     décodage en flux, hors périmètre ici. Les vues sont conservées jusqu'au
     bout (elles ne coûtent rien) pour que le repli puisse reprendre les blocs
     non encore rendus.
+
+    Chaque bloc est tenté au plus `BLOC_MAX_TENTATIVES` fois au total (pool
+    compris), AVANT d'être rendu : un échec dans le pool fait descendre d'un
+    palier à partir du bloc fautif, puis le séquentiel prend les tentatives
+    restantes. `stats` (optionnel, rempli en place) reçoit `blocs_rejoues`
+    (index des blocs ayant eu besoin de plus d'une tentative) et
+    `duree_decodee_s` (durée du PCM décodé).
     """
+    if stats is not None:
+        stats["blocs_rejoues"] = []
+    tentatives: dict[int, int] = {}
     if not content:
         raise TranscriptionError("Aucun enregistrement reçu.")
     if _faster_whisper() is None:
@@ -617,6 +665,8 @@ def iter_transcribe_blocks(
         # du périmètre de l'audit du 2026-09-09 : non traitées, pas closes.
         logger.exception("Décodage audio impossible")
         raise TranscriptionError("Fichier audio illisible.") from exc
+    if stats is not None:
+        stats["duree_decodee_s"] = pcm.size / 16000
     if pcm.size == 0:
         raise NoSpeechError("Aucune parole détectée dans l'enregistrement.")
 
@@ -631,11 +681,7 @@ def iter_transcribe_blocks(
         return
 
     if total == 1:
-        try:
-            yield 0, 1, _transcribe_pcm_sequential(blocks[0])
-        except Exception as exc:
-            logger.exception("Échec de la transcription d'un bloc audio")
-            raise TranscriptionError(ECHEC_TRANSCRIPTION) from exc
+        yield 0, 1, _transcrire_bloc_sequentiel(blocks, 0, 1, tentatives, stats)
         return
 
     index = start_index
@@ -645,30 +691,35 @@ def iter_transcribe_blocks(
                 yield i, total, text
                 index = i + 1
             break
-        except BrokenProcessPool:
-            # Un worker est mort brutalement (cf. « Repli quand le pool casse »
-            # dans la docstring du module). On ne perd NI les blocs déjà rendus,
-            # NI ceux qui restent : on reprend à `index` au palier suivant, et
-            # en dernier recours en séquentiel ci-dessous.
-            logger.warning(
-                "Pool de transcription cassé au bloc %d/%d (%d workers) — palier suivant.",
-                index + 1,
-                total,
-                workers,
-            )
         except TranscriptionError:
             raise
-        except Exception as exc:  # garde-fou : ne jamais propager une 500 brute
+        except OSError as exc:  # définitif : jamais rejoué
             logger.exception("Échec de la transcription d'un bloc audio")
             raise TranscriptionError(ECHEC_TRANSCRIPTION) from exc
+        except Exception as exc:
+            # Pool cassé (worker tué, cf. « Repli quand le pool casse » dans la
+            # docstring du module) ou bloc en échec (MemoryError du worker,
+            # exception transitoire). On ne perd NI les blocs déjà rendus, NI
+            # ceux qui restent : on reprend à `index` — le bloc fautif — au
+            # palier SUIVANT (jamais le même), puis en séquentiel ci-dessous.
+            # Attribution APPROXIMATIVE : le fautif réel peut être un bloc en vol
+            # plus loin dans la fenêtre ; on compte sur `index`, le premier non
+            # rendu. La borne (3 tentatives par bloc, 2 paliers) tient quand même.
+            tentatives[index] = tentatives.get(index, 0) + 1
+            if tentatives[index] >= BLOC_MAX_TENTATIVES:
+                logger.exception("Échec de la transcription d'un bloc audio")
+                raise TranscriptionError(ECHEC_TRANSCRIPTION) from exc
+            _noter_rejeu(stats, index)
+            logger.warning(
+                "Bloc %d/%d en échec (%s, %d workers) — tentative %d/%d, palier suivant.",
+                index + 1, total, type(exc).__name__, workers,
+                tentatives[index] + 1, BLOC_MAX_TENTATIVES,
+            )
+            time.sleep(BLOC_RETRY_PAUSE_S)
 
     # Repli séquentiel : aucun tour si un palier parallèle est allé au bout.
     while index < total:
-        try:
-            text = _transcribe_pcm_sequential(blocks[index])
-        except Exception as exc:
-            logger.exception("Échec de la transcription d'un bloc audio")
-            raise TranscriptionError(ECHEC_TRANSCRIPTION) from exc
+        text = _transcrire_bloc_sequentiel(blocks, index, total, tentatives, stats)
         yield index, total, text
         index += 1
 
