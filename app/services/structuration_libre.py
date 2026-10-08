@@ -33,7 +33,6 @@ from .interview_segment_jobs import (
     tranches_a_rattraper,
 )
 
-
 # Récupération synchrone d'une tranche d'extraction non aboutie, dans la requête
 # « Voir le résultat » : plafonnée, sinon un Ollama indisponible transforme ce
 # POST en attente de plusieurs heures (cf. `retranscrire_appliquer`). Ce qui

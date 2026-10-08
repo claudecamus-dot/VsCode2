@@ -27,9 +27,9 @@ from ..models import (
     InterviewSegmentJob,
 )
 from ..services.interview_segment_jobs import (
-    normaliser_jeton,
     merge_segment_answers,
     merge_segment_turns,
+    normaliser_jeton,
     purge_stale_segment_jobs,
     run_segment_job,
     segment_jobs_status,

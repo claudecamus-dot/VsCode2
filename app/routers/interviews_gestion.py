@@ -14,18 +14,17 @@ from fastapi import (
     Form,
 )
 from fastapi.responses import RedirectResponse
+from sqlalchemy import delete as sql_delete
 from sqlalchemy.orm import Session
 
 from ..db import RECORDINGS_DIR, get_session
 from ..models import (
     Answer,
     Interview,
+    InterviewSegmentJob,
     Verbatim,
 )
 from ..services import mission_backups
-from sqlalchemy import delete as sql_delete
-
-from ..models import InterviewSegmentJob
 from ..services.interview_segment_jobs import normaliser_jeton
 from .interviews_commun import (
     _get_mission,

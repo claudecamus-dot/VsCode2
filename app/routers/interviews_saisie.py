@@ -30,7 +30,6 @@ from ..models import (
     Verbatim,
 )
 from ..services import audio_transcribe
-from ..services.structuration_libre import peut_relancer
 from ..services.interview_export import (
     group_turns_into_sections,
     transcript_of,
@@ -39,6 +38,7 @@ from ..services.interview_extract_ai import (
     InterviewExtractAIError,
     extract_answers_from_text,
 )
+from ..services.structuration_libre import peut_relancer
 from ..templating import templates
 from ..uploads import (
     UploadTropVolumineux,
