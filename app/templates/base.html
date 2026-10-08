@@ -40,6 +40,13 @@
      incident du 2026-09-08) est appelé par le <script> inline de
      record_libre.html dès l'analyse. Testé par tests/test_session_libre_reprise.py. #}
   <script src="/static/rec_draft.js"></script>
+  {# Même règle une dernière fois : `window.recRetryPlan` (budget de reprise
+     d'un segment du micro direct + texte de l'alerte de complétude) est lu par
+     les <script> inline de record.html, record_libre.html et
+     libre_retranscription.html dès l'analyse du <body>. Avec `defer` il serait
+     indéfini à l'appel — TypeError au premier segment, pas au chargement.
+     Testé par tests/test_rec_retry_chargement.py. #}
+  <script src="/static/rec_retry.js"></script>
 </head>
 <body>
   {% if est_mode_demo(request) %}

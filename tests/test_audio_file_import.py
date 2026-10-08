@@ -898,7 +898,9 @@ def test_les_deux_ecrans_importent_par_blocs(client, chemin, monkeypatch):
     # Segments micro perdus (« Failed to fetch ») : relance auto puis manuelle.
     assert "rec-lost-banner" in html
     assert "retryLostSegments" in html
-    assert "SEGMENT_RETRY_DELAYS_MS" in html
+    # Budget de relance : source UNIQUE depuis le lot « transcription fiable »
+    # (static/rec_retry.js), plus de constante recopiée dans chaque écran.
+    assert "RETRY_PLAN.delaisReseau" in html
     # Correctifs concurrence JS (revue adversariale 2026-07-29) — marqueurs de
     # régression template (pytest ne peut pas exécuter ce JS, cf. mémoire
     # feedback-frontend-render-check-plus-template-regression-test) :

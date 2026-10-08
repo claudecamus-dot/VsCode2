@@ -268,15 +268,24 @@ def test_le_refus_occupe_ne_consomme_pas_le_budget_des_echecs_reels(ecran: Path)
     corps = _corps_de_fonction(contenu, contenu.index("function uploadSegment"))
     resultat = corps.split(".then(function (result)", 1)[-1]
 
-    assert "result.data.code === 'busy'" in resultat, (
+    # Depuis le lot « transcription fiable » la classification (`code: "busy"`
+    # AVANT le `>= 500` générique) vit dans `static/rec_retry.js` et se prouve par
+    # EXÉCUTION (`tests/test_micro_direct_retry_execution.py`, « un 503 sans code
+    # busy est un échec réel »). Ici on fige seulement que l'écran l'appelle et
+    # teste « occupé » avant la relance d'un échec réel.
+    assert "RETRY_PLAN.classer(result.status, result.data)" in resultat, (
+        f"{ecran.name} : `uploadSegment` ne passe plus par la classification "
+        "partagée du plan de relance"
+    )
+    assert "nature === 'busy'" in resultat, (
         f"{ecran.name} : `uploadSegment` ne distingue plus le refus \"occupé\" "
         "(503, code busy) — il retombe dans le traitement générique"
     )
-    idx_busy = resultat.index("code === 'busy'")
-    idx_generique = resultat.index("result.status >= 500")
+    idx_busy = resultat.index("nature === 'busy'")
+    idx_generique = resultat.index("nature === 'retry'")
     assert idx_busy < idx_generique, (
-        f"{ecran.name} : la branche \"occupé\" doit être testée AVANT le "
-        "`>= 500` générique (503 >= 500) — sinon elle n'est jamais atteinte"
+        f"{ecran.name} : la branche \"occupé\" doit être testée AVANT la relance "
+        "d'un échec réel — sinon un refus \"occupé\" consommerait le budget"
     )
 
     busy = _corps_de_fonction(contenu, contenu.index("function retryBusyOrGiveUp"))

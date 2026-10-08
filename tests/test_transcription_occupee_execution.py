@@ -50,6 +50,7 @@ RACINE = Path(__file__).resolve().parent.parent
 LIBRE = RACINE / "app" / "templates" / "interviews" / "record_libre.html"
 STRUCTURE = RACINE / "app" / "templates" / "interviews" / "record.html"
 LES_DEUX = [LIBRE, STRUCTURE]
+REC_RETRY = RACINE / "app" / "static" / "rec_retry.js"
 
 
 def _var_generation(ecran: Path) -> str:
@@ -81,7 +82,15 @@ function File(parts, name, opts) { this.name = name; this.type = opts && opts.ty
 let %(gen_var)s = 0;
 let pendingSegments = 0;
 const TRANSCRIBE_TIMEOUT_MS = %(timeout)s;
-const SEGMENT_RETRY_DELAYS_MS = [2000, 6000];
+// Le VRAI plan de reprise (static/rec_retry.js), exécuté tel quel : ce harnais
+// en recopiait en dur les délais (`[2000, 6000]`) et prouvait donc l'ANCIEN
+// comportement sans jamais voir le code livré (commit 4, lot « transcription
+// fiable »). `window` est le seul global que ce module lit.
+const window = {};
+%(rec_retry)s
+const RETRY_PLAN = window.recRetryPlan;
+let segmentsRejoues = 0;
+function refreshReplayStatus() {}
 const statusEl = { textContent: '' };
 function updateSubmitState() {}
 function maybeSubmitFinalJob() {}
@@ -130,6 +139,7 @@ def _lancer(ecran: Path, reponses: list[dict], timeout_ms: int, scenario: str) -
         "reponses": json.dumps(reponses),
         "timeout": timeout_ms,
         "gen_var": _var_generation(ecran),
+        "rec_retry": REC_RETRY.read_text(encoding="utf-8"),
         "fonction": _extraire(ecran),
         "scenario": scenario,
     }
@@ -156,7 +166,7 @@ _SCENARIO_DEUX_OCCUPES_PUIS_SUCCES = r"""
   out.appel2_delai_fetch = fetchs[1].delai;           // borné au reliquat, pas au plein
   out.pending_apres_appel2 = pendingSegments;         // jamais recompté
   out.minuteur2_delai = minuteur(1).delai;            // preuve que "occupé" ne consomme
-                                                       // PAS SEGMENT_RETRY_DELAYS_MS[0]=2000
+                                                       // PAS RETRY_PLAN.delaisReseau[0]=2000
 
   clock += minuteur(1).delai;
   minuteur(1).fn(); await tick();                     // 3e réponse : succès
@@ -189,7 +199,7 @@ def test_le_delai_de_relance_suit_retry_after_s(deux_occupes_puis_succes: dict) 
     assert deux_occupes_puis_succes["minuteur1_delai"] == 5000
     assert deux_occupes_puis_succes["minuteur2_delai"] == 5000, (
         "le 2e refus \"occupé\" doit lui aussi suivre retry_after_s (5000), "
-        "PAS SEGMENT_RETRY_DELAYS_MS[0]=2000 — sinon il a consommé le budget "
+        "PAS RETRY_PLAN.delaisReseau[0]=2000 — sinon il a consommé le budget "
         "des échecs réels que ce lot doit préserver"
     )
     assert "occupée" in deux_occupes_puis_succes["message1"]
@@ -232,7 +242,7 @@ _SCENARIO_FENETRE_PRESERVEE = r"""
   clock += minuteur(0).delai;  // clock = 15000
   minuteur(0).fn(); await tick();
   // 2e réponse : échec transitoire (réseau KO) -> retryOrGiveUp -> relance à
-  // SEGMENT_RETRY_DELAYS_MS[0] = 2000, en propageant (ou pas, selon le bug)
+  // RETRY_PLAN.delaisReseau[0] = 2000, en propageant (ou pas, selon le bug)
   // la fenêtre `busyUntil` du tout premier appel.
   out.minuteur2_delai = minuteur(1).delai;
 
