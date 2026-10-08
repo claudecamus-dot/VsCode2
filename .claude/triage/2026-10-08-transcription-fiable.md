@@ -64,3 +64,29 @@ les corrections elles-mêmes seront relues par la salle de revue de fin de lot.
 Preuves P1 par `scripts/preuve_p1.py` : cumul à la reprise, bloc vide, clé du payload
 (exécutant), puis `termine`, asymétrie de l'écart et filet protégé — toutes « TENUE »,
 fichiers restaurés octet pour octet. Non-régression : 21 fichiers rejoués un à un, verts.
+
+## Commit 4 — JS : plan de relance unique, compteur de segments rejoués, alerte de complétude
+
+Revue : `bmad-code-review`, 3 couches indépendantes réellement revenues (Blind, Edge Case,
+Acceptance) au 2e lancement — le 1er avait rendu 0/3 couches et n'a pas servi de gate. Aucun
+constat bloquant. L'exécutant (60 min dépassées) a laissé deux fichiers de test rouges hors
+périmètre et des e2e non confirmés : adaptés et rejoués ici.
+
+| Id | Sév. | Constat | Décision |
+| --- | --- | --- | --- |
+| J1 | majeur | Le compteur comptait des RELANCES (« 3 segments rejoués » pour un seul segment) ; les relances manuelles (`lostId`) montaient aussi | corrigé : un compte par segment (`attempt === 0 && !lostId`) dans les deux écrans ; tests + P1 tenues |
+| J2 | majeur | `attempt` partagé entre les budgets 'retry' et 'transient' (suites mixtes : transient, transient, 5xx s'arrête ; 5xx, 5xx, transient gagne la 3e relance) | règle assumée et documentée (jamais plus de 3 relances par segment) + 2 tests de suites mixtes |
+| J3 | mineur | `window.recRetryPlan` indéfini si rec_retry.js ne se charge pas : TypeError à la 1re erreur, « Enregistrer » grisé | ouvert — un repli recopierait le budget que cette refonte unifie ; chargé dans `<head>` sans defer |
+| J4 | mineur | `delaisReseau` exposé modifiable | corrigé : `Object.freeze` ; test + P1 |
+| J5 | mineur | `messageCompletude` : `null`, « x », objets, `Infinity` affichés (« NaN », « [object Object] ») ; écart mentionné hors tolérance | corrigé : filtres numériques + seuil max(2 s, 2 %) ; tests + P1 |
+| J6 | mineur | `classer` strict : statut « 422 » en chaîne → définitif bloquant | corrigé : `Number(status)` ; test + P1 |
+| J7 | mineur | Compteur sans `role="status"` | corrigé (`aria-live="polite"`) |
+| J8 | mineur | Alerte sans cause listée quand `incomplet` vient d'un écart dans la tolérance sans bloc vide | accepté — message générique |
+| J9 | mineur | Test de câblage « busy avant 5xx » remplacé par un ordre textuel tautologique | déplacé : la propriété est prouvée par EXÉCUTION dans le harnais (`classer`) ; assertion textuelle conservée, sans valeur de garde |
+| J10 | chemin frère | `capture.html` (dictée de notes) : tir unique, pas de retry client | hors lot — dette nommée |
+| J11 | mineur | Sur la page de suivi de retranscription, une alerte périmée peut rester affichée si le job est relancé | ouvert — faible impact |
+| J12 | tests | `test_e2e_enregistrement_libre::..._structurer_en_tache_de_fond` rouge UNE fois sous charge (425 s au lieu de 187 s, attente de 90 s sur le badge), vert seul (97 s), puis fichier entier rejoué machine libre : 3 passed en 179 s | classé faux rouge de charge (preuve : même test, mêmes données, durée normale) ; aucun code touché ne le concerne |
+
+Preuves P1 par `scripts/preuve_p1.py` : classification du transient, condition et texte de
+l'alerte, seuil de tolérance, compte par segment (écran libre ET écran guidé), statut en
+chaîne, tableaux figés, filtre des valeurs invalides — toutes « TENUE ».
