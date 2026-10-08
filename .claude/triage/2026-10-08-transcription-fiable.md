@@ -40,3 +40,27 @@ bloc unique (~684), chacune « PREUVE P1 TENUE », fichier restauré octet pour 
 - `capture.html` (dictée de notes) : sans retry client, dette.
 - Durée de conteneur absente sur les `.webm` de `MediaRecorder` : le bilan dira « non
   vérifiable » ; fréquence non mesurée.
+
+## Commit 2 — bilan de complétude + colonne `completude`
+
+Revue : `bmad-code-review` avec 3 couches indépendantes (Blind, Edge, Acceptance), au
+3e passage seulement — les deux premières tentatives n'avaient consolidé aucune couche et
+ont été écartées comme gate. Les corrections ont été appliquées puis les tests rejoués ;
+les corrections elles-mêmes seront relues par la salle de revue de fin de lot.
+
+| Id | Sév. | Constat | Décision |
+| --- | --- | --- | --- |
+| C1 | majeur | Un job `failed` pouvait porter `statut: "complet"` (durées 0.0/0.0 non cumulées, écart nul) | corrigé : paramètre `termine` (seul le passage final d'un job mené au bout peut dire « complet ») ; P1 tenue |
+| C2 | majeur | Le filet `except Exception` rappelait `_noter_bilan()` sans protection : un bilan qui lève laissait le job « running » | corrigé : appel protégé ; P1 tenue |
+| C3 | moyen | Deux exécutions concurrentes du même job écrasent chacune `completude` (dernier qui écrit gagne) | ouvert — la route retry protège le départ (compare-and-swap) ; union à la relecture avant écriture si le doublon est observé |
+| C4 | mineur | `_accepte_stats` : code de production façonné par des doubles de test ; `*args, **kwargs` rendait False | corrigé en partie : VAR_KEYWORD accepté ; dette : mettre à jour les ≈40 doubles `_fake_blocks` puis retirer l'introspection (test_retranscription.py est modifié non commité sur l'autre arbre) |
+| C5 | mineur | `acquis` non validé (valeur non dict → AttributeError à chaque relance) | corrigé : `isinstance`, éléments typés ; test |
+| C6 | mineur | Durées d'une tranche ignorée jetées → `duree_*`/`ecart_s` sous-estiment | ouvert — statut juste, durées partielles |
+| C7 | mineur | Trois espaces d'index dans un même dict (0-based job, rangs 1-based), paramètre `incidents` mal nommé | corrigé : `tranches_ignorees`, docstring |
+| C8 | mineur | `ignorees` pouvait recevoir deux fois le même rang | corrigé |
+| C9 | spec | `abs(ecart)` rendait « incomplet » un décodé PLUS LONG que le conteneur | tranché asymétrique : seul l'audio perdu au décodage est une incomplétude (le durée d'un .webm MediaRecorder est approximative) ; écart négatif exposé ; test. À confirmer par l'utilisateur. |
+| C10 | tests | Mutants survivants : borne de tolérance, durées reprises, branche OSError, message « avant coupure », `abs` | corrigé : 10 tests neufs |
+
+Preuves P1 par `scripts/preuve_p1.py` : cumul à la reprise, bloc vide, clé du payload
+(exécutant), puis `termine`, asymétrie de l'écart et filet protégé — toutes « TENUE »,
+fichiers restaurés octet pour octet. Non-régression : 21 fichiers rejoués un à un, verts.
