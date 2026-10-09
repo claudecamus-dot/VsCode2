@@ -48,6 +48,16 @@ QUALITY CRITERIA: test red then green quoted; mutants listed with their killing 
 every suite reading a touched file stays green (listed, command + pass count);
 every "corrigé/testé/couvert" claim quotes its seen-red mutation on a copy;
 {{quality_criteria}}
+POST-CONDITIONS (run and quote the output before « fini »):
+- No ADDED line carries the mutant marker in the diff of the lot (pre-existing documentary markers do
+  not count): `git diff {{base_sha}} HEAD -U0 -- "*.py" | grep -E "^\+[^+].*# MUTANT:"` prints nothing
+  (works in Git Bash on Windows; a marker left on a code line = not done).
+- `git diff --cached --name-only` before EACH commit: lists only the partition files.
+- JSON written by you: reload it with `json.load` and keep the original encoding and indent
+  (`json.dumps(ensure_ascii=False, indent=<original indent>)`; check `git diff --stat` shows no
+  `\uXXXX` rewrite of untouched lines).
+{{postconditions}}
+A post-condition without its quoted output = STATUT : partiel.
 
 Output ≤ {{token_budget}} tokens, ending with exactly:
 STATUT : fini | partiel | bloque

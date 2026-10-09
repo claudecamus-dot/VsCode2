@@ -58,7 +58,7 @@ Source : tableau finding × bras du test à 30 agents (consolidation manuelle, n
 | Revue d'un diff à committer | **classique** : le vérificateur à contexte vierge EST la revue | Pas de revue neuronale en plus du vérificateur obligatoire |
 | Audit technique ou de sécurité | **skill `audit-technique` / agent `agent-securite`** | Protocole propre : ni l'un ni l'autre |
 | Action irréversible (commit, push, suppression) ; livrable que l'utilisateur ouvre | **classique**, synchrone | Confirmation et validation humaines (§ 4) |
-| Choix à instruire | **salle** | Protocole propre (§ 2 septies) : ni l'un ni l'autre |
+| Choix à instruire | **salle** | Protocole propre (§ 2 septies) ; mode de salle classique ou neuronale : [salles](salles.md#mode-neuronal) |
 | Veille | **lots exhaustifs** | Protocole propre (§ 2 sexies) : ni l'un ni l'autre |
 
 **Lot mixte** (des findings à diagnostiquer et du code à écrire) : chaque action prend son mode,

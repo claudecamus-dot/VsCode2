@@ -1,0 +1,36 @@
+{
+  "kit_id": "d39f89479600a28f144badcebca6d5e2371f87cdf67e62b2ed73a2d265b3f39d",
+  "hub_commit": "f57c6eb6",
+  "date": "2026-10-09",
+  "fichiers": 100,
+  "ecarts_connus": [
+    {
+      "fichier": ".claude/orchestration/catalogue.md",
+      "nature": "structurellement-local"
+    },
+    {
+      "fichier": ".claude/orchestration/playbooks/cadrage-produit.md",
+      "nature": "protege_local"
+    },
+    {
+      "fichier": ".claude/orchestration/playbooks/dev-verifie.md",
+      "nature": "structurellement-local"
+    },
+    {
+      "fichier": ".claude/orchestration/playbooks/export-ppt-verifie.md",
+      "nature": "structurellement-local"
+    },
+    {
+      "fichier": ".claude/skills/deck-design-library/SKILL.md",
+      "nature": "structurellement-local"
+    },
+    {
+      "fichier": ".claude/skills/pptx-framed-image/tests/test_framed_image.py",
+      "nature": "SPECIALISATION"
+    },
+    {
+      "fichier": ".claude/skills/revue-increment/SKILL.md",
+      "nature": "structurellement-local"
+    }
+  ]
+}

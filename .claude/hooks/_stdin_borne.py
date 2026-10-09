@@ -99,3 +99,67 @@ def signaler_fail_open(hook: str, delai: float = DELAI_DEFAUT) -> None:
         sys.stderr.flush()
     except Exception:  # noqa: BLE001
         pass
+
+
+def lier_stdin(g, hook_file):
+    """Bind the bounded-stdin wrapper and its journal to the calling hook.
+
+    ``g`` is the hook's ``globals()`` (the hook may set ``_FLUX_STDIN`` and
+    ``_GARDES_ACTIVES``; the wrapper stores ``_DELAI_S`` / ``_ATTENTE_S`` there for
+    ``_refus_prudent``). Returns ``(_stdin_borne, _ecrire_journal_stdin,
+    _journal_attente)``. Single source: the 17 hooks no longer carry a copy.
+    """
+    import datetime
+    import json
+    import os
+    import time
+
+    def _ecrire_journal_stdin(champs, cap=1_000_000, suffixe="", rotation=True):
+        """Writer of ``<hooks>/../supervision/refus_stdin<suffixe>.jsonl``
+        (``CLAUDE_REFUS_STDIN_LOG`` redirects it, tests). Past ``cap`` the file
+        ROTATES to ``<file>.1`` (``rotation=False``: hard stop, dispatcher crash
+        lines). Never raises, never changes the exit."""
+        try:
+            chemin = os.environ.get("CLAUDE_REFUS_STDIN_LOG") or os.path.join(
+                os.path.dirname(os.path.abspath(hook_file)), "..", "supervision",
+                "refus_stdin.jsonl")
+            if suffixe:
+                chemin = os.path.splitext(chemin)[0] + suffixe + ".jsonl"
+            if os.path.exists(chemin) and os.path.getsize(chemin) > cap:
+                if not rotation:
+                    return
+                os.replace(chemin, chemin + ".1")
+            ligne = {"ts": datetime.datetime.now(datetime.UTC).isoformat(
+                         timespec="seconds"),
+                     "hook": os.path.splitext(os.path.basename(hook_file))[0]}
+            if g.get("_GARDES_ACTIVES") is not None:
+                ligne["gardes"] = list(g["_GARDES_ACTIVES"])
+            ligne.update(champs)
+            with open(chemin, "a", encoding="utf-8") as fh:
+                fh.write(json.dumps(ligne) + "\n")
+        except Exception:  # noqa: BLE001
+            pass
+
+    def _journal_attente(attente, delai):
+        """Payload that arrived after > 2 s: one line in ``refus_stdin_attente.jsonl``."""
+        _ecrire_journal_stdin({"motif": "attente", "issue": "passe", "delai_s": float(delai),
+                               "attente_s": attente}, 500_000, "_attente")
+
+    def _stdin_borne(delai=15.0):
+        """Bounded stdin read: the payload, or None on timeout/error. A hook may set
+        ``_FLUX_STDIN``; ``CLAUDE_STDIN_DELAI_S`` lowers the bound, never raises it."""
+        try:
+            delai = min(delai, float(os.environ.get("CLAUDE_STDIN_DELAI_S", delai)))
+        except ValueError:
+            pass
+        g["_DELAI_S"] = delai
+        t0 = time.monotonic()
+        v = lire_stdin_borne(delai, g.get("_FLUX_STDIN"))
+        attente = round(time.monotonic() - t0, 3)
+        g["_ATTENTE_S"] = attente
+        if v is not None and attente > 2.0:
+            # via the hook's global so a test may monkeypatch it, as before
+            g.get("_journal_attente", _journal_attente)(attente, delai)
+        return v
+
+    return _stdin_borne, _ecrire_journal_stdin, _journal_attente

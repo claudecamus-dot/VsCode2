@@ -13,6 +13,7 @@ fills the `{{placeholders}}`, and writes only the task-specific part by hand.
 | `review-room.md` | read-only review / deliberation room (changes no file) |
 | `fleet-propagation.md` | apply a hub change to ONE fleet repo (evolution-flotte playbook) |
 | `user-simulation.md` | `utilisateur-produit` walk-through of a fleet product |
+| `reaudit.md` | per-project re-audit of the dimensions at `moyen` (writes ONE audit JSON; closed statut vocabulary checked by command) |
 
 Rules:
 - The `gabarit` id journaled in `runs.jsonl` (field `gabarit`, read by `optimiseur.py`) is the
@@ -48,6 +49,10 @@ Rules:
   claim quotes a seen-red mutation on a copy. Indicator fixed before: share of executor
   reports with a quoted seen-red mutation (0/5 Sonnet standard, 4/5 improved brief) and
   suites replayed (0/5 vs 5/5). Locked by `tests/test_prompt_templates.py`.
+- `{{postconditions}}` (executor-lot, finding `prompts:executor-lot` 2026-10-06): project-specific
+  post-conditions appended to the always-present default set (no `# MUTANT:` marker on committed
+  code, `git diff --cached --name-only` within the partition, JSON reloaded with original encoding).
+  `reaudit.md` carries the closed statut vocabulary check. Locked by `tests/test_prompt_templates.py`.
 - Improve a template HERE (a commit = a revision) when a run shows a brief gap, instead of
   patching the scratchpad copy. No evaluation set exists yet for these prompts: their
   quality is not measured, only their clauses.

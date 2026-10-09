@@ -287,3 +287,23 @@ personne qui doit décider ») :
 
 Le reste — transcription, ordre des tours, qui a bougé — vient après, pour qui veut
 vérifier. Personne ne décide en lisant un dialogue.
+
+## Mode neuronal
+
+Trois modes de salle, journalisés par `mode_salle` (`classique` | `neuronale` | `neuronale-augmentee`, absent = classique).
+Forçage par l'utilisateur : « salle classique : ... », « salle neuronale : ... » ou « salle neuronale augmentée : ... » en tête de demande.
+`neuronale-augmentee` = neuronale + espace partagé : les rendus du tour 1 sont signés dans un fichier commun en ajout seul que chaque voix lit au tour 2. Essai du 2026-10-08 (sujet A, exploratoire) : le tableau commun n'a pas fait mieux qu'un tour 2 renforcé ; ce mode reste à mesurer.
+La neuronale est PROPOSÉE (jamais imposée) sur désaccord documenté, ou décision irréversible/flotte.
+
+Protocole neuronal :
+- **Bras = voix.** Chaque bras joue une voix ; sa position vaut par la preuve qu'il rend.
+- **Preuve rejouable, sinon poids 0.** Un fait sans commande/lecture rejouable ne pèse rien dans la décision.
+- **Escalade.** Sur un point décisif non prouvé : un 2e agent à contexte vierge, d'un AUTRE modèle,
+  JAMAIS Opus. Il est lancé par la session principale, brief en rôle (pas « tiens la salle »).
+- **Arrêt du tour 2 à stabilité** : si les positions ne bougent plus, on clôt.
+- **7 agents MAX, escalades comprises.**
+
+Mesure : témoin mono-agent à coût égal, même `tache_id` (`bras` = `temoin` / `variante`).
+Règle d'arrêt : 8 salles appariées ; abandon si moins de 2/8 décisions changées par un fait
+vérifié, ou coût > 2x le témoin, ou faux positifs des vérificateurs > 18 %. Arrêt anticipé si le
+témoin égale la neuronale 4 fois de suite. (Seuils posés par la salle du 2026-10-06, estimation non mesurée.)

@@ -69,12 +69,13 @@ les valeurs permises (`verifier_gabarit_topologie`). Ils alimentent
 | `gabarit` | nom de fichier de `prompts/*.md` sans extension, ou `null` | Gabarit de brief utilisé |
 | `topologie` | `agent-seul` \| `fan-out` \| `salle` \| `workflow` \| `cascade` | Forme du pilotage |
 | `bras` | `temoin` \| `variante` \| `topologie-reduite` | Rôle dans une comparaison appariée ; `topologie-reduite` se compare à `variante` (le bras multi-agent) sur le même `tache_id` |
+| `mode_salle` | `classique` \| `neuronale` \| `neuronale-augmentee` | Mode de la salle ; EXIGÉ à l'append quand `topologie` = `salle` (lignes déjà écrites : absent = classique), autorisé seulement si `topologie` = `salle` (refus sinon). `optimiseur.py --salles` ventile par mode |
 | `tache_id` | chaîne non vide | Identifiant commun aux deux bras d'une paire |
 | `tokens`, `duree_s`, `budget_tokens` | nombre ≥ 0 ou `null` | Coût, durée, budget égal des deux bras |
 | `famille` | chaîne non vide | Famille de tâches : un candidat n'est `gagnant` que s'il gagne sur ≥ 2 familles, sinon `donnees-insuffisantes` (« une seule famille ») |
 | `branches_lancees`, `duree_branche_max_s` | entier ≥ 0 | Détection du fan-out dégénéré (topologie `fan-out`/`salle`/`workflow`) : `branches_lancees` ≤ 1 OU `duree_s` ≥ 0,9 × branches × branche la plus longue |
 | `plan[].verification_aval` | `ok` \| `ko` \| `non-verifiee` | Issue de la vérification aval de l'étape, pour attribuer un échec à une étape (critère de veille n°7). Optionnel ; toute autre valeur est refusée ; `ko` n'interdit pas `resultat: succes` |
-| `tour2` | `true` \| `false` | Salle à désaccord au tour 1 uniquement : `true` = tour 2 joué, `false` = désaccord sans tour 2. Rempli UNIQUEMENT si le tour 1 a produit un désaccord ; absent = pas de désaccord OU non renseigné (indistinguables), et `--salles` ne compte que les runs où le champ est présent |
+| `tour2` | `true` \| `false` \| `"na"` | EXIGÉ à l'append quand `topologie` = `salle` (refus sinon ; lignes déjà écrites et `--solde` non concernés) : `"na"` = pas de désaccord au tour 1. Sinon : `true` = tour 2 joué, `false` = désaccord sans tour 2. Rempli UNIQUEMENT si le tour 1 a produit un désaccord ; absent = pas de désaccord OU non renseigné (indistinguables), et `--salles` ne compte que les runs où le champ est présent |
 | `voix` | liste de `{nom, modele, duree_s ≥ 0 fini, trouvailles_retenues ≥ 0}` | Rendement par voix d'une salle (une entrée par lentille) |
 
 Les seuils du lot 2 (0,9 ; 2 familles ; 3 tâches par famille ; 4 runs résolus pour la

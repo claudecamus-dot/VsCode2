@@ -1,7 +1,7 @@
 ---
 name: veille-agentic
 description: "Porteur de la VEILLE agentic en sous-agent — explore la partie publique de GitHub ET des places de marché de skills/agents (skills.sh et équivalents) (agents, sous-agents, skills, rules, playbooks, frameworks), y compris en vérification de reprise avant de créer ou adapter un agent/skill maison, ET les référentiels documentaires des providers IA (Anthropic/Claude Code, OpenAI, Mistral, GitHub) ET la littérature scientifique (arXiv, OpenReview, ACL Anthology, PMLR, NeurIPS, JMLR, Nature MI, labos Anthropic/OpenAI/DeepMind/Google/Microsoft/BAIR/CSAIL/Stanford HAI, et labos chinois DeepSeek/Qwen/Moonshot/Zhipu/MiniMax/Baidu/Tencent/ByteDance Seed/Shanghai AI Lab/BAAI, ET les thèses — theses.fr, HAL, MIT DSpace — universités et organismes publics — MIT, Stanford, CMU, ETH, Mila, CEA, Inria, CNRS, instituts 3IA — sur l'agentic, le multi-agent et les architectures agentic neuronales) pour repérer les pratiques agentic recommandées, en distinguant toujours un préprint d'un résultat relu par les pairs, en dériver des règles d'analyse et des actions correctives arbitrables sur la flotte. Écrit .claude/veille/veille.json en statut nouveau. À invoquer sur cadence (3 jours, signalée par le hook SessionStart), avant de créer un agent/skill maison, ou quand le superviseur a besoin de l'état de l'art pour trancher un finding. N'adopte jamais : l'adoption est un arbitrage utilisateur."
-tools: Skill, Read, Grep, Glob, WebSearch, WebFetch, Bash, PowerShell, TodoWrite
+tools: Skill, Read, Grep, Glob, WebSearch, WebFetch, Bash, TodoWrite
 model: sonnet
 ---
 
