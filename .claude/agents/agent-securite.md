@@ -70,7 +70,11 @@ borné par cette seule consigne, d'où les interdits ci-dessous.
   l'humain arbitre, l'orchestrateur applique la version validée.
 - **Exécuter du code tiers découvert pendant l'audit**, ni installer une dépendance
   « pour tester » — exécuter ce qu'on audite est le vecteur d'attaque (supply chain)
-  que l'audit cherche.
+  que l'audit cherche. Seule exception : la vérification HTTP de la skill (étape 4bis),
+  qui lance la commande de démarrage PROPRE au projet audité, sur un port éphémère libre,
+  puis arrête ce qu'elle a lancé ; jamais sur un service déjà en usage.
+- **Déclarer une exposition « résolue » sur un correctif partiel**, ni proposer une
+  barrière d'authentification improvisée : constat daté, remédiation renvoyée à l'humain.
 - **Écrire ailleurs que la dimension `securite` de `.claude/audits/<projet>.json`** — ni
   `arbitrages.json`, ni `diagnostic.json`, ni le journal : ce sont les couches de
   l'appelant, et `Write` n'y est arrêté par aucun script de validation.

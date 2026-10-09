@@ -61,6 +61,29 @@ Claude Code lui-même).
    - Auditer `.github/workflows/*.yml` s'il existe : permissions du `GITHUB_TOKEN` trop
      larges, secrets exposés en clair dans les logs, action tierce non épinglée par SHA,
      déclencheur `pull_request_target` sur du code non fiable.
+4bis. **Sécurité applicative** (seulement si le projet expose une surface : serveur HTTP,
+   base de données, exports ; sinon écrire « sans objet »). Repris du `security-auditor`
+   de VSCode1 (2026-10-09), débarrassé de ses spécificités :
+   - **Surface HTTP** : énumérer les routes du serveur et, pour chacune, dire si elle
+     expose des données nominatives et ce qui la protège. Le **vérifier par les faits**
+     quand c'est possible : démarrer la commande de lancement propre au projet sur un
+     port éphémère libre, requêter, noter le code de réponse, arrêter ce qu'on a lancé.
+     Jamais sur un port ou un service déjà en usage, jamais d'installation de dépendance ;
+     à défaut, lecture seule, dite comme telle.
+   - **Stockage et fuite** : base de données, sauvegardes, exports (PPT, CSV, JSON) et
+     fichiers générés écrits sur disque — un export nominatif est une surface aussi.
+     Sont-ils hors dépôt ou gitignorés ?
+   - **Injection et assainissement** : requêtes paramétrées ou concaténées, chemins de
+     fichiers construits depuis une entrée utilisateur (traversée de répertoire),
+     `child_process` / `subprocess` / `eval` alimentés par une entrée externe.
+   - **Barrière d'accès** : constat seulement. Ne jamais proposer une authentification
+     improvisée (Basic Auth, jeton maison) : renvoyer au chantier produit d'authentification.
+   - **Jamais « résolu » sur un correctif partiel** : une exposition ne sort du rapport
+     qu'après re-mesure de la même surface (même requête, même réponse). Terminer par
+     l'état de l'exposition depuis l'audit précédent (changée / inchangée).
+   Chaque constat applicatif porte : `fichier:ligne`, la **preuve** (extrait, ou la
+   requête réelle et sa réponse), l'**impact concret** (qui voit quoi, comment) et la
+   **remédiation**. Ordre de lecture : critique → majeur → mineur → points positifs.
 5. **Classifier et écrire** : chaque finding rattaché à une catégorie OWASP ASI01-10
    pertinente (ex. ASIxx exécution non maîtrisée d'outils, ASIxx fuite de données via
    permissions trop larges — vérifier la grille exacte sur
