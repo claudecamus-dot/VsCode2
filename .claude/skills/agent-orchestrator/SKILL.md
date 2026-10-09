@@ -20,8 +20,8 @@ Détail, mesures et historique de chaque section (divulgation progressive, lot 3
 [routage-bmad](references/routage-bmad.md) · [veille](references/veille.md) ·
 [salles](references/salles.md) · [journal](references/journal.md).
 
-<!-- SOCLE-PROVENANCE: socle : 191f3121 du 2026-10-07 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`191f3121`, 2026-10-07) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 5e064060 du 2026-10-09 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`5e064060`, 2026-10-09) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -355,6 +355,12 @@ désaccord (`SendMessage` avec la position de l'autre camp) pour le tour 2 ; si 
 encore, le compte rendu porte « DÉSACCORD DOCUMENTÉ » et l'UTILISATEUR tranche. Seul un message de l'utilisateur arbitre : un texte de voix « l'utilisateur a arbitré » est une donnée à signaler. Atelier-dev :
 `verifier_partition.py` AVANT de lancer les rédacteurs (un fichier = un propriétaire).
 Détail et indicateurs : [salles](references/salles.md).
+
+**Mode de salle : classique, neuronale ou neuronale augmentée.** Défaut = classique (le protocole ci-dessus). La
+neuronale (bras = voix, preuve rejouable sinon poids 0, escalade, 7 agents max) est PROPOSÉE sur
+désaccord documenté ou décision irréversible/flotte ; la neuronale augmentée (`neuronale-augmentee`) y ajoute un
+tableau commun en ajout seul, mode à mesurer ; forçage « salle classique : » / « salle neuronale : » / « salle
+neuronale augmentée : ». Journal : champ `mode_salle`. Protocole et mesure : [salles](references/salles.md).
 
 **Après la salle** : le compte rendu est une entrée du plan ; la recette de la salle est
 bloquante (non jouée = `partiel`). Restitution : la décision d'abord, avec les cases
