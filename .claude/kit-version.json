@@ -1,9 +1,13 @@
 {
-  "kit_id": "d39f89479600a28f144badcebca6d5e2371f87cdf67e62b2ed73a2d265b3f39d",
-  "hub_commit": "f57c6eb6",
-  "date": "2026-10-09",
-  "fichiers": 100,
+  "kit_id": "487f929ba37d6dfab0fc408ff2d3224cd1f13d78cd7d6ddea732d52a237ffcfa",
+  "hub_commit": "567b3b4b",
+  "date": "2026-10-10",
+  "fichiers": 103,
   "ecarts_connus": [
+    {
+      "fichier": ".claude/agents/veille-agentic.md",
+      "nature": "SPECIALISATION"
+    },
     {
       "fichier": ".claude/orchestration/catalogue.md",
       "nature": "structurellement-local"

@@ -54,6 +54,12 @@
             "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/kit_version_check.py\"",
             "timeout": 15,
             "statusMessage": "Version du kit agentic..."
+          },
+          {
+            "type": "command",
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/faucher_orphelins.py\"",
+            "timeout": 20,
+            "statusMessage": "Arret des processus orphelins (git.exe, hooks)..."
           }
         ]
       },

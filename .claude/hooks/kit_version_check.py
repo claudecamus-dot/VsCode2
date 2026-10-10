@@ -57,5 +57,16 @@ def main() -> int:
     return 0
 
 
+def _armer_chien_de_garde():
+    """Bounded lifetime (< a 30 s SessionStart timeout); no-op when the helper is absent."""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from _stdin_borne import armer_chien_de_garde
+        armer_chien_de_garde(25.0, 0)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 if __name__ == "__main__":
+    _armer_chien_de_garde()
     sys.exit(main())

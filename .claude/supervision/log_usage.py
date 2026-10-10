@@ -466,7 +466,19 @@ def _ecrire(entry: dict) -> None:
         raise OSError(f"ecriture partielle : {ecrit}/{len(donnees)} octets")
 
 
+def _armer_chien_de_garde():
+    """Bounded lifetime (< the 30 s PostToolUse timeout): a blocked write or stdin never
+    leaves an orphan python.exe behind the killed py launcher. No-op without the helper."""
+    try:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "hooks"))
+        from _stdin_borne import armer_chien_de_garde
+        armer_chien_de_garde(25.0, 0)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 if __name__ == "__main__":
+    _armer_chien_de_garde()
     # Deux exigences que le docstring pose ensemble, et qui doivent le rester :
     # NE JAMAIS BLOQUER l'outil de l'utilisateur (un hook PostToolUse qui casse casse
     # l'outil), et NE RIEN PERDRE EN SILENCE. La version precedente ne tenait que la

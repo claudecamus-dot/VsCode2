@@ -41,6 +41,20 @@ AUDITS = os.path.join(RACINE, ".claude", "audits")
 SEUIL_ALERTE_JOURS = 7
 
 
+def _lancement_borne():
+    """Shared bounded launcher (_lancement_borne.py next to this hook), or None:
+    subprocess.run(capture_output, timeout) is not bounded on Windows when a
+    descendant keeps the pipes open. Absent helper (older kit) -> previous call."""
+    try:
+        ici = os.path.dirname(os.path.abspath(__file__))
+        if ici not in sys.path:
+            sys.path.insert(0, ici)
+        import _lancement_borne as lancement_borne
+        return lancement_borne
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _charge(chemin):
     try:
         with open(chemin, encoding="utf-8") as fh:
@@ -561,11 +575,14 @@ def _date_plus_ancien_non_propage(source_rel, blob_copie):
     """
     try:
         import subprocess
-        out = subprocess.run(
-            ["git", "log", "-n", "40", "--format=C %cI", "--raw", "--abbrev=40",
-             "--no-renames", "--", source_rel],
-            cwd=RACINE, capture_output=True, text=True, encoding="utf-8",
-            errors="replace", timeout=15)
+        cmd = ["git", "log", "-n", "40", "--format=C %cI", "--raw", "--abbrev=40",
+               "--no-renames", "--", source_rel]
+        lb = _lancement_borne()
+        if lb is not None:
+            out = lb.lancer_texte(cmd, delai=15, cwd=RACINE, errors="replace")
+        else:
+            out = subprocess.run(cmd, cwd=RACINE, capture_output=True, text=True,
+                                 encoding="utf-8", errors="replace", timeout=15)
     except Exception:  # pragma: no cover - fail-open
         return None
     if out.returncode != 0:
@@ -737,9 +754,13 @@ def lister_git_exe():
         return None
     try:
         import subprocess
-        r = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", _PS_GIT],
-                           capture_output=True, text=True, encoding="utf-8",
-                           errors="replace", timeout=DELAI_LISTE_PROCESSUS_S)
+        cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", _PS_GIT]
+        lb = _lancement_borne()
+        if lb is not None:
+            r = lb.lancer_texte(cmd, delai=DELAI_LISTE_PROCESSUS_S, errors="replace")
+        else:
+            r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", timeout=DELAI_LISTE_PROCESSUS_S)
         if r.returncode != 0:
             return None
         brut = (r.stdout or "").strip()
@@ -1028,7 +1049,18 @@ def _signaler(exc):
         return 0
 
 
+def _armer_chien_de_garde():
+    """Bounded lifetime (< the 30 s SessionStart timeout); no-op when the helper is absent."""
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from _stdin_borne import armer_chien_de_garde
+        armer_chien_de_garde(25.0, 0)
+    except Exception:  # noqa: BLE001
+        pass
+
+
 if __name__ == "__main__":
+    _armer_chien_de_garde()
     try:
         sys.exit(main())
     except Exception as exc:  # noqa: BLE001 - un hook ne doit jamais bloquer la session

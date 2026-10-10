@@ -389,16 +389,37 @@ def _commit_prend_tout(commit_flags) -> bool:
     return False
 
 
+def _lancement_borne():
+    """The bounded launcher next to this hook, or None (then the previous
+    `subprocess.run` call is kept). On Windows `subprocess.run(timeout=N)` does
+    not honour N while a descendant keeps the pipes open."""
+    try:
+        ici = os.path.dirname(os.path.abspath(__file__))
+        if ici not in sys.path:
+            sys.path.insert(0, ici)
+        import _lancement_borne as lb
+        return lb
+    except Exception:  # noqa: BLE001 - absent helper: previous call
+        return None
+
+
+def _lancer_git(args, cwd, delai):
+    """Same result as the previous `subprocess.run(args, capture_output=True,
+    text=True, encoding="utf-8", errors="replace", timeout=delai)`; raises the
+    same way (TimeoutExpired / SubprocessError / OSError) for the callers' except."""
+    lb = _lancement_borne()
+    if lb is not None:
+        return lb.lancer_texte(args, delai=delai, cwd=cwd or None, errors="replace")
+    return subprocess.run(args, cwd=cwd or None, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace", timeout=delai)
+
+
 def _staged_files(cwd, commit_flags):
     """Tous les fichiers qui seront réellement commités (le filtrage par zone se
     fait chez l'appelant), ou None si indéterminable."""
     def _run(args):
         try:
-            r = subprocess.run(
-                ["git"] + args, cwd=cwd or None,
-                capture_output=True, text=True, timeout=8,
-                encoding="utf-8", errors="replace",
-            )
+            r = _lancer_git(["git"] + args, cwd, 8)
         except Exception:
             return None
         if r.returncode != 0:
@@ -644,9 +665,7 @@ def _diff_ajoute(cwd, commit_flags) -> str:
     if _WATCHED_PREFIXES:
         args += ["--", *_WATCHED_PREFIXES]
     try:
-        r = subprocess.run(args, cwd=cwd or None, capture_output=True,
-                           encoding="utf-8", errors="replace",
-                           text=True, timeout=10)
+        r = _lancer_git(args, cwd, 10)
     except Exception:
         return ""
     if r.returncode != 0 or r.stdout is None:
@@ -694,11 +713,9 @@ def _sites_nus(cwd, forme_nue: str, prefixes) -> list[str]:
     fabriquée par une panne d'outil.
     """
     try:
-        r = subprocess.run(
+        r = _lancer_git(
             ["git", "grep", "-l", "--fixed-strings", forme_nue, "--", *prefixes],
-            cwd=cwd or None, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=10,
-        )
+            cwd, 10)
     except Exception:
         return []
     if r.returncode not in (0, 1) or not r.stdout:
