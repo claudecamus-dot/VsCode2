@@ -131,10 +131,10 @@ description d'intention. Les gestes exacts :
      jour-là ont rendu en 8-11 min chacune (483/582/649/699 s de notification), sans
      qu'un budget écrit leur ait été nécessaire pour tenir ce format court : la clause
      vise les salles à venir dont le sujet appelle naturellement plus de prose.
-  11. **Non-régression** (brief neuronal, adopté 2026-10-03) — « pour chaque fichier touché
+  11. **Non-régression** (brief comité, adopté 2026-10-03) — « pour chaque fichier touché
      F, `grep -rl "<basename F>" tests/` et rejouer TOUTES les suites trouvées avant
      "fini", en citant commande + compte de tests passés ; "à rejouer" sans run =
-     STATUT : partiel ». Mesure (test neuronal 20 agents, 5 tâches × 4 bras) : brief
+     STATUT : partiel ». Mesure (test comité 20 agents, 5 tâches × 4 bras) : brief
      amélioré = suites rejouées 5/5 ; Sonnet standard 0/5. Indicateur : part des rapports
      citant commande + compte pour chaque suite lisant un fichier touché.
   12. **Mutation obligatoire** (même mesure) — toute prétention « corrigé »/« testé »/

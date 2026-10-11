@@ -547,7 +547,9 @@ def _voix_de(run):
 
 # Miroir de MODES_SALLE du canon log_run.py (verrouille par tests/test_optimiseur_lot2.py : un 4e mode ajoute
 # d'un seul cote fait echouer le test au lieu d'etre compte « classique » en silence).
-MODES_SALLE = ("classique", "neuronale", "neuronale-augmentee")
+MODES_SALLE = ("classique", "comite", "comite-augmente")
+# Valeurs historiques du journal (runs.jsonl) : comptees avec les actuelles.
+MODES_SALLE_LEGACY = {"neuronale": "comite", "neuronale-augmentee": "comite-augmente"}
 
 
 def _par_mode(salles):
@@ -556,6 +558,8 @@ def _par_mode(salles):
     out = {m: {"salles": 0, "desaccords": 0, "tour2_joues": 0} for m in MODES_SALLE}
     for r in salles:
         v = r.get("mode_salle")
+        if isinstance(v, str):
+            v = MODES_SALLE_LEGACY.get(v, v)
         m = v if isinstance(v, str) and v in out else "classique"
         out[m]["salles"] += 1
         if isinstance(r.get("tour2"), bool):

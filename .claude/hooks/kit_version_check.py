@@ -42,8 +42,8 @@ def message(racine: str):
         return "[kit-version] .claude/kit-version.json illisible ou sans kit_id : version du kit inconnue."
     ref = _kit_id(os.path.join(racine, REFERENCE))
     if ref is not None and ref != kid:
-        return ("[kit-version] kit en retard : installe %s... , reference %s... "
-                "(.claude/kit-reference.json)." % (kid[:8], ref[:8]))
+        return (f"[kit-version] kit en retard : installe {kid[:8]}... , reference {ref[:8]}... "
+                "(.claude/kit-reference.json).")
     return None
 
 

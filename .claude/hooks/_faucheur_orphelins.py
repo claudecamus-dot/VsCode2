@@ -333,3 +333,39 @@ def faucher(seuil_min=SEUIL_MIN):
         candidats(seuil_min=seuil_min)
         return []
     return arreter(candidats(seuil_min=seuil_min))
+
+
+# ---------------------------------------------------------------- periodic limiter
+def chemin_limiteur():
+    return os.environ.get("CLAUDE_FAUCHEUR_LIMITEUR") or os.path.join(
+        _SUPERVISION, "faucheur_dernier.json")
+
+
+def trop_tot(chemin, limite_min, maintenant):
+    """True only when the last real sweep is less than ``limite_min`` minutes old.
+
+    Fail-open: a missing or unreadable file, or a stamp in the future (clock set
+    back), means "sweep".
+    """
+    try:
+        with open(chemin, encoding="utf-8") as fh:
+            t = float(fh.read().strip())
+    except Exception:  # noqa: BLE001
+        return False
+    if t > maintenant:
+        return False
+    return (maintenant - t) < limite_min * 60
+
+
+def marquer(chemin, maintenant):
+    """Atomically stamp the time of the sweep (temp file + replace). Never raises."""
+    tmp = f"{chemin}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(repr(float(maintenant)))
+        os.replace(tmp, chemin)
+    except Exception:  # noqa: BLE001
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass

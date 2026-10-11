@@ -1,11 +1,11 @@
-# Mode neuronal ou classique — proposé selon l'action
+# Mode comité ou classique — proposé selon l'action
 
-Demande utilisateur du 2026-10-04 : « pouvoir choisir un mode neuronal ou un mode classique,
+Demande utilisateur du 2026-10-04 : « pouvoir choisir un mode comité ou un mode classique,
 proposé selon l'action à réaliser ». À ne pas confondre avec les **modes d'exécution**
 (synchrone, parallèle, asynchrone) de `SKILL.md` : ceux-là disent *comment* lancer, celui-ci
 dit *combien d'agents* travaillent sur une même question et *comment* on consolide.
 
-**Statut : essai borné.** Les paramètres du mode neuronal viennent du conseil de flotte du
+**Statut : essai borné.** Les paramètres du mode comité viennent du conseil de flotte du
 2026-10-04 (4 voix ; au tour 2, trois voix convergent sur « 1 bras + escalade » ; la 4e voix,
 Garde-fou, ne s'est pas prononcée sur le nombre de bras). Ils sont révisables jusqu'à
 **n ≥ 10 runs journalisés par bras**. Fondement mesuré : deux tests (20 et 30 agents,
@@ -17,7 +17,7 @@ Garde-fou, ne s'est pas prononcée sur le nombre de bras). Ils sont révisables 
 **La redondance sert à comprendre (diagnostiquer, prouver), jamais à écrire.** Un seul
 rédacteur par périmètre de fichiers reste vrai dans les deux modes (§ 2 ter).
 
-| | Classique | Neuronal (essai borné) |
+| | Classique | Comité (essai borné) |
 | --- | --- | --- |
 | Agents | 1 agent par tâche (cascade si dépendances) | **1 bras + escalade** : 1 bras Sonnet à brief amélioré ; **2e bras seulement si le 1er est sans preuve valide** (jamais 2 bras systématiques). Vérificateur Sonnet à contexte vierge seulement pour ce qu'un script ne rejoue pas |
 | Preuve | mutation vue rouge pour toute prétention « corrigé » (clause 9) | la même, plus consolidation **pondérée par la preuve** (reproduction ou mutation > commit vérifié > affirmation), jamais au vote. **Une preuve rejouable par script : le script tranche**, pas un agent vérificateur |
@@ -31,9 +31,9 @@ Source : tableau finding × bras du test à 30 agents (consolidation manuelle, n
 
 - **Justifié : pas d'Opus en diagnostic.** Le bras Opus a rendu un verdict faux 4 fois sur 6,
   dont « déjà corrigé » à tort 2 fois.
-- **Non justifié : « le neuronal rend un meilleur verdict ».** Un seul bras Sonnet à brief
+- **Non justifié : « le comité rend un meilleur verdict ».** Un seul bras Sonnet à brief
   amélioré, ou à brief standard, a rendu 6 verdicts justes sur 6. Un 2e bras n'a rien changé au verdict.
-- **Le seul gain observé du neuronal est la profondeur** : la cause racine d'un défaut d'outil (T1)
+- **Le seul gain observé du comité est la profondeur** : la cause racine d'un défaut d'outil (T1)
   et la reproduction d'un trou de garde (T3) n'ont été trouvées que par un seul bras (1 sur 4
   lancés pour T1, 1 sur 5 pour T3). C'est ce gain, sur deux cas d'un seul test, que l'essai borné
   doit confirmer ou infirmer — d'où l'escalade plutôt que 2 bras systématiques.
@@ -49,26 +49,26 @@ Source : tableau finding × bras du test à 30 agents (consolidation manuelle, n
 
 | Action | Mode proposé | Pourquoi |
 | --- | --- | --- |
-| Diagnostiquer un finding ouvert ; établir qu'un correctif est « déjà fait » ou « périmé » ; revue adverse autonome d'un livrable ou d'une conception | **neuronal** | Profondeur (voir ci-dessus) ; le verdict « déjà fait » sans preuve est le défaut mesuré |
-| Plusieurs findings indépendants à trier en lot | **neuronal**, par finding | Taille du lot : plafonds et topologie de § 2 ter. Interactif (plafond de 10) : au plus 3 findings en fan-out `Agent` (9 agents), ou 4 si aucun 2e bras ne part (8 agents). Lot long en arrière-plan : jusqu'à 30 agents. Au-delà de 4 éléments indépendants : `Workflow` sur opt-in. Plus de 3 sous-agents = validation du § 3 |
-| Concevoir ou proposer (design, IA, architecture) ; plan éditorial ; audit d'une flotte | **neuronal** | Étapes qui servent à comprendre, couvertes par le défaut ci-dessous |
+| Diagnostiquer un finding ouvert ; établir qu'un correctif est « déjà fait » ou « périmé » ; revue adverse autonome d'un livrable ou d'une conception | **comité** | Profondeur (voir ci-dessus) ; le verdict « déjà fait » sans preuve est le défaut mesuré |
+| Plusieurs findings indépendants à trier en lot | **comité**, par finding | Taille du lot : plafonds et topologie de § 2 ter. Interactif (plafond de 10) : au plus 3 findings en fan-out `Agent` (9 agents), ou 4 si aucun 2e bras ne part (8 agents). Lot long en arrière-plan : jusqu'à 30 agents. Au-delà de 4 éléments indépendants : `Workflow` sur opt-in. Plus de 3 sous-agents = validation du § 3 |
+| Concevoir ou proposer (design, IA, architecture) ; plan éditorial ; audit d'une flotte | **comité** | Étapes qui servent à comprendre, couvertes par le défaut ci-dessous |
 | Implémenter, spécification nette, périmètre borné | **classique** | Redondance sur l'écriture = conflit de fichiers |
 | Tâche mécanique : inventaire, extraction, régénération, propagation du canon, rendu du wiki | **classique** | Rien à départager |
-| Changement à risque (garde, hook, canon/kit, registre) | **classique** pour l'écriture, + vérificateur obligatoire | § 2 ter ; le neuronal ne s'applique qu'au diagnostic préalable si la cause est incertaine |
-| Revue d'un diff à committer | **classique** : le vérificateur à contexte vierge EST la revue | Pas de revue neuronale en plus du vérificateur obligatoire |
+| Changement à risque (garde, hook, canon/kit, registre) | **classique** pour l'écriture, + vérificateur obligatoire | § 2 ter ; le comité ne s'applique qu'au diagnostic préalable si la cause est incertaine |
+| Revue d'un diff à committer | **classique** : le vérificateur à contexte vierge EST la revue | Pas de revue en comité en plus du vérificateur obligatoire |
 | Audit technique ou de sécurité | **skill `audit-technique` / agent `agent-securite`** | Protocole propre : ni l'un ni l'autre |
 | Action irréversible (commit, push, suppression) ; livrable que l'utilisateur ouvre | **classique**, synchrone | Confirmation et validation humaines (§ 4) |
-| Choix à instruire | **salle** | Protocole propre (§ 2 septies) ; mode de salle classique ou neuronale : [salles](salles.md#mode-neuronal) |
+| Choix à instruire | **salle** | Protocole propre (§ 2 septies) ; mode de salle classique, comité ou comité augmenté : [salles](salles.md#mode-comité) |
 | Veille | **lots exhaustifs** | Protocole propre (§ 2 sexies) : ni l'un ni l'autre |
 
 **Lot mixte** (des findings à diagnostiquer et du code à écrire) : chaque action prend son mode,
-le diagnostic en neuronal d'abord, l'écriture ensuite en classique. Une action à deux temps
+le diagnostic en comité d'abord, l'écriture ensuite en classique. Une action à deux temps
 (diagnostic puis correction) suit la même règle.
 
 ## Défauts permanents du propriétaire (2026-10-04)
 
 Consigne : « inscrit par défaut dès que c'est possible de traiter les sujets en parallèle, voire
-en mode neuronal ». Deux défauts, essai borné, fidèles à ce qui a été mesuré :
+en mode comité ». Deux défauts, essai borné, fidèles à ce qui a été mesuré :
 
 1. **Parallèle par défaut** : des sujets indépendants (pas de dépendance de données, périmètres
    de fichiers disjoints) se lancent concurrents en arrière-plan dans le même plan, annoncés en
@@ -76,25 +76,25 @@ en mode neuronal ». Deux défauts, essai borné, fidèles à ce qui a été mes
    périmètre (worktree créé par script depuis main local), UN appel `Agent` par message au-delà
    de 4 agents isolés (rafales refusées de 35 à 65 % à 26-40), plafonds 10 interactif / 30 lots
    longs / `Workflow` au-delà sur opt-in, vérification sur disque, pas de 2e rédacteur dans un dépôt.
-2. **Neuronal par défaut pour comprendre** : diagnostic, audit, revue, conception/IA, instruction
+2. **Comité par défaut pour comprendre** : diagnostic, audit, revue, conception/IA, instruction
    d'un choix, plan éditorial. Deux bras indépendants (ou `1 bras + escalade` quand l'enjeu est
    faible : règle ci-dessus inchangée) et un vérificateur à contexte vierge, un script jugeant toute
-   preuve rejouable ; annoncé en une ligne. `neuronal :` / `classique :` forcent le mode.
-   **Jamais neuronal pour ÉCRIRE** : un seul rédacteur, la redondance sert à comprendre ; classique
+   preuve rejouable ; annoncé en une ligne. `comité :` / `classique :` forcent le mode.
+   **Jamais comité pour ÉCRIRE** : un seul rédacteur, la redondance sert à comprendre ; classique
    pour le mécanique et l'irréversible.
 
-Limites honnêtes : petits échantillons (10 et 13 tâches), neuronal environ 2× le coût,
+Limites honnêtes : petits échantillons (10 et 13 tâches), comité environ 2× le coût,
 vérificateurs trop accommodants (8 faux positifs sur 44 verdicts), effet non mesuré sur les tâches
 ouvertes (les tâches de test avaient un oracle objectif). Le défaut reste un essai borné que le
 journal mesure (`bras`, `topologie`, `tache_id`, ci-dessous).
 
 ## Comment le mode se choisit
 
-1. **L'utilisateur force** : la demande commence par `neuronal :` ou `classique :` (ou dit
-   « en mode neuronal / classique ») — le mode est imposé, sans proposition.
+1. **L'utilisateur force** : la demande commence par `comité :` (l'ancien `neuronal :` reste accepté) ou `classique :` (ou dit
+   « en mode comité / classique ») — le mode est imposé, sans proposition.
 2. **Sinon l'orchestrateur propose**, à l'étape 1 (Qualifier), en une ligne avec sa raison :
-   « Mode proposé : neuronal — diagnostic d'un finding ouvert (3 agents au plus) ». Le
-   **classique est le défaut et s'applique sans annonce** (coût 1×). Le **neuronal est
+   « Mode proposé : comité — diagnostic d'un finding ouvert (3 agents au plus) ». Le
+   **classique est le défaut et s'applique sans annonce** (coût 1×). Le **comité est
    annoncé** ; au-delà de 3 sous-agents il suit aussi la règle de validation du § 3.
 3. Les deux modes partagent **les mêmes clauses de brief** (1 à 9 de § 2 ter) : seul change
    le nombre d'agents et la consolidation.
@@ -103,25 +103,36 @@ journal mesure (`bras`, `topologie`, `tache_id`, ci-dessous).
 
 Valeurs que `log_run.py` accepte (lues dans le code, pas devinées) :
 
-- `topologie` : `agent-seul` pour le classique, `fan-out` pour le neuronal (`TOPOLOGIES`, l. 448) ;
-  il n'existe pas de valeur `neuronal`, en ajouter une est une demande séparée.
+- `topologie` : `agent-seul` pour le classique, `fan-out` pour le comité (`TOPOLOGIES`, l. 448) ;
+  il n'existe pas de valeur `comite`, en ajouter une est une demande séparée.
 - `bras` : vocabulaire **fermé** `temoin | variante | topologie-reduite` (l. 449). Une valeur
-  comme `neuronal` ou `A` est **refusée**. Pour comparer les deux modes sur une même tâche,
-  journaliser deux runs de même `tache_id` : le classique en `temoin`, le neuronal en
+  comme `comite` ou `A` est **refusée**. Pour comparer les deux modes sur une même tâche,
+  journaliser deux runs de même `tache_id` : le classique en `temoin`, le comité en
   `variante` — la paire que lit `optimiseur.py`. Cette comparaison appariée coûte 2× : la
   réserver à des tâches choisies, et **omettre `bras` et `tache_id` en dehors d'elle**.
 - `famille` : chaîne libre non vide, la famille de tâches (ex. `diagnostic-finding`).
 - `forme_tache` : **jamais `decomposable` pour la redondance des bras.** `log_run.py` (l. 577-586)
   exige un motif de découpage en sous-questions indépendantes et écrit que « le même brief lu en
-  parallèle » est de la redondance, pas du découpage. Un run neuronal déclare `inconnu` ou omet le
+  parallèle » est de la redondance, pas du découpage. Un run comité déclare `inconnu` ou omet le
   champ ; la justification « pourquoi un seul agent ne suffit pas » (§ 2 ter) va dans le plan.
 - Les modes proposé et choisi se notent dans `notes` (`mode_propose=…, mode_choisi=…`) tant que
   le journal ne les porte pas.
 
 Indicateurs :
 
-- part des verdicts neuronaux **infirmés en aval** (base : à constituer) ;
+- part des verdicts du comité **infirmés en aval** (base : à constituer) ;
 - tokens par finding ≤ 160 000 ;
 - part des actions où l'utilisateur **change** le mode proposé (qualité de la proposition).
 
 Sans effet mesuré sur 10 runs par mode, la règle est retirée ou ramenée au classique.
+
+
+## Pourquoi « comité »
+
+Au sens de la littérature informatique, « neuronal » désigne des réseaux de neurones artificiels :
+des unités reliées par des poids appris, une activation non linéaire, un apprentissage par
+gradient. Le dispositif ne fait rien de tel : il lance N agents indépendants puis consolide leurs
+rendus, ce qui relève des méthodes d'ensemble (comités, vote, self-consistency). Aucun poids n'est
+appris. Le mot « comité » décrit donc ce qui est fait ; « neuronal » reste accepté comme ancien
+déclencheur (`neuronal :`) et les anciennes valeurs de journal (`neuronale`, `neuronale-augmentee`)
+restent acceptées comme alias.

@@ -92,6 +92,11 @@
             "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/orchestrator_gate.py\"",
             "timeout": 30,
             "statusMessage": "Grille de qualification orchestrateur..."
+          },
+          {
+            "type": "command",
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/faucher_orphelins.py\" --limite-min 20",
+            "timeout": 20
           }
         ]
       }

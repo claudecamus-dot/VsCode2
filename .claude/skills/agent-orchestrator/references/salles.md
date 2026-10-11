@@ -288,14 +288,14 @@ personne qui doit décider ») :
 Le reste — transcription, ordre des tours, qui a bougé — vient après, pour qui veut
 vérifier. Personne ne décide en lisant un dialogue.
 
-## Mode neuronal
+## Mode comité
 
-Trois modes de salle, journalisés par `mode_salle` (`classique` | `neuronale` | `neuronale-augmentee`, absent = classique).
-Forçage par l'utilisateur : « salle classique : ... », « salle neuronale : ... » ou « salle neuronale augmentée : ... » en tête de demande.
-`neuronale-augmentee` = neuronale + espace partagé : les rendus du tour 1 sont signés dans un fichier commun en ajout seul que chaque voix lit au tour 2. Essai du 2026-10-08 (sujet A, exploratoire) : le tableau commun n'a pas fait mieux qu'un tour 2 renforcé ; ce mode reste à mesurer.
-La neuronale est PROPOSÉE (jamais imposée) sur désaccord documenté, ou décision irréversible/flotte.
+Trois modes de salle, journalisés par `mode_salle` (`classique` | `comite` | `comite-augmente`, absent = classique ; les anciennes valeurs `neuronale` et `neuronale-augmentee` restent acceptées comme alias).
+Forçage par l'utilisateur : « salle classique : ... », « salle comité : ... » ou « salle comité augmenté : ... » en tête de demande.
+`comite-augmente` = comité + espace partagé : les rendus du tour 1 sont signés dans un fichier commun en ajout seul que chaque voix lit au tour 2. Essai du 2026-10-08 (sujet A, exploratoire) : le tableau commun n'a pas fait mieux qu'un tour 2 renforcé ; ce mode reste à mesurer.
+Le comité est PROPOSÉ (jamais imposé) sur désaccord documenté, ou décision irréversible/flotte.
 
-Protocole neuronal :
+Protocole comité :
 - **Bras = voix.** Chaque bras joue une voix ; sa position vaut par la preuve qu'il rend.
 - **Preuve rejouable, sinon poids 0.** Un fait sans commande/lecture rejouable ne pèse rien dans la décision.
 - **Escalade.** Sur un point décisif non prouvé : un 2e agent à contexte vierge, d'un AUTRE modèle,
@@ -306,4 +306,4 @@ Protocole neuronal :
 Mesure : témoin mono-agent à coût égal, même `tache_id` (`bras` = `temoin` / `variante`).
 Règle d'arrêt : 8 salles appariées ; abandon si moins de 2/8 décisions changées par un fait
 vérifié, ou coût > 2x le témoin, ou faux positifs des vérificateurs > 18 %. Arrêt anticipé si le
-témoin égale la neuronale 4 fois de suite. (Seuils posés par la salle du 2026-10-06, estimation non mesurée.)
+témoin égale le comité 4 fois de suite. (Seuils posés par la salle du 2026-10-06, estimation non mesurée.)

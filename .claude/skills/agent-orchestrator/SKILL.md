@@ -20,8 +20,8 @@ Détail, mesures et historique de chaque section (divulgation progressive, lot 3
 [routage-bmad](references/routage-bmad.md) · [veille](references/veille.md) ·
 [salles](references/salles.md) · [journal](references/journal.md).
 
-<!-- SOCLE-PROVENANCE: socle : 5e064060 du 2026-10-09 -->
-> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`5e064060`, 2026-10-09) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 2d65fb1b du 2026-10-11 -->
+> **Socle généré** — tout ce qui suit `## Méthode` vient du hub de supervision (`2d65fb1b`, 2026-10-11) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » ci-dessous, lui, n'est jamais réécrit : c'est le travail local.
 
 ## Portée sur ce projet
@@ -46,7 +46,7 @@ Chapitre local déplacé (divulgation progressive, SKILL.md < 500 lignes) : lire
   réception d'un diagnostic ou d'une veille, reprise de travaux, cadrage, rapport — ne
   s'inscrit PAS dans `runs.jsonl` (mesure du 2026-09-07 : [journal](references/journal.md)).
 - **Parallèle par défaut** (consigne permanente du propriétaire, 2026-10-04 : « inscrit par
-  défaut dès que c'est possible de traiter les sujets en parallèle, voire en mode neuronal »).
+  défaut dès que c'est possible de traiter les sujets en parallèle, voire en mode comité »).
   Quand une demande contient plusieurs sujets indépendants (aucune dépendance de données,
   périmètres de fichiers disjoints), les lancer EN PARALLÈLE en arrière-plan dans le même plan,
   sans attendre qu'on le demande, et l'annoncer en une ligne. Garde-fous inchangés : § 2 ter
@@ -98,11 +98,11 @@ Suivre le plan avec TodoWrite. Règle de mode — *la dépendance de données d�
 | Asynchrone (arrière-plan) | Long, autonome, non bloquant | Attendre la notification — ne JAMAIS anticiper/fabriquer le résultat ; 1 seul chantier async lourd à la fois |
 | Irréversible (commit, suppression, publication) | — | Toujours synchrone + confirmation utilisateur, hooks/permissions jamais contournés |
 
-### 1 ter. Mode neuronal ou classique — proposé selon l'action
+### 1 ter. Mode comité ou classique — proposé selon l'action
 
 Deux façons de traiter une action, à ne pas confondre avec les modes d'exécution
 (synchrone/parallèle/asynchrone) ci-dessus. **Classique** : 1 agent par tâche, défaut,
-appliqué sans annonce. **Neuronal** (essai borné, conseil de flotte du 2026-10-04) : **1 bras
+appliqué sans annonce. **Comité** (essai borné, conseil de flotte du 2026-10-04) : **1 bras
 + escalade** — 1 bras Sonnet à brief amélioré, un 2e bras seulement si le 1er est sans preuve
 valide (jamais 2 bras systématiques), consolidation pondérée par la preuve. Une preuve
 rejouable par script est tranchée par le script ; le vérificateur à contexte vierge ne reste
@@ -111,21 +111,21 @@ que pour ce qu'un script ne rejoue pas. Pas d'Opus dans un bras de diagnostic (v
 vue rouge (clause 9). **La redondance sert à
 comprendre (diagnostiquer, prouver), jamais à écrire.**
 
-**Neuronal par défaut pour COMPRENDRE** (consigne permanente du 2026-10-04) : pour une étape dont
+**Comité par défaut pour COMPRENDRE** (consigne permanente du 2026-10-04) : pour une étape dont
 le travail est de comprendre (diagnostic, audit, revue, proposition de conception ou d'IA,
-instruction d'un choix, plan éditorial), l'orchestrateur applique par défaut le neuronal et
-l'annonce en une ligne ; le propriétaire force `neuronal :` ou `classique :`. **Jamais pour
+instruction d'un choix, plan éditorial), l'orchestrateur applique par défaut le comité et
+l'annonce en une ligne ; le propriétaire force `comité :` (l'ancien déclencheur `neuronal :` reste accepté) ou `classique :`. **Jamais pour
 ÉCRIRE** (un seul rédacteur) ni pour une action mécanique ou irréversible : classique, sans
 annonce. Limites mesurées : petits échantillons (10 et 13 tâches), coût environ 2×, vérificateurs
 trop accommodants (8 faux positifs sur 44 verdicts), effet non mesuré sur les tâches ouvertes
 (les tâches de test avaient un oracle objectif) — essai borné que le journal continue de
 mesurer (`bras`, `topologie`, `tache_id`).
 
-À l'étape 1, l'orchestrateur **propose le mode en une ligne avec sa raison** : neuronal pour
+À l'étape 1, l'orchestrateur **propose le mode en une ligne avec sa raison** : comité pour
 diagnostiquer un finding ouvert, établir qu'un correctif est « déjà fait », auditer, trier des
 findings en lot ; classique pour implémenter, une tâche mécanique, un changement à risque
 (écriture seule, vérificateur obligatoire), une action irréversible. Une demande qui commence
-par `neuronal :` ou `classique :` **force** le mode, sans proposition. Un run neuronal est de
+par `comité :` ou `classique :` **force** le mode, sans proposition. Un run comité est de
 la redondance, jamais `forme_tache: decomposable` au journal. Table complète, ce que les mesures
 justifient, valeurs de journal acceptées, indicateurs : [modes](references/modes.md).
 
@@ -162,7 +162,7 @@ d'intention. Détail, incidents datés et mesures : [multi-agents-briefs](refere
   part de `origin/main`, pas de main local) — JAMAIS deux rédacteurs sur les mêmes fichiers, sinon sérialiser. Après chaque
   sortie qui écrit, un vérificateur à contexte vierge la relit : **OBLIGATOIRE** pour un
   changement à risque (sécurité, garde/hook, canon/kit, registre, tout ce qui se propage à
-  la flotte), optionnel sinon. Mesure (test en cascade antérieur, test neuronal du
+  la flotte), optionnel sinon. Mesure (test en cascade antérieur, test comité du
   2026-10-03) : le vérificateur a attrapé une fausse preuve (1/5) et une régression ;
   il double la durée. Indicateur : défauts trouvés en aval par run.
 - **Vérifier sur disque** : un fichier de résultat annoncé par un agent n'existe qu'une fois
@@ -356,11 +356,11 @@ encore, le compte rendu porte « DÉSACCORD DOCUMENTÉ » et l'UTILISATEUR tranc
 `verifier_partition.py` AVANT de lancer les rédacteurs (un fichier = un propriétaire).
 Détail et indicateurs : [salles](references/salles.md).
 
-**Mode de salle : classique, neuronale ou neuronale augmentée.** Défaut = classique (le protocole ci-dessus). La
-neuronale (bras = voix, preuve rejouable sinon poids 0, escalade, 7 agents max) est PROPOSÉE sur
-désaccord documenté ou décision irréversible/flotte ; la neuronale augmentée (`neuronale-augmentee`) y ajoute un
-tableau commun en ajout seul, mode à mesurer ; forçage « salle classique : » / « salle neuronale : » / « salle
-neuronale augmentée : ». Journal : champ `mode_salle`. Protocole et mesure : [salles](references/salles.md).
+**Mode de salle : classique, comité ou comité augmenté.** Défaut = classique (le protocole ci-dessus). Le
+comité (bras = voix, preuve rejouable sinon poids 0, escalade, 7 agents max) est PROPOSÉ sur
+désaccord documenté ou décision irréversible/flotte ; le comité augmenté (`comite-augmente`) y ajoute un
+tableau commun en ajout seul, mode à mesurer ; forçage « salle classique : » / « salle comité : » / « salle
+comité augmenté : ». Journal : champ `mode_salle`. Protocole et mesure : [salles](references/salles.md).
 
 **Après la salle** : le compte rendu est une entrée du plan ; la recette de la salle est
 bloquante (non jouée = `partiel`). Restitution : la décision d'abord, avec les cases
