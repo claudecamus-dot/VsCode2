@@ -1032,3 +1032,47 @@ def test_lancer_le_tour_de_table_depuis_la_fiche(
         assert statut == "echec", f"le clic n'a pas lancé la structuration (statut {statut})"
         nav.naviguer(f"{base}/interviews/{iid}")
         assert "Relancer" in nav.texte()
+
+
+_SEED_RETRANSCRIRE = r"""
+from app.db import SessionLocal, init_db
+from app.models import Interview, Mission
+init_db()
+db = SessionLocal()
+m = Mission(name="E2E retranscrire")
+db.add(m); db.flush()
+i = Interview(mission_id=m.id, mode="libre", status="done", interviewee_name="Témoin",
+              raw_transcript="Bonjour.", audio_segments=[{"filename": "x.webm", "position": 0}])
+db.add(i); db.commit()
+print(m.id, i.id)
+"""
+
+_COMPTER_JOBS_AUDIO = r"""
+import sys
+from app.db import SessionLocal
+from app.models import AudioFileJob
+print(SessionLocal().query(AudioFileJob).filter(AudioFileJob.interview_id == int(sys.argv[1])).count())
+"""
+
+
+def test_relancer_la_transcription_audio_depuis_la_fiche(
+    tmp_path_factory: pytest.TempPathFactory, nav: Navigateur
+) -> None:
+    """P5 : clic réel sur « Relancer la transcription (audio) » (formaction
+    POST /interviews/{id}/retranscrire) : pas de 403 / « Origine non autorisée »
+    et exactement un AudioFileJob créé en base (c'est le discriminant : l'URL
+    finale est la même que celle du POST, même pour une redirection d'erreur).
+    La fin du job (fichier bidon) n'est pas attendue."""
+    dossier = tmp_path_factory.mktemp("e2e-retrans")
+    base_db = dossier / "e2e.db"
+    iid = _python_sur_base(base_db, _SEED_RETRANSCRIRE).split()[1]
+    (dossier / "recordings").mkdir(exist_ok=True)
+    (dossier / "recordings" / "x.webm").write_bytes(b"pas-du-vrai-audio")
+    with serveur_uvicorn(dossier, OLLAMA_HOST="http://127.0.0.1:9") as base:
+        nav.naviguer(f"{base}/interviews/{iid}")
+        _sans_erreur(nav, "Ouvrir la fiche")
+        sel = f"button[formaction='/interviews/{iid}/retranscrire']"
+        assert nav.evaluer(f"!!document.querySelector({sel!r})"), "bouton Relancer absent"
+        nav.cliquer_et_attendre(sel)
+        _sans_erreur(nav, "Relancer la transcription")
+        assert _python_sur_base(base_db, _COMPTER_JOBS_AUDIO, iid) == "1"

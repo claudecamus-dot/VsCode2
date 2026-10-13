@@ -1,3 +1,5 @@
+# TOUR-DE-TABLE-COUPE-TEMPORAIRE : ce fichier teste des ABSENCES à l'écran (tour de table,
+# aperçu). À inverser ou supprimer à la réactivation du tour de table.
 """Page d'un entretien libre : seule la TRANSCRIPTION est montrée (2026-10-08).
 
 TEMPORAIRE — marqueur `TOUR-DE-TABLE-COUPE-TEMPORAIRE` dans libre_detail.html. À supprimer

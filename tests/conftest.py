@@ -494,3 +494,86 @@ try:
     _TestClient.__init__ = _testclient_init_with_origin
 except Exception:  # pragma: no cover - garde-fou si l'API TestClient change
     pass
+
+
+# --------------------------------------------------------------------------- #
+# OLLAMA-COUPE-TEMPORAIRE (2026-10-13) : tant que `_call_ollama_once` est coupé
+# (ai_common.py, demande utilisateur du 2026-10-08), 15 tests nommés rougissent
+# uniquement à cause de la coupe. On les SKIP, par node-id en dur, et seulement
+# si la coupe est OBSERVABLEMENT active (appel réel, urlopen patché : aucun
+# réseau). Coupe levée => aucun skip, les 15 tests se réveillent seuls.
+# RÉACTIVATION : à la levée de la coupe (marqueurs `OLLAMA-COUPE-TEMPORAIRE` dans
+# app/services/ai_common.py et `TOUR-DE-TABLE-COUPE-TEMPORAIRE` dans
+# libre_detail.html), les skips se réveillent seuls. Supprimer ensuite ce bloc,
+# la liste, le hook, puis inverser tests/test_libre_detail_transcription_seule.py.
+# --------------------------------------------------------------------------- #
+_TESTS_COUPES_OLLAMA = frozenset({
+    ("test_ai_common.py", "test_call_ollama_payload_includes_num_ctx"),
+    ("test_ai_common.py", "test_call_ollama_payload_includes_keep_alive"),
+    ("test_ai_common.py", "test_warm_up_ollama_sends_empty_messages_to_preload"),
+    ("test_ai_common.py", "test_warm_up_ollama_propagates_errors_to_caller"),
+    ("test_ai_common.py", "test_call_ollama_retries_once_on_timeout_then_succeeds"),
+    ("test_ai_common.py", "test_call_ollama_gives_up_after_second_timeout"),
+    ("test_ai_common.py", "test_call_ollama_connection_refused_is_not_retried"),
+    ("test_ai_common.py", "test_call_ai_json_propage_le_drapeau_timeout"),
+    ("test_interview_segment_jobs.py", "test_record_libre_enregistre_malgre_une_tranche_en_echec"),
+    ("test_structurer_entretien.py", "test_route_structurer_refuse_un_entretien_deja_structure_et_le_dit"),
+    ("test_structurer_entretien.py", "test_un_seul_appel_ollama_a_la_fois"),
+    ("test_structurer_entretien.py", "test_fiche_libre_affiche_badge_et_bouton"),
+    ("test_structurer_entretien.py", "test_fiche_libre_structuree_sans_sondage"),
+    ("test_structurer_entretien.py", "test_verrou_ollama_attente_bornee"),
+    ("test_e2e_premiers_clics.py", "test_lancer_le_tour_de_table_depuis_la_fiche"),
+})
+_COUPE_OLLAMA_ACTIVE: bool | None = None  # cache : évalué une seule fois
+
+
+def _coupe_ollama_active() -> bool:
+    """True si `_call_ollama_once` lève l'AIError « désactivé temporairement »."""
+    global _COUPE_OLLAMA_ACTIVE
+    if _COUPE_OLLAMA_ACTIVE is None:
+        from unittest import mock
+
+        class _Sentinelle(Exception):
+            pass
+
+        from app.services import ai_common
+
+        try:
+            with mock.patch("urllib.request.urlopen", side_effect=_Sentinelle):
+                ai_common._call_ollama_once(b"{}", "x")
+            _COUPE_OLLAMA_ACTIVE = False
+        except _Sentinelle:
+            _COUPE_OLLAMA_ACTIVE = False
+        except ai_common.AIError as exc:
+            _COUPE_OLLAMA_ACTIVE = "désactivé temporairement" in str(exc)
+        except Exception:
+            _COUPE_OLLAMA_ACTIVE = False  # dans le doute : pas de skip
+    return _COUPE_OLLAMA_ACTIVE
+
+
+def pytest_collection_modifyitems(config, items):
+    cibles = [
+        it for it in items
+        if (os.path.basename(str(it.fspath)), it.name) in _TESTS_COUPES_OLLAMA
+    ]
+    if cibles and _coupe_ollama_active():
+        # Garde : une entrée dont le fichier est collecté mais dont le nom ne
+        # l'est pas (test renommé) ne doit pas sortir de la liste en silence.
+        fichiers = {os.path.basename(str(it.fspath)) for it in items}
+        noms = {(os.path.basename(str(it.fspath)), it.name) for it in items}
+        manquantes = sorted(
+            e for e in _TESTS_COUPES_OLLAMA if e[0] in fichiers and e not in noms
+        )
+        # Pas de garde quand la sélection (node-id `::`) filtre déjà la collecte.
+        args = getattr(config, "args", None) or []
+        if manquantes and not any("::" in str(a) for a in args):
+            raise pytest.UsageError(
+                "_TESTS_COUPES_OLLAMA : entrées introuvables (test renommé ?) : "
+                + ", ".join(f"{f}::{n}" for f, n in manquantes)
+            )
+        marque = pytest.mark.skip(
+            reason="OLLAMA-COUPE-TEMPORAIRE : appels Ollama coupés dans ai_common.py "
+                   "(se réveille seul à la réactivation)"
+        )
+        for it in cibles:
+            it.add_marker(marque)

@@ -28,6 +28,7 @@ au lieu d'un unique appel synchrone sur la transcription complète à l'arrêt.
 from __future__ import annotations
 
 import logging
+import math
 import os
 import time
 from datetime import UTC, datetime, timedelta
@@ -114,23 +115,43 @@ def segment_job_stale_after_s() -> int:
     return 45 * 60
 
 
+# Plafonds des réglages d'environnement de reprise (arbitrage utilisateur
+# 2026-10-13) : `SEGMENT_JOB_RETRY_DELAY_S="inf"` faisait lever OverflowError à
+# `time.sleep` (hors `_EXTRACT_ERRORS`, le job restait `running`) et
+# `SEGMENT_JOB_RETRIES=1000000000` n'était pas borné.
+_RETRIES_DEFAUT = 2
+_RETRIES_MAX = 4
+_RETRY_DELAY_DEFAUT_S = 30.0
+_RETRY_DELAY_MAX_S = 60.0
+
+
 def segment_job_retries() -> int:
     """Nombre de nouveaux essais d'une tranche après une panne TRANSITOIRE
     (timeout Ollama, verrou occupé : modèle froid, file derrière un autre
-    appel). `SEGMENT_JOB_RETRIES` (défaut 2, 0 = ancien comportement)."""
+    appel). `SEGMENT_JOB_RETRIES` (défaut 2, 0 = ancien comportement), plafonné
+    à 4 ; une valeur invalide (non entière) retombe sur le défaut."""
+    raw = os.environ.get("SEGMENT_JOB_RETRIES", str(_RETRIES_DEFAUT))
     try:
-        return max(0, int(os.environ.get("SEGMENT_JOB_RETRIES", "2")))
+        n = int(raw)
     except ValueError:
-        return 2
+        return _RETRIES_DEFAUT
+    return min(_RETRIES_MAX, max(0, n))
 
 
 def segment_job_retry_delay_s() -> float:
     """Attente avant le n-ième nouvel essai : n × ce délai (défaut 30 s) — le
-    temps de laisser Ollama finir de charger le modèle."""
+    temps de laisser Ollama finir de charger le modèle. Le délai de BASE est
+    plafonné à 60 s (jamais le produit n × délai) ; une valeur invalide ou non
+    finie (`inf`, `nan`, `1e400`) retombe sur le défaut, car `time.sleep(inf)`
+    lève OverflowError."""
+    raw = os.environ.get("SEGMENT_JOB_RETRY_DELAY_S", str(_RETRY_DELAY_DEFAUT_S))
     try:
-        return max(0.0, float(os.environ.get("SEGMENT_JOB_RETRY_DELAY_S", "30")))
+        d = float(raw)
     except ValueError:
-        return 30.0
+        return _RETRY_DELAY_DEFAUT_S
+    if not math.isfinite(d):
+        return _RETRY_DELAY_DEFAUT_S
+    return min(_RETRY_DELAY_MAX_S, max(0.0, d))
 
 
 def _attendre(secondes: float) -> None:
