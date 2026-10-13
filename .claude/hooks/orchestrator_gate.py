@@ -55,7 +55,7 @@ JOURNAL = os.environ.get("AGENT_ORCHESTRATION_PROMPTS") or os.path.join(
     os.path.dirname(_HOOKS_DIR), "orchestration", "prompts.jsonl")
 
 
-def journaliser(prompt: str, slash: bool) -> None:
+def journaliser(prompt: str, slash: bool, session_id=None) -> None:
     """Une ligne par prompt vu. Fail-open intégral : un journal qui ne peut pas
     s'écrire ne doit jamais coûter une demande à l'utilisateur."""
     try:
@@ -65,6 +65,10 @@ def journaliser(prompt: str, slash: bool) -> None:
             "slash": slash,
             "n_car": len(prompt),
         }
+        # Phase 0 (2026-10-11) : la session relie le prompt au cout (usage.jsonl) que
+        # `log_run.py` rejoint tout seul. Un identifiant, jamais le texte du prompt.
+        if isinstance(session_id, str) and session_id.strip():
+            ligne["session_id"] = session_id.strip()
         with open(JOURNAL, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(ligne, ensure_ascii=False) + "\n")
     except OSError as exc:
@@ -150,7 +154,7 @@ def main() -> int:
     slash = brut.lstrip().startswith("/")
     # `n_car` mesure le prompt BRUT, pas la version lstrip()ée qui servait à détecter
     # « /» : un espace de tête n'est pas une micro-tâche plus petite (revue 2026-09-02).
-    journaliser(brut, slash)
+    journaliser(brut, slash, data.get("session_id"))
     if slash:
         return 0
     print(GRID)

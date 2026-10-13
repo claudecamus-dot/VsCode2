@@ -1,0 +1,7 @@
+{
+  "etalonne": false,
+  "police_min_pt": 10,
+  "caracteres_max_slide": 900,
+  "tailles_max_slide": 6,
+  "ratio_image_tolerance": 0.05
+}

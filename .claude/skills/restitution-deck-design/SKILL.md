@@ -41,6 +41,12 @@ bullets > captions/labels. If two elements compete for primary weight
 (two equally-sized bold headlines, two equally saturated colors), the eye
 doesn't know where to start and the slide reads as flat.
 
+- **One message per slide, and the title states it.** The title is an assertion the
+  audience can repeat ("3 populations sur 8 sont insatisfaites"), not a label
+  ("Synthèse globale"). A slide whose message needs two sentences is two slides.
+- **The title lives in the layout's title placeholder**, never in a free text box: without
+  it the deck has no navigable outline and accessibility tools read nothing. `forme_check.py`
+  (pptx-verify) flags `TITRE_NON_PLACEHOLDER`; measured on 37 real decks, 13 % of slides had none.
 - Pick the ONE fact each slide exists to convey. Size and color it to win.
   Everything else on the slide should be visually quieter (smaller,
   `MUTED`/`INK` not saturated color, thinner weight).

@@ -28,6 +28,10 @@ Two layers: **principles** to rewrite by, and a **linter** to catch regressions.
 8. **No cryptic abbreviations in client deliverables** — write "écart-type", not
    "é-t".
 9. **≤ 6 bullets per slide.** More means it's two slides.
+10. **One message per slide, title in the title placeholder.** The claim of principle 1
+    must sit in the layout's title placeholder, not in a free text box (otherwise the deck has
+    no outline). `pptx-verify/scripts/forme_check.py` flags it (`TITRE_NON_PLACEHOLDER`) and
+    flags walls of text (`MUR_DE_TEXTE`); its thresholds are provisional, see that script.
 
 ## Linter
 

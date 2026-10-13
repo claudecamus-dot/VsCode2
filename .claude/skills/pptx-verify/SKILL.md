@@ -40,6 +40,39 @@ bytes (no PDF-reading dependency) and assert it equals the exported slide count 
 this catches a `.pptx` that python-pptx parses without error but that no engine
 would actually open cleanly (repris de VSCode1/export/ppt-toolkit.md §6, 2026-09-02).
 
+## Step 1bis — Form check (warning only, 0 token)
+
+```bash
+py .claude/skills/pptx-verify/scripts/forme_check.py deck.pptx          # warns, exit 0
+py .claude/skills/pptx-verify/scripts/forme_check.py deck.pptx --strict # exit 1 if any warning
+```
+
+Warns on shapes off the slide, stretched or alt-less images, a title that is not a title
+placeholder, empty slides and work-in-progress marks ("à valider", "V0", TODO). Also warns on
+**residual template content** (`GABARIT_RESIDUEL`: "JJ.MM.26", "NOM DU CLIENT", "(calculé)", "- WIP" at the
+end of a line, "à définir", "TBD", template instructions; `PLACEHOLDER_VIDE`: an unfilled placeholder and
+nothing else on the slide besides its title; `CORPS_VIDE`: nothing but the title, no image, table, chart or
+drawn schema; `TITRE_DOUBLON`; `SUITE_EN_TITRE`). The title text never counts as body, so deleting the empty
+placeholder does not silence the slide. A section/cover layout, a divider whose body is a number, and the
+titles "Annexe", "Merci", "Questions", "Sommaire", "Agenda" are exempt. Those are the dominant defects of 2
+of the 3 weak decks reviewed on 2026-10-13 (Pitch: 12 of 16 slides flagged; Offre: 11 of 32 before
+tightening, 8 after), invisible to the density measures because the template's shapes exist. A committee of
+4 voices checked the first version against the rendered slides: 3 false alarms on Offre (9, 16, 21: text
+visible, an invisible second placeholder) and several false blocks led to the tightening above; all new
+codes stay WARNINGS, never a hard export gate. Known gaps: intermediate dividers all numbered "01"; internal
+notes in the deliverable (Offre 30); a template frame holding only an image (Pitch 11); composition defects
+(label-only titles, card walls, meaningless colour, off-topic separator images, which are most of what
+makes the "dispositif" deck weak): those stay on the rendered review. Small explicit
+fonts, walls of text, too many font sizes and missing speaker notes are reported as information
+only: on 3 decks the user judged (2 good, 1 weak), these measures ran backwards (the good decks
+were denser, with smaller fonts) and separate nothing. It does **not** see contrast, alignment or
+composition, and it reads explicit font sizes only (sizes inherited from the template are
+ignored): a deck with zero warnings can still be unreadable. **Never report a deck as good from
+this check; Step 2 stays mandatory.** Thresholds live in `scripts/forme_check_seuils.json`; while
+`etalonne` is `false` they are provisional starting values, not a quality bar. Calibration
+results and the rule they led to: `docs/redaction/etalonnage-forme-decks.md` (hub-only note).
+Never use `--strict` as a quality gate.
+
 ## Step 2 — Render to images (the part that actually shows the design)
 
 **Windows + PowerPoint (preferred here):**
@@ -129,6 +162,10 @@ Render a slide at high res first (e.g. `-Width 2560 -Height 1440`) so crops are 
 Always crop the bottom-right corner (page-number badge) and any number-beside-a-bar.
 
 ## Step 5 — Report honestly
+
+**Leave a trace of the looking**: list the PNG paths you actually opened (for a run
+journalled with `log_run.py`, put them in `notes` as `rendus: <chemins>`). A render nobody
+opened is not a verification.
 
 State which slides you actually rendered and looked at, list concrete defects with the
 slide number (and a crop if subtle), and fix → re-render → re-check. If you could not
