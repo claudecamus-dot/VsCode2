@@ -82,6 +82,10 @@ class AIError(RuntimeError):
     l'appelant, une hiérarchie de types ne survivrait pas à ce transfert."""
 
     timeout = False
+    # Panne qu'un simple nouvel essai plus tard peut réparer (modèle froid,
+    # verrou Ollama occupé) — distincte de `timeout`, qui déclenche le
+    # REDÉCOUPAGE du tronçon : un verrou occupé ne se répare pas en redécoupant.
+    transitoire = False
 
 
 def _openai():
@@ -458,6 +462,7 @@ def _call_mistral(system: str, prompt: str, schema: dict, json_hint: str, model:
 def _timeout_error(message: str) -> AIError:
     exc = AIError(message)
     exc.timeout = True
+    exc.transitoire = True
     return exc
 
 
@@ -496,24 +501,37 @@ def ollama_num_thread() -> int | None:
 
 
 def _call_ollama_once(payload: bytes, model: str) -> dict:
-    req = urllib.request.Request(
-        f"{ollama_host()}/api/chat",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
+    # OLLAMA-COUPE-TEMPORAIRE (2026-10-08, demande utilisateur : « pour l'instant
+    # on ne fait que la transcription ») — l'appel réseau vers Ollama est MIS EN
+    # COMMENTAIRE ci-dessous. Tous les appelants (tours de table, structuration,
+    # analyses, synthèses) reçoivent cette AIError au lieu de tenter une connexion.
+    # Pour réactiver : supprimer le `raise` et décommenter le bloc d'origine.
+    # Ne PAS committer en l'état : marqueur grep `OLLAMA-COUPE-TEMPORAIRE`.
+    raise AIError(
+        "Ollama est désactivé temporairement (appels mis en commentaire dans "
+        "ai_common.py) — seule la transcription est active."
     )
-    # Attente BORNÉE du verrou (revue 2026-10-06, F1) : derrière une génération
-    # bloquée, une attente sans fin figeait l'appelant pour toujours.
-    if not _OLLAMA_UN_A_LA_FOIS.acquire(timeout=ollama_verrou_timeout()):
-        raise AIError(
-            "Ollama est occupé par une autre génération depuis trop longtemps — "
-            "réessaie dans quelques minutes (OLLAMA_VERROU_TIMEOUT)."
-        )
-    try:
-        with urllib.request.urlopen(req, timeout=ollama_timeout()) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    finally:
-        _OLLAMA_UN_A_LA_FOIS.release()
+    # --- code d'origine ---
+    # req = urllib.request.Request(
+    #     f"{ollama_host()}/api/chat",
+    #     data=payload,
+    #     headers={"Content-Type": "application/json"},
+    #     method="POST",
+    # )
+    # # Attente BORNÉE du verrou (revue 2026-10-06, F1) : derrière une génération
+    # # bloquée, une attente sans fin figeait l'appelant pour toujours.
+    # if not _OLLAMA_UN_A_LA_FOIS.acquire(timeout=ollama_verrou_timeout()):
+    #     occupe = AIError(
+    #         "Ollama est occupé par une autre génération depuis trop longtemps — "
+    #         "réessaie dans quelques minutes (OLLAMA_VERROU_TIMEOUT)."
+    #     )
+    #     occupe.transitoire = True
+    #     raise occupe
+    # try:
+    #     with urllib.request.urlopen(req, timeout=ollama_timeout()) as resp:
+    #         return json.loads(resp.read().decode("utf-8"))
+    # finally:
+    #     _OLLAMA_UN_A_LA_FOIS.release()
 
 
 def ollama_verrou_timeout() -> float:
@@ -623,6 +641,7 @@ def call_ai_json(
         # panne qu'un redécoupage ne réparerait pas.
         wrapped = error_cls(str(exc))
         wrapped.timeout = exc.timeout
+        wrapped.transitoire = exc.transitoire
         raise wrapped from exc
     except Exception as exc:  # garde-fou : jamais de 500 brute sur un appel IA
         raise error_cls(_friendly(exc)) from exc
@@ -652,14 +671,20 @@ def warm_up_ollama() -> None:
         return
     if active_provider() != "ollama":
         return
-    payload = json.dumps({
-        "model": active_model(), "messages": [], "keep_alive": ollama_keep_alive(),
-    }).encode("utf-8")
-    req = urllib.request.Request(
-        f"{ollama_host()}/api/chat",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    with urllib.request.urlopen(req, timeout=ollama_timeout()):
-        pass
+    # OLLAMA-COUPE-TEMPORAIRE (2026-10-08) : le préchauffage réseau est MIS EN
+    # COMMENTAIRE (aucune connexion à Ollama au démarrage du site). Pour réactiver :
+    # supprimer le `return` et décommenter le bloc d'origine. Ne PAS committer en
+    # l'état.
+    return
+    # --- code d'origine ---
+    # payload = json.dumps({
+    #     "model": active_model(), "messages": [], "keep_alive": ollama_keep_alive(),
+    # }).encode("utf-8")
+    # req = urllib.request.Request(
+    #     f"{ollama_host()}/api/chat",
+    #     data=payload,
+    #     headers={"Content-Type": "application/json"},
+    #     method="POST",
+    # )
+    # with urllib.request.urlopen(req, timeout=ollama_timeout()):
+    #     pass

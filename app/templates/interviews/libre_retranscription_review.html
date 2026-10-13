@@ -60,19 +60,46 @@
     <h2>Tour de table (questions &amp; réponses)</h2>
     <p class="muted">
       {{ turns | length }} tour(s) proposé(s), contre {{ nb_tours_actuels }} actuellement.
-      Survole un tour pour compléter ce qui manque (titre de section, question, réponse).
+      Lecture seule ici (comme la transcription) : copie le texte ou télécharge-le en
+      .md ; les tours se corrigent après enregistrement.
     </p>
-    <div class="turns-list">
+    {# Les 4 champs de chaque tour restent POSTÉS en champs cachés : le serveur
+       les lit en listes parallèles (`_parse_turns_from_form`) et l'export PDF
+       aussi. Seul l'affichage devient une zone de texte unique. #}
     {% for turn in turns %}
-    {% set turn_index = loop.index %}
-    {% set with_id = false %}
-    {% set same_speaker = (not loop.first)
-           and (turn.interlocuteur or '') | trim
-           and (turn.interlocuteur or '') | trim | lower
-               == (loop.previtem.interlocuteur or '') | trim | lower %}
-    {% include "interviews/_turn_block.html" %}
+    <input type="hidden" name="turn_section_title" value="{{ turn.section_title or '' }}">
+    <input type="hidden" name="turn_interlocuteur" value="{{ turn.interlocuteur or '' }}">
+    <input type="hidden" name="turn_question" value="{{ turn.question or '' }}">
+    <input type="hidden" name="turn_remarque" value="{{ turn.remarque or '' }}">
     {% endfor %}
-    </div>
+    <textarea id="turns-readonly" class="record-transcript" rows="18" readonly
+              aria-label="Tour de table proposé (lecture seule)">{% for turn in turns %}{% if turn.section_title %}{% if not loop.first %}
+
+{% endif %}## {{ turn.section_title }}
+
+{% elif not loop.first %}
+
+{% endif %}{% if turn.interlocuteur %}**{{ turn.interlocuteur }}**{% if turn.question %} — {{ turn.question }}{% endif %}{% if turn.remarque %}
+{{ turn.remarque }}{% endif %}{% else %}{{ turn.question or '' }}{% if turn.remarque %}{% if turn.question %}
+{% endif %}{{ turn.remarque }}{% endif %}{% endif %}{% endfor %}</textarea>
+    <p><button class="btn" type="button" id="turns-export-md">Télécharger le tour de table (.md)</button></p>
+    <script>
+    (function () {
+      var btn = document.getElementById('turns-export-md');
+      var ta = document.getElementById('turns-readonly');
+      if (!btn || !ta) return;
+      btn.addEventListener('click', function () {
+        var blob = new Blob([ta.value + '\n'], {type: 'text/markdown;charset=utf-8'});
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'tour-de-table.md';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+      });
+    })();
+    </script>
   </section>
 
   <div class="form-actions">
@@ -90,8 +117,4 @@
   </div>
 </form>
 
-{# Liens « + … » des champs masqués et report du nom d'interlocuteur sur un
-   groupe de tours consécutifs — même comportement que les autres écrans qui
-   incluent `_turn_block.html`. #}
-{% include "interviews/_turns_script.html" %}
 {% endblock %}

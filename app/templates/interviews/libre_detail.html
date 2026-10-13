@@ -16,7 +16,7 @@
        l'onglet actif. Les téléchargements spécifiques (transcription seule,
        tour de table) vivent dans leur onglet respectif. #}
     <a class="btn" href="/missions/{{ mission.id }}">← Mission</a>
-    <button class="btn btn-primary" type="submit" form="libre-detail-form">Enregistrer les modifications</button>
+    {% if false %}{# TOUR-DE-TABLE-COUPE-TEMPORAIRE #}<button class="btn btn-primary" type="submit" form="libre-detail-form">Enregistrer les modifications</button>{% endif %}
     <a class="btn" href="/interviews/{{ interview.id }}/export/markdown">Télécharger (.md)</a>
     <a class="btn" href="/interviews/{{ interview.id }}/export/pdf">Télécharger (PDF)</a>
     <form method="post" action="/interviews/{{ interview.id }}/delete"
@@ -37,6 +37,12 @@
    tours. « Relancer la transcription » repart de l'audio conservé. #}
 {# Structuration différée (2026-10-06) : badge + « Structurer maintenant » /
    « Relancer », hors du formulaire d'édition (pas de formulaire imbriqué). #}
+{# TOUR-DE-TABLE-COUPE-TEMPORAIRE (2026-10-08, demande utilisateur : « dans l'entretien libre on ne
+   conserve que le format transcription ; tour de table et aperçu en commentaire pour
+   l'instant »). Bloc neutralisé par un bloc conditionnel toujours faux (un commentaire Jinja ne peut pas
+   contenir d'autres commentaires). Pour réactiver : retirer les balises conditionnelles
+   marquées. Ne PAS committer en l'état. #}
+{% if false %}
 {% include "interviews/_structuration_statut.html" %}
 
 {% if ident_date_invalide %}
@@ -51,6 +57,7 @@
   Utilise « ↻ Relancer la transcription (audio) » ci-dessous pour les rattraper.
 </p>
 {% endif %}
+{% endif %}{# fin TOUR-DE-TABLE-COUPE-TEMPORAIRE #}
 
 {% if interview.audio_segments %}
 {# Toutes les tranches sont listées et écoutables individuellement — avant
@@ -87,11 +94,22 @@
 {% endif %}
 
 <form method="post" action="/interviews/{{ interview.id }}/libre" class="card form" id="libre-detail-form">
+  {# TOUR-DE-TABLE-COUPE-TEMPORAIRE : `save_libre_detail` (interviews_saisie.py) remet l'identité à « Sans nom »
+     et efface le résumé quand leurs champs sont ABSENTS du POST — or ils vivaient dans l'onglet
+     Tour de table, maintenant neutralisé. Ces champs cachés les re-postent à l'identique : un
+     enregistrement ne peut plus les effacer. #}
+  <input type="hidden" name="interviewee_name" value="{{ interview.interviewee_name }}">
+  <input type="hidden" name="interviewee_role" value="{{ interview.interviewee_role or '' }}">
+  <input type="hidden" name="interviewee_entity" value="{{ interview.interviewee_entity or '' }}">
+  <input type="hidden" name="interview_date" value="{{ interview.interview_date.strftime('%Y-%m-%d') if interview.interview_date else '' }}">
+  <input type="hidden" name="resume" value="{{ interview.resume or '' }}">
+  {% if false %}{# TOUR-DE-TABLE-COUPE-TEMPORAIRE : onglets #}
   <div class="rec-tabs" role="tablist">
     <button type="button" role="tab" aria-selected="true" class="rec-tab active" data-turntab="transcription">Transcription</button>
     <button type="button" role="tab" aria-selected="false" class="rec-tab" data-turntab="tours">Tour de table</button>
     <button type="button" role="tab" aria-selected="false" class="rec-tab" data-turntab="apercu">Aperçu</button>
   </div>
+  {% endif %}
 
   {# Les panneaux inactifs sont seulement `hidden` : leurs champs restent dans
      le DOM et POSTÉS — « Enregistrer » (en tête, hors onglets) sauve donc les
@@ -130,6 +148,7 @@
     </section>
   </div>
 
+  {% if false %}{# TOUR-DE-TABLE-COUPE-TEMPORAIRE : panneaux Tour de table et Aperçu #}
   <div id="turntab-tours" class="rec-tab-panel" hidden>
     <section class="card">
       {# Identité éditable ici depuis le 2026-07-27 (demande utilisateur) :
@@ -228,15 +247,16 @@
       </p>
     </article>
   </div>
+  {% endif %}{# fin TOUR-DE-TABLE-COUPE-TEMPORAIRE #}
 
   {# Bouton d'enregistrement HORS onglets (demande utilisateur 2026-07-27) —
      doublé en tête d'écran, toujours visible. #}
   <div class="form-actions">
     <a class="btn" href="/missions/{{ mission.id }}">Retour à la mission</a>
-    <button class="btn btn-primary" type="submit">Enregistrer les modifications</button>
+    {% if false %}{# TOUR-DE-TABLE-COUPE-TEMPORAIRE #}<button class="btn btn-primary" type="submit">Enregistrer les modifications</button>{% endif %}
   </div>
 </form>
-{% include "interviews/_turns_script.html" %}
+{% if false %}{# TOUR-DE-TABLE-COUPE-TEMPORAIRE #}{% include "interviews/_turns_script.html" %}{% endif %}
 <script>
 (function () {
   // Navigation entre les onglets Transcription / Tour de table / Aperçu —

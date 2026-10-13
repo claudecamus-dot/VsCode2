@@ -1240,3 +1240,23 @@ def test_la_relance_est_protegee_du_double_clic(client, monkeypatch):
         templates.env, "interviews/libre_retranscription.html"
     )[0]
     assert 'id="retr-relancer-form" data-busy-label=' in source
+
+
+def test_ecran_de_revue_affiche_le_tour_de_table_en_une_zone_lecture_seule(client, monkeypatch):
+    """Le tour de table proposé se lit dans UNE zone de texte en lecture seule
+    (copier-coller, export .md) et non en une textarea par échange ; les tours
+    restent postés en champs cachés pour la confirmation et le PDF."""
+    ctx = _entretien_avec_tranches(nb_tranches=1)
+    monkeypatch.setattr(
+        audio_transcribe, "iter_transcribe_blocks", _fake_blocks("Nouveau bloc.")
+    )
+    _patch_extract(monkeypatch)
+    client.post(f"/interviews/{ctx['interview_id']}/retranscrire", follow_redirects=False)
+
+    html = client.post(f"/interviews/{ctx['interview_id']}/retranscrire/appliquer").text
+
+    assert 'id="turns-readonly"' in html
+    assert "**Alice**" in html and "Tour de : Nouveau bloc." in html
+    assert "turns-export-md" in html
+    assert 'type="hidden" name="turn_remarque" value="Tour de : Nouveau bloc."' in html
+    assert 'class="turn-textarea"' not in html

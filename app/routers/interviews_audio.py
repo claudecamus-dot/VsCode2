@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from ..db import RECORDINGS_DIR, get_session
 from ..models import AudioFileJob, Mission
-from ..services import audio_transcribe, mission_backups
+from ..services import ai_common, audio_transcribe, mission_backups
 from ..services.audio_file_jobs import (
     is_audio_file_job_stale,
     purge_stale_audio_file_jobs,
@@ -37,7 +37,7 @@ router = APIRouter(tags=["interviews"])
 
 
 @router.post("/audio/transcribe-segment")
-async def transcribe_segment(file: UploadFile = File(...)):
+async def transcribe_segment(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
     """Transcrit un segment audio autonome (utilisé par la rotation de
     segments de record.html) — endpoint sans état, indépendant de toute
     mission/entretien. Même contrat d'erreur `{"error": ...}` que
@@ -92,6 +92,10 @@ async def transcribe_segment(file: UploadFile = File(...)):
             {"error": "Échec inattendu de la transcription de ce segment."},
             status_code=500,
         )
+    # Pendant qu'on enregistre, garde le modèle Ollama chargé : la première
+    # extraction de tranche (5 min plus tard) ne paie plus le démarrage à froid.
+    # Silencieux, et sans effet si le modèle est déjà en mémoire.
+    background_tasks.add_task(ai_common.warm_up_ollama)
     return JSONResponse({"text": text})
 
 

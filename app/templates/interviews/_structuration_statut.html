@@ -46,4 +46,16 @@
     </button>
   </form>
   {% endif %}
+  {# Tranches manquantes sans job à relancer (jobs supprimés, reliquat final en échec) :
+     la seule reprise est la retranscription depuis l'audio. Le bouton vit ICI, dans
+     la carte qui l'annonce — il n'était que dans l'onglet Transcription, hors de vue
+     (constat utilisateur 2026-10-07). Ce fragment est hors du formulaire d'édition :
+     un <form> simple suffit. #}
+  {% if st == 'fait' and interview.tranches_manquantes and not structuration_relancable
+        and (interview.audio_segments or interview.audio_backup_path) %}
+  <form method="post" action="/interviews/{{ interview.id }}/retranscrire">
+    <button class="btn btn-sm" type="submit"
+            onclick="return confirm('Relancer la transcription depuis l’audio enregistré ?\n\nLe traitement peut durer plusieurs minutes. Le contenu déjà enregistré ne sera remplacé qu’après ta validation sur l’écran de revue.');">↻ Relancer la transcription (audio)</button>
+  </form>
+  {% endif %}
 </div>

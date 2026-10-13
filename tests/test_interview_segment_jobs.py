@@ -1084,3 +1084,97 @@ def test_un_commit_rate_ne_laisse_pas_la_tranche_bloquee_en_running(
     )
     assert "RuntimeError" in (refreshed.error or "")
     db.close()
+
+
+# --------------------------------------------------------------------------- #
+# Nouvel essai sur panne TRANSITOIRE (modèle froid / verrou Ollama occupé)
+# --------------------------------------------------------------------------- #
+def _erreur_ia(transitoire: bool):
+    exc = interview_segment_jobs.InterviewLibreExtractAIError("Ollama n'a pas répondu")
+    exc.transitoire = transitoire
+    return exc
+
+
+def _lancer_tranche(token: str) -> int:
+    db = SessionLocal()
+    try:
+        job = InterviewSegmentJob(session_token=token, position=0, status="pending", text="du texte")
+        db.add(job)
+        db.commit()
+        job_id = job.id
+    finally:
+        db.close()
+    interview_segment_jobs.run_segment_job(job_id)
+    return job_id
+
+
+def _statut(job_id: int) -> tuple[str, str | None]:
+    db = SessionLocal()
+    try:
+        job = db.get(InterviewSegmentJob, job_id)
+        return job.status, job.error
+    finally:
+        db.close()
+
+
+def test_panne_transitoire_est_reessayee_puis_la_tranche_aboutit(monkeypatch):
+    """Le modèle froid faisait échouer les tranches en rafale au 1er
+    enregistrement : un timeout transitoire est rejoué avant `failed`."""
+    appels, attentes = [], []
+
+    def _extract(db, job):
+        appels.append(1)
+        if len(appels) < 3:
+            raise _erreur_ia(True)
+        return _turns_payload("Alice", "Enfin")
+
+    monkeypatch.setattr(interview_segment_jobs, "_extract_for_job", _extract)
+    monkeypatch.setattr(interview_segment_jobs, "_attendre", attentes.append)
+    monkeypatch.setenv("SEGMENT_JOB_RETRIES", "2")
+    monkeypatch.setenv("SEGMENT_JOB_RETRY_DELAY_S", "5")
+
+    job_id = _lancer_tranche("t-retry-ok")
+
+    assert _statut(job_id) == ("done", None)
+    assert len(appels) == 3
+    assert attentes == [5.0, 10.0]
+
+
+def test_panne_transitoire_persistante_finit_failed_apres_les_essais(monkeypatch):
+    appels = []
+
+    def _extract(db, job):
+        appels.append(1)
+        raise _erreur_ia(True)
+
+    monkeypatch.setattr(interview_segment_jobs, "_extract_for_job", _extract)
+    monkeypatch.setattr(interview_segment_jobs, "_attendre", lambda s: None)
+    monkeypatch.setenv("SEGMENT_JOB_RETRIES", "2")
+
+    job_id = _lancer_tranche("t-retry-ko")
+
+    assert _statut(job_id)[0] == "failed"
+    assert len(appels) == 3  # 1 essai + 2 nouveaux, pas davantage
+
+
+def test_panne_permanente_n_est_pas_rejouee(monkeypatch):
+    appels = []
+
+    def _extract(db, job):
+        appels.append(1)
+        raise _erreur_ia(False)
+
+    monkeypatch.setattr(interview_segment_jobs, "_extract_for_job", _extract)
+    monkeypatch.setattr(interview_segment_jobs, "_attendre", lambda s: pytest.fail("attente inutile"))
+
+    job_id = _lancer_tranche("t-retry-permanente")
+
+    assert _statut(job_id)[0] == "failed"
+    assert len(appels) == 1
+
+
+def test_drapeau_transitoire_traverse_le_reemballage_et_couvre_timeout_et_occupe():
+    from app.services import ai_common
+
+    assert ai_common._timeout_error("x").transitoire is True
+    assert ai_common.AIError("autre").transitoire is False

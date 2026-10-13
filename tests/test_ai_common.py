@@ -280,6 +280,7 @@ def test_warm_up_ollama_sends_empty_messages_to_preload(monkeypatch: pytest.Monk
     générer de texte — précisément ce qui manquait pour que le premier appel
     réel de l'utilisateur n'en paie pas le coût (même principe que
     `audio_transcribe.warm_up()` pour Whisper)."""
+    monkeypatch.setenv("OLLAMA_WARM_UP", "1")  # conftest le coupe par défaut
     import json as json_module
 
     captured = {}
@@ -317,6 +318,7 @@ def test_warm_up_ollama_propagates_errors_to_caller(monkeypatch: pytest.MonkeyPa
     (`app.main.lifespan`, comme pour `audio_transcribe.warm_up()`) qui
     encadre l'appel d'un try/except pour ne jamais bloquer le démarrage du
     serveur si Ollama n'est pas encore lancé."""
+    monkeypatch.setenv("OLLAMA_WARM_UP", "1")  # conftest le coupe par défaut
     monkeypatch.setenv("AI_PROVIDER", "ollama")
 
     def fake_urlopen(req, timeout=None):

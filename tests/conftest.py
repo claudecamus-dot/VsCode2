@@ -22,6 +22,8 @@ os.environ.setdefault("APP_DB_PATH", _TEST_DB)
 # Images des têtes de chapitre : jamais de fetch réseau en test (offline,
 # déterministe, rapide) — génération procédurale locale. cf. pptx_export.
 os.environ.setdefault("PPTX_NO_PHOTO_FETCH", "1")
+# Pas de préchauffage Ollama réel pendant les tests (route transcribe-segment).
+os.environ.setdefault("OLLAMA_WARM_UP", "0")
 
 # --------------------------------------------------------------------------- #
 # Authentification (app/auth.py, 2026-09-19) : l'app refuse desormais TOUTE

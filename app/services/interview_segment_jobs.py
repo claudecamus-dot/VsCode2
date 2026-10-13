@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, or_, select, update
@@ -111,6 +112,49 @@ def segment_job_stale_after_s() -> int:
         except ValueError:
             pass
     return 45 * 60
+
+
+def segment_job_retries() -> int:
+    """Nombre de nouveaux essais d'une tranche après une panne TRANSITOIRE
+    (timeout Ollama, verrou occupé : modèle froid, file derrière un autre
+    appel). `SEGMENT_JOB_RETRIES` (défaut 2, 0 = ancien comportement)."""
+    try:
+        return max(0, int(os.environ.get("SEGMENT_JOB_RETRIES", "2")))
+    except ValueError:
+        return 2
+
+
+def segment_job_retry_delay_s() -> float:
+    """Attente avant le n-ième nouvel essai : n × ce délai (défaut 30 s) — le
+    temps de laisser Ollama finir de charger le modèle."""
+    try:
+        return max(0.0, float(os.environ.get("SEGMENT_JOB_RETRY_DELAY_S", "30")))
+    except ValueError:
+        return 30.0
+
+
+def _attendre(secondes: float) -> None:
+    time.sleep(secondes)
+
+
+def _extract_with_retries(db: Session, job: InterviewSegmentJob) -> dict:
+    """`_extract_for_job` avec nouveaux essais bornés sur panne transitoire.
+    Le job reste `running` pendant l'attente (jamais `failed` à tort : la
+    première fois, le modèle froid faisait échouer les tranches en rafale).
+    Toute autre erreur, ou la dernière tentative, remonte telle quelle."""
+    essais = segment_job_retries()
+    for n in range(essais + 1):
+        try:
+            return _extract_for_job(db, job)
+        except _EXTRACT_ERRORS as exc:
+            if n >= essais or not getattr(exc, "transitoire", False):
+                raise
+            logger.warning(
+                "Tranche %s : panne transitoire (%s), nouvel essai %s/%s",
+                job.id, exc, n + 1, essais,
+            )
+            _attendre(segment_job_retry_delay_s() * (n + 1))
+    raise AssertionError("inatteignable")  # pragma: no cover
 
 
 def _is_stale(job: InterviewSegmentJob, now: datetime) -> bool:
@@ -254,7 +298,7 @@ def run_segment_job(job_id: int) -> None:
         # ligne passant `done` (revue adversariale du 2026-09-10, 2e passe, N3).
         texte_extrait = job.text
         try:
-            result = _extract_for_job(db, job)
+            result = _extract_with_retries(db, job)
         except _EXTRACT_ERRORS as exc:
             # Échec, mais SOUS LA MÊME CONDITION que le succès : si le texte a
             # changé pendant l'extraction, cet échec ne concerne plus la ligne.

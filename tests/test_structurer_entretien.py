@@ -1022,3 +1022,27 @@ def test_relance_sans_aucun_tour_n_efface_pas_le_tour_de_table_existant(
         interview = db.get(Interview, interview_id)
         assert interview.structuration_status == "echec"
         assert [t.remarque for t in interview.turns] == ["corrige"]
+
+
+def test_fait_partiel_sans_job_propose_la_retranscription_audio_dans_la_carte(client: TestClient) -> None:
+    """Constat utilisateur 2026-10-07 : le bandeau renvoyait vers un bouton cache
+    dans un autre onglet. Avec de l'audio conserve, la carte porte son propre bouton."""
+    interview_id = _creer_a_traiter(_mission(client), statut="fait", jeton="tok-audio")
+    with SessionLocal() as db:
+        interview = db.get(Interview, interview_id)
+        interview.tranches_manquantes = 4
+        interview.audio_backup_path = "x.webm"
+        db.add(InterviewTurn(interview_id=interview_id, position=0, interlocuteur="A", remarque="x"))
+        db.commit()
+    html = client.get(f"/interviews/{interview_id}/structurer/statut").text
+    assert f'action="/interviews/{interview_id}/retranscrire"' in html
+    assert "Relancer la transcription (audio)" in html
+
+
+def test_fait_partiel_sans_audio_ne_propose_pas_la_retranscription(client: TestClient) -> None:
+    interview_id = _creer_a_traiter(_mission(client), statut="fait", jeton="tok-sans-audio")
+    with SessionLocal() as db:
+        db.get(Interview, interview_id).tranches_manquantes = 4
+        db.add(InterviewTurn(interview_id=interview_id, position=0, interlocuteur="A", remarque="x"))
+        db.commit()
+    assert "/retranscrire" not in client.get(f"/interviews/{interview_id}/structurer/statut").text
