@@ -10,10 +10,15 @@ Le venv du projet porte les dépendances — `py -m pytest` échoue en collecte
 (`ModuleNotFoundError: fastapi`), il pointe le Python global.
 
 ```bash
-.venv/Scripts/python.exe -m pytest -q                      # suite complète (29 min 32 s mesurées le 2026-10-07, 1592 tests)
+.venv/Scripts/python.exe -m pytest -q                      # suite complète (29 min 32 s / 1592 tests mesurés le 2026-10-07, NON remesurés depuis : 2 fichiers de tests ajoutés, 15 skips pendant la coupe)
 .venv/Scripts/python.exe -m pytest tests/test_swot.py -q   # un fichier
 .venv/Scripts/python.exe -m pytest -q -k "nom_du_test"     # un test unique
 ```
+
+**Coupe Ollama TEMPORAIRE** (demande du 2026-10-08) : marqueurs `OLLAMA-COUPE-TEMPORAIRE` dans
+`app/services/ai_common.py` et `TOUR-DE-TABLE-COUPE-TEMPORAIRE` dans `app/templates/interviews/libre_detail.html`.
+15 tests sont skippés par `tests/conftest.py` tant qu'elle dure (ils se réveillent seuls). Levée : supprimer
+le `raise`/`return`, décommenter le bloc d'origine, retirer le bloc de skip de conftest (liste + hook).
 
 L'app exige une **authentification** depuis le 2026-09-19 (`app/auth.py`, middleware
 à défaut FERMÉ) : poser `APP_AUTH_PASSWORD` dans `.env`, sinon toute route non
