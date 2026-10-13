@@ -1,8 +1,8 @@
 {
-  "kit_id": "d42eddd817d0b2b03f5dbdb71d8a060ebb6751a9f6a8de87bc0d4f2f74a8b9d1",
-  "hub_commit": "2d65fb1b",
-  "date": "2026-10-11",
-  "fichiers": 103,
+  "kit_id": "6cae47384aaad50ae4707818e990cfe4e18fcc6b4dff12be462b75cbf59db516",
+  "hub_commit": "bf64b967",
+  "date": "2026-10-13",
+  "fichiers": 105,
   "ecarts_connus": [
     {
       "fichier": ".claude/agents/veille-agentic.md",

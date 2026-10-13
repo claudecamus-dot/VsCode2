@@ -546,7 +546,14 @@ def _blocked_reason_tokens(tokens: list, profondeur: int = 0):
     rest = lower[start + 1 :]
 
     if "push" in rest:
-        has_force = any(t in ("--force", "-f") or t.startswith("--force=") for t in rest)
+        # Grouped short flags (`-fu`, `-uf`, `-qf`) force exactly like `-f`;
+        # `--force-if-includes` is a force variant, only safe next to a lease.
+        has_force = (
+            any(t == "--force" or t.startswith("--force=")
+                or t.startswith("--force-if-includes")
+                or _prefixe_de(t, "--force-if-includes", 9) for t in rest)
+            or "f" in _flags_courts_groupes(rest)
+        )
         has_lease = any(
             t == "--force-with-lease" or t.startswith("--force-with-lease=") for t in rest
         )
@@ -561,6 +568,13 @@ def _blocked_reason_tokens(tokens: list, profondeur: int = 0):
                 "un hook projet : c'est un push force qui ne dit pas son nom. Utilisez "
                 "--force-with-lease si necessaire, ou confirmez explicitement avec "
                 "l'utilisateur."
+            )
+        if any(t == "--mirror" or t.startswith("--mirror=")
+               or _prefixe_de(t, "--mirror", 4) for t in rest):
+            return (
+                "git push --mirror est bloque par un hook projet : il ecrase TOUTES les "
+                "refs distantes (branches et tags) avec l'etat local. Poussez la ref "
+                "voulue, ou confirmez explicitement avec l'utilisateur."
             )
         if has_force and not has_lease:
             return (
@@ -633,6 +647,18 @@ def _est_un_chemin_du_depot(tok: str) -> bool:
         return False
 
 
+def _prefixe_de(token: str, longue: str, minimum: int) -> bool:
+    """True when `token` is an abbreviation of the long option `longue` that git accepts.
+
+    git's option parser takes any UNAMBIGUOUS prefix: `git push --mir origin` is `--mirror`
+    (a remote branch was deleted by it, reproduced on a throw-away bare repo by the closing
+    review of 2026-10-12). `minimum` is the shortest prefix that cannot name another push
+    option (`--force-` is ambiguous with `--force-with-lease`, so `--force-if-includes`
+    starts at `--force-i`). The `=value` part is ignored."""
+    nom = token.split("=", 1)[0]
+    return nom.startswith("--") and len(nom) >= minimum and longue.startswith(nom)
+
+
 def _flags_courts_groupes(rest: list) -> str:
     """Les lettres de tous les groupes de drapeaux courts (`-fdx` -> 'fdx').
     Sans ce dépliage, chercher `-f` laissait passer `git clean -fd`, qui est
@@ -689,7 +715,7 @@ def _blocked_worktree(tokens_apres_git: list, rest: list):
         # `-f`/`--force` ecrase TOUT l'arbre suivi, la forme la plus
         # destructive de la commande -- ne depend d'aucun chemin cite.
         # Reproduit (revue 2026-09-07) : `git checkout -f master` passait.
-        if any(t in ("-f", "--force") for t in bas):
+        if "--force" in bas or "f" in _flags_courts_groupes(bas):
             return (
                 "git checkout -f/--force est bloqué par un hook projet : il ÉCRASE les "
                 "modifications non commitées de TOUS les fichiers suivis, pas seulement "
@@ -895,6 +921,74 @@ def _json_ou_refus(delai=15.0):
     return data
 
 
+# --------------------------------------------------------------------------- #
+# Avis NON bloquant : commandes destructrices que ce hook ne refuse pas
+# --------------------------------------------------------------------------- #
+# Decision utilisateur : ces silences ne doivent plus etre muets, mais on
+# n'etend pas la liste de refus. Un avis `additionalContext`, sans
+# `permissionDecision`, que le dispatcher fusionne tel quel. Un refus l'emporte
+# toujours : l'avis n'est calcule que si rien n'est bloque.
+
+def _fait_log_env(sous, args, bas):
+    return (sous in ("log", "show") and "--" in bas
+            and any(".env" in t for t in bas[bas.index("--") + 1:])
+            and ("-p" in bas or "--patch" in bas or "p" in _flags_courts_groupes(bas)))
+
+
+_AVIS_TABLE = (
+    ("push --delete", lambda sous, args, bas: sous == "push" and "--delete" in bas),
+    ("push -d", lambda sous, args, bas: sous == "push"
+        and "d" in _flags_courts_groupes(bas)),
+    ("push :ref", lambda sous, args, bas: sous == "push"
+        and any(t.startswith(":") and len(t) > 1 for t in bas)),
+    # `-d -f`, `-df` et `--delete --force` valent `-D` (revue de cloture 2026-10-12).
+    ("branch -D", lambda sous, args, bas: sous == "branch"
+        and ("D" in _flags_courts_groupes(args)
+             or {"d", "f"} <= set(_flags_courts_groupes(args))
+             or ("--delete" in bas and "--force" in bas))),
+    ("reflog expire", lambda sous, args, bas: sous == "reflog" and "expire" in bas),
+    ("update-ref -d", lambda sous, args, bas: sous == "update-ref"
+        and ("-d" in bas or "--delete" in bas)),
+    ("reset --merge", lambda sous, args, bas: sous == "reset" and "--merge" in bas),
+    ("log -p -- .env", _fait_log_env),
+)
+
+
+def _avis_segment(segment: str):
+    try:
+        tokens = shlex.split(segment, posix=True)
+    except ValueError:
+        return None
+    start = 0
+    while start < len(tokens) and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[start]):
+        start += 1
+    if start >= len(tokens) or _nom_binaire(tokens[start]) != "git":
+        return None
+    reste = tokens[start + 1:]
+    bas_tout = [t.lower() for t in reste]
+    idx = _sous_commande_index(bas_tout)
+    if idx is None:
+        return None
+    sous, args, bas = bas_tout[idx], reste[idx + 1:], bas_tout[idx + 1:]
+    for forme, fait in _AVIS_TABLE:
+        if fait(sous, args, bas):
+            return forme
+    return None
+
+
+def _avis(cmd: str):
+    """One-line French notice for an uncovered destructive form, else None."""
+    try:
+        for seg in _segments(_normaliser(cmd)):
+            forme = _avis_segment(seg)
+            if forme:
+                return (f"Ce hook ne couvre pas cette commande ({forme}) : "
+                        "verifiez la cible avant de l'executer.")
+    except Exception:  # noqa: BLE001 - a notice must never break the guard
+        return None
+    return None
+
+
 def main() -> None:
     try:
         data = _json_ou_refus()
@@ -919,6 +1013,15 @@ def main() -> None:
                 "hookEventName": "PreToolUse",
                 "permissionDecision": "deny",
                 "permissionDecisionReason": blocked,
+            }
+        }))
+        return
+    avis = _avis(cmd)
+    if avis:
+        print(json.dumps({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "additionalContext": avis,
             }
         }))
 

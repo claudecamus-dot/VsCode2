@@ -545,11 +545,20 @@ def _voix_de(run):
     return out
 
 
-# Miroir de MODES_SALLE du canon log_run.py (verrouille par tests/test_optimiseur_lot2.py : un 4e mode ajoute
-# d'un seul cote fait echouer le test au lieu d'etre compte « classique » en silence).
-MODES_SALLE = ("classique", "comite", "comite-augmente")
-# Valeurs historiques du journal (runs.jsonl) : comptees avec les actuelles.
-MODES_SALLE_LEGACY = {"neuronale": "comite", "neuronale-augmentee": "comite-augmente"}
+def _modes_du_journal():
+    """MODES_SALLE and its legacy aliases, read from the sibling `orchestration/log_run.py`:
+    one definition, no mirror to keep equal (finding 2026-10-11). Valeurs historiques du
+    journal (runs.jsonl) comptees avec les actuelles."""
+    import importlib.util
+    chemin = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                          "orchestration", "log_run.py")
+    spec = importlib.util.spec_from_file_location("_log_run_modes", chemin)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return tuple(mod.MODES_SALLE), dict(mod.MODES_SALLE_LEGACY)
+
+
+MODES_SALLE, MODES_SALLE_LEGACY = _modes_du_journal()
 
 
 def _par_mode(salles):

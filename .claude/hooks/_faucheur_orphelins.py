@@ -31,6 +31,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -38,8 +39,10 @@ from collections import namedtuple
 
 SEUIL_MIN = 30
 NOMS_GIT = frozenset({"git.exe"})
-# Long-lived git processes that legitimately outlive their parent (never reaped).
-GIT_DAEMONS_LEGITIMES = ("fsmonitor--daemon", " gc", " maintenance")
+# Long-lived git processes that legitimately outlive their parent (never reaped). Matched as
+# whole words: the bare substring " gc" also matched `-c gc.auto=0`, carried by every git the
+# editor launches, so 246 orphans escaped the reaper (2026-10-12).
+GIT_DAEMONS_LEGITIMES = re.compile(r"fsmonitor--daemon|(?:^|\s)(?:gc|maintenance)(?:\s|$)")
 NOMS_PYTHON = frozenset({"python.exe", "py.exe", "pythonw.exe"})
 CIBLES_CMD = ("/.claude/hooks/", "/.claude/supervision/")
 # Detached launchers that live without a parent on purpose (refresh_wiki_apres_action
@@ -242,7 +245,7 @@ def candidats(procs=None, *, maintenant=None, seuil_min=SEUIL_MIN, lire_cmd=lign
             famille = "hook"
         else:
             cmd = lire_cmd(p.pid)
-            if any(m in (cmd or "").lower() for m in GIT_DAEMONS_LEGITIMES):
+            if GIT_DAEMONS_LEGITIMES.search((cmd or "").lower()):
                 continue
             famille = "git"
         out.append({"pid": p.pid, "nom": p.nom, "debut": p.debut, "age_min": round(age),
