@@ -3,9 +3,9 @@
     "source": "hub de supervision VScode5, .claude/veille/veille.json",
     "projection": "entrees dont projets_concernes nomme VSCode2",
     "ne_pas_editer": "Fichier GENERE, en lecture seule : une correction faite ici sera ecrasee a la prochaine propagation. La veille s'ecrit AU HUB, ou elle est lue (section 3 du wiki) et arbitree. Une veille lancee depuis ce depot doit y etre remontee.",
-    "date": "2026-10-04"
+    "date": "2026-10-13"
   },
-  "derniere_veille": "2026-10-04T08:57:49+02:00",
+  "derniere_veille": "2026-10-11T15:47:52+02:00",
   "entrees": [
     {
       "titre": "microsoft/hve-core — skill PowerPoint python-pptx pilotée par YAML",
@@ -436,6 +436,23 @@
       "date": "2026-09-29",
       "statut": "ecarte",
       "revue_par_pairs": "non"
+    },
+    {
+      "titre": "AgentDiet (FSE 2026) : reduction de trajectoire d'agent, entrees -39,9 a -59,7 % et cout -21,1 a -35,9 % sur SWE-Bench avec agent Claude",
+      "url": "https://arxiv.org/pdf/2509.23586v2",
+      "type": "papier",
+      "projets_concernes": [
+        "VScode5",
+        "VSCode1",
+        "VSCode2",
+        "VSCode3"
+      ],
+      "pertinence": "Sous-agents = ~38 % de la facture du hub ; le papier (Proc. ACM Softw. Eng. vol.3 FSE, DOI 10.1145/3797084, 17 mars 2026) elague les observations perimees/redondantes d'une trajectoire. Chiffres cites comme citation (SWE-Bench, agent Claude, corpus tiers), jamais mesures chez nous.",
+      "date": "2026-10-11",
+      "statut": "nouveau",
+      "regle_proposee": "Mesure a froid : part des tokens d'entree des sous-agents issue de sorties d'outils anciennes (runs.jsonl/usage) ; critere : un brief de sous-agent long impose une borne de sortie d'outil ou un filtrage avant lecture.",
+      "action_corrective": "Au hub : mesurer sur 10 runs de sous-agents la part des tokens d'entree redondants avant tout essai ; ensuite tester un filtrage des sorties volumineuses (hook PreToolUse) sur un projet pilote. Reproduire avant d'adopter le chiffre.",
+      "revue_par_pairs": "oui"
     }
   ]
 }

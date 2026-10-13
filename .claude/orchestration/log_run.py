@@ -4,7 +4,7 @@
 # | garder : la signaler au hub, qui corrige le canon et re-synchronise.
 # | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
 # |  n'est pas déployé, il n'existe pas dans ce dépôt.)
-# | Provenance canon : cc3bb41 du 2026-10-06 — permet, au prochain sync, de dire si
+# | Provenance canon : 21a43bab du 2026-10-13 — permet, au prochain sync, de dire si
 # | une différence vient d'une édition locale ou d'une avance du canon (voir
 # | `determiner_cause` dans sync_dispositif.py au hub).
 # +---------------------------------------------------------------------------
@@ -449,6 +449,11 @@ def solder(argv) -> int:
 # `optimiseur.py` (cellule playbook x gabarit x topologie), jamais le journal lui-meme.
 TOPOLOGIES = ("agent-seul", "fan-out", "salle", "workflow", "cascade")
 BRAS = ("temoin", "variante", "topologie-reduite")
+MODES_SALLE = ("classique", "comite", "comite-augmente")   # absent = classique ; seulement si topologie == "salle"
+# comite-augmente = comite + espace partage (tableau commun en ajout seul, lu par les voix au tour 2)
+# Alias legacy (journal historique) : acceptes en entree, normalises vers la valeur actuelle.
+MODES_SALLE_LEGACY = {"neuronale": "comite", "neuronale-augmentee": "comite-augmente"}
+TOUR2_NA = "na"   # salle sans desaccord au tour 1 ; true = tour 2 joue, false = desaccord sans tour 2
 CHAMPS_ENTIERS_OPT = ("tokens", "duree_s", "budget_tokens")
 # Lot 2 (2026-10-03) : entiers >= 0 stricts (pas de float, pas de bool, pas de null).
 CHAMPS_ENTIERS_STRICTS = ("branches_lancees", "duree_branche_max_s")
@@ -469,9 +474,10 @@ def verifier_salle_voix(run: dict) -> str | None:
     tour 2). `voix` : liste de {nom: str non vide, modele: str non vide, duree_s: nombre
     fini >= 0, trouvailles_retenues: entier >= 0}. `famille` : chaine non vide.
     """
-    if "tour2" in run and not isinstance(run["tour2"], bool):
+    if "tour2" in run and not (isinstance(run["tour2"], bool) or run["tour2"] == TOUR2_NA):
         return (f"log_run REFUS : tour2 invalide : {run['tour2']!r}.\n"
-                "  Attendu : true | false (booleen) - ou champ absent.")
+                "  Attendu : true | false (booleen) | \"na\" (pas de desaccord) - "
+                "ou champ absent.")
     if "famille" in run and not (isinstance(run["famille"], str) and run["famille"].strip()):
         return (f"log_run REFUS : famille invalide : {run['famille']!r}.\n"
                 "  Attendu : chaine non vide (famille de taches) - ou champ absent.")
@@ -503,6 +509,21 @@ def verifier_salle_voix(run: dict) -> str | None:
     return None
 
 
+def verifier_champs_salle_requis(run: dict) -> str | None:
+    """A l'APPEND seulement (jamais `--solde`, jamais les lignes deja ecrites) : un run
+    `topologie == "salle"` DOIT porter `tour2` (true | false | "na") et `mode_salle`.
+    Les autres topologies, ou l'absence de topologie, ne sont pas concernes."""
+    if run.get("topologie") != "salle":
+        return None
+    manquants = [c for c in ("tour2", "mode_salle") if c not in run]
+    if manquants:
+        return (f"log_run REFUS : topologie=salle exige {', '.join(manquants)}.\n"
+                "  tour2 : true (tour 2 joue) | false (desaccord sans tour 2) | \"na\" "
+                "(pas de desaccord) ; mode_salle : " + " | ".join(MODES_SALLE)
+                + " (alias legacy accepte : " + ", ".join(MODES_SALLE_LEGACY) + ").")
+    return None
+
+
 def verifier_gabarit_topologie(run: dict) -> str | None:
     """Refus si un champ optionnel de l'optimiseur est present mais invalide.
 
@@ -515,6 +536,9 @@ def verifier_gabarit_topologie(run: dict) -> str | None:
     refus_lot2 = verifier_salle_voix(run)
     if refus_lot2:
         return refus_lot2
+    refus_instr = verifier_instrumentation(run)
+    if refus_instr:
+        return refus_instr
     if "gabarit" in run:
         g = run["gabarit"]
         if g is not None and not (isinstance(g, str) and _RE_GABARIT_OK.fullmatch(g)
@@ -533,6 +557,17 @@ def verifier_gabarit_topologie(run: dict) -> str | None:
     if "bras" in run and run["bras"] not in BRAS:
         return (f"log_run REFUS : bras invalide : {run['bras']!r}.\n"
                 f"  Attendu : {' | '.join(BRAS)} - ou champ absent.")
+    if "mode_salle" in run:
+        if run.get("topologie") != "salle":
+            return ("log_run REFUS : mode_salle n'est autorise que si topologie == "
+                    "\"salle\".\n  Retirer mode_salle ou poser topologie=salle.")
+        ms = run["mode_salle"]
+        if isinstance(ms, str) and ms in MODES_SALLE_LEGACY:
+            run["mode_salle"] = ms = MODES_SALLE_LEGACY[ms]   # alias legacy -> valeur actuelle
+        if ms not in MODES_SALLE:
+            return (f"log_run REFUS : mode_salle invalide : {ms!r}.\n"
+                    f"  Attendu : {' | '.join(MODES_SALLE)} - ou champ absent "
+                    f"(alias legacy accepte : {', '.join(MODES_SALLE_LEGACY)}).")
     if "tache_id" in run and not (isinstance(run["tache_id"], str)
                                   and run["tache_id"].strip()):
         return (f"log_run REFUS : tache_id invalide : {run['tache_id']!r}.\n"
@@ -547,6 +582,304 @@ def verifier_gabarit_topologie(run: dict) -> str | None:
                 return (f"log_run REFUS : {champ} invalide : {v!r}.\n"
                         "  Attendu : nombre fini >= 0 ou null - ou champ absent.")
     return None
+
+
+# --- Instrumentation phase 0 (2026-10-10) : relier un run a son cout et a son verdict ---
+# Tous OPTIONNELS (les lignes anciennes restent valides). `run_id` est genere a l'ecriture ;
+# `verdict_aval` n'est ecrit QUE par `--verdict` (jamais a l'append).
+VERDICTS_AVAL = ("confirme", "infirme", "repris", "non-evalue")
+VERDICTS_AVEC_PREUVE = ("confirme", "infirme")
+PREUVE_MIN_CAR = 8
+_RE_RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{5,63}")
+_RE_BRIEF_VERSION = re.compile(r"[0-9a-fA-F]{7,40}")
+
+
+def nouveau_run_id() -> str:
+    """Horodatage compact + 6 hex aleatoires : trie dans le temps, collision negligeable."""
+    import secrets
+    return (datetime.datetime.now().astimezone().strftime("%Y%m%dT%H%M%S")
+            + "-" + secrets.token_hex(3))
+
+
+def verifier_instrumentation(run: dict) -> str | None:
+    """Refus si `run_id`, `verdict_aval`, `brief_version` ou `correlation_voix` sont
+    presents mais invalides. Champ ABSENT -> None (lignes anciennes inchangees)."""
+    if "run_id" in run and not (isinstance(run["run_id"], str)
+                                and _RE_RUN_ID.fullmatch(run["run_id"])):
+        return (f"log_run REFUS : run_id invalide : {run['run_id']!r}.\n"
+                "  Attendu : 6 a 64 caracteres [A-Za-z0-9_.-] - ou champ absent "
+                "(genere a l'ecriture).")
+    if "brief_version" in run:
+        bv = run["brief_version"]
+        if not (isinstance(bv, str) and _RE_BRIEF_VERSION.fullmatch(bv)):
+            return (f"log_run REFUS : brief_version invalide : {bv!r}.\n"
+                    "  Attendu : sha court hexadecimal de 7 a 40 caracteres - ou champ absent.")
+    if "verdict_aval" in run:
+        v = run["verdict_aval"]
+        valeur = v.get("valeur") if isinstance(v, dict) else v
+        if valeur not in VERDICTS_AVAL:
+            return (f"log_run REFUS : verdict_aval invalide : {valeur!r}.\n"
+                    f"  Attendu : {' | '.join(VERDICTS_AVAL)}.")
+        if valeur in VERDICTS_AVEC_PREUVE and not (
+                isinstance(v, dict) and isinstance(v.get("preuve"), str)
+                and len(re.sub(r"\s", "", v["preuve"])) >= PREUVE_MIN_CAR):
+            return (f"log_run REFUS : verdict_aval {valeur!r} exige une preuve "
+                    f"(commande ou commit, {PREUVE_MIN_CAR} caracteres minimum hors espaces).")
+    if "correlation_voix" in run:
+        c = run["correlation_voix"]
+        attendu = ("  Attendu : {n_voix: entier >= 2, reponses_fausses_identiques: "
+                   "entier >= 0, paires_fausses: entier >= 0 (>= reponses_fausses_"
+                   "identiques), methode: texte non vide} - ou champ absent.")
+        if not isinstance(c, dict):
+            return f"log_run REFUS : correlation_voix invalide : {c!r}.\n{attendu}"
+        n, ident, paires = (c.get("n_voix"), c.get("reponses_fausses_identiques"),
+                            c.get("paires_fausses"))
+        if not (_entier_positif(n) and n >= 2 and _entier_positif(ident)
+                and _entier_positif(paires)
+                and isinstance(c.get("methode"), str) and c["methode"].strip()):
+            return f"log_run REFUS : correlation_voix invalide : {c!r}.\n{attendu}"
+        if ident > paires:
+            return (f"log_run REFUS : correlation_voix : reponses_fausses_identiques "
+                    f"({ident}) > paires_fausses ({paires}).")
+    return None
+
+
+def _usage_path() -> str:
+    return os.environ.get("AGENT_ORCHESTRATION_USAGE") or os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "supervision", "usage.jsonl")
+
+
+def _aware(t):
+    """Horodatage avec fuseau : un ts naif est lu en heure locale (jamais de TypeError a la comparaison)."""
+    return t.astimezone() if t.tzinfo is None else t
+
+
+def jointure_cout(run: dict, maintenant=None, nb_lignes: int = 20) -> dict:
+    """Renseigne `tokens` et `duree_s` SEULEMENT si la jointure est fiable, sinon {}.
+
+    Fiable = le run porte `session_id` ET `debut` (ISO) ; les `nb_lignes` dernieres
+    lignes de usage.jsonl (jamais le fichier entier) remontent jusqu'au debut du run ;
+    au moins une ligne de la meme session tombe dans [debut, maintenant] ; TOUTES ont
+    `jetons` (un agent `async_launched` n'a pas de cout : somme partielle = valeur
+    fausse, donc rien). `duree_s` = maintenant - debut (duree murale). Jamais
+    d'ecrasement d'une valeur fournie."""
+    sid, debut = run.get("session_id"), run.get("debut")
+    if not (isinstance(sid, str) and isinstance(debut, str)):
+        return {}
+    try:
+        t0 = _aware(datetime.datetime.fromisoformat(debut))
+        t1 = _aware(maintenant or datetime.datetime.now().astimezone())
+        with open(_usage_path(), "rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - 200_000))
+            brut = fh.read().decode("utf-8", "replace").splitlines()[-nb_lignes:]
+        lignes = [json.loads(x) for x in brut if x.strip()]
+        ts = [_aware(datetime.datetime.fromisoformat(x["ts"])) for x in lignes]
+        if not lignes or min(ts) > t0:
+            return {}   # la fenetre de 20 lignes ne remonte pas jusqu'au debut du run
+        dedans = [x for x, t in zip(lignes, ts, strict=True)
+                  if x.get("session_id") == sid and t0 <= t <= t1]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        return {}   # une ligne abimee ou un ts sans fuseau ne coute jamais l'ecriture du run
+    if not dedans or any(not _entier_positif(x.get("jetons")) for x in dedans):
+        return {}
+    out = {}
+    if "tokens" not in run:
+        out["tokens"] = sum(x["jetons"] for x in dedans)
+    if "duree_s" not in run:
+        out["duree_s"] = max(0, int((t1 - t0).total_seconds()))
+    return out
+
+
+def _prompts_path() -> str:
+    return os.environ.get("AGENT_ORCHESTRATION_PROMPTS") or os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "prompts.jsonl")
+
+
+def _queue_jsonl(chemin: str, octets: int) -> list:
+    """Lignes JSON valides des `octets` derniers octets (jamais le fichier entier)."""
+    with open(chemin, "rb") as fh:
+        fh.seek(0, os.SEEK_END)
+        fh.seek(max(0, fh.tell() - octets))
+        brut = fh.read().decode("utf-8", "replace").splitlines()
+    out = []
+    for x in brut:
+        try:
+            d = json.loads(x)
+        except ValueError:
+            continue   # premiere ligne coupee par le seek, ligne abimee
+        if isinstance(d, dict):
+            out.append(d)
+    return out
+
+
+def inferer_debut(run: dict, maintenant=None, fenetre_h: int = 24) -> dict:
+    """Pose `session_id` et `debut` quand le run n'en porte pas, sinon {}.
+
+    Source : `prompts.jsonl` (une ligne par prompt, session comprise). Le debut est le
+    premier prompt posterieur au run precedent du journal : le cout couvre donc tout le
+    travail depuis le dernier run journalise, pas une seule demande (surestimation
+    assumee, marquee `debut_infere`). Ambigu = rien : plusieurs sessions dans la fenetre
+    de `fenetre_h` heures, ou aucun prompt avec session -> {} (un cout absent vaut mieux
+    qu'un cout d'une autre session). Jamais d'ecrasement d'une valeur fournie."""
+    if run.get("session_id") or run.get("debut"):
+        return {}
+    try:
+        t1 = maintenant or datetime.datetime.now().astimezone()
+        seuil = t1 - datetime.timedelta(hours=fenetre_h)
+        lignes = []
+        for x in _queue_jsonl(_prompts_path(), 200_000):
+            sid = x.get("session_id")
+            t = datetime.datetime.fromisoformat(x["ts"])
+            if not (isinstance(sid, str) and sid):
+                continue
+            if t.tzinfo is None:
+                t = t.astimezone()
+            if seuil <= t <= t1:
+                lignes.append((t, sid))
+        if len({s for _, s in lignes}) != 1:
+            return {}
+        precedent = None
+        try:
+            derniers = _queue_jsonl(RUNS_PATH, 30_000)
+            if derniers and isinstance(derniers[-1].get("ts"), str):
+                precedent = datetime.datetime.fromisoformat(derniers[-1]["ts"])
+                if precedent.tzinfo is None:
+                    precedent = precedent.astimezone()
+        except (OSError, ValueError):
+            precedent = None
+        apres = [t for t, _ in lignes if precedent is None or t > precedent]
+        if not apres:
+            return {}
+        return {"session_id": lignes[0][1], "debut": min(apres).isoformat(timespec="seconds"),
+                "debut_infere": True}
+    except (OSError, ValueError, KeyError, TypeError):
+        return {}
+
+
+def run_id_existe(run_id: str, chemin=None) -> bool:
+    try:
+        with open(chemin or RUNS_PATH, encoding="utf-8") as fh:
+            return any(f'"{run_id}"' in l and json.loads(l).get("run_id") == run_id
+                       for l in fh if l.strip())
+    except FileNotFoundError:
+        return False   # pas de journal : aucun doublon possible
+    except (OSError, ValueError):
+        return True    # fail-closed : journal illisible, on ne sait pas -> refus
+
+
+# Concurrence de `--verdict` : verrou en creation exclusive + relecture de la taille avant
+# remplacement (un append fait entre lecture et remplacement serait perdu) + temporaire
+# unique par processus. Residu documente : un append qui tombe entre la relecture de la
+# taille et `os.replace` (fenetre de quelques microsecondes) n'est pas detecte.
+DELAI_VERROU_S = 10.0
+_AVANT_REMPLACEMENT = None   # crochet de test : appele juste avant la relecture de taille
+
+
+class _Verrou:
+    def __init__(self, chemin):
+        self.chemin = chemin + ".lock"
+        self.fd = None
+
+    def __enter__(self):
+        import time
+        fin = time.monotonic() + DELAI_VERROU_S
+        while True:
+            try:
+                self.fd = os.open(self.chemin, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                return self
+            except FileExistsError:
+                if time.monotonic() > fin:
+                    raise TimeoutError(
+                        f"verrou {self.chemin} tenu depuis plus de {DELAI_VERROU_S:.0f} s "
+                        "(autre session ? supprimer le .lock si elle est morte)") from None
+                time.sleep(0.05)
+
+    def __exit__(self, *exc):
+        if self.fd is not None:
+            os.close(self.fd)
+            try:
+                os.remove(self.chemin)
+            except OSError:
+                pass
+        return False
+
+
+def verdict(argv) -> int:
+    """Voir `_verdict_sous_verrou` ; ici : verrou fichier, refus lisible apres delai."""
+    try:
+        with _Verrou(RUNS_PATH):
+            return _verdict_sous_verrou(argv)
+    except TimeoutError as exc:
+        print(f"log_run --verdict REFUS : {exc}")
+        return 1
+
+
+def _verdict_sous_verrou(argv) -> int:
+    """--verdict <run_id|prefixe-ts> <valeur> "<preuve>" - pose `verdict_aval` apres coup.
+    Meme modele que `--solde` : jamais d'edition manuelle, reecriture atomique, exactement
+    1 run vise. `confirme` et `infirme` exigent une preuve (commande ou commit)."""
+    if len(argv) < 2:
+        print("log_run --verdict : usage : --verdict <run_id|prefixe-ts> "
+              f"<{'|'.join(VERDICTS_AVAL)}> <preuve>")
+        return 1
+    cle, valeur = argv[0], argv[1]
+    preuve = argv[2] if len(argv) > 2 else ""
+    if len(argv) > 3:
+        print("log_run --verdict REFUS : la preuve doit tenir en UN argument, entre guillemets "
+              f"({len(argv) - 2} mots recus, le reste serait perdu).")
+        return 1
+    refus = verifier_instrumentation({"verdict_aval": {"valeur": valeur, "preuve": preuve}})
+    if refus:
+        print(refus)
+        return 1
+    try:
+        with open(RUNS_PATH, encoding="utf-8") as fh:
+            lignes = [l.rstrip("\r\n") for l in fh if l.strip()]
+        taille_lue = os.path.getsize(RUNS_PATH)
+    except OSError as exc:
+        print(f"log_run --verdict : lecture impossible ({exc})")
+        return 1
+    # Une ligne abimee ou qui n'est pas un objet reste dans le fichier TELLE QUELLE : elle ne
+    # doit ni bloquer le verdict d'un autre run, ni etre perdue a la reecriture.
+    runs = []
+    for l in lignes:
+        try:
+            r = json.loads(l)
+        except ValueError:
+            r = None
+        runs.append(r if isinstance(r, dict) else l)
+    cibles = [r for r in runs if isinstance(r, dict) and r.get("run_id") == cle]
+    if not cibles:
+        cibles = [r for r in runs if isinstance(r, dict) and r.get("ts")
+                  and str(r["ts"]).startswith(cle)]
+    if len(cibles) != 1:
+        print(f"log_run --verdict : {len(cibles)} run(s) pour '{cle}' - il en faut exactement 1")
+        return 1
+    run = cibles[0]
+    avant = run.get("verdict_aval")
+    run["verdict_aval"] = {"valeur": valeur, "preuve": preuve.strip(),
+                           "quand": datetime.datetime.now().astimezone().isoformat(timespec="seconds")}
+    if isinstance(avant, dict):
+        run["verdicts_aval"] = (run.get("verdicts_aval") or []) + [avant]
+    tmp = f"{RUNS_PATH}.{os.getpid()}.{os.urandom(4).hex()}.tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            for r in runs:
+                fh.write((r if isinstance(r, str) else json.dumps(r, ensure_ascii=False)) + "\n")
+        if _AVANT_REMPLACEMENT is not None:
+            _AVANT_REMPLACEMENT()
+        if os.path.getsize(RUNS_PATH) != taille_lue:
+            print("log_run --verdict REFUS : le journal a change pendant la reecriture "
+                  "(append concurrent) - rien n'est ecrit, relancer la commande.")
+            return 1
+        os.replace(tmp, RUNS_PATH)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+    print(f"log_run --verdict : run {run.get('run_id') or run.get('ts')} -> {valeur}")
+    return 0
 
 
 def verifier_forme_tache(run: dict) -> str | None:
@@ -1127,8 +1460,14 @@ def lister(argv) -> int:
 
 
 def main(argv) -> int:
+    # `--help`/`-h` seul : usage et code 0 (sinon lu comme un JSON invalide).
+    if len(argv) == 1 and argv[0] in ("--help", "-h"):
+        print((__doc__ or "log_run : voir l'en-tete du script").strip())
+        return 0
     if argv and argv[0] == "--solde":
         return solder(argv[1:])
+    if argv and argv[0] == "--verdict":
+        return verdict(argv[1:])
     if argv and argv[0] == "--stats":
         return imprimer_stats(argv[1:])
     # AVANT le repli d'append (`raw = argv[0]` plus bas) : sans ce routage, un
@@ -1184,6 +1523,20 @@ def main(argv) -> int:
     if refus_gt:
         print(refus_gt)
         return 1
+    refus_salle = verifier_champs_salle_requis(run)
+    if refus_salle:
+        print(refus_salle)
+        return 1
+    if "verdict_aval" in run:
+        print("log_run REFUS : verdict_aval ne s'ecrit pas a l'append.\n"
+              "  Utiliser : --verdict <run_id|prefixe-ts> <valeur> <preuve>.")
+        return 1
+    if "run_id" in run and run_id_existe(run["run_id"]):
+        print(f"log_run REFUS : run_id deja present ou journal illisible : {run['run_id']!r}.")
+        return 1
+    run.setdefault("run_id", nouveau_run_id())
+    run.update(inferer_debut(run))
+    run.update(jointure_cout(run, nb_lignes=400 if run.get("debut_infere") else 20))
     refus_validation = verifier_validation_utilisateur(run, au_solde=False)
     if refus_validation:
         print(refus_validation)
