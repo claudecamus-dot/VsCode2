@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-13
+updated: 2026-10-16
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -8,58 +8,49 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-10-13T08:12:47+02:00 · **106 sessions** (transcripts) · **379** invocations de skills · **507** lancements de sous-agents.
+Dernier scan : 2026-10-16T09:24:32+02:00 · **23 sessions** (transcripts) · **320** invocations de skills · **535** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `bmad-code-review` | BMAD | 78 | 2026-07-20 | 2026-10-08 |
-| `agent-orchestrator` | projet | 77 | 2026-07-17 | 2026-10-08 |
-| `run-dev-server` | projet | 50 | 2026-07-03 | 2026-10-08 |
+| `bmad-code-review` | BMAD | 80 | 2026-07-20 | 2026-10-15 |
+| `agent-orchestrator` | projet | 57 | 2026-07-17 | 2026-10-15 |
+| `run-dev-server` | projet | 41 | 2026-07-17 | 2026-10-08 |
 | `bmad-review-edge-case-hunter` | BMAD | 26 | 2026-07-20 | 2026-09-07 |
-| `agent-supervisor` | projet | 22 | 2026-07-18 | 2026-09-29 |
-| `bmad-party-mode` | BMAD | 20 | 2026-07-31 | 2026-10-07 |
+| `bmad-party-mode` | BMAD | 19 | 2026-09-15 | 2026-10-07 |
 | `bmad-review-adversarial-general` | BMAD | 19 | 2026-07-20 | 2026-09-07 |
-| `revue-increment` | projet | 19 | 2026-07-18 | 2026-10-07 |
+| `revue-increment` | projet | 17 | 2026-07-18 | 2026-10-07 |
+| `agent-supervisor` | projet | 14 | 2026-07-18 | 2026-09-29 |
 | `bmad-review` | BMAD | 13 | 2026-09-15 | 2026-10-07 |
-| `pptx-verify` | projet | 12 | 2026-07-03 | 2026-09-29 |
-| `update-config` | (builtin/session) | 8 | 2026-07-03 | 2026-09-28 |
+| `pptx-verify` | projet | 12 | 2026-07-18 | 2026-09-29 |
 | `deck-design-library` | projet | 4 | 2026-07-28 | 2026-09-29 |
-| `roadmap-keeper` | global | 4 | 2026-06-29 | 2026-07-15 |
-| `run` | (builtin/session) | 3 | 2026-06-29 | 2026-07-03 |
 | `veille-agentic` | projet | 3 | 2026-09-08 | 2026-09-28 |
 | `bmad-brainstorming` | BMAD | 2 | 2026-09-16 | 2026-09-16 |
 | `deck-design-review` | projet | 2 | 2026-07-22 | 2026-07-28 |
-| `pptx-deck` | projet | 2 | 2026-07-02 | 2026-07-03 |
-| `skill-creator` | global | 2 | 2026-07-03 | 2026-07-03 |
-| `slide-text-polish` | projet | 2 | 2026-07-22 | 2026-07-22 |
+| `update-config` | (builtin/session) | 2 | 2026-09-11 | 2026-09-28 |
 | `bmad-advanced-elicitation` | BMAD | 1 | 2026-09-16 | 2026-09-16 |
 | `bmad-spec` | BMAD | 1 | 2026-09-28 | 2026-09-28 |
-| `bmad-sprint-status` | BMAD | 1 | 2026-07-22 | 2026-07-22 |
 | `bmad-walkthrough` | BMAD | 1 | 2026-09-16 | 2026-09-16 |
-| `claude-api` | (builtin/session) | 1 | 2026-06-29 | 2026-06-29 |
 | `code-review` | (builtin/session) | 1 | 2026-09-15 | 2026-09-15 |
-| `init` | (builtin/session) | 1 | 2026-07-03 | 2026-07-03 |
 | `priority-matrix` | projet | 1 | 2026-07-28 | 2026-07-28 |
 | `restitution-deck-design` | projet | 1 | 2026-07-22 | 2026-07-22 |
 | `revue-ui-web` | projet | 1 | 2026-09-16 | 2026-09-16 |
+| `slide-text-polish` | projet | 1 | 2026-07-22 | 2026-07-22 |
 | `swot-matrix` | projet | 1 | 2026-07-28 | 2026-07-28 |
 
 ## Sous-agents
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 306 | 2026-07-15 | 2026-10-08 |
-| `Explore` | 88 | 2026-06-30 | 2026-10-08 |
-| `bmad-revue` | 71 | 2026-08-31 | 2026-10-08 |
+| `general-purpose` | 360 | 2026-07-20 | 2026-10-15 |
+| `bmad-revue` | 71 | 2026-08-31 | 2026-10-15 |
+| `Explore` | 70 | 2026-07-18 | 2026-10-08 |
 | `(defaut)` | 23 | 2026-07-21 | 2026-10-01 |
-| `Plan` | 4 | 2026-07-06 | 2026-09-25 |
 | `agent-supervisor` | 4 | 2026-09-01 | 2026-09-29 |
-| `claude` | 4 | 2026-07-16 | 2026-07-16 |
 | `veille-agentic` | 3 | 2026-09-08 | 2026-09-28 |
+| `Plan` | 1 | 2026-09-25 | 2026-09-25 |
 | `a11y-auditor` | 1 | 2026-09-16 | 2026-09-16 |
-| `claude-code-guide` | 1 | 2026-07-03 | 2026-07-03 |
 | `design-reviewer` | 1 | 2026-09-16 | 2026-09-16 |
 | `utilisateur-produit` | 1 | 2026-09-25 | 2026-09-25 |
 
@@ -69,17 +60,17 @@ Dernier scan : 2026-10-13T08:12:47+02:00 · **106 sessions** (transcripts) · **
 
 `agent-securite`
 
-**BMAD** — 40/50 jamais invoqués :
+**BMAD** — 41/50 jamais invoqués :
 
 <details><summary>Voir la liste</summary>
 
-`bmad-agent-analyst`, `bmad-agent-architect`, `bmad-agent-dev`, `bmad-agent-pm`, `bmad-agent-ux-designer`, `bmad-architecture`, `bmad-build`, `bmad-build-auto`, `bmad-checkpoint-preview`, `bmad-correct-course`, `bmad-create-architecture`, `bmad-create-epics-and-stories`, `bmad-create-prd`, `bmad-create-story`, `bmad-customize`, `bmad-deep-recon`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-edit-prd`, `bmad-editorial-review`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-forge-idea`, `bmad-generate-project-context`, `bmad-help`, `bmad-market-research`, `bmad-prd`, `bmad-prfaq`, `bmad-product-brief`, `bmad-project-context`, `bmad-qa-generate-e2e-tests`, `bmad-quick-dev`, `bmad-retrospective`, `bmad-review-verification-gap`, `bmad-sprint-planning`, `bmad-technical-research`, `bmad-ux`, `bmad-validate-prd`
+`bmad-agent-analyst`, `bmad-agent-architect`, `bmad-agent-dev`, `bmad-agent-pm`, `bmad-agent-ux-designer`, `bmad-architecture`, `bmad-build`, `bmad-build-auto`, `bmad-checkpoint-preview`, `bmad-correct-course`, `bmad-create-architecture`, `bmad-create-epics-and-stories`, `bmad-create-prd`, `bmad-create-story`, `bmad-customize`, `bmad-deep-recon`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-edit-prd`, `bmad-editorial-review`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-forge-idea`, `bmad-generate-project-context`, `bmad-help`, `bmad-market-research`, `bmad-prd`, `bmad-prfaq`, `bmad-product-brief`, `bmad-project-context`, `bmad-qa-generate-e2e-tests`, `bmad-quick-dev`, `bmad-retrospective`, `bmad-review-verification-gap`, `bmad-sprint-planning`, `bmad-sprint-status`, `bmad-technical-research`, `bmad-ux`, `bmad-validate-prd`
 
 </details>
 
-**global** — 1/3 jamais invoqués :
+**global** — 2/3 jamais invoqués :
 
-`synced`
+`skill-creator`, `synced`
 
 ## Skills hub-only
 
@@ -91,15 +82,15 @@ _S'invoquent DEPUIS le hub de supervision, en ciblant ce projet — jamais depui
 
 _Consommés en lisant/exécutant leurs `scripts/`, ou via un sous-agent qui les suit (ex. `ppt-designer`, qui n'a pas l'outil Skill) — le compteur d'invocations ne peut structurellement pas les voir. `n=0` n'y vaut donc PAS « mort » : ne pas désinstaller sur ce seul signal (constat superviseur #2)._
 
-`pdf-quality`, `pptx-framed-image`
+`pdf-quality`, `pptx-deck`, `pptx-framed-image`, `roadmap-keeper`
 
 ## TODO agents (constats automatiques)
 
-⚠️ **Mesure incomplète** — 85 transcript(s) sur 106 absent(s) du disque. Un `n=0` ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.
+⚠️ **Mesure incomplète** — 1 transcript(s) sur 23 absent(s) du disque. Un `n=0` ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.
 
 1. **Désinstaller les shims BMAD dépréciés** (21) : `bmad-checkpoint-preview`, `bmad-create-architecture`, `bmad-create-prd`, `bmad-create-story`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-edit-prd`, `bmad-editorial-review`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-generate-project-context`, `bmad-market-research`, `bmad-quick-dev`, `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-review-verification-gap`, `bmad-sprint-status`, `bmad-technical-research`, `bmad-validate-prd` — dépréciés par BMAD dans leur propre `description`, chacun avec son remplaçant ; le seul élagage qui ne repose pas sur notre mesure d'usage.
 2. **Skills projet sans usage** : `agent-securite` — vérifier pertinence et déclencheurs.
-3. **Skills en sommeil (>30 j sans usage)** : `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-sprint-status`, `deck-design-review`, `pptx-deck`, `priority-matrix`, `restitution-deck-design`, `roadmap-keeper`, `skill-creator`, `slide-text-polish`, `swot-matrix`.
+3. **Skills en sommeil (>30 j sans usage)** : `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `deck-design-review`, `priority-matrix`, `restitution-deck-design`, `slide-text-polish`, `swot-matrix`.
 
 ## Arbitrages enregistrés
 
@@ -205,7 +196,7 @@ _6 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir 
 
 ## Seuil de qualification — la mesure
 
-Depuis le 2026-09-11 : **875** demande(s) vue(s) hors commande slash (+ 152 slash), **34** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **4 %** des demandes orchestrées.
+Depuis le 2026-09-11 : **972** demande(s) vue(s) hors commande slash (+ 162 slash), **35** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **4 %** des demandes orchestrées.
 _Ce chiffre ne dit pas ce qui AURAIT dû être orchestré : le hook compte, il ne juge pas. Il donne le dénominateur qui manquait pour arbitrer le seuil sur données plutôt que sur habitude._
 
 ---
