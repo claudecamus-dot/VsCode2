@@ -39,8 +39,33 @@
 # une route PROTÉGÉE (/missions) avec `Authorization: Bearer`. -CheckOnly fait
 # ce contrôle sur un serveur en marche sans rien purger ni relancer.
 #
+# Garde de démarrage (2026-10-15) : le site 8020 est tombé plusieurs fois les
+# 2026-10-14/15. Cause probable (NON PROUVÉE) : la tâche planifiée relance ce
+# script en -KeepIfFresh toutes les 5 min ; un serveur qui ne répond PAS ENCORE
+# (démarrage ou rechargement lent sous charge, > 1 min observé) tombait dans la
+# purge « il ne répond pas, donc périmé », et l'instance suivante le tuait en
+# plein démarrage. Pire (mesuré 11:31 -> 11:33) : la DÉCISION de purger était
+# prise à 11:31 et exécutée 2 min plus tard, sur un serveur devenu sain entre-temps.
+# D'où : (a) un serveur JEUNE (< -GraceDemarrageS) n'est jamais purgé en
+# -KeepIfFresh ; (b) un serveur périmé dont app/ a été modifié depuis moins de
+# -StabiliteS n'est pas purgé (le --reload va rattraper) ; (c) l'attente de
+# démarrage passe à -AttenteDemarrageS (300 s) ; (d) un mutex nommé empêche deux
+# instances d'agir en même temps ; (e) la décision est RE-TESTÉE juste avant le
+# premier kill et entre les deux passes de purge. Les appels réseau et le
+# sous-processus python sont bornés (une instance bloquée 2 jours a été vue).
+# Limite assumée de (a) : un serveur JEUNE qui sert du code PÉRIMÉ (--reload
+# raté juste après le démarrage) est épargné jusqu'à -GraceDemarrageS (900 s)
+# avec le message « démarrage en cours » ; il n'est purgé qu'ensuite. Choix
+# délibéré (mieux vaut 15 min de code périmé qu'un démarrage Whisper tué).
+# Paramètres numériques bornés au chargement (cf. Limiter-Entier). Le mutex
+# Global\ entre une instance élevée et une non élevée peut lever
+# UnauthorizedAccessException : traité comme « verrou tenu » (NON prouvé ici,
+# il faudrait une élévation pour le reproduire).
+#
 # Usage :  powershell -ExecutionPolicy Bypass -File scripts/serveur-dev.ps1
 #          [-Port 8020] [-StopOnly] [-KeepIfFresh] [-CheckOnly]
+#          [-GraceDemarrageS 900] [-StabiliteS 120] [-AttenteDemarrageS 300]
+#          [-VerrouAttenteS 60]
 
 param(
     # 8020 : le port de l'utilisateur (arbitrage du 2026-09-29). Il était hanté
@@ -49,12 +74,31 @@ param(
     [int]$Port = 8020,
     [switch]$StopOnly,
     [switch]$KeepIfFresh,
-    [switch]$CheckOnly
+    [switch]$CheckOnly,
+    # 900 s : mesuré le 2026-10-15, le démarrage (lifespan : réconciliations puis
+    # préchauffage Whisper audio_transcribe.warm_up(), puis Ollama) dure >= 8 min
+    # sous charge — 1 Go de RAM, 83 s de CPU, port fermé pendant tout ce temps.
+    [int]$GraceDemarrageS = 900,
+    [int]$StabiliteS = 120,
+    [int]$AttenteDemarrageS = 300,
+    [int]$VerrouAttenteS = 60
 )
 
 $ErrorActionPreference = "Stop"
+
+function Limiter-Entier {
+    # Borne une valeur de paramètre : 1..0 itérerait à l'envers, WaitOne(<-1) lève.
+    param([int]$Valeur, [int]$Min, [int]$Max)
+    return [math]::Min($Max, [math]::Max($Min, $Valeur))
+}
+$AttenteDemarrageS = Limiter-Entier $AttenteDemarrageS 1 86400
+$VerrouAttenteS = Limiter-Entier $VerrouAttenteS 0 3600
+$GraceDemarrageS = Limiter-Entier $GraceDemarrageS 0 86400
+$StabiliteS = Limiter-Entier $StabiliteS 0 86400
 $racine = Split-Path -Parent $PSScriptRoot   # scripts/ -> racine du repo
 $python = Join-Path $racine ".venv\Scripts\python.exe"
+# Interpréteur surchargeable (tests en copie du dépôt, sans .venv) ; usage normal : le venv.
+if ($env:SERVEUR_DEV_PYTHON) { $python = $env:SERVEUR_DEV_PYTHON }
 $journal = Join-Path $env:TEMP ("uvicorn_dev_" + $Port + ".log")
 
 function Get-DescendantsProcessus {
@@ -196,6 +240,174 @@ function Test-PortRepond {
     } catch { return $false }
 }
 
+function Get-OctetsHttp {
+    # GET borné (2026-10-15) : WebClient.DownloadData/DownloadString n'ont AUCUN
+    # délai — un serveur qui accepte la connexion sans répondre bloquait le
+    # script indéfiniment (instances vieilles de 2 jours vues vivantes).
+    param([string]$Url, [string]$Bearer, [int]$DelaiMs = 10000)
+    $req = [System.Net.WebRequest]::Create($Url)
+    $req.Timeout = $DelaiMs
+    $req.ReadWriteTimeout = $DelaiMs
+    if ($Bearer) { $req.Headers.Add("Authorization", "Bearer $Bearer") }
+    $rep = $req.GetResponse()
+    try {
+        $ms = New-Object System.IO.MemoryStream
+        $rep.GetResponseStream().CopyTo($ms)
+        return , $ms.ToArray()
+    } finally { $rep.Close() }
+}
+
+function Invoke-PythonBorne {
+    # python -c <code> avec un DÉLAI DUR (2026-10-15) : `& $python -c ...` n'en a
+    # pas, et un import d'app sous charge ou un serveur de base verrouillé le
+    # bloquait sans fin. Rend la dernière ligne de stdout, ou $null (délai/échec).
+    param([string]$Code, [int]$DelaiS = 90)
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $python
+    # Échappement CRT : les \ qui précèdent un " sont doublés (sinon `\"` mange le
+    # guillemet), idem ceux en fin de chaîne avant le " fermant.
+    $echappe = [regex]::Replace($Code, '(\\*)"', { param($m) ($m.Groups[1].Value * 2) + '\"' })
+    $echappe = [regex]::Replace($echappe, '(\\+)$', { param($m) $m.Groups[1].Value * 2 })
+    $psi.Arguments = '-c "' + $echappe + '"'
+    $psi.WorkingDirectory = $racine
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $sortie = $proc.StandardOutput.ReadToEndAsync()
+    $erreur = $proc.StandardError.ReadToEndAsync()
+    if (-not $proc.WaitForExit($DelaiS * 1000)) {
+        # Arbre entier : le python du venv est un REDIRECTEUR, Kill() laisserait le
+        # vrai python (enfant) orphelin.
+        # Descendance relevée AVANT la mort de la racine (ensuite le lien de parenté
+        # est perdu : taskkill /T seul a laissé le vrai python orphelin, mesuré).
+        try {
+            $desc = @(Get-DescendantsProcessus -Racines @($proc.Id))
+            foreach ($d in $desc) { Stop-Process -Id ([int]$d.ProcessId) -Force -ErrorAction SilentlyContinue }
+        } catch { }
+        try { $proc.Kill() } catch { }
+        Write-Host "python n'a pas rendu en $DelaiS s — abandonné (sous-processus tué)."
+        return $null
+    }
+    $proc.WaitForExit()
+    $lignes = @(($sortie.Result -split "`r?`n") | Where-Object { $_.Trim() })
+    if ($lignes.Count -eq 0) { return $null }
+    return $lignes[-1]
+}
+
+function Get-DecisionKeepIfFresh {
+    # Décision PURE (testable) du mode -KeepIfFresh. Rend :
+    #   sain       serveur frais, rien à faire
+    #   demarrage  un process serveur JEUNE (< $Grace s) : ne rien purger
+    #   stabilite  serveur périmé mais app/ modifié il y a < $Stabilite s : le
+    #              --reload va rattraper, ne rien purger
+    #   purger     sinon
+    # $AgeServeurS / $AgeModifS : $null = inconnu (aucun process / aucun fichier).
+    # $Actif : le CPU des process serveur PROGRESSE (worker vivant qui travaille,
+    # p. ex. préchauffage Whisper) alors que le port est fermé -> ne pas purger.
+    param([bool]$Sain, $AgeServeurS, $AgeModifS, [bool]$Repond, [int]$Grace, [int]$Stabilite, [bool]$Actif = $false)
+    if ($Repond -and $Sain) { return "sain" }
+    if ($null -ne $AgeServeurS -and [double]$AgeServeurS -lt $Grace) { return "demarrage" }
+    if (-not $Repond -and $Actif) { return "demarrage" }
+    if ($Repond -and $null -ne $AgeModifS -and [double]$AgeModifS -lt $Stabilite) { return "stabilite" }
+    return "purger"
+}
+
+function Get-AgeServeurS {
+    # Âge (s) du process RACINE uvicorn le plus jeune de ce repo et de ce port.
+    # Le worker spawn n'est PAS reconnaissable à « uvicorn app.main » (sa ligne
+    # de commande est « -c from multiprocessing.spawn import spawn_main… ») :
+    # on ne s'appuie que sur la racine, le worker est jugé par son CPU (ci-dessous).
+    param([int]$NumPort)
+    $creations = @(Get-ProcessusServeur -NumPort $NumPort |
+        Where-Object { $_.CommandLine -like "*uvicorn app.main*" } |
+        ForEach-Object { $_.CreationDate } | Where-Object { $_ })
+    if ($creations.Count -eq 0) { return $null }
+    $plusRecent = ($creations | Sort-Object -Descending | Select-Object -First 1)
+    return [math]::Max(0, ((Get-Date) - $plusRecent).TotalSeconds)
+}
+
+function Get-CpuServeurS {
+    # CPU cumulé (s) de la racine ET de toute sa descendance (workers inclus).
+    param([int]$NumPort)
+    $total = 0.0
+    foreach ($p in @(Get-ProcessusServeur -NumPort $NumPort)) {
+        $total += ([double]$p.UserModeTime + [double]$p.KernelModeTime) / 1e7
+    }
+    return $total
+}
+
+function Get-AgeModifAppS {
+    # Âge (s) de la dernière modification d'un fichier SOUS app/ (hors __pycache__).
+    $dernier = Get-ChildItem -Path (Join-Path $racine "app") -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName -notmatch '[\\/]__pycache__[\\/]' } |
+        Measure-Object LastWriteTime -Maximum
+    if (-not $dernier.Maximum) { return $null }
+    return [math]::Max(0, ((Get-Date) - $dernier.Maximum).TotalSeconds)
+}
+
+function Resolve-DecisionKeepIfFresh {
+    # Mesure l'état ACTUEL puis décide. À rappeler juste avant d'agir : une
+    # décision vieille de 2 min a tué un serveur devenu sain (2026-10-15).
+    param([int]$NumPort)
+    $repond = Test-PortRepond -NumPort $NumPort
+    $sain = $false
+    if ($repond) {
+        $sain = [bool]((Test-ContenuFrais -NumPort $NumPort) -and (Test-PythonFrais -NumPort $NumPort) -and
+            ((Get-CodeRouteProtegee -NumPort $NumPort -Mdp $script:motDePasse) -eq 200))
+    }
+    $age = Get-AgeServeurS -NumPort $NumPort
+    $modif = Get-AgeModifAppS
+    $script:etatServeur = @{ Age = $age; Cpu = (Get-CpuServeurS -NumPort $NumPort) }
+    $decision = Get-DecisionKeepIfFresh -Sain $sain -AgeServeurS $age -AgeModifS $modif `
+        -Repond $repond -Grace $GraceDemarrageS -Stabilite $StabiliteS
+    if ($decision -eq "purger" -and -not $repond -and $null -ne $age) {
+        # Port fermé et serveur « vieux » : vivant (CPU qui progresse en 3 s) ou mort ?
+        $avant = $script:etatServeur.Cpu
+        Start-Sleep -Seconds 3
+        $apres = Get-CpuServeurS -NumPort $NumPort
+        $script:etatServeur.Cpu = $apres
+        if (($apres - $avant) -gt 0.2) {
+            $decision = Get-DecisionKeepIfFresh -Sain $sain -AgeServeurS $age -AgeModifS $modif `
+                -Repond $repond -Grace $GraceDemarrageS -Stabilite $StabiliteS -Actif $true
+        }
+    }
+    return $decision
+}
+
+function Invoke-RetestAvantKill {
+    # Re-test de la décision juste avant de tuer (2026-10-15) : si le serveur est
+    # devenu sain / jeune entre l'inventaire et le kill, Write-DecisionEtSortir sort.
+    param([bool]$KeepIfFreshActif, [bool]$StopOnlyActif, [int]$NbIds, [int]$NumPort, [bool]$ApresKill = $false)
+    if ($KeepIfFreshActif -and -not $StopOnlyActif -and $NbIds -gt 0) {
+        $decision = Resolve-DecisionKeepIfFresh -NumPort $NumPort
+        # Après NOTRE kill (passe 2) : un processus jeune « en démarrage » est le
+        # respawn de ce qu'on vient de tuer, pas une preuve de santé : sortir en 0
+        # laisserait un serveur peut-être mort. Seul « sain » autorise la sortie.
+        if ($ApresKill -and $decision -ne "sain") { return }
+        Write-DecisionEtSortir -Decision $decision -NumPort $NumPort
+    }
+}
+
+function Write-DecisionEtSortir {
+    # Les décisions qui ne purgent pas : message, puis exit 0.
+    param([string]$Decision, [int]$NumPort)
+    switch ($Decision) {
+        "sain" { Write-Host "OK : serveur déjà frais (statique + python) sur http://127.0.0.1:$NumPort — conservé (-KeepIfFresh)."; exit 0 }
+        "demarrage" {
+            $age = "?"; $cpu = "?"
+            if ($script:etatServeur) {
+                if ($null -ne $script:etatServeur.Age) { $age = [int]$script:etatServeur.Age }
+                $cpu = [int]$script:etatServeur.Cpu
+            }
+            Write-Host "Démarrage ou rechargement en cours depuis $age s (CPU des process serveur : $cpu s), rien purgé. Un démarrage peut durer plusieurs minutes (préchauffage Whisper). La prochaine instance retestera."
+            exit 0
+        }
+        "stabilite" { Write-Host "Serveur périmé mais app/ modifié il y a moins de $StabiliteS s : le --reload va rattraper, rien purgé. La prochaine instance retestera."; exit 0 }
+    }
+}
+
 function Test-ContenuFrais {
     # Preuve de fraîcheur : le contenu STATIQUE servi == le fichier sur disque,
     # comparé en OCTETS (DownloadString décoderait en Latin-1 sans charset
@@ -203,12 +415,11 @@ function Test-ContenuFrais {
     # UNE comparaison doit avoir réellement eu lieu (un renommage des deux
     # actifs ne doit pas valider dans le vide).
     param([int]$NumPort)
-    $wc = New-Object System.Net.WebClient
     $nbCompares = 0
     foreach ($actif in @("app.css", "busy.js")) {
         $disque = Join-Path $racine "app\static\$actif"
         if (-not (Test-Path $disque)) { continue }
-        try { $servi = $wc.DownloadData("http://127.0.0.1:$NumPort/static/$actif") } catch { return $false }
+        try { $servi = Get-OctetsHttp -Url "http://127.0.0.1:$NumPort/static/$actif" } catch { return $false }
         $attendu = [System.IO.File]::ReadAllBytes($disque)
         if ($servi.Length -ne $attendu.Length) { return $false }
         for ($i = 0; $i -lt $servi.Length; $i++) {
@@ -227,8 +438,7 @@ function Get-MotDePasseApp {
     $code = "import base64,sys; from pathlib import Path; from dotenv import load_dotenv; " +
             "load_dotenv(Path(r'$racine') / '.env'); from app.auth import mot_de_passe; " +
             "sys.stdout.write(base64.b64encode((mot_de_passe() or '').encode('utf-8')).decode('ascii'))"
-    Push-Location $racine
-    try { $b64 = (& $python -c $code 2>$null | Select-Object -Last 1) } finally { Pop-Location }
+    $b64 = Invoke-PythonBorne -Code $code -DelaiS 90
     if (-not $b64) { return $null }
     return [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64.Trim()))
 }
@@ -256,14 +466,16 @@ function Test-PythonFrais {
     # depuis le 2026-09-19 : sans l'en-tête, ce contrôle échouait toujours.
     param([int]$NumPort)
     try {
-        $wc = New-Object System.Net.WebClient
-        $wc.Headers.Add("Authorization", "Bearer $script:motDePasse")
-        $servie = ($wc.DownloadString("http://127.0.0.1:$NumPort/__fraicheur") |
-            ConvertFrom-Json).empreinte
-        $disque = (& $python -c "from app.main import empreinte_code; print(empreinte_code())" 2>$null | Select-Object -Last 1).Trim()
+        $octets = Get-OctetsHttp -Url "http://127.0.0.1:$NumPort/__fraicheur" -Bearer $script:motDePasse
+        $servie = ([System.Text.Encoding]::UTF8.GetString($octets) | ConvertFrom-Json).empreinte
+        $disque = Invoke-PythonBorne -Code "from app.main import empreinte_code; print(empreinte_code())" -DelaiS 90
+        if ($disque) { $disque = $disque.Trim() }
         return ($servie -and $disque -and $servie -eq $disque)
     } catch { return $false }
 }
+
+# Tests unitaires (dot-sourcing) : charger les FONCTIONS seulement, sans agir.
+if ($env:SERVEUR_DEV_FONCTIONS_SEULES -eq "1") { return }
 
 # ---- 0a. Mot de passe : AVANT toute purge — ne jamais tuer un serveur pour en
 # relancer un qui rendrait 503 partout. ----
@@ -299,17 +511,48 @@ if ($CheckOnly) {
     exit 1
 }
 
+# ---- 0c. Verrou nommé (2026-10-15) : une seule instance agit à la fois ----
+# -KeepIfFresh (tâche planifiée) : verrou tenu -> exit 0 sans rien faire. Lancement
+# manuel : attente jusqu'à -VerrouAttenteS puis refus clair (code 3). -StopOnly et
+# -CheckOnly n'en prennent pas (comportement inchangé). Un mutex est rendu par
+# l'OS à la mort de son process : un script tué ne le garde pas.
+$script:verrou = $null
+$verrouPris = $false
+if (-not $StopOnly) {
+    $attenteMs = 0
+    if (-not $KeepIfFresh) { $attenteMs = $VerrouAttenteS * 1000 }
+    try {
+        $script:verrou = New-Object System.Threading.Mutex($false, "Global\VSCode2-serveur-dev-$Port")
+        $verrouPris = $script:verrou.WaitOne($attenteMs)
+    }
+    catch [System.Threading.AbandonedMutexException] { $verrouPris = $true }
+    catch {
+        # UnauthorizedAccessException (mutex d'un autre niveau d'élévation : tenu par
+        # quelqu'un d'autre, NON reproduit ici) ou tout autre échec d'ouverture :
+        # dans le doute le verrou n'est PAS pris -> refus propre, pas de crash.
+        $verrouPris = $false
+    }
+    if (-not $verrouPris) {
+        if ($KeepIfFresh) {
+            Write-Host "Une autre instance de serveur-dev.ps1 tient le verrou du port $Port : rien fait (-KeepIfFresh)."
+            exit 0
+        }
+        $host.UI.WriteErrorLine("Une autre instance de serveur-dev.ps1 tient le verrou du port $Port depuis plus de $VerrouAttenteS s : refus de lancer en parallèle (elle purge ou démarre peut-être). Réessayer, ou arrêter cette instance.")
+        exit 3
+    }
+}
+try {
+# (Pas de ré-indentation du bloc try : diff lisible. Le finally relâche le verrou.)
+
 # ---- 0. -KeepIfFresh (auto-start VS Code) : ne pas avorter un serveur sain ----
 # Un POST de génération IA synchrone peut durer plusieurs minutes — une purge à
 # chaque folderOpen le tuerait en vol. Conservé UNIQUEMENT si statique ET python
 # servis == disque : un serveur au python périmé est purgé et relancé.
-if ($KeepIfFresh -and -not $StopOnly -and (Test-PortRepond -NumPort $Port)) {
-    if ((Test-ContenuFrais -NumPort $Port) -and (Test-PythonFrais -NumPort $Port) -and
-        ((Get-CodeRouteProtegee -NumPort $Port -Mdp $script:motDePasse) -eq 200)) {
-        Write-Host "OK : serveur déjà frais (statique + python) sur http://127.0.0.1:$Port — conservé (-KeepIfFresh)."
-        exit 0
-    }
-    Write-Host "Serveur présent mais contenu périmé — purge et relance."
+# (2026-10-15) Mais jamais un serveur qui démarre ou recharge (cf. l'en-tête).
+if ($KeepIfFresh -and -not $StopOnly) {
+    $decision = Resolve-DecisionKeepIfFresh -NumPort $Port
+    Write-DecisionEtSortir -Decision $decision -NumPort $Port
+    if (Test-PortRepond -NumPort $Port) { Write-Host "Serveur présent mais contenu périmé — purge et relance." }
 }
 
 # ---- 1. Purge : parents uvicorn + toute leur descendance + listener du port ----
@@ -341,6 +584,10 @@ foreach ($passe in 1..2) {
         if ($p) { $aTuer += @(Get-CimInstance Win32_Process -Filter "ProcessId=$($c.OwningProcess)") }
     }
     $ids = @($aTuer | ForEach-Object { $_.ProcessId } | Sort-Object -Unique)
+    # (2026-10-15) RE-TEST juste avant de tuer (et donc aussi entre les deux
+    # passes) : l'inventaire ci-dessus peut avoir pris des secondes à des
+    # minutes sous charge, pendant lesquelles le serveur a pu devenir sain.
+    Invoke-RetestAvantKill -KeepIfFreshActif $KeepIfFresh.IsPresent -StopOnlyActif $StopOnly.IsPresent -NbIds $ids.Count -NumPort $Port -ApresKill ($passe -gt 1)
     if ($ids.Count -gt 0) {
         Write-Host "Purge (passe $passe) de $($ids.Count) processus serveur (uvicorn + descendance) : $($ids -join ', ')"
         foreach ($id in $ids) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
@@ -402,13 +649,17 @@ Write-Host "uvicorn lancé (PID $($proc.Id)), journal : $journal"
 
 # ---- 4. Health-check ----
 $pret = $false
-foreach ($i in 1..30) {
+# -AttenteDemarrageS (300 s par défaut) et non 30 (2026-10-15) : un démarrage sous charge dépasse la minute.
+foreach ($i in 1..$AttenteDemarrageS) {
     Start-Sleep -Seconds 1
     if (Test-PortRepond -NumPort $Port) { $pret = $true; break }
     if ($proc.HasExited) { break }
 }
 if (-not $pret) {
-    Write-Error "Le serveur n'a pas démarré en 30 s — voir $journal et $journal.err"
+    # PAS de Stop-Process ici : le processus lancé continue de démarrer.
+    Write-Error ("Le serveur n'a pas répondu en $AttenteDemarrageS s — il a PEUT-ÊTRE simplement démarré lentement " +
+                 "(préchauffage Whisper sous charge : ce n'est pas forcément un échec). Il N'A PAS été tué (PID $($proc.Id)) : " +
+                 "revérifier avec -CheckOnly avant de le relancer. Journaux : $journal et $journal.err")
     exit 1
 }
 
@@ -427,4 +678,12 @@ if ($frais -and $fraisPy -and $codeProtege -eq 200 -and $nbEcoute -eq 1) {
 } else {
     Write-Error "Serveur lancé mais suspect (listeners uniques: $nbEcoute, statique frais: $frais, python frais: $fraisPy, /missions authentifié: $codeProtege) — ne pas s'en servir tel quel."
     exit 1
+}
+
+} finally {
+    # Toujours relâché, quel que soit le `exit` ou l'erreur ci-dessus.
+    if ($verrouPris -and $script:verrou) {
+        try { $script:verrou.ReleaseMutex() } catch { }
+    }
+    if ($script:verrou) { $script:verrou.Dispose() }
 }

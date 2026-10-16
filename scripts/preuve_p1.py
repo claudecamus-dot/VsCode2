@@ -59,6 +59,20 @@ existent pour les marqueurs d'une seule ligne, sans retour à la ligne possible.
 `<test>` est passé tel quel à pytest (`chemin`, ou `chemin::test`) ; `--k` ajoute
 un motif. Quand un sélecteur est donné, l'outil EXIGE que le test rouge soit bien
 celui-là — sinon un test voisin qui échoue ferait conclure à tort.
+
+## Mode COPIE (défaut depuis le 2026-10-15) et `--en-place`
+
+Les 2026-10-14/15 le site 8020 (`uvicorn --reload` sur `app/`) est tombé à
+plusieurs reprises pendant des preuves qui mutaient `app/` EN PLACE : pendant la
+fenêtre mutée le code servi est « périmé » et le --reload recharge deux fois. Par
+défaut l'outil copie donc le dépôt (sans `.venv`, `.git`, `data`, `.env`, caches,
+`.claude/worktrees`, `.opencode`, `_bmad*`), mute LA COPIE, joue pytest avec
+cwd = la copie et l'interpréteur du `.venv` du dépôt principal, puis supprime la
+copie. Le dépôt réel n'est JAMAIS écrit. Garde : si la copie contient `app/`,
+`app.__file__` doit être sous la copie, sinon OUTILLAGE (on aurait testé le dépôt
+réel). `--en-place` rend l'ancien comportement : NE PAS L'UTILISER sur `app/`
+quand le site tourne (il le servirait muté). Une cible hors dépôt
+(`--hors-depot`) reste mutée en place : aucun site ne la sert.
 """
 from __future__ import annotations
 
@@ -70,7 +84,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import traceback
+import uuid
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
@@ -117,10 +133,106 @@ def _empreinte(chemin: Path) -> str:
     return hashlib.sha256(chemin.read_bytes()).hexdigest()
 
 
-def _jouer(test: str, motif: str | None, basetemp: Path, timeout: int):
+EXCLUS_RACINE = {".venv", ".git", "data", ".env", ".opencode", "_bmad",
+                 "_bmad-output", "tmp_check.html"}
+EXCLUS_PARTOUT = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+                  "node_modules", ".coverage"}
+GROS_FICHIER = 5 * 1024 * 1024  # au-dela : lien dur (tests/exemple pese 209 Mo)
+
+
+def _interprete_du_depot(depot: Path) -> str:
+    """Le python du `.venv` du dépôt principal (absolu), sinon l'interpréteur
+    courant. `py scripts/preuve_p1.py` lance le python GLOBAL, sans fastapi."""
+    venv = depot / ".venv" / "Scripts" / "python.exe"
+    if not venv.is_file():
+        venv = depot / ".venv" / "bin" / "python"
+    return str(venv) if venv.is_file() else sys.executable
+
+
+def _copier_depot(depot: Path, base: Path) -> Path:
+    """Copie le dépôt (moins les exclus) dans un dossier court sous `base`.
+
+    Les fichiers > GROS_FICHIER sont des LIENS DURS vers le dépôt (même inode) :
+    la copie n'en est pas isolée en écriture. L'outil ne les écrit jamais (la
+    cible muable est déliée par `unlink` avant écriture, le nettoyage ne
+    chmod pas un fichier à plusieurs liens), mais un test joué sur la copie qui
+    écrirait dans un tel fichier écrirait dans le dépôt. Le dépôt n'est donc
+    garanti intact que pour les fichiers copiés (<= GROS_FICHIER)."""
+    racine_copie = base / f"p1c_{os.getpid()}_{uuid.uuid4().hex[:6]}"
+
+    def ignorer(dossier: str, noms: list[str]) -> set[str]:
+        ici = Path(dossier)
+        sortie = {n for n in noms if n in EXCLUS_PARTOUT}
+        if ici == depot:
+            sortie |= {n for n in noms if n in EXCLUS_RACINE or n.startswith("_bmad")}
+        if ici == depot / ".claude":
+            sortie |= {n for n in noms if n == "worktrees"}
+        return sortie
+
+    def copier(src: str, dst: str):
+        # Lien dur pour les gros fichiers (jamais ceux qu'on mute : la cible est
+        # remplacee par unlink + ecriture, voir `_corps`).
+        if os.path.getsize(src) > GROS_FICHIER:
+            try:
+                os.link(src, dst)
+                return dst
+            except OSError:
+                pass
+        return shutil.copy2(src, dst)
+
+    shutil.copytree(depot, racine_copie, ignore=ignorer, copy_function=copier)
+    return racine_copie
+
+
+def _supprimer_copie(dossier: Path) -> bool:
+    """Suppression avec retries (Windows : fichier verrouillé, lecture seule)."""
+    def reessayer(fonction, chemin, *_):
+        try:
+            # Un fichier a plusieurs liens durs partage son inode avec le depot
+            # reel (gros fichiers, voir `_copier_depot`) : y changer l'attribut
+            # changerait celui du DEPOT. On ne chmod que les fichiers propres a
+            # la copie.
+            if os.stat(chemin).st_nlink <= 1:
+                os.chmod(chemin, 0o700)
+            fonction(chemin)
+        except OSError:
+            pass
+
+    for _ in range(5):
+        if sys.version_info >= (3, 12):
+            shutil.rmtree(dossier, onexc=reessayer)
+        else:
+            shutil.rmtree(dossier, onerror=reessayer)
+        if not dossier.exists():
+            return True
+        time.sleep(1)
+    return False
+
+
+def _import_vient_de(copie: Path, interprete: str) -> str | None:
+    """None si `import app` résout sous la copie, sinon le message d'erreur."""
+    if not (copie / "app" / "__init__.py").is_file():
+        return None
+    try:
+        r = subprocess.run([interprete, "-c", "import app; print(app.__file__)"],
+                           cwd=str(copie), capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=120,
+                           env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"})
+    except subprocess.TimeoutExpired as exc:
+        return f"`import app` n'a pas rendu en 120 s ({exc})."
+    lu = (r.stdout or "").strip().splitlines()
+    chemin = Path(lu[-1]).resolve() if lu else None
+    if chemin is None or not chemin.is_relative_to(copie.resolve()):
+        return (f"`import app` ne vient PAS de la copie ({chemin or r.stderr[-300:]}) : "
+                "la preuve testerait le depot reel.")
+    return None
+
+
+def _jouer(test: str, motif: str | None, basetemp: Path, timeout: int,
+           cwd: Path | None = None, interprete: str | None = None):
     """(verdict, sortie) où verdict vaut True (vert), False (rouge) ou None
     (outillage : on ne peut pas conclure)."""
-    args = [sys.executable, "-m", "pytest", test, "-q", "-rf",
+    args = [interprete or sys.executable, "-m", "pytest", test, "-q", "-rf",
             "--basetemp", str(basetemp)]
     if motif:
         args += ["-k", motif]
@@ -131,7 +243,7 @@ def _jouer(test: str, motif: str | None, basetemp: Path, timeout: int):
     # PASSE aussi sur le code d'avant », à tort (CI du 2026-09-30, 2 tests).
     env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     try:
-        r = subprocess.run(args, cwd=str(RACINE), capture_output=True, text=True,
+        r = subprocess.run(args, cwd=str(cwd or RACINE), capture_output=True, text=True,
                            encoding="utf-8", errors="replace", timeout=timeout,
                            env=env)
     except subprocess.TimeoutExpired as exc:
@@ -352,10 +464,20 @@ def main() -> int:
                    help="assume un marqueur non aligne sur des lignes entieres")
     p.add_argument("--restaurer", action="store_true",
                    help="remet le fichier d'une preuve INTERROMPUE, puis sort")
+    p.add_argument("--en-place", action="store_true", dest="en_place",
+                   help="ANCIEN comportement : mute le fichier du depot lui-meme. "
+                        "NE PAS UTILISER sur app/ quand le site tourne (--reload "
+                        "le servirait mute, il est tombe ainsi les 2026-10-14/15). "
+                        "Par defaut : mutation sur une COPIE du depot.")
+    p.add_argument("--depot", help="racine du depot a copier (defaut : celui de "
+                                   "l'outil ; sert aux tests)")
+    p.add_argument("--python", dest="interprete",
+                   help="interpreteur de la copie (defaut : .venv du depot)")
     args = p.parse_args()
 
+    depot = Path(args.depot).resolve() if args.depot else RACINE
     demande = Path(args.fichier)
-    cible = (demande if demande.is_absolute() else (RACINE / demande)).resolve()
+    cible = (demande if demande.is_absolute() else (depot / demande)).resolve()
 
     # AVANT tout : une preuve precedente a-t-elle laisse CE fichier mute ?
     # Partir sans regarder ferait mesurer la mauvaise version du code.
@@ -370,7 +492,7 @@ def main() -> int:
     if not cible.is_file():
         print(f"ERREUR D'USAGE : fichier introuvable : {cible}")
         return USAGE
-    if not args.hors_depot and not cible.is_relative_to(RACINE):
+    if not args.hors_depot and not cible.is_relative_to(depot):
         print(f"ERREUR D'USAGE : {cible} est hors du depot. Une faute de frappe "
               "muterait un fichier quelconque de la machine. --hors-depot pour "
               "l'assumer.")
@@ -421,23 +543,45 @@ def main() -> int:
         print(f"    - {ligne + i}: {contenu[:100]}")
 
     empreinte_depart = hashlib.sha256(octets).hexdigest()
-    abri = Path(tempfile.mkdtemp(prefix="preuve_p1_"))
-    sauvegarde = abri / cible.name
-    shutil.copy(cible, sauvegarde)
+    # Mode COPIE (defaut) : le depot reel n'est jamais ecrit, donc ni sentinelle,
+    # ni sauvegarde, ni verrou (rien a restaurer, rien a laisser mute).
+    en_copie = (not args.en_place) and cible.is_relative_to(depot)
+    copie: Path | None = None
+    fichier_mut = cible
+    cwd_run: Path | None = depot if args.depot else None  # None : RACINE
+    interprete: str | None = None
     basetemp = Path(tempfile.mkdtemp(prefix="preuve_p1_pytest_"))
-    verrou = _verrou(cible)
-    try:
-        with open(verrou, "x", encoding="utf-8") as f:
-            f.write(str(os.getpid()))
-    except FileExistsError:
-        shutil.rmtree(basetemp, ignore_errors=True)
-        shutil.rmtree(abri, ignore_errors=True)
-        print(f"PREUVE PRECEDENTE EN COURS : {verrou} existe deja.\n"
-              "Une autre preuve tient ce fichier ; en lancer une seconde "
-              "mesurerait un fichier peut-etre deja mute. Attendre sa fin. Si "
-              "aucune preuve ne tourne (processus tue), supprimer ce verrou apres "
-              "avoir verifie que le fichier cible est intact.")
-        return INTERROMPUE
+    abri = sauvegarde = verrou = None
+    if en_copie:
+        interprete = args.interprete or _interprete_du_depot(depot)
+        try:
+            copie = _copier_depot(depot, Path(tempfile.gettempdir()))
+        except Exception as exc:
+            shutil.rmtree(basetemp, ignore_errors=True)
+            print(f"OUTILLAGE : copie du depot impossible ({exc}). Aucun verdict.")
+            return OUTILLAGE
+        cwd_run = copie
+        fichier_mut = copie / cible.relative_to(depot)
+        print(f"mode COPIE : depot copie dans {copie} (le depot reel n'est pas ecrit)")
+    else:
+        if not args.en_place:
+            print("cible hors depot : mutee en place (aucun site ne la sert).")
+        abri = Path(tempfile.mkdtemp(prefix="preuve_p1_"))
+        sauvegarde = abri / cible.name
+        shutil.copy(cible, sauvegarde)
+        verrou = _verrou(cible)
+        try:
+            with open(verrou, "x", encoding="utf-8") as f:
+                f.write(str(os.getpid()))
+        except FileExistsError:
+            shutil.rmtree(basetemp, ignore_errors=True)
+            shutil.rmtree(abri, ignore_errors=True)
+            print(f"PREUVE PRECEDENTE EN COURS : {verrou} existe deja.\n"
+                  "Une autre preuve tient ce fichier ; en lancer une seconde "
+                  "mesurerait un fichier peut-etre deja mute. Attendre sa fin. Si "
+                  "aucune preuve ne tourne (processus tue), supprimer ce verrou apres "
+                  "avoir verifie que le fichier cible est intact.")
+            return INTERROMPUE
     mutation_posee = False
     restauree = True  # vrai tant qu'aucune mutation n'a ete posee
 
@@ -451,8 +595,15 @@ def main() -> int:
         declencherait jamais -- le fichier resterait mute, c'est-a-dire le
         defaut n3 reintroduit par le refactor qui devait l'eviter."""
         nonlocal mutation_posee
+        if en_copie:
+            refus_import = _import_vient_de(copie, interprete)
+            if refus_import:
+                print("OUTILLAGE : " + refus_import + " Aucun verdict.")
+                return OUTILLAGE
+            print("    import verifie : `app` vient de la copie.")
         print("1/2 — le test doit PASSER sur le code actuel…")
-        verdict, sortie = _jouer(args.test, args.motif, basetemp / "vert", args.timeout)
+        verdict, sortie = _jouer(args.test, args.motif, basetemp / "vert",
+                                 args.timeout, cwd_run, interprete)
         if verdict is None:
             print("OUTILLAGE : impossible de jouer le test. Ce n'est PAS un "
                   "verdict.\n" + _extrait(sortie))
@@ -464,25 +615,33 @@ def main() -> int:
             return DEJA_ROUGE
         print("    vert.")
 
-        if _empreinte(cible) != empreinte_depart:
+        if _empreinte(fichier_mut) != empreinte_depart:
             print("CONCURRENCE : le fichier a change pendant le run vert. "
                   "Restaurer maintenant ecraserait cette modification.")
             return CONCURRENCE
 
-        # La sentinelle est posee AVANT la mutation : entre les deux, un crash
-        # laisserait le fichier intact, ce qui est le bon sens de l'erreur.
-        sentinelle.write_text(json.dumps({
-            "cible": str(cible), "sauvegarde": str(sauvegarde),
-            "empreinte_depart": empreinte_depart,
-        }), encoding="utf-8")
-        cible.write_bytes(texte.replace(apres, avant).encode("utf-8"))
-        mutation_posee = True
-        if _empreinte(cible) == empreinte_depart:
+        if en_copie:
+            # unlink d'abord : si le fichier etait un lien dur vers le depot, on
+            # ecrirait sinon DANS le depot reel.
+            fichier_mut.unlink()
+            fichier_mut.write_bytes(texte.replace(apres, avant).encode("utf-8"))
+            mutation_posee = True
+        else:
+            # La sentinelle est posee AVANT la mutation : entre les deux, un crash
+            # laisserait le fichier intact, ce qui est le bon sens de l'erreur.
+            sentinelle.write_text(json.dumps({
+                "cible": str(cible), "sauvegarde": str(sauvegarde),
+                "empreinte_depart": empreinte_depart,
+            }), encoding="utf-8")
+            cible.write_bytes(texte.replace(apres, avant).encode("utf-8"))
+            mutation_posee = True
+        if _empreinte(fichier_mut) == empreinte_depart:
             print("SANS EFFET : le fichier est inchange apres mutation.")
             return SANS_EFFET
 
         print("2/2 — mutation posee ; le test doit ECHOUER…")
-        verdict, sortie = _jouer(args.test, args.motif, basetemp / "rouge", args.timeout)
+        verdict, sortie = _jouer(args.test, args.motif, basetemp / "rouge",
+                                 args.timeout, cwd_run, interprete)
         if verdict is None:
             print("OUTILLAGE : la mutation empeche de jouer le test (collecte, "
                   "import, syntaxe). Un code non nul n'est PAS un test rouge : "
@@ -529,7 +688,16 @@ def main() -> int:
               "verdict n'est rendu.")
         traceback.print_exc(file=sys.stdout)
     finally:
-        if mutation_posee:
+        if en_copie:
+            if _empreinte(cible) != empreinte_depart:
+                print("ATTENTION : le fichier REEL a change pendant la preuve "
+                      "(edition concurrente) ; la copie datait du debut.")
+            if _supprimer_copie(copie):
+                print("copie supprimee (depot reel non ecrit).")
+            else:
+                print(f"copie NON supprimee (fichier verrouille ?) : {copie}\n"
+                      "  a effacer a la main ; le depot reel n'est pas concerne.")
+        elif mutation_posee:
             try:
                 shutil.copy(sauvegarde, cible)
                 restauree = _empreinte(cible) == empreinte_depart
@@ -547,7 +715,7 @@ def main() -> int:
                       "  Le depot est sur le code d'avant : restaurer a la main "
                       "AVANT toute suite de tests ou revue.")
         shutil.rmtree(basetemp, ignore_errors=True)
-        if restauree:
+        if restauree and not en_copie:
             shutil.rmtree(abri, ignore_errors=True)
             # Verrou libere seulement si le fichier est sain : sinon il reste
             # avec la sentinelle, pour bloquer une preuve sur un fichier mute.
