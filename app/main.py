@@ -6,8 +6,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +26,10 @@ try:
 except ModuleNotFoundError:
     pass
 
-from .auth import exiger_authentification  # noqa: E402
+from .auth import (  # noqa: E402
+    _veut_du_html,
+    exiger_authentification,
+)
 from .auth import router as auth_router
 from .csrf import verifier_origine  # noqa: E402
 from .db import init_db  # noqa: E402
@@ -51,6 +56,7 @@ from .services.interview_segment_jobs import (  # noqa: E402
 from .services.structuration_libre import (  # noqa: E402
     reconcile_en_cours_on_startup as reconcile_structurations_on_startup,
 )
+from .templating import templates  # noqa: E402
 
 
 def empreinte_code() -> str:
@@ -182,6 +188,61 @@ async def erreur_inattendue(request: Request, exc: Exception) -> JSONResponse:
     (gérées par un handler Starlette plus spécifique, jamais atteintes ici)."""
     logger.exception("Exception non gérée sur %s %s", request.method, request.url.path)
     return JSONResponse(status_code=500, content={"detail": "Erreur interne inattendue."})
+
+
+# Table fermée detail -> message : jamais `exc.detail` ni donnée de requête dans la page.
+_MESSAGES_404 = {
+    "Entretien introuvable.": (
+        "Cet entretien n'existe plus. Il a peut-être été supprimé depuis un autre onglet."
+    ),
+    "Mission introuvable.": (
+        "Cette mission n'existe plus. Elle a peut-être été supprimée depuis un autre onglet."
+    ),
+}
+
+
+def _html_accepte(request: Request) -> bool:
+    """Garde locale (auth._veut_du_html ignore `q`) : `text/html;q=0` = refus."""
+    if not _veut_du_html(request):
+        return False
+    for part in (request.headers.get("accept") or "").split(","):
+        morceaux = [m.strip().lower() for m in part.split(";")]
+        if morceaux[0] != "text/html":
+            continue
+        for m in morceaux[1:]:
+            if m.startswith("q="):
+                try:
+                    return float(m[2:]) > 0
+                except ValueError:
+                    return False
+        return True
+    return False
+
+
+@app.exception_handler(StarletteHTTPException)
+async def erreur_http(request: Request, exc: StarletteHTTPException):
+    """404 de NAVIGATION -> page lisible (arbitrage 2026-10-14). Tout le reste
+    (JSON, fetch, HTMX, autres statuts) garde la réponse par défaut, en-têtes
+    compris. Le middleware d'auth passe avant : un anonyme n'arrive jamais ici.
+    Choix assumé (décision d'origine « JSON/fetch/HTMX inchangés ») : une
+    navigation `hx-boost` porte HX-Request et reçoit donc la 404 JSON, pas la page."""
+    if (
+        exc.status_code == 404
+        and isinstance(exc.detail, str)  # detail dict/liste/None -> réponse par défaut
+        and not request.url.path.startswith("/static/")  # public, hors navigation
+        and not request.headers.get("hx-request")
+        and _html_accepte(request)
+    ):
+        message = _MESSAGES_404.get(exc.detail, "Cette page n'existe pas.")
+        try:
+            return templates.TemplateResponse(
+                request, "erreur.html",
+                {"titre": "Introuvable", "message": message},
+                status_code=404, headers=exc.headers,
+            )
+        except Exception:  # rendu cassé : la 404 reste une 404 (JSON), jamais une 500
+            logging.getLogger(__name__).exception("rendu erreur.html impossible")
+    return await http_exception_handler(request, exc)
 
 
 @app.get("/__fraicheur")

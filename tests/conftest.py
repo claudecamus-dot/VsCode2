@@ -498,10 +498,10 @@ except Exception:  # pragma: no cover - garde-fou si l'API TestClient change
 
 # --------------------------------------------------------------------------- #
 # OLLAMA-COUPE-TEMPORAIRE (2026-10-13) : tant que `_call_ollama_once` est coupé
-# (ai_common.py, demande utilisateur du 2026-10-08), 15 tests nommés rougissent
+# (ai_common.py, demande utilisateur du 2026-10-08), 29 tests nommés rougissent
 # uniquement à cause de la coupe. On les SKIP, par node-id en dur, et seulement
 # si la coupe est OBSERVABLEMENT active (appel réel, urlopen patché : aucun
-# réseau). Coupe levée => aucun skip, les 15 tests se réveillent seuls.
+# réseau). Coupe levée => aucun skip, les 29 tests se réveillent seuls.
 # RÉACTIVATION : à la levée de la coupe (marqueurs `OLLAMA-COUPE-TEMPORAIRE` dans
 # app/services/ai_common.py et `TOUR-DE-TABLE-COUPE-TEMPORAIRE` dans
 # libre_detail.html), les skips se réveillent seuls. Supprimer ensuite ce bloc,
@@ -523,6 +523,20 @@ _TESTS_COUPES_OLLAMA = frozenset({
     ("test_structurer_entretien.py", "test_fiche_libre_structuree_sans_sondage"),
     ("test_structurer_entretien.py", "test_verrou_ollama_attente_bornee"),
     ("test_e2e_premiers_clics.py", "test_lancer_le_tour_de_table_depuis_la_fiche"),
+    ("test_e2e_enregistrement_libre.py", "test_l_enregistrement_libre_transcrit_la_parole_et_s_enregistre"),
+    ("test_e2e_enregistrement_libre.py", "test_le_tour_de_table_se_rejoue_autant_de_fois_que_necessaire"),
+    ("test_e2e_enregistrement_libre.py", "test_enregistrer_ouvre_la_fiche_tout_de_suite_puis_structurer_en_tache_de_fond"),
+    ("test_libre_corrections_revue.py", "test_edition_fiche_libre_signale_une_date_illisible"),
+    ("test_ollama_integration.py", "test_extract_turns_real_ollama_is_nonempty_and_not_catastrophically_slow"),
+    ("test_ollama_integration.py", "test_repartition_real_ollama_is_nonempty"),
+    ("test_ollama_integration.py", "test_extract_turns_real_ollama_keeps_content_on_unlabeled_monologue"),
+    ("test_ollama_integration.py", "test_synthese_globale_remplit_toutes_les_rubriques"),
+    ("test_ollama_warm_up.py", "test_le_warm_up_ollama_appelle_le_serveur_par_defaut"),
+    ("test_ollama_warm_up.py", "test_toute_autre_valeur_garde_le_warm_up_ollama"),
+    ("test_turns_display.py", "test_ecran_detail_applique_les_memes_regles"),
+    ("test_turns_display.py", "test_ordre_des_onglets_transcription_puis_tour_de_table_puis_apercu"),
+    ("test_turns_display.py", "test_les_deux_exports_pdf_sont_disponibles"),
+    ("test_turns_display.py", "test_l_ecran_detail_permet_de_corriger_une_identite"),
 })
 _COUPE_OLLAMA_ACTIVE: bool | None = None  # cache : évalué une seule fois
 

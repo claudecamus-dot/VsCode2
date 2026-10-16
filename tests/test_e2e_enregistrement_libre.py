@@ -347,8 +347,15 @@ def test_l_enregistrement_libre_transcrit_la_parole_et_s_enregistre(
     assert "E2E Micro" in page
     # La transcription enregistrée est celle de l'écran (lecture seule, onglet
     # Transcription actif par défaut).
+    # La phrase ENTIÈRE, champ VISIBLE (pas un seul mot, pas un textarea masqué).
+    # `.value` est la seule lecture fiable d'un textarea (son innerText est le
+    # contenu par défaut du balisage, pas la valeur courante).
+    assert nav.evaluer(
+        "(function(){var e=document.querySelector('textarea.record-transcript');"
+        " return !!(e && e.offsetParent !== null);})()"
+    ), "le champ de transcription enregistrée est absent ou masqué"
     transcrit = nav.evaluer("(document.querySelector('textarea.record-transcript')||{}).value||''")
-    assert texte.split()[0] in transcrit, (texte, transcrit)
+    assert " ".join(texte.split()) in " ".join(transcrit.split()), (texte, transcrit)
     # Le tour de table porte les tours rendus par l'IA — et la parole transcrite.
     nav.cliquer(".rec-tab[data-turntab=tours]")
     tours = _tour_de_table(nav)

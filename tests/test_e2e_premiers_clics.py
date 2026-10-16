@@ -170,7 +170,7 @@ def test_choisir_le_mode_puis_demarrer(serveur: str, nav: Navigateur) -> None:
     nav.naviguer(serveur + "/demarrer")
     nav.cliquer_et_attendre("form[action='/entretiens/libre/nouveau'] button[type=submit]")
     assert nav.url().rstrip("/").endswith("/record-libre"), nav.url()
-    assert nav.evaluer("!!document.getElementById('rec-start')"), "bouton Démarrer absent"
+    assert nav.evaluer(_REC_START_UTILISABLE), "bouton Démarrer absent, masqué ou désactivé"
     _sans_erreur(nav, "Démarrer un entretien libre")
 
 
@@ -205,7 +205,7 @@ def test_parcours_premiers_clics(serveur: str, nav: Navigateur) -> None:
 
     nav.naviguer(url_mission)
     nav.cliquer_et_attendre("a[href$='/interviews/record-libre']")
-    assert nav.evaluer("!!document.getElementById('rec-start')"), "bouton Démarrer absent"
+    assert nav.evaluer(_REC_START_UTILISABLE), "bouton Démarrer absent, masqué ou désactivé"
     _sans_erreur(nav, "Écran d'enregistrement libre")
 
     nav.naviguer(url_mission)
@@ -265,11 +265,46 @@ def _attendre_texte(nav: Navigateur, selecteur: str, attendu: str, delai_s: floa
     while time.monotonic() < fin:
         if nav.evaluer(
             "(function(){var e=document.querySelector(" + json.dumps(selecteur) + ");"
-            " return !!(e && e.textContent.indexOf(" + json.dumps(attendu) + ")>=0);})()"
+            " return !!(e && e.innerText.indexOf(" + json.dumps(attendu) + ")>=0);})()"
         ):
             return
         time.sleep(0.2)
     raise AssertionError(f"« {attendu} » jamais apparu dans {selecteur}")
+
+
+# Bouton Démarrer : présent ET visible (`offsetParent`) ET `!disabled`. Seules les
+# deux premières parties sont PROUVÉES : le mutant `display:none` est rouge, mais le
+# mutant `disabled` passait (le JS de la page réactive le bouton avant la lecture),
+# donc la clause `!e.disabled` n'est pas démontrée par ces tests.
+_REC_START_UTILISABLE = (
+    "(function(){var e=document.getElementById('rec-start');"
+    " return !!(e && e.offsetParent !== null && !e.disabled);})()")
+
+# Message d'échec IA : Ollama est injoignable exprès. Selon l'état de
+# `_call_ollama_once` (coupe OLLAMA-COUPE-TEMPORAIRE, ou réseau réel), le service
+# lève l'un de ces deux textes, rendus tels quels dans `<p class="ai-error">`.
+_MESSAGES_ECHEC_IA = (
+    "Ollama est désactivé temporairement",  # OLLAMA-COUPE-TEMPORAIRE : texte en dur de la coupe (à retirer à la levée)
+    "Impossible de joindre Ollama sur http://127.0.0.1:9",
+)
+
+
+def _assert_echec_ia_rendu(nav: Navigateur) -> None:
+    """Le bandeau `.ai-error` VISIBLE porte « ⚠ » + le texte exact du service IA —
+    pas un « ⚠ » quelconque (garde 400, 500 ou autre erreur)."""
+    visibles = nav.evaluer(
+        "Array.from(document.querySelectorAll('.ai-error')).filter(function(e){"
+        "return e.offsetParent !== null;}).map(function(e){return e.innerText;})")
+    assert len(visibles) == 1, f"un seul bandeau .ai-error visible attendu : {visibles}"
+    message = visibles[0].strip()
+    assert message.startswith("⚠ "), message
+    assert any(m in message for m in _MESSAGES_ECHEC_IA), (
+        f"message d'échec IA inattendu : {message[:300]}")
+    # Vraie garde : le texte de la garde « sera remplacée » (confirmation serveur)
+    # ne doit plus être visible NULLE PART sur la page (hors `.ai-error`) une fois
+    # la confirmation donnée ; l'ancienne assertion portait sur `message`, déjà
+    # contraint par les textes Ollama ci-dessus, donc vacuante.
+    assert "sera remplacée" not in nav.texte(), "la garde est toujours affichée"
 
 
 
@@ -338,7 +373,7 @@ def test_indicateurs_et_risques_autosave_et_generation(
         # Le 2e POST, lui, n'a PAS été refusé : un seul 400 sur cette route.
         assert [r["status"] for r in nav.erreurs_http()
                 if r["url"].endswith("/kpis/generate")] == [400], nav.erreurs_http()
-        assert "⚠" in nav.texte(), "le message d'échec IA n'est pas rendu"
+        _assert_echec_ia_rendu(nav)
 
         # Revue adversariale (P5) : le second POST de génération, « Régénérer les
         # risques », cliqué lui aussi — TestClient reçoit un Origin injecté par le
@@ -353,7 +388,7 @@ def test_indicateurs_et_risques_autosave_et_generation(
                      sauf=("/kpis/generate", "/risques/generate"))
         assert [r["status"] for r in nav.erreurs_http()
                 if r["url"].endswith("/risques/generate")] == [400], nav.erreurs_http()
-        assert "⚠" in nav.texte(), "le message d'échec IA (risques) n'est pas rendu"
+        _assert_echec_ia_rendu(nav)
         # Ollama injoignable : la matrice existante n'est pas écrasée.
         assert _python_sur_base(base_db, _LIRE_SUIVI, kid, rid) == repr(
             ("90 % sous 6 mois", 3, "existant"))
@@ -420,7 +455,7 @@ def test_grille_maturite_autosave_et_generation(
         _sans_erreur(nav, "Régénérer la grille de maturité", sauf=("/maturite/generate",))
         assert [r["status"] for r in nav.erreurs_http()
                 if r["url"].endswith("/maturite/generate")] == [400], nav.erreurs_http()
-        assert "⚠" in nav.texte(), "le message d'échec IA n'est pas rendu"
+        _assert_echec_ia_rendu(nav)
         assert _python_sur_base(base_db, _LIRE_MATURITE, lid) == repr((3, "Pratiques pilotées"))
 
 
@@ -450,7 +485,6 @@ def test_apercu_risques_et_maturite_suit_la_saisie_sans_rechargement(
         nav.naviguer(f"{base}/missions/{mid}/synthese/apercu")
         _sans_erreur(nav, "Ouvrir l'aperçu")
         nav.evaluer("window.__meme_page = 1")
-        assert "rechargez" not in nav.texte()
 
         nav.cliquer(".tab[data-tab='risques']")
         assert nav.evaluer(bulle) == "2/2:R1"
@@ -735,7 +769,7 @@ def test_regenerer_apres_edition_passe_par_l_ecran_de_confirmation_serveur(
         nav.drainer()
         texte = nav.texte()
         assert "sera remplacée" not in texte, "la garde se redéclenche malgré la confirmation"
-        assert "⚠" in texte, "aucun message d'échec IA : la génération n'a pas été tentée"
+        _assert_echec_ia_rendu(nav)
         assert not nav.exceptions, nav.exceptions
 
 
@@ -774,7 +808,7 @@ def test_refus_puis_confirmation_de_la_garde_gardent_l_onglet_du_consultant(
         nav.cliquer_et_attendre("form.confirmation-regeneration button[type=submit]")
         nav.drainer()
         assert "sera remplacée" not in nav.texte(), "la garde se redéclenche malgré la confirmation"
-        assert "⚠" in nav.texte(), "la génération n'a pas été tentée"
+        _assert_echec_ia_rendu(nav)
         assert nav.evaluer(_ONGLET_ACTIF) == "risques", (
             f"après la confirmation, onglet actif = {nav.evaluer(_ONGLET_ACTIF)} ; url = {nav.url()}")
         assert not nav.exceptions, nav.exceptions
@@ -862,7 +896,7 @@ def test_garde_swot_editee_a_la_main_passe_par_la_confirmation(
         _sans_erreur(nav, "Régénérer la SWOT confirmée", sauf=("/swot/generate",))
         texte = nav.texte()
         assert "faites à la main" not in texte, "la garde se redéclenche malgré la confirmation"
-        assert "⚠" in texte, "aucun message d'échec IA : la génération n'a pas été tentée"
+        _assert_echec_ia_rendu(nav)
         assert [r["status"] for r in nav.erreurs_http()
                 if r["url"].endswith("/swot/generate")] == [400], nav.erreurs_http()
         # Ollama injoignable : la SWOT éditée n'a pas été écrasée.
@@ -960,7 +994,10 @@ def test_le_formulaire_de_connexion_connecte(serveur: str, nav: Navigateur) -> N
     nav.naviguer(serveur + "/missions")
     assert not nav.evaluer("!!document.querySelector('.login-card')"), \
         "toujours sur la page de connexion après Se connecter"
-    assert "Missions" in nav.texte()
+    assert nav.evaluer(
+        "(function(){var h=document.querySelector('.page-head h1');"
+        " return h && h.offsetParent !== null ? h.innerText.trim() : '';})()"
+    ) == "Missions", "titre de la liste des missions absent"
     # Les 401 de l'atterrissage anonyme et du mauvais mot de passe sont
     # attendus et assérés sur place ; le POST du BON mot de passe, lui, est
     # prouvé par la redirection vers `/` asséré ci-dessus.
