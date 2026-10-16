@@ -299,7 +299,7 @@ def test_la_boucle_de_purge_appelle_le_retest_avant_stop_process() -> None:
 
 def test_serveur_vieux_mais_actif_port_ferme_n_est_pas_purge_via_la_mesure_cpu() -> None:
     """Chemin réel de la panne du 8020 : Resolve-DecisionKeepIfFresh mesure le
-    CPU (Get-CpuServeurS) d'un faux serveur VIEUX (-GraceDemarrageS 0) au port
+    CPU (Get-CpuServeurS) d'un faux serveur VIEUX (-GraceDemarrageS 1, âge worker injecté sous le plafond) au port
     fermé. Actif (boucle CPU) -> demarrage ; inactif -> purger. Port factice
     (jamais 8020). Get-ProcessusServeur est remplacée par un double qui désigne
     le faux serveur par PID (le filtre « exécutable sous la racine » exclut tout
@@ -313,8 +313,9 @@ def test_serveur_vieux_mais_actif_port_ferme_n_est_pas_purge_via_la_mesure_cpu()
             expr = ("function Get-ProcessusServeur { param([int]$NumPort) "
                     f"$r = @(Get-CimInstance Win32_Process -Filter 'ProcessId={faux.pid}'); "
                     "$r + @(Get-DescendantsProcessus -Racines @([int]$r[0].ProcessId)) }; "
+                    "function Get-AgeWorkerS { param([int]$NumPort) 1.5 }; "  # < 2 x Grace(1) : plafond non atteint
                     "$script:motDePasse='x'; Resolve-DecisionKeepIfFresh -NumPort " + port)
-            sortie = _ps_fonctions(expr, "-GraceDemarrageS", "0", "-StabiliteS", "0")
+            sortie = _ps_fonctions(expr, "-GraceDemarrageS", "1", "-StabiliteS", "0")
             assert sortie.splitlines()[-1] == attendu, sortie
         finally:
             _tuer_arbre(faux)
@@ -419,6 +420,19 @@ def test_le_mutex_attrape_toute_erreur_d_ouverture_pas_seulement_unauthorized() 
     assert "catch [System.Threading.AbandonedMutexException]" in bloc
     assert "catch [System.UnauthorizedAccessException]" not in bloc
     assert "catch {" in bloc
+
+
+def test_actif_port_ferme_est_plafonne_sur_l_age_du_worker_pas_du_reloader() -> None:
+    """S2 : racine/reloader vieux (5000 s) mais worker jeune -> « demarrage » (reload du 8020) ;
+    worker lui-même >= 2 x Grace -> « purger » ; âge worker inconnu -> comportement d'origine."""
+    def d(worker: str) -> str:
+        return _ps_fonctions(
+            "Get-DecisionKeepIfFresh -Sain $false -AgeServeurS 5000 -AgeModifS 9999 "
+            f"-Repond $false -Grace 900 -Stabilite 120 -Actif $true -AgeWorkerS {worker}").splitlines()[-1]
+    assert d("100") == "demarrage"
+    assert d("1700") == "demarrage"
+    assert d("1900") == "purger"
+    assert d("$null") == "demarrage"
 
 
 def _bloc_mutex(tmp_path) -> Path:

@@ -10,14 +10,14 @@ Le venv du projet porte les dépendances — `py -m pytest` échoue en collecte
 (`ModuleNotFoundError: fastapi`), il pointe le Python global.
 
 ```bash
-.venv/Scripts/python.exe -m pytest -q                      # suite complète (29 min 32 s / 1592 tests mesurés le 2026-10-07, NON remesurés depuis : 2 fichiers de tests ajoutés, 15 skips pendant la coupe)
+.venv/Scripts/python.exe -m pytest -q                      # suite complète (29 min 32 s / 1592 tests mesurés le 2026-10-07 ; durée NON remesurée depuis : le run du 2026-10-14 a duré 9:59:52, anormal, cause inconnue ; 1671 collectés ; 29 entrées skippées pendant la coupe)
 .venv/Scripts/python.exe -m pytest tests/test_swot.py -q   # un fichier
 .venv/Scripts/python.exe -m pytest -q -k "nom_du_test"     # un test unique
 ```
 
 **Coupe Ollama TEMPORAIRE** (demande du 2026-10-08) : marqueurs `OLLAMA-COUPE-TEMPORAIRE` dans
 `app/services/ai_common.py` et `TOUR-DE-TABLE-COUPE-TEMPORAIRE` dans `app/templates/interviews/libre_detail.html`.
-15 tests sont skippés par `tests/conftest.py` tant qu'elle dure (ils se réveillent seuls). Levée : supprimer
+29 entrées (`_TESTS_COUPES_OLLAMA`) sont skippées par `tests/conftest.py` tant qu'elle dure (ils se réveillent seuls). Levée : supprimer
 le `raise`/`return`, décommenter le bloc d'origine, retirer le bloc de skip de conftest (liste + hook).
 
 L'app exige une **authentification** depuis le 2026-09-19 (`app/auth.py`, middleware
@@ -38,6 +38,7 @@ jamais arrêté en fin de séance. Après une édition sous `app/` : `-CheckOnly
 qu'il sert le code du disque, sinon le relancer (`-Port 8020`). Après un changement de
 schéma : migrer une fois (commande ci-dessus), PUIS le relancer — sinon il reste mort sur
 `SchemaEnRetard`. Le reload ne migre plus rien, il est donc sans danger pour la base.
+Le script a un garde de démarrage (2026-10-15) : en `-KeepIfFresh` il ne purge jamais un serveur jeune (< 900 s) ou actif (CPU qui progresse, tant que son worker a moins de 1800 s), et un verrou nommé évite deux instances.
 
 Sur Windows, ajouter `--basetemp` sur un dossier neuf si le teardown se plaint. Lancer
 l'app et regarder un écran : skill `run-dev-server` (un port vierge — un serveur sans
@@ -121,6 +122,7 @@ changement sous `app/`, pas seulement en fin d'incrément :
   sur le code d'avant » alors que rien n'avait été muté) et laissé passer un test qui passait
   des DEUX côtés. L'outil refuse de conclure dans le doute : marqueur non unique, pytest qui
   sort sur une erreur de collecte, test déjà rouge, échec portant sur un test voisin.
+  Preuves sur COPIE par défaut ; `--en-place` jamais sur `app/` quand le site 8020 tourne.
 - **P2 — Tout nouveau comportement** (route, service, branche de template) **arrive avec un
   test qui l'exerce.**
 - **P3 — Revue de code avant TOUT commit de code produit.** Au-dessus du seuil de

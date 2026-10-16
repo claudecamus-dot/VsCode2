@@ -306,12 +306,17 @@ function Get-DecisionKeepIfFresh {
     # $AgeServeurS / $AgeModifS : $null = inconnu (aucun process / aucun fichier).
     # $Actif : le CPU des process serveur PROGRESSE (worker vivant qui travaille,
     # p. ex. préchauffage Whisper) alors que le port est fermé -> ne pas purger.
-    param([bool]$Sain, $AgeServeurS, $AgeModifS, [bool]$Repond, [int]$Grace, [int]$Stabilite, [bool]$Actif = $false)
+    param([bool]$Sain, $AgeServeurS, $AgeModifS, [bool]$Repond, [int]$Grace, [int]$Stabilite, [bool]$Actif = $false, $AgeWorkerS = $null)
     if ($Repond -and $Sain) { return "sain" }
     if ($null -ne $AgeServeurS -and [double]$AgeServeurS -lt $Grace) { return "demarrage" }
-    # Pas de plafond sur $Actif (revue 2026-10-16, S2 abandonné) : $AgeServeurS est l'âge de la RACINE
-    # uvicorn, donc du reloader sous --reload (vit des jours) ; un plafond purgerait le 8020 en plein reload.
-    if (-not $Repond -and $Actif) { return "demarrage" }
+    # Plafond sur l'âge du process serveur le PLUS JEUNE ($AgeWorkerS : le worker, relancé à chaque
+    # reload), jamais sur $AgeServeurS = racine/reloader qui vit des jours : un worker en plein
+    # (re)démarrage est jeune ; un worker gelé qui brûle du CPU port fermé finit par dépasser 2 x $Grace.
+    # $AgeWorkerS = $null (inconnu) : pas de plafond, comportement d'origine.
+    if (-not $Repond -and $Actif) {
+        if ($null -ne $AgeWorkerS -and [double]$AgeWorkerS -ge (2 * $Grace)) { return "purger" }
+        return "demarrage"
+    }
     if ($Repond -and $null -ne $AgeModifS -and [double]$AgeModifS -lt $Stabilite) { return "stabilite" }
     return "purger"
 }
@@ -325,6 +330,15 @@ function Get-AgeServeurS {
     $creations = @(Get-ProcessusServeur -NumPort $NumPort |
         Where-Object { $_.CommandLine -like "*uvicorn app.main*" } |
         ForEach-Object { $_.CreationDate } | Where-Object { $_ })
+    if ($creations.Count -eq 0) { return $null }
+    $plusRecent = ($creations | Sort-Object -Descending | Select-Object -First 1)
+    return [math]::Max(0, ((Get-Date) - $plusRecent).TotalSeconds)
+}
+
+function Get-AgeWorkerS {
+    # Âge (s) du process serveur le plus jeune (racine ET descendance) de ce repo et de ce port.
+    param([int]$NumPort)
+    $creations = @(Get-ProcessusServeur -NumPort $NumPort | ForEach-Object { $_.CreationDate } | Where-Object { $_ })
     if ($creations.Count -eq 0) { return $null }
     $plusRecent = ($creations | Sort-Object -Descending | Select-Object -First 1)
     return [math]::Max(0, ((Get-Date) - $plusRecent).TotalSeconds)
@@ -372,7 +386,8 @@ function Resolve-DecisionKeepIfFresh {
         $script:etatServeur.Cpu = $apres
         if (($apres - $avant) -gt 0.2) {
             $decision = Get-DecisionKeepIfFresh -Sain $sain -AgeServeurS $age -AgeModifS $modif `
-                -Repond $repond -Grace $GraceDemarrageS -Stabilite $StabiliteS -Actif $true
+                -Repond $repond -Grace $GraceDemarrageS -Stabilite $StabiliteS -Actif $true `
+                -AgeWorkerS (Get-AgeWorkerS -NumPort $NumPort)
         }
     }
     return $decision
