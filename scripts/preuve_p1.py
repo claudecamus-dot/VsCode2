@@ -595,7 +595,11 @@ def main() -> int:
         declencherait jamais -- le fichier resterait mute, c'est-a-dire le
         defaut n3 reintroduit par le refactor qui devait l'eviter."""
         nonlocal mutation_posee
-        if en_copie:
+        if en_copie and not (copie / "app" / "__init__.py").is_file():
+            print("    import NON verifie : pas de app/__init__.py dans la copie.")
+        elif en_copie:
+            # Limite connue : on verifie `import app`, pas l'import du module du test
+            # (pytest/rootdir peut en resoudre un autre) ; non repare ici.
             refus_import = _import_vient_de(copie, interprete)
             if refus_import:
                 print("OUTILLAGE : " + refus_import + " Aucun verdict.")

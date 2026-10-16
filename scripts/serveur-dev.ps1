@@ -309,6 +309,8 @@ function Get-DecisionKeepIfFresh {
     param([bool]$Sain, $AgeServeurS, $AgeModifS, [bool]$Repond, [int]$Grace, [int]$Stabilite, [bool]$Actif = $false)
     if ($Repond -and $Sain) { return "sain" }
     if ($null -ne $AgeServeurS -and [double]$AgeServeurS -lt $Grace) { return "demarrage" }
+    # Pas de plafond sur $Actif (revue 2026-10-16, S2 abandonné) : $AgeServeurS est l'âge de la RACINE
+    # uvicorn, donc du reloader sous --reload (vit des jours) ; un plafond purgerait le 8020 en plein reload.
     if (-not $Repond -and $Actif) { return "demarrage" }
     if ($Repond -and $null -ne $AgeModifS -and [double]$AgeModifS -lt $Stabilite) { return "stabilite" }
     return "purger"
@@ -377,6 +379,10 @@ function Resolve-DecisionKeepIfFresh {
 }
 
 function Invoke-RetestAvantKill {
+    # Limite connue (revue S5) : si la passe 1 n'avait tué que le reloader et qu'un
+    # worker survivant servait du contenu frais, « sain » sort en 0 sans --reload.
+    # La purge tue parent + descendance (Get-DescendantsProcessus) : cas résiduel
+    # rare, la prochaine instance -KeepIfFresh le verrait sans reloader. Non corrigé.
     # Re-test de la décision juste avant de tuer (2026-10-15) : si le serveur est
     # devenu sain / jeune entre l'inventaire et le kill, Write-DecisionEtSortir sort.
     param([bool]$KeepIfFreshActif, [bool]$StopOnlyActif, [int]$NbIds, [int]$NumPort, [bool]$ApresKill = $false)
@@ -517,6 +523,7 @@ if ($CheckOnly) {
 # -CheckOnly n'en prennent pas (comportement inchangé). Un mutex est rendu par
 # l'OS à la mort de son process : un script tué ne le garde pas.
 $script:verrou = $null
+$script:erreurVerrou = $null
 $verrouPris = $false
 if (-not $StopOnly) {
     $attenteMs = 0
@@ -531,13 +538,14 @@ if (-not $StopOnly) {
         # quelqu'un d'autre, NON reproduit ici) ou tout autre échec d'ouverture :
         # dans le doute le verrou n'est PAS pris -> refus propre, pas de crash.
         $verrouPris = $false
+        $script:erreurVerrou = $_.Exception.GetType().Name + " : " + $_.Exception.Message
     }
     if (-not $verrouPris) {
         if ($KeepIfFresh) {
-            Write-Host "Une autre instance de serveur-dev.ps1 tient le verrou du port $Port : rien fait (-KeepIfFresh)."
+            Write-Host ("Une autre instance de serveur-dev.ps1 tient le verrou du port $Port : rien fait (-KeepIfFresh)." + $(if ($script:erreurVerrou) { " [ouverture du verrou impossible : $script:erreurVerrou]" }))
             exit 0
         }
-        $host.UI.WriteErrorLine("Une autre instance de serveur-dev.ps1 tient le verrou du port $Port depuis plus de $VerrouAttenteS s : refus de lancer en parallèle (elle purge ou démarre peut-être). Réessayer, ou arrêter cette instance.")
+        $host.UI.WriteErrorLine("Une autre instance de serveur-dev.ps1 tient le verrou du port $Port depuis plus de $VerrouAttenteS s : refus de lancer en parallèle (elle purge ou démarre peut-être). Réessayer, ou arrêter cette instance." + $(if ($script:erreurVerrou) { " [ouverture du verrou impossible, pas forcément tenu : $script:erreurVerrou]" }))
         exit 3
     }
 }

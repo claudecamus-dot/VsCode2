@@ -8,8 +8,16 @@
   var CLEAR_DELAY_MS = 3000;
   var timers = new WeakMap();
   // Slots portant un message PERSISTANT (404/401) : à effacer au prochain succès.
-  // Valeur : l'élément (evt.detail.elt) dont l'échec a posé le message, ou null.
+  // Valeur : tableau des éléments (evt.detail.elt) dont l'échec a posé le message (null si inconnu).
   var persistants = new WeakMap();
+
+  // isConnected absent (vieux navigateur) : repli sur document.contains ; sans
+  // aucun des deux, on suppose l'élément connecté (message conservé).
+  function estConnecte(el) {
+    if (typeof el.isConnected === "boolean") return el.isConnected;
+    if (typeof document.contains === "function") return document.contains(el);
+    return true;
+  }
 
   function scheduleClear(el) {
     var existing = timers.get(el);
@@ -115,7 +123,12 @@
       target.appendChild(a);
     }
     target.classList.add("error");
-    if (opts.persistant) persistants.set(target, evt.detail.elt || null);
+    if (opts.persistant) {
+      var lst = persistants.get(target) || [];
+      var src = evt.detail.elt || null;
+      if (lst.indexOf(src) < 0) lst.push(src);
+      persistants.set(target, lst);
+    }
     else { persistants.delete(target); scheduleClear(target); }
   }
 
@@ -132,12 +145,20 @@
       slot = slot.querySelector(".autosave-err");
     }
     if (!slot || !persistants.has(slot)) return;
-    // Succès d'un AUTRE élément ciblant le même slot : le message reste vrai pour
-    // l'élément en erreur. (elt absent des deux côtés : on efface, comme avant.)
-    var source = persistants.get(slot);
-    // Source remplacée par un swap outerHTML (détachée du DOM) : son message ne
-    // peut plus être « vrai pour elle », le succès d'un elt neuf l'efface.
-    if (source && d.elt && source !== d.elt && source.isConnected !== false) return;
+    // Plusieurs éléments peuvent porter un message sur le même slot : on garde
+    // l'ENSEMBLE des sources. Le succès de d.elt la retire ; une source détachée
+    // du DOM (remplacée par un swap outerHTML) n'attend plus rien. Le message
+    // ne s'efface que quand plus aucune source connue ne reste. Les erreurs sans
+    // elt (null) ne s'effacent que si plus aucune source connue ne reste, ou si
+    // le succès n'a pas d'elt non plus (ancien comportement).
+    var sources = persistants.get(slot);
+    var restantes = sources.filter(function (src) {
+      if (src === null) return true;
+      if (d.elt && src === d.elt) return false;
+      return estConnecte(src);
+    });
+    var connues = restantes.filter(function (src) { return src !== null; });
+    if (connues.length) { persistants.set(slot, restantes); return; }
     persistants.delete(slot);
     slot.textContent = "";
     slot.classList.remove("error");

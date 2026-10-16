@@ -250,3 +250,11 @@ def test_main_refuse_de_conclure_si_app_importe_vient_d_ailleurs(tmp_path):
     assert r.returncode != 0 and "ne vient PAS de la copie" in r.stdout, r.stdout + r.stderr
     assert "PREUVE P1 TENUE" not in r.stdout
     assert not (tmp_path / "log.txt").exists(), "le test a ete joue malgre le refus"
+
+
+def test_sans_app_init_le_controle_d_import_est_annonce_non_verifie(tmp_path):
+    """S4 : plus de saut silencieux du controle d'import."""
+    depot = _projet(tmp_path)
+    r = _lancer(tmp_path, depot)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "import NON verifie" in r.stdout

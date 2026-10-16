@@ -70,6 +70,7 @@ var leurre = new Elt('span'); leurre.classList.add('autre');  // jamais .saved
 var document = {
   body: body,
   createElement: function (t) { return new Elt(t); },
+  contains: function (n) { return !n.detache; },
   // Le sélecteur est RESPECTÉ (classe simple « .x ») : un leurre sans .saved
   // ne doit jamais devenir région live.
   querySelectorAll: function (sel) {
@@ -213,6 +214,41 @@ out.remplaceAvant = etat(s10);   // source encore connectée : message gardé
 eltV.isConnected = false;
 emettre('htmx:afterRequest', { target: s10, elt: eltN, successful: true, failed: false, xhr: { status: 200 } });
 out.remplaceApres = etat(s10);
+// A : deux sources en erreur sur le même slot.
+function ok(slot, elt) { emettre('htmx:afterRequest', { target: slot, elt: elt, successful: true, failed: false, xhr: { status: 200 } }); }
+var sA = new Elt('span'); sA.classList.add('saved');
+var e1 = { isConnected: true }, e2 = { isConnected: true };
+emettre('htmx:responseError', { target: sA, elt: e1, xhr: { status: 404 } });
+emettre('htmx:responseError', { target: sA, elt: e2, xhr: { status: 404 } });
+ok(sA, e2); out.aApres2 = etat(sA);
+ok(sA, e1); out.aApres1 = etat(sA);
+// A : erreur sans elt + source connue ; succès d'un tiers ne l'efface pas.
+var sN = new Elt('span'); sN.classList.add('saved');
+var e3 = { isConnected: true };
+emettre('htmx:responseError', { target: sN, xhr: { status: 404 } });
+emettre('htmx:responseError', { target: sN, elt: e3, xhr: { status: 404 } });
+ok(sN, { isConnected: true }); out.nullGarde = etat(sN);
+ok(sN, e3); out.nullEfface = etat(sN);
+// B : source détachée, succès d'un tiers : message effacé (comportement choisi).
+var sB = new Elt('span'); sB.classList.add('saved');
+var eb = { isConnected: false };
+emettre('htmx:responseError', { target: sB, elt: eb, xhr: { status: 404 } });
+ok(sB, { isConnected: true }); out.tiers = etat(sB);
+// B' : une source détachée + une connectée : le tiers n'efface pas.
+var sB2 = new Elt('span'); sB2.classList.add('saved');
+emettre('htmx:responseError', { target: sB2, elt: { isConnected: false }, xhr: { status: 404 } });
+emettre('htmx:responseError', { target: sB2, elt: { isConnected: true }, xhr: { status: 404 } });
+ok(sB2, { isConnected: true }); out.tiersGarde = etat(sB2);
+// C : sans isConnected, repli document.contains.
+var sC = new Elt('span'); sC.classList.add('saved');
+var ec = { detache: false };
+emettre('htmx:responseError', { target: sC, elt: ec, xhr: { status: 404 } });
+ok(sC, { detache: false }); out.cConnecte = etat(sC);
+ec.detache = true; ok(sC, { detache: false }); out.cDetache = etat(sC);
+// D : succès sans elt, source connue connectée : message gardé.
+var sD = new Elt('span'); sD.classList.add('saved');
+emettre('htmx:responseError', { target: sD, elt: { isConnected: true }, xhr: { status: 404 } });
+ok(sD, undefined); out.dSansElt = etat(sD);
 console.log(JSON.stringify(out));
 """
 
@@ -326,3 +362,33 @@ def test_9e_source_remplacee_par_un_swap_le_succes_suivant_efface_le_message(sor
     # R1 : source encore connectée -> message gardé ; source détachée -> effacé.
     assert sortie["remplaceAvant"]["texte"].startswith("⚠ fiche introuvable"), sortie["remplaceAvant"]
     assert sortie["remplaceApres"]["texte"] == "" and sortie["remplaceApres"]["erreur"] is False, sortie["remplaceApres"]
+
+
+def _vide(e): return e["texte"] == "" and e["erreur"] is False
+def _garde(e): return e["texte"].startswith("⚠") and e["erreur"] is True
+
+
+def test_A_deux_sources_le_message_reste_tant_que_toutes_n_ont_pas_reussi(sortie: dict) -> None:
+    assert _garde(sortie["aApres2"]), sortie["aApres2"]
+    assert _vide(sortie["aApres1"]), sortie["aApres1"]
+
+
+def test_A_erreur_sans_elt_n_est_pas_effacee_par_un_tiers_si_une_source_connue_reste(sortie: dict) -> None:
+    assert _garde(sortie["nullGarde"]), sortie["nullGarde"]
+    assert _vide(sortie["nullEfface"]), sortie["nullEfface"]
+
+
+def test_B_source_detachee_puis_succes_d_un_tiers_efface(sortie: dict) -> None:
+    # Choix : le remplaçant d'un outerHTML est indiscernable d'un tiers ; la source
+    # détachée n'attend plus rien. Mais une autre source connectée garde le message.
+    assert _vide(sortie["tiers"]), sortie["tiers"]
+    assert _garde(sortie["tiersGarde"]), sortie["tiersGarde"]
+
+
+def test_C_sans_isconnected_repli_document_contains(sortie: dict) -> None:
+    assert _garde(sortie["cConnecte"]), sortie["cConnecte"]
+    assert _vide(sortie["cDetache"]), sortie["cDetache"]
+
+
+def test_D_succes_sans_elt_ne_leve_pas_le_message_d_une_source_connectee(sortie: dict) -> None:
+    assert _garde(sortie["dSansElt"]), sortie["dSansElt"]

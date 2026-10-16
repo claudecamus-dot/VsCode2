@@ -419,3 +419,30 @@ def test_le_mutex_attrape_toute_erreur_d_ouverture_pas_seulement_unauthorized() 
     assert "catch [System.Threading.AbandonedMutexException]" in bloc
     assert "catch [System.UnauthorizedAccessException]" not in bloc
     assert "catch {" in bloc
+
+
+def _bloc_mutex(tmp_path) -> Path:
+    texte = SCRIPT.read_text(encoding="utf-8-sig")
+    bloc = texte.split("$script:verrou = $null")[1].split("if (-not $verrouPris)")[0]
+    f = tmp_path / "bloc_mutex.ps1"
+    f.write_text("$script:verrou = $null\n$script:erreurVerrou = $null\n$verrouPris = $false\n"
+                 + bloc + "\n}", encoding="utf-8-sig")  # ferme le `if (-not $StopOnly) {` du bloc
+    return f
+
+
+def test_mutex_abandonne_est_possede_et_erreur_d_ouverture_est_nommee(tmp_path) -> None:
+    """S1/S3 : exécute le vrai bloc du script. Mutex abandonné (thread mort) ->
+    verrou PRIS ; échec d'ouverture (New-Object qui lève) -> non pris + cause nommée."""
+    bloc = _bloc_mutex(tmp_path)
+    prelude = ("$Port=18097; $StopOnly=$false; $KeepIfFresh=$false; $VerrouAttenteS=0; ")
+    abandon = (
+        "$m = New-Object System.Threading.Mutex($false,'Global\\VSCode2-serveur-dev-18097'); "
+        "$ps=[powershell]::Create(); [void]$ps.AddScript({ param($mm) [void]$mm.WaitOne(0) })"
+        ".AddArgument($m); $rs=[runspacefactory]::CreateRunspace(); $rs.Open(); $ps.Runspace=$rs; "
+        "$h=$ps.BeginInvoke(); [void]$ps.EndInvoke($h); $rs.Close(); Start-Sleep 1; ")
+    sortie = _ps_fonctions(prelude + abandon + f". '{bloc}'; \"PRIS=$verrouPris ERR=[$script:erreurVerrou]\"")
+    assert "PRIS=True ERR=[]" in sortie, sortie
+    sortie = _ps_fonctions(
+        prelude + "function New-Object { throw [System.UnauthorizedAccessException]::new('refuse') }; "
+        + f". '{bloc}'; \"PRIS=$verrouPris ERR=[$script:erreurVerrou]\"")
+    assert "PRIS=False" in sortie and "UnauthorizedAccessException : refuse" in sortie, sortie

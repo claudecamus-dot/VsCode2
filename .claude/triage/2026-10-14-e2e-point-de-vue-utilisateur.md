@@ -187,3 +187,10 @@ Non rejoué à ce stade : 26 fichiers de non-régression de `app/main.py` (expir
   - S1 moyen, serveur-dev.ps1 ~l.528 : catch générique du mutex peut perdre la trace d'un mutex abandonné si PS enveloppe l'exception (`InnerException`) → message faux « autre instance ».
   - S2 moyen, Resolve-DecisionKeepIfFresh ~l.384 : verdict « demarrage » sans plafond pour un serveur ACTIF port fermé (antérieur à R3).
   - S3 faible : test du mutex et `test_la_passe_2_declare_apres_kill_au_retest` textuels. S4 faible : preuve_p1.py l.214 saute le contrôle d'import sans le dire sans `app/__init__.py`. S5 faible : autosave.js, source `null` si erreur sans `elt` (comportement d'avant).
+
+## Traite tout (2026-10-16) — suite de la revue R1-R4
+
+- Autosave : A (plusieurs sources par slot), C (repli `document.contains`), D (succès sans `elt`) corrigés, tests rouge->vert ; B (succès d'un tiers efface après détachement de la source) = DÉCISION de l'agent, sans test rouge avant, à confirmer par l'utilisateur (inconvénient : le texte non enregistré de l'élément détaché n'est plus signalé). Pas de P1 individuelle pour `test_A_erreur_sans_elt` et `test_B_source_detachee`.
+- Scripts : S1 INFIRMÉ (mutex abandonné bien attrapé sous PS 5.1, mesuré) ; message d'ouverture de verrou désormais précis (`$script:erreurVerrou`) + test qui exécute le vrai bloc ; S3, S4 corrigés ; S5 documenté sans correction.
+- **S2 ANNULÉ** : le plafond 2×Grace sur « actif » a été relu comme défaut répété (revue de contrôle) : `$AgeServeurS` est l'âge de la racine uvicorn = le reloader sous `--reload`, donc le plafond purgerait le 8020 en plein reload. Retiré, tests d'origine restaurés, commentaire posé. Le risque d'origine (site gelé qui brûle du CPU gardé sans fin) reste ouvert, NON corrigé ; piste : plafonner sur l'âge du worker le plus jeune. Hypothèse de revue, non reproduite.
+- Rejeu : 145 passed 1 skipped (e2e navigateur inclus) avant retrait de S2, puis 40 passed (serveur-dev + preuve_p1_copie) après. Suite complète non rejouée.
