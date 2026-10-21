@@ -108,13 +108,24 @@
     return positions.length > 10 ? vus + '…' : vus;
   }
 
-  // Texte de l'alerte de complétude, ou '' s'il n'y a rien à dire. N'affiche
-  // QUE `statut === 'incomplet'` : 'complet', 'non_evaluable' (durée du
+  // Texte de l'alerte de complétude, ou '' s'il n'y a rien à dire. N'affiche que
+  // `statut === 'incomplet'` (alerte) ou tout autre statut avec `blocs_rejoues`
+  // (simple information) ; sans relance, 'complet', 'non_evaluable' (durée du
   // conteneur illisible), null ou absent -> chaîne vide. Positions 1-based pour
   // l'utilisateur (`blocs_vides` est 0-based dans le job ; `tranches_ignorees`
   // est déjà en rangs 1-based). Aucun texte transcrit ni chemin dans le message.
   function messageCompletude(c) {
-    if (!c || c.statut !== 'incomplet') return '';
+    if (c && c.statut !== 'incomplet') {
+      // Échec masqué mais compté : un bloc relancé automatiquement puis réussi
+      // ne rend pas la transcription incomplète, il doit pourtant se voir.
+      var relances = entiers(c.blocs_rejoues).length;
+      return relances
+        ? relances + ' bloc' + (relances > 1 ? 's' : '') + ' audio relancé'
+          + (relances > 1 ? 's' : '') + ' automatiquement, puis réussi'
+          + (relances > 1 ? 's' : '') + '.'
+        : '';
+    }
+    if (!c) return '';
     var morceaux = [];
     var vides = entiers(c.blocs_vides);
     if (vides.length) {

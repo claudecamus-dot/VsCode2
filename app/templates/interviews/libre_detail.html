@@ -49,6 +49,16 @@
 {% if ident_date_invalide %}
 <p class="ai-error">⚠ La date de l'entretien saisie n'a pas pu être lue et n'a pas été enregistrée — voir le pavé <strong>Informations</strong> de l'onglet Aperçu.</p>
 {% endif %}
+{% if bilan_audio %}
+{% set bilan_alerte = bilan_audio.etat == 'echec' or bilan_audio.statut == 'incomplet' %}
+<p class="{{ 'ai-error' if bilan_alerte else 'muted' }}" id="bilan-audio" role="status">
+  {% if bilan_audio.etat == 'echec' %}⚠ Dernière transcription de l'audio échouée : relance-la.
+  {%- elif bilan_audio.etat == 'en_cours' %}Transcription de l'audio en cours.
+  {%- elif bilan_audio.statut == 'incomplet' %}⚠ Transcription incomplète{% if bilan_audio.blocs_vides %} : {{ bilan_audio.blocs_vides }} bloc{{ 's' if bilan_audio.blocs_vides > 1 else '' }} sans texte{% endif %}.
+  {%- elif bilan_audio.statut == 'complet' %}Transcription complète.{% endif %}
+  {% if bilan_audio.blocs_rejoues %}{{ bilan_audio.blocs_rejoues }} bloc{{ 's' if bilan_audio.blocs_rejoues > 1 else '' }} audio relancé{{ 's' if bilan_audio.blocs_rejoues > 1 else '' }} automatiquement, puis réussi{{ 's' if bilan_audio.blocs_rejoues > 1 else '' }}.{% endif %}
+</p>
+{% endif %}
 {% if tranches_manquantes %}
 <p class="ai-error">
   ⚠ {{ tranches_manquantes }} tranche{{ 's' if tranches_manquantes > 1 else '' }}

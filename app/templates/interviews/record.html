@@ -1778,7 +1778,8 @@
             statusEl.textContent = 'Fichier transcrit (' + consumed + ' bloc'
               + (consumed > 1 ? 's' : '') + ') — prêt à envoyer.';
             // Bandeau persistant (élément à part, non écrasé par les écritures
-            // de statut) ; rien si complet / non évaluable.
+            // de statut) ; incomplet = alerte, complet avec blocs relancés = compte
+            // des relances (SP-1) ; rien si complet sans relance / non évaluable.
             afficherCompletude(data.completude);
             return;
           }

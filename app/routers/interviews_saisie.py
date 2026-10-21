@@ -21,10 +21,11 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, load_only
 
 from ..db import get_session
 from ..models import (
+    AudioFileJob,
     Interview,
     Verbatim,
 )
@@ -60,6 +61,46 @@ from .interviews_libre import (
 logger = logging.getLogger("app.routers.interviews")
 
 router = APIRouter(tags=["interviews"])
+
+
+def _bilan_audio(db: Session, interview: Interview) -> dict | None:
+    """Bilan du DERNIER job audio de la fiche (tous statuts), réduit à ce que le
+    gabarit affiche. Un dernier job échoué ou en cours n'est jamais masqué par un
+    job plus ancien réussi : `etat` vaut alors "echec" / "en_cours". `None` sans
+    job ou pour un job `done` sans bilan exploitable (`completude` NULL, ancien).
+    Lien par `interview_id` (retranscription), à défaut par `filename` ==
+    `audio_backup_path` parmi les jobs NON rattachés (import classique : le job
+    naît avant l'entretien). Lecture seule, colonnes utiles seulement (pas
+    `blocks`, qui porte tout le texte)."""
+    base = db.query(AudioFileJob).options(
+        load_only(AudioFileJob.status, AudioFileJob.completude)
+    )
+    job = base.filter(AudioFileJob.interview_id == interview.id).order_by(
+        AudioFileJob.id.desc()
+    ).first()
+    if job is None and interview.audio_backup_path:
+        job = base.filter(
+            AudioFileJob.filename == interview.audio_backup_path,
+            AudioFileJob.interview_id.is_(None),
+        ).order_by(AudioFileJob.id.desc()).first()
+    if job is None:
+        return None
+    if job.status != "done":
+        return {"etat": "echec" if job.status == "failed" else "en_cours"}
+    c = job.completude
+    if not isinstance(c, dict):
+        return None
+
+    def _nb(cle: str) -> int:
+        v = c.get(cle)
+        return len(v) if isinstance(v, list) else 0
+
+    statut = c.get("statut") if c.get("statut") in ("complet", "incomplet") else None
+    rejoues = _nb("blocs_rejoues")
+    if statut is None and not rejoues:
+        return None
+    return {"etat": "done", "statut": statut, "blocs_vides": _nb("blocs_vides"),
+            "blocs_rejoues": rejoues}
 
 # --------------------------------------------------------------------------- #
 # Écran de saisie (thème par thème)
@@ -104,6 +145,7 @@ def capture(
                 # l'écran /analyse, directement sur la fiche entretien.
                 "sections": group_turns_into_sections(interview.turns),
                 "tranches_manquantes": interview.tranches_manquantes,
+                "bilan_audio": _bilan_audio(db, interview),
                 # Date saisie illisible, écartée à l'enregistrement : la fiche
                 # le dit au lieu de l'avaler (revue 2026-10-06, m5).
                 "ident_date_invalide": request.query_params.get("date_invalide") == "1",
