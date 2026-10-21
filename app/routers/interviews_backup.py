@@ -153,6 +153,14 @@ async def save_record_backup(
     return JSONResponse({"path": filename, "mission_absente": mission_absente})
 
 
+def _nom_invalide(filename: str) -> bool:
+    """Garde unique des routes à `{filename}`. `:` (SH-1) : sous Windows
+    `RECORDINGS_DIR / "D:x.webm"` abandonne le dossier de base et `5_x.webm:flux`
+    vise un flux NTFS ; une référence en base polluée passerait sinon
+    `appartient_a_mission`."""
+    return "/" in filename or "\\" in filename or ".." in filename or ":" in filename
+
+
 @router.get("/missions/{mission_id}/interviews/record/backup/{filename}")
 def get_record_backup(mission_id: int, filename: str, db: Session = Depends(get_session)):
     """Sert un enregistrement audio sauvegardé (écoute/téléchargement) — le
@@ -165,7 +173,7 @@ def get_record_backup(mission_id: int, filename: str, db: Session = Depends(get_
     Même garde d'appartenance que `delete_record_backup` (revue adversariale
     2026-07-29) : sans elle, l'id de mission de l'URL n'était qu'un décor et
     n'importe quel id servait n'importe quel enregistrement."""
-    if "/" in filename or "\\" in filename or ".." in filename:
+    if _nom_invalide(filename):
         raise HTTPException(status_code=400, detail="Nom de fichier invalide.")
     mission = _get_mission(db, mission_id)
     if not mission_backups.appartient_a_mission(
@@ -197,7 +205,7 @@ def delete_record_backup(
     `get_record_backup`), et le fichier doit appartenir À CETTE mission —
     sans quoi l'id de mission de l'URL ne serait qu'un décor et n'importe
     quelle mission pourrait effacer les enregistrements des autres."""
-    if "/" in filename or "\\" in filename or ".." in filename:
+    if _nom_invalide(filename):
         raise HTTPException(status_code=400, detail="Nom de fichier invalide.")
     mission = _get_mission(db, mission_id)
     if not mission_backups.appartient_a_mission(

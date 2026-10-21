@@ -142,7 +142,10 @@ def _noms_audio(interview: Interview) -> list[str]:
     # Même garde de traversée de chemin que `get_record_backup` /
     # `delete_record_backup` sur ce même champ : un nom qui s'en écarte n'est
     # pas un fichier de tranche, on ne le lit pas.
-    return [n for n in uniques if "/" not in n and "\\" not in n and ".." not in n]
+    # `:` aussi (SH-1) : sous Windows `RECORDINGS_DIR / "D:x.webm"` ABANDONNE
+    # le dossier de base. Le préfixe de mission n'est PAS exigé en lecture
+    # (noms legacy `import_<ts>.webm`), contrairement à `_reference_sure`.
+    return [n for n in uniques if "/" not in n and "\\" not in n and ".." not in n and ":" not in n]
 
 
 def _job_retranscription(db: Session, interview_id: int) -> AudioFileJob | None:
