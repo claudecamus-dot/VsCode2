@@ -240,7 +240,7 @@ class Question(Base):
         return QUESTION_TYPE_LABELS.get(self.qtype, self.qtype)
 
 
-STRUCTURATION_STATUTS = ("a_traiter", "en_cours", "fait", "echec")
+STRUCTURATION_STATUTS = ("a_transcrire", "a_traiter", "en_cours", "fait", "echec")
 
 
 class Interview(Base):

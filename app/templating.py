@@ -47,3 +47,17 @@ templates.env.filters["pluriel"] = _pluriel
 # base.html et entree.html recopiaient le nom du cookie et sa sémantique en dur
 # (3 copies divergables, revue adversariale 2026-07-23).
 templates.env.globals["est_mode_demo"] = est_mode_demo
+
+
+def _aujourdhui_iso() -> str:
+    """Date du jour (heure locale du serveur) `AAAA-MM-JJ` : valeur par défaut du
+    champ « Date de l'entretien ». Appelée à chaque rendu, jamais figée."""
+    from datetime import date
+
+    return date.today().isoformat()
+
+
+templates.env.globals["aujourdhui_iso"] = _aujourdhui_iso
+
+from .services.tranches_echec import tranches_en_echec as _tranches_en_echec  # noqa: E402
+templates.env.globals["tranches_en_echec"] = _tranches_en_echec

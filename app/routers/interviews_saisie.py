@@ -10,7 +10,6 @@ import asyncio
 import json
 import logging
 from datetime import date
-from itertools import zip_longest
 
 from fastapi import (
     APIRouter,
@@ -82,6 +81,15 @@ def capture(
         # transcription brute si elle a été conservée, sinon la reconstitue
         # depuis les tours, et dit laquelle des deux pour que l'écran l'annonce.
         transcript, transcript_reconstitue = transcript_of(interview)
+        # Onglet par défaut (2026-10-19) : l'Aperçu dès qu'il y a des tours et
+        # que la structuration est terminée ; sinon la Transcription.
+        # `?onglet=` force le choix (`tours`, ancien nom, vaut `apercu`).
+        onglet = request.query_params.get("onglet")
+        if onglet == "tours":
+            onglet = "apercu"
+        if onglet not in ("transcription", "apercu"):
+            statut = interview.structuration_status or "fait"
+            onglet = "apercu" if interview.turns and statut == "fait" else "transcription"
         return templates.TemplateResponse(
             request,
             "interviews/libre_detail.html",
@@ -89,6 +97,7 @@ def capture(
                 "interview": interview,
                 "mission": interview.mission,
                 "turns": interview.turns,
+                "onglet_defaut": onglet,
                 "transcript": transcript,
                 "transcript_reconstitue": transcript_reconstitue,
                 # Onglet Aperçu (2026-07-27) : même rendu par sections que
@@ -101,6 +110,7 @@ def capture(
                 # Structuration différée (F4) : bouton là où une relance a un
                 # sens, et refus d'une relance DIT plutôt qu'avalé.
                 "structuration_relancable": peut_relancer(interview),
+                "tranche_indisponible": request.query_params.get("tranche") == "indisponible",
                 "structuration_refusee": (
                     request.query_params.get("structuration") == "refusee"
                 ),
@@ -166,20 +176,19 @@ def capture(
 @router.post("/interviews/{interview_id}/libre")
 def save_libre_detail(
     interview_id: int,
-    turn_id: list[str] = Form([]),
-    turn_interlocuteur: list[str] = Form([]),
-    turn_question: list[str] = Form([]),
-    turn_remarque: list[str] = Form([]),
-    turn_section_title: list[str] = Form([]),
-    resume: str = Form(""),
-    interviewee_name: str = Form(""),
-    interviewee_role: str = Form(""),
-    interviewee_entity: str = Form(""),
-    interview_date: str = Form(""),
+    resume: str | None = Form(None),
+    interviewee_name: str | None = Form(None),
+    interviewee_role: str | None = Form(None),
+    interviewee_entity: str | None = Form(None),
+    interview_date: str | None = Form(None),
     db: Session = Depends(get_session),
 ):
-    """Édition d'un entretien libre déjà enregistré : identité, tours de parole
-    et résumé, révisables après coup (ex. un ajustement suite à relecture).
+    """Édition d'un entretien libre déjà enregistré : identité et résumé (pavé
+    « Informations » de l'Aperçu). Depuis 2026-10-19 la fiche ne poste plus les
+    champs `turn_*` (plus d'écran d'édition des tours) ET le serveur les IGNORE
+    s'ils arrivent (onglet ouvert avant la mise à jour) : les tours existants sont
+    toujours conservés tels quels. Un champ ABSENT du POST (None) laisse
+    la valeur en base intacte ; un champ présent mais vidé la vide.
     Ne touche jamais `mode` — verrou serveur (US9.1). Ne touche PAS non plus
     la `repartition` : c'est une matière de niveau *mission* (elle alimente
     la synthèse globale, cf. `_libre_material()`), plus éditée par entretien
@@ -189,39 +198,32 @@ def save_libre_detail(
     if interview.mode != "libre":
         raise HTTPException(status_code=400, detail="Cet entretien n'est pas en mode libre.")
 
-    existing_turns = {str(t.id): t for t in interview.turns}
-    for tid, interlocuteur, question, remarque, section_title in zip_longest(
-        turn_id, turn_interlocuteur, turn_question, turn_remarque, turn_section_title,
-        fillvalue="",
-    ):
-        turn = existing_turns.get(tid)
-        if turn is None:
-            continue
-        turn.interlocuteur = interlocuteur.strip()
-        turn.question = question.strip() or None
-        turn.remarque = remarque.strip() or None
-        turn.section_title = section_title.strip() or None
-
-    interview.resume = resume.strip() or None
+    if resume is not None:
+        interview.resume = resume.strip() or None
 
     # Identité : éditable ici depuis le 2026-07-27 (pavé repliable du tour de
     # table). Avant, un entretien enregistré « Sans nom » — identité non relevée
     # à l'oral et enregistrement sans passer par l'écran de synthèse — ne se
     # renommait NULLE PART. Le défaut « Sans nom » est conservé sur un nom vidé,
     # comme à la création : la mission liste ses entretiens par ce nom.
-    interview.interviewee_name = interviewee_name.strip() or "Sans nom"
-    interview.interviewee_role = interviewee_role.strip()
-    interview.interviewee_entity = interviewee_entity.strip()
+    if interviewee_name is not None:
+        interview.interviewee_name = interviewee_name.strip() or "Sans nom"
+    if interviewee_role is not None:
+        interview.interviewee_role = interviewee_role.strip()
+    if interviewee_entity is not None:
+        interview.interviewee_entity = interviewee_entity.strip()
     date_invalide = False
     try:
-        interview.interview_date = date.fromisoformat(interview_date) if interview_date else None
+        if interview_date is not None:
+            interview.interview_date = date.fromisoformat(interview_date) if interview_date else None
     except ValueError:
         # Même tolérance que les autres routes portant ce champ : une date
         # illisible ne fait pas perdre la saisie des tours qui l'accompagne.
         # Mais elle se DIT (revue 2026-10-06, m5) : drapeau lu par la fiche.
         date_invalide = True
     db.commit()
-    suffixe = "?date_invalide=1" if date_invalide else ""
+    # Rechargement sur l'Aperçu (état enregistré).
+    suffixe = "?onglet=apercu" + ("&date_invalide=1" if date_invalide else "")
     return RedirectResponse(f"/interviews/{interview.id}{suffixe}", status_code=303)
 
 

@@ -18,14 +18,16 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from ..db import RECORDINGS_DIR, SessionLocal
-from ..models import AudioFileJob, InterviewSegmentJob
+from ..models import AudioFileJob, Interview, InterviewSegmentJob
 from . import audio_transcribe
+from .ai_common import au_fond
 from .interview_segment_jobs import delete_segment_jobs, run_segment_job
 
 logger = logging.getLogger(__name__)
@@ -192,6 +194,29 @@ def reprendre_job_echoue_ou_perime(db: Session, job: AudioFileJob) -> bool:
     return pris == 1
 
 
+# Nouveaux essais d'un bloc dont la transcription échoue (échec transitoire).
+BLOC_RETRIES = 2
+BLOC_RETRY_DELAY_S = 2.0
+
+
+def _est_reessayable(exc: BaseException) -> bool:
+    """Vrai pour un échec transitoire d'un bloc : `TranscriptionBusyError`
+    (par classe) ou l'échec générique au message fixe. Les autres
+    `TranscriptionError` (décodage illisible, sans piste...) restent fatales."""
+    if isinstance(exc, audio_transcribe.TranscriptionFondBusyError):
+        # Verrou de fond non obtenu en 1800 s : rejouer = 3 x 1800 s par bloc.
+        return False
+    if isinstance(exc, audio_transcribe.TranscriptionBusyError):
+        return True
+    return str(exc) == audio_transcribe.ECHEC_TRANSCRIPTION
+
+
+def _cause(exc: BaseException) -> str:
+    """Type de la cause d'origine (jamais son texte : il peut porter un chemin)."""
+    return type(exc.__cause__ or exc).__name__
+
+
+@au_fond
 def run_audio_file_job(job_id: int) -> None:
     """Tâche de fond : transcrit le fichier du job bloc par bloc, en
     commitant après chaque bloc pour que le poll de l'UI le voie tout de
@@ -224,21 +249,47 @@ def run_audio_file_job(job_id: int) -> None:
                 rang += 1
                 try:
                     content = (RECORDINGS_DIR / fichier).read_bytes()
-                    depart = len(job.blocks or []) - (job.blocks_before_file or 0)
-                    for _index, total, text in audio_transcribe.iter_transcribe_blocks(
-                        content, job.block_seconds, start_index=max(0, depart)
-                    ):
-                        # Réassignation (pas .append) : SQLAlchemy ne détecte pas
-                        # la mutation en place d'une colonne JSON.
-                        job.total_blocks = (job.blocks_before_file or 0) + total
-                        job.blocks = list(job.blocks or []) + [text]
-                        # Battement de cœur : cf. `_battement` — sans lui, un
-                        # traitement plus long que le seuil de péremption se
-                        # déclare « ne répond plus » alors qu'il progresse, et
-                        # la relance proposée par l'écran doublonne la tâche de
-                        # fond en cours (deux sessions écrivant `job.blocks`).
-                        job.created_at = datetime.now(UTC).replace(tzinfo=None)
-                        db.commit()
+                    essais_bloc = 0
+                    while True:
+                        # Reprise au bloc COURANT à chaque tentative : les blocs
+                        # déjà persistés ne sont jamais re-transcrits.
+                        depart = len(job.blocks or []) - (job.blocks_before_file or 0)
+                        try:
+                            for _index, total, text in audio_transcribe.iter_transcribe_blocks(
+                                content, job.block_seconds, start_index=max(0, depart)
+                            ):
+                                # Réassignation (pas .append) : SQLAlchemy ne détecte pas
+                                # la mutation en place d'une colonne JSON.
+                                job.total_blocks = (job.blocks_before_file or 0) + total
+                                job.blocks = list(job.blocks or []) + [text]
+                                # Battement de cœur : cf. `_battement` — sans lui, un
+                                # traitement plus long que le seuil de péremption se
+                                # déclare « ne répond plus » alors qu'il progresse, et
+                                # la relance proposée par l'écran doublonne la tâche de
+                                # fond en cours (deux sessions écrivant `job.blocks`).
+                                job.created_at = datetime.now(UTC).replace(tzinfo=None)
+                                db.commit()
+                            break
+                        except audio_transcribe.NoSpeechError:
+                            raise
+                        except audio_transcribe.TranscriptionError as exc_bloc:
+                            # Retry borné d'un échec de transcription d'un bloc
+                            # (message fixe ECHEC_TRANSCRIPTION) : un échec
+                            # transitoire ne condamne plus le job. Décodage
+                            # illisible / absent : inutile de réessayer.
+                            # Réessayables : échec générique (message fixe) ET
+                            # `TranscriptionBusyError` (verrou occupé par le
+                            # direct — le bloc n'a pas été tenté). Décidé par la
+                            # classe/le message fixe, plus par égalité de chaîne seule.
+                            if not _est_reessayable(exc_bloc) or essais_bloc >= BLOC_RETRIES:
+                                raise
+                            essais_bloc += 1
+                            logger.warning(
+                                "Bloc en échec (%s), nouvel essai %s/%s",
+                                _cause(exc_bloc), essais_bloc, BLOC_RETRIES,
+                            )
+                            db.commit()  # rend la connexion DB avant de dormir
+                            time.sleep(BLOC_RETRY_DELAY_S * essais_bloc)
                 except audio_transcribe.NoSpeechError as exc:
                     if not job.filenames:
                         raise
@@ -280,7 +331,10 @@ def run_audio_file_job(job_id: int) -> None:
                     db.commit()
         except audio_transcribe.TranscriptionError as exc:
             job.status = "failed"
-            job.error = str(exc)
+            # Cause réelle consignée en base (TYPE seul : jamais de chemin).
+            job.error = str(exc) + (
+                f" (cause : {_cause(exc)})" if exc.__cause__ is not None else ""
+            )
             db.commit()
             return
         except OSError:
@@ -447,10 +501,28 @@ def purge_stale_audio_file_jobs(db: Session, max_age_days: int = 7) -> None:
     cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(
         days=max_age_days
     )
+    cutoff_retrans = datetime.now(UTC).replace(tzinfo=None) - timedelta(
+        days=4 * max_age_days
+    )
     # Liste matérialisée : `delete_segment_jobs` commite, et commiter pendant
     # l'itération d'un résultat encore ouvert expire les objets restants.
     perimes = list(
-        db.scalars(select(AudioFileJob).where(AudioFileJob.created_at < cutoff))
+        db.scalars(select(AudioFileJob).where(
+            AudioFileJob.created_at < cutoff,
+            # Un job de RETRANSCRIPTION (rattaché à un entretien) attend la
+            # confirmation de l'utilisateur : le purger à `max_age_days` rendait la
+            # confirmation « incomplète à vie » (job introuvable). Il vit 4 x plus
+            # longtemps ; il part aussi avec l'abandon, la relance, la
+            # confirmation ou l'entretien.
+            or_(
+                AudioFileJob.interview_id.is_(None),
+                # Jamais tant que l'entretien lié attend sa transcription (`a_transcrire`).
+                (AudioFileJob.created_at < cutoff_retrans)
+                & AudioFileJob.interview_id.not_in(
+                    select(Interview.id).where(Interview.structuration_status == "a_transcrire")
+                ),
+            ),
+        ))
     )
     for job in perimes:
         # Le FICHIER n'est plus supprimé ici (2026-09-01) : la purge efface les

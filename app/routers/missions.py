@@ -6,7 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
-from sqlalchemy import and_, func, or_, select, update
+from sqlalchemy import String, and_, cast, func, or_, select, update
 from sqlalchemy.orm import Session, load_only, selectinload
 
 from ..db import RECORDINGS_DIR, get_session
@@ -26,6 +26,13 @@ def _get_mission(db: Session, mission_id: int) -> Mission:
     return mission
 
 
+# Blancs retirés des DEUX côtés (Python `strip(_BLANCS)` et SQL `trim(x, _BLANCS)`) :
+# `str.strip()` seul retire aussi les retours à la ligne et tabulations alors que
+# le `trim` SQLite ne retire que les espaces : un texte fait de retours à la ligne
+# était « vide » d'un côté seulement.
+_BLANCS = " \t\n\r\x0b\x0c"
+
+
 def _interview_vide(interview: Interview) -> bool:
     """Un entretien enregistré sans aucun contenu structuré — 0 tour (libre) ou
     0 réponse (structuré). Depuis le 2026-09-04, l'extraction IA en échec
@@ -35,7 +42,18 @@ def _interview_vide(interview: Interview) -> bool:
     doit pas faire échouer le nettoyage groupé des brouillons abandonnés
     (bmad-code-review 2026-09-04, finding F8)."""
     if interview.mode == "libre":
-        return not interview.turns
+        # Un libre à 0 tour n'est vide que s'il ne porte AUCUNE matière récupérable :
+        # ni texte, ni audio, ni jeton de tranches, et une structuration terminée.
+        # (`a_transcrire`/`a_traiter`/`echec` à 0 tour portent le texte et l'audio :
+        # les supprimer perdrait l'entretien.) Même définition en SQL ci-dessous.
+        return (
+            not interview.turns
+            and not (interview.raw_transcript or "").strip(_BLANCS)
+            and not interview.audio_backup_path
+            and not interview.audio_segments
+            and not interview.segment_token
+            and (interview.structuration_status or "fait") == "fait"  # '' == NULL == fait
+        )
     return not interview.answers
 
 
@@ -85,9 +103,20 @@ def _compter_brouillons_vides(db: Session, demo: bool) -> int:
             or_(
                 and_(
                     Interview.mode == "libre",
-                    select(InterviewTurn.id)
-                    .where(InterviewTurn.interview_id == Interview.id)
-                    .exists(),
+                    or_(
+                        select(InterviewTurn.id)
+                        .where(InterviewTurn.interview_id == Interview.id)
+                        .exists(),
+                        func.length(func.trim(func.coalesce(Interview.raw_transcript, ""), _BLANCS)) > 0,
+                        func.coalesce(Interview.audio_backup_path, "") != "",
+                        # JSON NULL (SQL) ou `null`/`[]` (JSON) = pas de tranche
+                        and_(
+                            Interview.audio_segments.is_not(None),
+                            cast(Interview.audio_segments, String).not_in(("[]", "null")),
+                        ),
+                        func.coalesce(Interview.segment_token, "") != "",
+                        func.coalesce(func.nullif(Interview.structuration_status, ""), "fait") != "fait",
+                    ),
                 ),
                 and_(
                     Interview.mode != "libre",

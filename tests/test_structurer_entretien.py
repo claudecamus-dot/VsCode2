@@ -342,9 +342,9 @@ def test_route_structurer_refuse_un_entretien_parametre(client: TestClient) -> N
     # `en_cours` ORPHELIN (aucun worker de ce processus ; le cas « en vol » est
     # couvert plus bas) : plus de sondage, le bouton « Relancer » suffit
     # (2026-10-07). `a_traiter` sonde TOUJOURS (le worker n'est pas encore inscrit
-    # juste après l'enregistrement). `fait` à 0 tour : « Lancer le tour de table ».
+    # juste après l'enregistrement). `fait` à 0 tour : « Générer l'aperçu ».
     [("a_traiter", True, "Structurer maintenant"), ("en_cours", False, "Relancer"),
-     ("echec", False, "Relancer"), ("fait", False, "Lancer le tour de table")],
+     ("echec", False, "Relancer"), ("fait", False, "Générer l'aperçu")],
 )
 def test_statut_fragment_sonde_seulement_hors_etat_terminal(
     client: TestClient, statut, sonde, bouton
@@ -499,7 +499,10 @@ def test_ecrans_de_mission_avertissent_des_entretiens_non_structures(
 
 def test_ecran_de_mission_sans_entretien_non_structure_n_avertit_pas(client: TestClient) -> None:
     mission_id = _mission(client)
-    _creer_a_traiter(mission_id, statut="fait")
+    iid = _creer_a_traiter(mission_id, statut="fait")
+    with SessionLocal() as db:  # un `fait` SANS tour avertit désormais (revue 2026-10-19)
+        db.add(InterviewTurn(interview_id=iid, position=0, interlocuteur="A", question="Q ?"))
+        db.commit()
     assert "pas encore structuré" not in client.get(f"/missions/{mission_id}").text
 
 
@@ -921,7 +924,7 @@ def test_fait_partiel_garde_les_jobs_et_propose_de_relancer_les_tranches(
         assert structuration_libre.peut_relancer(interview) is True
     html = client.get(f"/interviews/{interview_id}/structurer/statut").text
     assert "Relancer les tranches en échec" in html
-    assert "confirm(" in html  # le tour de table sera réécrit : on prévient
+    assert "confirm(" in html  # l'aperçu sera réécrit : on prévient
 
 
 def test_fait_complet_ou_sans_job_ne_propose_pas_de_relance(client: TestClient, monkeypatch) -> None:

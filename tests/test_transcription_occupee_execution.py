@@ -82,6 +82,13 @@ let %(gen_var)s = 0;
 let pendingSegments = 0;
 const TRANSCRIBE_TIMEOUT_MS = %(timeout)s;
 const SEGMENT_RETRY_DELAYS_MS = [2000, 6000];
+// Backoff « occupé » de record_libre.html (2026-10-19) : BASE=1 ms neutralise la
+// croissance exponentielle pour garder ici les scénarios sur retry_after_s ; la
+// croissance elle-même est exécutée dans tests/test_navigateur_file_segments.py.
+// Aucune copie serveur acquittée ici : l'abandon reste « perdu » bloquant.
+const BUSY_BACKOFF_BASE_MS = 1, BUSY_BACKOFF_MAX_MS = 240000;
+let waitingSegments = [];
+function copieServeurAcquittee() { return false; }
 const statusEl = { textContent: '' };
 function updateSubmitState() {}
 function maybeSubmitFinalJob() {}
@@ -357,11 +364,14 @@ def plafond_60s(request) -> dict:
     # réglé large (audio_transcribe.py, propagé tel quel par la route) : sans
     # le plafond de 60 s, le client dormirait 5 min sur un seul refus.
     reponses = [{"ok": False, "status": 503, "data": {"code": "busy", "retry_after_s": 300}}]
-    return _lancer(request.param, reponses, 900000, _SCENARIO_PLAFOND_60S)
+    res = _lancer(request.param, reponses, 900000, _SCENARIO_PLAFOND_60S)
+    res["ecran"] = request.param.name
+    return res
 
 
 def test_le_delai_de_relance_ne_depasse_jamais_60s_meme_si_le_serveur_demande_plus(plafond_60s: dict) -> None:
-    assert plafond_60s["minuteur1_delai"] == 60000, (
+    # record.html : plafond 60 s ; record_libre.html : BUSY_BACKOFF_MAX_MS (240 s).
+    assert plafond_60s["minuteur1_delai"] == (60000 if plafond_60s["ecran"] == "record.html" else 240000), (
         "retry_after_s=300 (5 min) doit être plafonné à 60000ms côté client — "
         "le plafond bmad-code-review 2026-09-16 n'était mis en défaut par "
         "AUCUN scénario existant (retry_after_s valait 5 ou 15 partout ailleurs)"

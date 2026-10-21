@@ -185,7 +185,7 @@ def test_record_libre_propose_la_reprise_et_marque_l_envoi() -> None:
     html = RECORD_LIBRE.read_text(encoding="utf-8")
     for attendu in (
         'id="rec-draft-banner"', 'id="rec-draft-restore"', 'id="rec-draft-discard"',
-        "recDraft.charger(MISSION_ID)", "recDraft.decision(", "recDraft.marquerEnvoye(MISSION_ID)",
+        "recDraft.charger(MISSION_ID)", "recDraft.decision(", "recDraft.marquerEnvoye(MISSION_ID, undefined, sessionToken)",
         "recDraft.effacer(MISSION_ID)",
     ):
         assert attendu in html, attendu
@@ -205,7 +205,7 @@ def test_record_libre_propose_la_reprise_et_marque_l_envoi() -> None:
     # 2026-09-08 avant correction).
     fin_fermeture = html.rindex("\n})();")
     assert html.index("function proposerReprise") < fin_fermeture
-    assert html.index("recDraft.marquerEnvoye(MISSION_ID)") < fin_fermeture
+    assert html.index("recDraft.marquerEnvoye(MISSION_ID, undefined, sessionToken)") < fin_fermeture
 
 
 def test_le_brouillon_est_sauve_partout_ou_le_texte_change() -> None:

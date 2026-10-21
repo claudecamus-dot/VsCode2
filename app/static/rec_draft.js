@@ -139,11 +139,25 @@ var recDraft = (function () {
   // l'efface PAS : si la requête échoue après la redirection (serveur tombé,
   // 500), le texte serait perdu une seconde fois. Il reste disponible sept
   // jours, proposé de façon discrète (cf. `decision`).
-  function marquerEnvoye(missionId, now) {
+  function marquerEnvoye(missionId, now, jeton) {
     var etat = charger(missionId, now);
     if (!etat) return false;
     etat.envoyeLe = maintenant(now);
+    if (jeton) etat.envoiJeton = String(jeton);  // identifie l'entretien que ce POST doit créer
     return sauver(missionId, etat, now);
+  }
+
+  // Purge le brouillon SEULEMENT s'il est marqué envoyé (la fiche de l'entretien
+  // enregistré s'affiche : l'envoi a abouti). Un brouillon non envoyé — autre
+  // enregistrement en cours dans un autre onglet — n'est jamais touché.
+  function effacerSiEnvoye(missionId, jeton, now) {
+    var etat = charger(missionId, now);
+    if (!etat || typeof etat.envoyeLe !== 'number') return false;
+    // Le jeton de l'entretien affiché doit être celui du POST : sinon (échec du
+    // POST puis ouverture d'un ANCIEN entretien) le texte seul copie survivante.
+    if (!jeton || !etat.envoiJeton || etat.envoiJeton !== String(jeton)) return false;
+    effacer(missionId);
+    return true;
   }
 
   function formaterDate(ts) {
@@ -194,6 +208,7 @@ var recDraft = (function () {
     effacer: effacer,
     noter: noter,
     marquerEnvoye: marquerEnvoye,
+    effacerSiEnvoye: effacerSiEnvoye,
     decision: decision,
     AGE_MAX_MS: AGE_MAX_MS,
     JOURNAL_MAX: JOURNAL_MAX

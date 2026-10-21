@@ -7,6 +7,7 @@ ordre d'enregistrement des routes et nom de logger inchangés.
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import date
 from itertools import zip_longest
 
@@ -20,7 +21,7 @@ from fastapi import (
 )
 from fastapi.responses import RedirectResponse, Response
 from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from ..db import RECORDINGS_DIR, get_session
@@ -30,6 +31,7 @@ from ..models import (
     Mission,
 )
 from ..services import audio_transcribe, mission_backups
+from ..services.ai_common import au_fond
 from ..services.interview_libre_extract_ai import (
     InterviewLibreExtractAIError,
     generate_repartition_from_turns,
@@ -41,6 +43,7 @@ from ..services.structuration_libre import (
     planifier_structuration,
     relancer,
 )
+from ..services.tranches_echec import relancer_tranches_en_fond, reserver_tranches
 from ..templating import templates
 from .interviews_commun import (
     REPARTITION_KEYS,
@@ -122,6 +125,42 @@ def structurer_maintenant(
     return RedirectResponse(f"/interviews/{interview.id}", status_code=303)
 
 
+def _worker_vivant(interview) -> bool:
+    """Une structuration `en_cours` portée par un worker VIVANT fusionne les mêmes
+    jobs : relancer des tranches en parallèle doublerait le travail IA et
+    réécrirait les tours. (`en_cours` orphelin = `peut_relancer` vrai : autorisé.)"""
+    return interview.structuration_status == "en_cours" and not peut_relancer(interview)
+
+
+@router.post("/interviews/{interview_id}/tranches/relancer")
+def relancer_toutes_les_tranches(
+    interview_id: int, background_tasks: BackgroundTasks, db: Session = Depends(get_session),
+):
+    """Relance GLOBALE des tranches en échec, quel que soit le statut de
+    structuration (y compris `fait` partiel, `a_transcrire`, `en_cours` orphelin)."""
+    interview = _entretien_libre(db, interview_id)
+    ids = [] if _worker_vivant(interview) else reserver_tranches(db, interview)
+    if not ids:
+        return RedirectResponse(f"/interviews/{interview.id}?tranche=indisponible", status_code=303)
+    background_tasks.add_task(relancer_tranches_en_fond, interview.id, ids)
+    return RedirectResponse(f"/interviews/{interview.id}", status_code=303)
+
+
+@router.post("/interviews/{interview_id}/tranches/{job_id}/relancer")
+def relancer_une_tranche(
+    interview_id: int, job_id: int, background_tasks: BackgroundTasks,
+    db: Session = Depends(get_session),
+):
+    """Relance INDIVIDUELLE d'une tranche en échec (même fonction de récupération,
+    en tâche de fond). 303 `refusee` si la tranche n'est pas (ou plus) à rattraper."""
+    interview = _entretien_libre(db, interview_id)
+    ids = [] if _worker_vivant(interview) else reserver_tranches(db, interview, job_id)
+    if not ids:
+        return RedirectResponse(f"/interviews/{interview.id}?tranche=indisponible", status_code=303)
+    background_tasks.add_task(relancer_tranches_en_fond, interview.id, ids)
+    return RedirectResponse(f"/interviews/{interview.id}", status_code=303)
+
+
 @router.get("/interviews/{interview_id}/structurer/statut")
 def structurer_statut(
     interview_id: int,
@@ -146,34 +185,109 @@ def structurer_statut(
     return response
 
 
-def _refus_texte_vide(request, mission, identity, transcript):
-    """Garde UNIQUE « aucun texte » des routes de finalisation libre (revue
-    2026-10-06, m4 : dupliquée sur deux routes, absente de `/from-jobs`, qui
-    lançait alors l'extraction IA sur un texte vide). Rend l'écran d'erreur,
-    ou None quand il y a du texte."""
-    if not transcript.strip():
+def _entier_tolerant(valeur, defaut: int = 0) -> int:
+    """Entier d'un champ de formulaire texte : vide, non numérique ou négatif
+    redonnent `defaut` (jamais un 422 brut sur un champ annexe)."""
+    try:
+        return max(0, int(str(valeur).strip()))
+    except (TypeError, ValueError):
+        return defaut
+
+
+def _position_entiere(valeur):
+    """Position d'une tranche en entier, ou None si illisible (jamais de TypeError :
+    le JSON du client peut porter une chaîne)."""
+    if isinstance(valeur, bool):
+        return None
+    try:
+        return int(valeur)
+    except (TypeError, ValueError):
+        return None
+
+
+def _base_occupee(exc: BaseException) -> bool:
+    """Vrai si l'erreur SQLite est un verrou/occupation transitoire (détection par
+    message, le driver n'exposant pas de code stable ici)."""
+    msg = str(exc).lower()
+    return "locked" in msg or "busy" in msg
+
+
+def _etat_audio(mission, identity, attendu: int = 0) -> tuple[bool, int]:
+    """(a_audio, manquantes) pour l'audio de sauvegarde de CETTE mission, par les
+    mêmes validateurs que la persistance (`references_audio_sures`).
+    `manquantes` = positions 0..N-1 absentes (N = max(`attendu`, dernière
+    position + 1)) ; 0 = audio complet. `a_audio` = au moins une référence VALIDE
+    (`attendu` seul ne prouve rien) ; `attendu` est plafonné (champ client)."""
+    chemin, segments = mission_backups.references_audio_sures(
+        mission.id,
+        identity.get("audio_backup_path"),
+        _parse_audio_segments(identity.get("audio_segments", "[]")),
+        RECORDINGS_DIR,
+    )
+    attendu = min(max(0, attendu), 1000)  # plafond de bon sens (champ client)
+    if not segments:
+        if chemin:
+            return True, 0 if attendu <= 1 else attendu - 1  # ancien format : un fichier
+        return False, 0  # aucune référence audio valide : `attendu` seul ne prouve rien
+    positions = {_position_entiere(seg.get("position")) for seg in segments}
+    if None in positions:
+        return True, max(0, attendu - len(segments))
+    # Positions hors 0..999 (négatives incluses, champ client) écartées : elles
+    # ne comblent aucun trou et ne doivent pas gonfler `range(n)`.
+    positions = {p for p in positions if 0 <= p <= 999}
+    if not positions:
+        return True, max(1, attendu - len(segments))
+    n = min(max(attendu, max(positions) + 1), 1000)
+    return True, len(set(range(n)) - positions)
+
+
+def _refus_texte_vide(request, mission, identity, transcript, *, audio_suffit=False, attendu=0,
+                       incomplete=False):
+    """Garde UNIQUE « aucun texte » des routes de finalisation libre. Rend l'écran
+    d'erreur, ou None. Avec `audio_suffit` (« enregistrer sans attendre », 2026-10-19),
+    seul « ni texte NI aucune référence audio » est refusé : un audio tronqué ne
+    refuse plus (décision du 2026-10-19), l'entretien est créé `a_transcrire` avec
+    `tranches_manquantes` posé et un avertissement visible sur la fiche."""
+    vide = not transcript.strip()
+    if not audio_suffit:
+        return _libre_turns_error(request, mission, identity, "Aucun texte transcrit.") if vide else None
+    if vide and not _etat_audio(mission, identity, attendu)[0]:
         return _libre_turns_error(request, mission, identity, "Aucun texte transcrit.")
     return None
 
 
 def _enregistrer_libre_direct(
     db, request, mission, identity, transcript, session_token, segment_tail,
-    background_tasks: BackgroundTasks,
+    background_tasks: BackgroundTasks, transcription_incomplete: bool = False,
+    audio_attendu: int = 0,
 ):
     """Enregistre DÉFINITIVEMENT l'entretien — texte, audio, jeton des tranches —
     SANS appel IA, puis programme sa structuration en tâche de fond.
 
-    Demande utilisateur du 2026-10-06 : « enregistrer l'entretien libre avec
-    l'audio et la transcription dans un premier temps et après traiter le reste
-    en asynchrone ». Avant, ce POST enchaînait l'extraction des tours en
-    synchrone (des minutes, PC figé derrière « Traitement des tranches en
-    cours… »). Les jobs de tranche ne sont PAS supprimés ici : la structuration
-    (`structurer_entretien`) les consomme, et les garde si elle échoue.
+    Demande utilisateur du 2026-10-06 : enregistrer l'audio et la transcription
+    d'abord, structurer ensuite en asynchrone. Les jobs de tranche ne sont PAS
+    supprimés ici : la structuration (`structurer_entretien`) les consomme.
 
-    Double POST du même `session_token` (double clic, F5) : l'index unique
-    partiel (mission, segment_token) refuse le second ; on redirige vers
-    l'entretien déjà créé, sans seconde structuration (M1)."""
-    jeton = normaliser_jeton(session_token) or None  # même règle que les jobs (G5)
+    Règle d'état : `a_transcrire` si texte vide OU (partiel ET audio présent) — la
+    reprise repart de l'audio ; texte partiel SANS audio => structuré en `a_traiter`
+    avec `tranches_manquantes` (sinon bloqué sans reprise possible).
+
+    Double POST du même `session_token` : l'index unique partiel refuse le second ;
+    on redirige vers l'entretien déjà créé. Il n'est COMPLÉTÉ que s'il est encore
+    `a_transcrire` ET sans aucun tour ; sinon rien n'est écrit (jamais de
+    réécriture d'un texte édité, fait ou en cours de structuration).
+
+    Sans jeton client, un jeton `uuid4` est généré : il N'offre AUCUNE
+    déduplication (chaque POST obtient un jeton neuf, donc crée un entretien) ; la
+    déduplication n'existe que si le client envoie son `session_token`."""
+    jeton = normaliser_jeton(session_token) or uuid.uuid4().hex
+    texte = transcript.strip()
+    a_audio, manquantes = _etat_audio(mission, identity, max(0, audio_attendu))
+    sans_texte = not texte or (transcription_incomplete and a_audio)
+    if sans_texte:
+        tranches = manquantes
+    else:
+        tranches = 1 if transcription_incomplete else 0
     try:
         interview = _creer_interview_libre(
             db,
@@ -183,9 +297,10 @@ def _enregistrer_libre_direct(
             transcript,
             resume="",
             repartition=None,
+            tranches_manquantes=tranches,
             segment_token=jeton,
             segment_tail=segment_tail,
-            structuration_status="a_traiter",
+            structuration_status="a_transcrire" if sans_texte else "a_traiter",
         )
     except IntegrityError:
         db.rollback()
@@ -194,6 +309,9 @@ def _enregistrer_libre_direct(
                 Interview.mission_id == mission.id, Interview.segment_token == jeton,
             )
         )
+        if existant is None and db.get(Mission, mission.id) is None:
+            # Mission supprimée entre la lecture et le commit : 404, pas un 409 trompeur.
+            raise HTTPException(status_code=404, detail="Mission introuvable.") from None
         if existant is None:
             # Contrainte violée mais aucun entretien de ce jeton dans cette
             # mission (F6) : refus clair plutôt qu'une 500 nue.
@@ -202,11 +320,70 @@ def _enregistrer_libre_direct(
                 detail="Cet enregistrement n'a pas pu être enregistré (conflit) — "
                 "recharge la mission pour vérifier s'il existe déjà.",
             ) from None
+        if (
+            texte
+            and existant.structuration_status == "a_transcrire"
+            and not existant.turns
+            and len(texte) > len((existant.raw_transcript or "").strip())
+        ):
+            existant.raw_transcript = texte
+            existant.tranches_manquantes = tranches  # retry incomplet : le compte suit le texte
+            relance = existant.structuration_status == "a_transcrire" and not sans_texte
+            if relance:
+                existant.structuration_status = "a_traiter"
+                existant.tranches_manquantes = tranches
+            db.commit()
+            if relance:
+                background_tasks.add_task(au_fond(planifier_structuration), existant.id)
         return _redirection_apres_enregistrement(mission, existant)
-    background_tasks.add_task(planifier_structuration, interview.id)
+    if not sans_texte:
+        background_tasks.add_task(au_fond(planifier_structuration), interview.id)
     return _redirection_apres_enregistrement(
         mission, interview, _date_illisible(identity.get("interview_date")),
     )
+
+
+def _enregistrer_direct_commun(
+    db, request, background_tasks, mission_id, transcript, interviewee_name,
+    interviewee_role, interviewee_entity, interview_date, audio_backup_path,
+    audio_segments, session_token, segment_tail, audio_attendu, transcription_incomplete,
+):
+    """Corps UNIQUE des deux routes d'enregistrement direct (principale et
+    `/from-jobs`) : mêmes gardes, mêmes règles d'état."""
+    mission = _get_mission(db, mission_id)
+    identity = _build_identity(
+        interviewee_name=interviewee_name,
+        interviewee_role=interviewee_role,
+        interviewee_entity=interviewee_entity,
+        interview_date=interview_date,
+        audio_backup_path=audio_backup_path,
+        audio_segments=audio_segments,
+        transcript=transcript,
+        session_token=session_token,
+        segment_tail=segment_tail,
+    )
+    attendu = _entier_tolerant(audio_attendu)
+    incomplete = bool(str(transcription_incomplete or "").strip())
+    if (refus := _refus_texte_vide(
+        request, mission, identity, transcript, audio_suffit=True,
+        attendu=attendu, incomplete=incomplete,
+    )) is not None:
+        return refus
+    try:
+        return _enregistrer_libre_direct(
+            db, request, mission, identity, transcript, session_token, segment_tail,
+            background_tasks, transcription_incomplete=incomplete, audio_attendu=attendu,
+        )
+    except OperationalError as exc:
+        db.rollback()
+        if _base_occupee(exc):
+            raise HTTPException(
+                status_code=503,
+                detail="Base occupée, réessaie dans un instant (rien n'a été perdu : "
+                "le texte reste dans l'écran).",
+                headers={"Retry-After": "5"},
+            ) from None
+        raise
 
 
 @router.post("/missions/{mission_id}/interviews/record-libre/enregistrer")
@@ -223,33 +400,16 @@ def record_libre_enregistrer(
     audio_segments: str = Form("[]"),
     session_token: str = Form(""),
     segment_tail: str = Form(""),
+    audio_attendu: str = Form("0"),
+    transcription_incomplete: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Enregistrement direct depuis l'écran de transcription (demande utilisateur
-    2026-07-29). Même préambule que `record_libre` — texte obligatoire, attente
-    des tranches encore en traitement — mais la suite enregistre l'entretien au
-    lieu d'ouvrir la revue des tours."""
-    mission = _get_mission(db, mission_id)
-    identity = _build_identity(
-        interviewee_name=interviewee_name,
-        interviewee_role=interviewee_role,
-        interviewee_entity=interviewee_entity,
-        interview_date=interview_date,
-        audio_backup_path=audio_backup_path,
-        audio_segments=audio_segments,
-        transcript=transcript,
-        session_token=session_token,
-        segment_tail=segment_tail,
-    )
-
-    if (refus := _refus_texte_vide(request, mission, identity, transcript)) is not None:
-        return refus
-
-    # Plus d'écran d'attente des tranches sur ce chemin (2026-10-06) : la
-    # structuration différée les attend elle-même, hors requête.
-    return _enregistrer_libre_direct(
-        db, request, mission, identity, transcript, session_token, segment_tail,
-        background_tasks,
+    2026-07-29) : enregistre l'entretien au lieu d'ouvrir la revue des tours."""
+    return _enregistrer_direct_commun(
+        db, request, background_tasks, mission_id, transcript, interviewee_name,
+        interviewee_role, interviewee_entity, interview_date, audio_backup_path,
+        audio_segments, session_token, segment_tail, audio_attendu, transcription_incomplete,
     )
 
 
@@ -267,27 +427,16 @@ def record_libre_enregistrer_from_jobs(
     audio_segments: str = Form("[]"),
     session_token: str = Form(""),
     segment_tail: str = Form(""),
+    audio_attendu: str = Form("0"),
+    transcription_incomplete: str = Form(""),
     db: Session = Depends(get_session),
 ):
-    """Finalisation de l'enregistrement direct après l'écran d'attente — pendant
-    synchrone de `record_libre_from_jobs` pour le chemin sans revue."""
-    mission = _get_mission(db, mission_id)
-    identity = _build_identity(
-        interviewee_name=interviewee_name,
-        interviewee_role=interviewee_role,
-        interviewee_entity=interviewee_entity,
-        interview_date=interview_date,
-        audio_backup_path=audio_backup_path,
-        audio_segments=audio_segments,
-        transcript=transcript,
-        session_token=session_token,
-        segment_tail=segment_tail,
-    )
-    if (refus := _refus_texte_vide(request, mission, identity, transcript)) is not None:
-        return refus
-    return _enregistrer_libre_direct(
-        db, request, mission, identity, transcript, session_token, segment_tail,
-        background_tasks,
+    """Finalisation de l'enregistrement direct après l'écran d'attente — mêmes
+    gardes et mêmes règles d'état que la route sœur (`_enregistrer_direct_commun`)."""
+    return _enregistrer_direct_commun(
+        db, request, background_tasks, mission_id, transcript, interviewee_name,
+        interviewee_role, interviewee_entity, interview_date, audio_backup_path,
+        audio_segments, session_token, segment_tail, audio_attendu, transcription_incomplete,
     )
 
 

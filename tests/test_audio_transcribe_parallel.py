@@ -76,7 +76,7 @@ def test_transcribe_audio_dispatches_to_parallel_above_threshold(
 
     captured = {}
 
-    def fake_parallel(content, duration_s):
+    def fake_parallel(content, duration_s, priority=None, **_kw):
         captured["duration_s"] = duration_s
         return "texte transcrit en parallele"
 

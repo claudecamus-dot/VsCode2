@@ -246,7 +246,7 @@
   <label>
     Date de l'entretien
     <input type="date" name="interview_date"
-           value="{{ identity.interview_date if identity else '' }}">
+           value="{{ (identity.interview_date if identity else '') or aujourdhui_iso() }}">
   </label>
 
   <div class="form-actions">
@@ -338,7 +338,8 @@
   // Délais ENTRE tentatives : N valeurs = N relances = N+1 tentatives en tout
   // (l'ancienne 3e valeur était morte — revue R3-m3 du 2026-08-31, cf.
   // record_libre.html).
-  var SEGMENT_RETRY_DELAYS_MS = [2000, 6000];
+  var SEGMENT_RETRY_DELAYS_MS = [2000, 6000, 15000, 30000];
+  var BACKUP_RETRY_DELAYS_MS = [2000, 6000];  // tranches de sauvegarde : budget court inchangé
   // Relances de la CRÉATION d'une tranche d'extraction — même filet que
   // record_libre.html (incident du 2026-09-08 : un POST muet, trois échecs de
   // suite, une tranche de deux fois le gabarit, un timeout Ollama). Le texte
@@ -1485,14 +1486,14 @@
       // Délai maximal atteint (err.recTimeout — revue R3-M5/M6) : pas de
       // relance automatique — 10 min sans aboutir = connexion morte, rejouer
       // tiendrait « Enregistrer » grisé 10 min de plus. La perte est DITE.
-      if (!timedOut && attempt < SEGMENT_RETRY_DELAYS_MS.length) {
+      if (!timedOut && attempt < BACKUP_RETRY_DELAYS_MS.length) {
         backupStatusEl.textContent = 'Sauvegarde audio non transmise (' + reason
           + ') — nouvelle tentative (' + (attempt + 2) + '/'
-          + (SEGMENT_RETRY_DELAYS_MS.length + 1) + ')…';
+          + (BACKUP_RETRY_DELAYS_MS.length + 1) + ')…';
         setTimeout(function () {
           if (gen !== recGeneration) { settle(); return; }
           uploadBackup(blob, attempt + 1, gen);
-        }, SEGMENT_RETRY_DELAYS_MS[attempt]);
+        }, BACKUP_RETRY_DELAYS_MS[attempt]);
         return;  // pendingBackups reste tenu par la tentative initiale
       }
       // Le blob n'est PAS lâché : on le rend à l'utilisateur (EC-3). Le message

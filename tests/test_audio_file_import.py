@@ -905,7 +905,11 @@ def test_les_deux_ecrans_importent_par_blocs(client, chemin, monkeypatch):
     # `busyUntil` propagé depuis lot 2 atelier-dev (2026-09-15, revue
     # bmad-code-review 2026-09-16) : la relance transitoire porte désormais un
     # 6e argument, la fenêtre de patience "occupé" en cours.
-    assert "uploadSegment(blob, attempt + 1, lostId, gen, onSettle, busyUntil)" in html
+    # record-libre: 7e argument `ctx` (X-Segment-Id stable, 2026-10-19), exactement `busyUntil, ctx)`.
+    attendu = ("uploadSegment(blob, attempt + 1, lostId, gen, onSettle, busyUntil, ctx)"
+               if chemin == "record-libre"
+               else "uploadSegment(blob, attempt + 1, lostId, gen, onSettle, busyUntil)")
+    assert attendu in html
     # 2. les segments perdus se relancent EN SÉQUENCE, pas en rafale — et depuis
     #    le 2026-07-30 en héritant de la génération FIGÉE sur l'entrée conservée
     #    (`seg.gen`, non plus `undefined` qui relisait la génération courante :
@@ -915,7 +919,13 @@ def test_les_deux_ecrans_importent_par_blocs(client, chemin, monkeypatch):
     #    de rappeler `next()` (revue adversariale 2026-07-30 : le décompte doit
     #    arriver à l'aboutissement de CE segment, jamais à la fin de la file,
     #    sinon un drain concurrent remet le compte d'un autre à zéro) ;
-    assert "uploadSegment(seg.blob, 0, seg.id, seg.gen, function () {" in html
+    if chemin == "record-libre":
+        # relances manuelles en file basse (derrière le direct): même séquence, même
+        # callback `done` qui décompte avant `next()`.
+        assert "lowQueue.push({ seg: seg, done: function () {" in html
+        assert "uploadSegment(low.seg.blob, 0, low.seg.id, low.seg.gen, function () {" in html
+    else:
+        assert "uploadSegment(seg.blob, 0, seg.id, seg.gen, function () {" in html
     assert "next();" in html
     # 3. un submit en vol se recale du texte récupéré inséré avant son curseur ;
     assert "coverShift" in html

@@ -60,11 +60,16 @@ sur une machine à mémoire serrée.
 """
 from __future__ import annotations
 
+import collections
+import contextlib
 import io
 import logging
 import multiprocessing
 import os
 import threading
+import time
+
+from app.services.priority_lock import FOND, LIVE, PriorityLock
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 
@@ -156,6 +161,8 @@ GLOBAL_MAX_PARALLEL_WORKERS = int(
     os.environ.get("WHISPER_GLOBAL_MAX_WORKERS", str(MAX_PARALLEL_WORKERS))
 )
 _GLOBAL_WORKERS_SEMAPHORE = threading.Semaphore(max(1, GLOBAL_MAX_PARALLEL_WORKERS))
+# Sérialise la prise multi-permis d'un job (sinon interblocage partiel, EH-1).
+_ACQUISITION_PERMIS_LOCK = threading.Lock()
 
 # Temps (secondes) qu'une transcription synchrone (direct : segment de
 # record.html, ou dictée de notes libres) attend `_MODEL_LOCK` avant de
@@ -167,7 +174,8 @@ _GLOBAL_WORKERS_SEMAPHORE = threading.Semaphore(max(1, GLOBAL_MAX_PARALLEL_WORKE
 # précédent, et cette attente reste sous ~60s. Un timeout plus court (ex. 8s)
 # déclencherait le refus "occupé" sur ce cas NORMAL (un seul onglet, une seule
 # transcription en avance) : côté client, `uploadSegment()` n'a que 2 relances
-# à délai court (`SEGMENT_RETRY_DELAYS_MS`, ~8s cumulées) avant d'abandonner
+# à délai court (`SEGMENT_RETRY_DELAYS_MS`, valeurs à relire dans record.html : le
+# commentaire d'origine « ~8 s cumulées » est périmé) avant d'abandonner
 # le segment — bien en-deçà des 900s de patience qu'il accordait avant ce
 # correctif (`TRANSCRIBE_TIMEOUT_MS`, le fetch attendait le déblocage du
 # verrou sans jamais échouer). Un timeout serveur trop court aurait donc fait
@@ -182,7 +190,73 @@ _GLOBAL_WORKERS_SEMAPHORE = threading.Semaphore(max(1, GLOBAL_MAX_PARALLEL_WORKE
 # L'import de fichier (`iter_transcribe_blocks`) reste sur l'attente
 # bloquante existante, qui a déjà son propre mécanisme de reprise en tâche de
 # fond (reprise au bloc fautif, cf. docstring du module).
-SEGMENT_LOCK_TIMEOUT_S = float(os.environ.get("WHISPER_SEGMENT_LOCK_TIMEOUT_S", "60"))
+#
+# DÉFAUT 150 s (relevé de 60 s, revue 2026-10-19) : le verrou est NON préemptif,
+# et un bloc de fond dure 60 s d'audio x RTF ~3,6 (medium int8 CPU, worker
+# bridé, cf. FILE_BLOCK_S) = ~216 s au pire. À 60 s, le direct recevait un 503
+# alors que le verrou n'avait jamais été libre. 150 s couvre un bloc de fond en
+# cours + une marge. `retry_after_s` (renvoyé en `Retry-After`) n'est PLUS ce
+# délai : c'est `estimer_retry_after()` (file réelle x durée récente).
+SEGMENT_LOCK_TIMEOUT_S = float(os.environ.get("WHISPER_SEGMENT_LOCK_TIMEOUT_S", "150"))
+
+# Estimation honnête du `retry_after_s` d'un refus « occupé » (2026-10-19) :
+# avant, la constante SEGMENT_LOCK_TIMEOUT_S, sans rapport avec la file réelle.
+# Désormais : requêtes en attente du verrou x durée moyenne RÉCENTE d'une
+# transcription directe, bornée à [RETRY_AFTER_MIN_S, RETRY_AFTER_MAX_S].
+RETRY_AFTER_MIN_S = 10.0
+RETRY_AFTER_MAX_S = 240.0
+DUREE_PAR_DEFAUT_S = 30.0  # tant qu'aucune transcription directe n'a été mesurée
+_STATS_LOCK = threading.Lock()
+_ATTENTE_LIVE = 0
+_DUREES_RECENTES: collections.deque = collections.deque(maxlen=8)
+
+
+@contextlib.contextmanager
+def _compte_attente():
+    """Compte une requête directe EN ATTENTE d'une ressource (verrou modèle ou
+    sémaphore de workers) — chemins séquentiel ET parallèle — pour l'estimation."""
+    global _ATTENTE_LIVE
+    with _STATS_LOCK:
+        _ATTENTE_LIVE += 1
+    try:
+        yield
+    finally:
+        with _STATS_LOCK:
+            _ATTENTE_LIVE -= 1
+
+
+def _noter_duree(duree_s: float) -> None:
+    with _STATS_LOCK:
+        _DUREES_RECENTES.append(float(duree_s))
+
+
+def estimer_retry_after() -> float:
+    """Délai honnête avant de rejouer : (en attente + 1 en cours) x durée moyenne
+    récente, borné 10..240 s."""
+    with _STATS_LOCK:
+        attente = _ATTENTE_LIVE
+        moy = (sum(_DUREES_RECENTES) / len(_DUREES_RECENTES)) if _DUREES_RECENTES else DUREE_PAR_DEFAUT_S
+    return max(RETRY_AFTER_MIN_S, min(RETRY_AFTER_MAX_S, (attente + 1) * moy))
+
+# Attente max (s) du FOND sur `_MODEL_LOCK` (30 min par défaut) : avant, sans
+# borne et retour ignoré. Échec => TranscriptionError (le job se relance).
+BACKGROUND_LOCK_TIMEOUT_S = float(os.environ.get("WHISPER_BACKGROUND_LOCK_TIMEOUT_S", "1800"))
+
+# Parallélisme du FOND (import de fichier) tant qu'un direct est en cours ou en
+# attente (cf. `direct_actif`). Le pool de processus n'utilise PAS
+# `_MODEL_LOCK` : sans ce plafond, jusqu'à 8 processus se disputent le CPU avec
+# le segment du direct de l'entretien suivant, qui se dégrade (RTF > 1). Choix
+# minimal sans refonte : le fond ne garde en vol que ce nombre de blocs (défaut
+# 1) et cède donc entre deux blocs ; un bloc déjà parti finit (non préemptif).
+BACKGROUND_WORKERS_WHEN_LIVE = _entier_env("WHISPER_BACKGROUND_WORKERS_WHEN_LIVE", 1)
+
+_LIVE_COMPTEUR = 0
+_LIVE_COMPTEUR_LOCK = threading.Lock()
+
+
+def direct_actif() -> bool:
+    """Vrai si une transcription du DIRECT est en cours ou attend le verrou."""
+    return _LIVE_COMPTEUR > 0 or _MODEL_LOCK.attente_live()
 
 _model = None
 # Le singleton est partagé par plusieurs threads : `/audio/transcribe-segment`
@@ -192,7 +266,7 @@ _model = None
 # parce qu'un modèle ne se partage pas ; ce verrou tient la même garantie pour
 # le chemin séquentiel (revue adversariale 2026-07-27) — il sérialise deux
 # transcriptions concurrentes au lieu de les laisser se marcher dessus.
-_MODEL_LOCK = threading.Lock()
+_MODEL_LOCK = PriorityLock()
 
 
 class TranscriptionError(AIError):
@@ -207,6 +281,16 @@ class NoSpeechError(TranscriptionError):
     réel le 2026-07-30, mission 16 : ~100 min d'un entretien Google Meet
     capturées en quasi-silence — le micro physique n'entend pas le son du
     casque — sans aucune alerte visible, 90 segments perdus en silence)."""
+
+
+class TranscriptionFondBusyError(TranscriptionError):
+    """Verrou de FOND non obtenu après BACKGROUND_LOCK_TIMEOUT_S (30 min) : NON
+    réessayée par `audio_file_jobs._est_reessayable` (3 x 1800 s par bloc sinon)."""
+
+
+class TranscriptionAbandonnee(Exception):
+    """Le client est parti et plus personne n'attend ce segment : transcription
+    sautée après obtention du verrou (rendu aussitôt)."""
 
 
 class TranscriptionBusyError(TranscriptionError):
@@ -359,7 +443,8 @@ def _transcribe_pcm_chunk(args: tuple) -> str:
     return " ".join(seg.text.strip() for seg in segments).strip()
 
 
-def _transcribe_parallel(content: bytes, duration_s: float) -> str:
+def _transcribe_parallel(content: bytes, duration_s: float, priority: int = FOND,
+                         abandonne=None) -> str:
     """Découpe l'audio en `n_workers` tronçons de taille égale (`len(pcm) //
     n_workers`, PAS des tronçons fixes de 30s : `duration_s // 30` ne sert
     qu'à BORNER `n_workers` ci-dessous, cf. `MAX_PARALLEL_WORKERS` — sur un
@@ -380,6 +465,14 @@ def _transcribe_parallel(content: bytes, duration_s: float) -> str:
     pcm = _decode_to_pcm16k(content)
     if pcm.size == 0:
         return ""
+    # `abandonne` (client du direct parti, plus aucun demandeur) : testé avant
+    # de lancer le travail puis entre chaque tronçon — on ne transcrit pas en
+    # entier un long segment dont plus personne n'attend le texte.
+    def _verifier_abandon() -> None:
+        if abandonne is not None and abandonne():
+            raise TranscriptionAbandonnee()
+
+    _verifier_abandon()
 
     n_workers = max(1, min(MAX_PARALLEL_WORKERS, int(duration_s // 30) or 1))
     chunk_len = len(pcm) // n_workers
@@ -401,9 +494,12 @@ def _transcribe_parallel(content: bytes, duration_s: float) -> str:
     index = 0
     for workers in _paliers_workers(n_workers):
         try:
-            for i, text in _drain_parallel(chunks, index, total, workers):
+            # `priority` en kwarg et seulement hors défaut (compat des doubles de test).
+            drain_kw = {} if priority == FOND else {"priority": priority}
+            for i, text in _drain_parallel(chunks, index, total, workers, **drain_kw):
                 parts[i] = text
                 index = i + 1
+                _verifier_abandon()
             break
         except BrokenProcessPool:
             logger.warning(
@@ -414,21 +510,41 @@ def _transcribe_parallel(content: bytes, duration_s: float) -> str:
                 duration_s,
             )
     while index < total:
-        parts[index] = _transcribe_pcm_sequential(chunks[index])
+        _verifier_abandon()
+        parts[index] = _transcribe_pcm_sequential(chunks[index], priority)
         index += 1
     return _merge_overlapping_texts([parts[i] for i in range(total)])
 
 
-def _transcribe_pcm_sequential(pcm) -> str:
+def _transcribe_pcm_sequential(pcm, priority: int = FOND) -> str:
     """Transcrit un PCM déjà décodé avec le modèle singleton du processus
     courant (pas de sous-processus) — chemin d'un fichier tenant en UN bloc,
     où démarrer un `ProcessPoolExecutor` coûterait plus cher que le gain."""
-    with _MODEL_LOCK:
+    # FOND : le verrou n'est tenu que le temps d'UN bloc (FILE_BLOCK_S d'audio) ;
+    # un segment du direct en attente passe devant au bloc suivant.
+    # `priority=LIVE` : tronçon d'un segment du direct long (`transcribe_audio`
+    # -> `_transcribe_parallel`) -> même attente bornée et même refus "occupé"
+    # que le chemin court ; FOND (défaut) : attente sans borne.
+    # LIMITE CONNUE : le délai court PAR tronçon (segment live long en repli
+    # séquentiel : n tronçons => attente cumulée jusqu'à n x SEGMENT_LOCK_TIMEOUT_S).
+    if priority == LIVE:
+        with _compte_attente():
+            obtenu = _MODEL_LOCK.acquire(timeout=SEGMENT_LOCK_TIMEOUT_S, priority=LIVE)
+        if not obtenu:
+            exc = TranscriptionBusyError("Transcription momentanément occupée, réessayez.")
+            exc.retry_after_s = estimer_retry_after()
+            raise exc
+    else:
+        if not _MODEL_LOCK.acquire(timeout=BACKGROUND_LOCK_TIMEOUT_S, priority=FOND):
+            raise TranscriptionFondBusyError(ECHEC_TRANSCRIPTION)
+    try:
         model = _get_model()
         segments, _info = model.transcribe(
             pcm, language="fr", beam_size=BEAM_SIZE, vad_filter=True
         )
         return " ".join(seg.text.strip() for seg in segments).strip()
+    finally:
+        _MODEL_LOCK.release()
 
 
 def _norm_word(word: str) -> str:
@@ -498,7 +614,8 @@ def _paliers_workers(n_workers: int) -> list[int]:
     return paliers
 
 
-def _drain_parallel(blocks: list, start: int, total: int, n_workers: int):
+def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
+                    priority: int = FOND):
     """Génère `(index, texte)` pour les blocs `[start, total)` via un pool de
     `n_workers` processus, dans l'ordre et par fenêtre glissante bornée.
 
@@ -510,13 +627,54 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int):
     démarrer le pool, et les relâche à la sortie (y compris sur
     `BrokenProcessPool` ou toute autre exception) — plafond mémoire GLOBAL
     partagé entre tous les appels concurrents, cf. `GLOBAL_MAX_PARALLEL_WORKERS`."""
+    if priority != LIVE and direct_actif():
+        n_workers = max(1, min(n_workers, BACKGROUND_WORKERS_WHEN_LIVE))
     window = n_workers * 2  # assez pour ne jamais affamer les workers
+
+    def _limite() -> int:
+        # Fond : cède dès qu'un direct est actif (relu à chaque soumission).
+        if priority != LIVE and direct_actif():
+            return max(1, BACKGROUND_WORKERS_WHEN_LIVE)
+        return window
+
     futures: dict[int, object] = {}
     acquis = 0
+    # Jamais plus de permis que le plafond global : sinon attente éternelle.
+    n_workers = max(1, min(n_workers, max(1, GLOBAL_MAX_PARALLEL_WORKERS)))
+    window = min(window, n_workers * 2)
     try:
-        for _ in range(n_workers):
-            _GLOBAL_WORKERS_SEMAPHORE.acquire()
-            acquis += 1
+        # Tout-ou-rien (EH-1) : un fond ne garde aucun permis en attendant les
+        # autres. Un direct (LIVE) démarre avec les permis LIBRES (au moins 1) :
+        # il dégrade son parallélisme au lieu de bloquer sur un jeu complet.
+        deadline = time.monotonic() + SEGMENT_LOCK_TIMEOUT_S
+        expire = False
+        with (_compte_attente() if priority == LIVE else contextlib.nullcontext()):
+            while True:
+                with _ACQUISITION_PERMIS_LOCK:     # section courte, jamais tenue en attente
+                    for _ in range(n_workers):
+                        if not _GLOBAL_WORKERS_SEMAPHORE.acquire(blocking=False):
+                            break
+                        acquis += 1                # compté dès qu'il est pris
+                    if acquis == n_workers or (priority == LIVE and acquis >= 1):
+                        break
+                    while acquis:
+                        _GLOBAL_WORKERS_SEMAPHORE.release()
+                        acquis -= 1
+                if priority == LIVE:
+                    reste = deadline - time.monotonic()
+                    if reste <= 0:
+                        expire = True      # levé HORS du compteur d'attente (estimation)
+                        break
+                    time.sleep(min(0.05, reste))
+                else:
+                    time.sleep(0.05)
+        if expire:
+            exc = TranscriptionBusyError("Transcription momentanément occupée, réessayez.")
+            exc.retry_after_s = estimer_retry_after()
+            raise exc
+        # Pool et fenêtre suivent les permis réellement tenus.
+        n_workers = acquis
+        window = n_workers * 2
         # `spawn` PARTOUT, jamais `fork` (défaut Linux jusqu'à Python 3.13) :
         # le parent a déjà des threads vivants (moniteur tqdm, feeder de
         # queue, uvicorn) et un enfant forké dans cet état se bloque sur un
@@ -530,12 +688,12 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int):
                 )
 
             submitted = start
-            while submitted < min(start + window, total):
+            while submitted < total and len(futures) < _limite():
                 _submit(submitted)
                 submitted += 1
             for index in range(start, total):
                 text = futures.pop(index).result()
-                if submitted < total:
+                while submitted < total and len(futures) < _limite():
                     _submit(submitted)
                     submitted += 1
                 yield index, text
@@ -673,7 +831,7 @@ def iter_transcribe_blocks(
         index += 1
 
 
-def transcribe_audio(content: bytes) -> str:
+def transcribe_audio(content: bytes, abandonne=None) -> str:
     """Retourne le texte transcrit. Lève TranscriptionError. Au-delà de
     `PARALLEL_THRESHOLD_S`, découpe et transcrit en parallèle (voir
     docstring du module) ; en dessous (cas du direct au fil de l'eau),
@@ -692,9 +850,20 @@ def transcribe_audio(content: bytes) -> str:
     _exiger_piste_audio(content)
     duration_s = _probe_duration_s(content)
 
+    global _LIVE_COMPTEUR
+    with _LIVE_COMPTEUR_LOCK:
+        _LIVE_COMPTEUR += 1
+    try:
+        return _transcribe_audio_live(content, duration_s, abandonne)
+    finally:
+        with _LIVE_COMPTEUR_LOCK:
+            _LIVE_COMPTEUR -= 1
+
+
+def _transcribe_audio_live(content: bytes, duration_s, abandonne=None) -> str:
     try:
         if duration_s is not None and duration_s > PARALLEL_THRESHOLD_S:
-            text = _transcribe_parallel(content, duration_s)
+            text = _transcribe_parallel(content, duration_s, LIVE, abandonne=abandonne)
         else:
             # Verrou : le modèle singleton est partagé entre threads (cf.
             # `_MODEL_LOCK`). L'itération sur `segments` étant paresseuse, elle
@@ -708,25 +877,29 @@ def transcribe_audio(content: bytes) -> str:
             # renvoyer un refus "occupé" exploitable par le client (retry avec
             # délai connu) que de le laisser espérer sur un thread bloqué
             # jusqu'au timeout réseau.
-            if not _MODEL_LOCK.acquire(timeout=SEGMENT_LOCK_TIMEOUT_S):
+            with _compte_attente():
+                obtenu = _MODEL_LOCK.acquire(timeout=SEGMENT_LOCK_TIMEOUT_S, priority=LIVE)
+            if not obtenu:
                 exc = TranscriptionBusyError(
                     "Transcription momentanément occupée, réessayez."
                 )
-                exc.retry_after_s = SEGMENT_LOCK_TIMEOUT_S
+                exc.retry_after_s = estimer_retry_after()
                 raise exc
             try:
+                # Client parti pendant l'attente et plus aucun demandeur du même
+                # segment : ne pas brûler 60 s de CPU pour un segment mort.
+                if abandonne is not None and abandonne():
+                    raise TranscriptionAbandonnee()
+                debut = time.monotonic()
                 model = _get_model()
-                # beam_size piloté par BEAM_SIZE (défaut 2, relevé depuis 1 le
-                # 2026-07-15 : gain de précision net sur les noms propres/vocabulaire
-                # métier d'un entretien réel, cf. l'en-tête du module). vad_filter
-                # saute les silences plutôt que de les faire décoder.
                 segments, _info = model.transcribe(
                     io.BytesIO(content), language="fr", beam_size=BEAM_SIZE, vad_filter=True
                 )
                 text = " ".join(seg.text.strip() for seg in segments).strip()
+                _noter_duree(time.monotonic() - debut)
             finally:
                 _MODEL_LOCK.release()
-    except TranscriptionError:
+    except (TranscriptionError, TranscriptionAbandonnee):
         raise
     except Exception as exc:  # garde-fou : ne jamais propager une 500 brute
         logger.exception("Échec de la transcription d'un bloc audio")

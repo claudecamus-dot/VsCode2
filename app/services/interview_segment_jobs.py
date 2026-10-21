@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session, load_only
 
 from ..db import SessionLocal
 from ..models import Interview, InterviewSegmentJob, Mission
+from .ai_common import au_fond
 from .interview_extract_ai import (
     InterviewExtractAIError,
     extract_answers_from_text,
@@ -125,6 +126,12 @@ _RETRY_DELAY_DEFAUT_S = 30.0
 _RETRY_DELAY_MAX_S = 60.0
 
 
+# Récupération SYNCHRONE dans le POST d'enregistrement : un seul nouvel essai, court
+# (revue 2026-10-19 : 2 essais x 30 s x n tranches faisaient pendre la requête).
+_RECOVER_RETRIES = 1
+_RECOVER_RETRY_DELAY_S = 2.0
+
+
 def segment_job_retries() -> int:
     """Nombre de nouveaux essais d'une tranche après une panne TRANSITOIRE
     (timeout Ollama, verrou occupé : modèle froid, file derrière un autre
@@ -158,12 +165,16 @@ def _attendre(secondes: float) -> None:
     time.sleep(secondes)
 
 
-def _extract_with_retries(db: Session, job: InterviewSegmentJob) -> dict:
+def _extract_with_retries(
+    db: Session, job: InterviewSegmentJob, essais: int | None = None,
+    delai_s: float | None = None,
+) -> dict:
     """`_extract_for_job` avec nouveaux essais bornés sur panne transitoire.
     Le job reste `running` pendant l'attente (jamais `failed` à tort : la
     première fois, le modèle froid faisait échouer les tranches en rafale).
     Toute autre erreur, ou la dernière tentative, remonte telle quelle."""
-    essais = segment_job_retries()
+    if essais is None:
+        essais = segment_job_retries()
     for n in range(essais + 1):
         try:
             return _extract_for_job(db, job)
@@ -174,7 +185,7 @@ def _extract_with_retries(db: Session, job: InterviewSegmentJob) -> dict:
                 "Tranche %s : panne transitoire (%s), nouvel essai %s/%s",
                 job.id, exc, n + 1, essais,
             )
-            _attendre(segment_job_retry_delay_s() * (n + 1))
+            _attendre((segment_job_retry_delay_s() if delai_s is None else delai_s) * (n + 1))
     raise AssertionError("inatteignable")  # pragma: no cover
 
 
@@ -286,6 +297,7 @@ def _ecrire_si_texte_inchange(db, job_id: int, texte_attendu, valeurs: dict) -> 
     return bool(touchees)
 
 
+@au_fond
 def run_segment_job(job_id: int) -> None:
     """Tâche de fond : extrait les tours d'UNE tranche de texte (lue depuis la
     colonne `text`, persistée à la création du job — jamais seulement portée
@@ -519,6 +531,17 @@ def segment_jobs_status_light(
     }
 
 
+# Budget cumulé (s) de la récupération synchrone, toutes tranches confondues.
+_RECOVER_BUDGET_S = 20.0
+# Plafond DUR (s) du temps total de la récupération : au-delà, les tranches
+# restantes ne sont PAS tentées (chaque appel peut durer ollama_timeout + attente
+# du verrou, le POST synchrone durait n x cela). Les `_RECOVER_MIN_ESSAIS`
+# premières tranches non terminées gardent toujours leur essai.
+_RECOVER_HARD_BUDGET_S = 90.0
+_RECOVER_MIN_ESSAIS = 1
+_RECOVER_DIFFEREE_MSG = "Récupération différée, relance-la depuis la fiche."
+
+
 def recover_stalled_or_failed_jobs(db: Session, jobs: list[InterviewSegmentJob]) -> None:
     """Re-traite EN SYNCHRONE, un par un, TOUT job pas encore `done` — jamais la
     transcription entière. Appelé uniquement quand on a déjà décidé de
@@ -536,6 +559,9 @@ def recover_stalled_or_failed_jobs(db: Session, jobs: list[InterviewSegmentJob])
     précisément ce qui manquait à la première version du Palier 2). Mute les
     objets `jobs` en place (turns_result/status/error) : `merge_segment_turns`
     appelé juste après voit le résultat à jour sans requête supplémentaire."""
+    debut = time.monotonic()
+    fin_budget = debut + _RECOVER_BUDGET_S
+    tentees = 0
     for job in jobs:
         if job.status == "done":
             continue
@@ -544,8 +570,21 @@ def recover_stalled_or_failed_jobs(db: Session, jobs: list[InterviewSegmentJob])
             job.status = "failed"
             job.error = job.error or "Aucun texte associé à ce job."
             continue
+        if tentees >= _RECOVER_MIN_ESSAIS and time.monotonic() - debut >= _RECOVER_HARD_BUDGET_S:
+            # Budget dur épuisé : aucun appel, la tranche reste rejouable.
+            job.status = "failed"
+            job.error = _RECOVER_DIFFEREE_MSG
+            db.commit()
+            continue
+        tentees += 1
         try:
-            job.turns_result = _extract_for_job(db, job)
+            job.turns_result = _extract_with_retries(
+                db, job,
+                # Budget épuisé : UN essai unique par tranche restante, sans
+                # retry ni attente (le budget borne les retries, pas les essais).
+                essais=_RECOVER_RETRIES if time.monotonic() < fin_budget else 0,
+                delai_s=_RECOVER_RETRY_DELAY_S,
+            )
             job.status = "done"
             job.error = None
         except _EXTRACT_ERRORS as exc:
@@ -651,7 +690,7 @@ def purge_stale_segment_jobs(db: Session, max_age_days: int = 7) -> None:
     jetons_proteges = select(Interview.segment_token).where(
         Interview.segment_token.is_not(None),
         or_(
-            Interview.structuration_status.in_(("a_traiter", "en_cours", "echec")),
+            Interview.structuration_status.in_(("a_traiter", "en_cours", "echec", "a_transcrire")),
             Interview.tranches_manquantes > 0,
         ),
     )

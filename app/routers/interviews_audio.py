@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
@@ -23,6 +24,7 @@ from sqlalchemy.orm import Session
 from ..db import RECORDINGS_DIR, get_session
 from ..models import AudioFileJob, Mission
 from ..services import ai_common, audio_transcribe, mission_backups
+from ..services.segment_dedupe import REGISTRE, cle_segment
 from ..services.audio_file_jobs import (
     is_audio_file_job_stale,
     purge_stale_audio_file_jobs,
@@ -36,8 +38,68 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["interviews"])
 
 
+async def _transcrire_dedoublonne(request: Request, contenu: bytes):
+    """Un seul travail par segment (clé `X-Segment-Id` ou sha1) partagé par tous
+    les demandeurs ; rend None si CE client s'est déconnecté en attendant."""
+    cle = cle_segment(request.headers.get("X-Segment-Id"), contenu)
+    texte, travail, proprietaire = REGISTRE.rejoindre(cle)
+    if texte is not None:
+        return texte
+    try:
+        if proprietaire:
+            def _tache() -> None:
+                try:
+                    res = audio_transcribe.transcribe_audio(
+                        contenu, abandonne=lambda: REGISTRE.est_abandonne(travail)
+                    )
+                except BaseException as exc:  # noqa: BLE001 - transmis aux demandeurs
+                    REGISTRE.terminer(cle, travail, None)
+                    travail.future.set_exception(exc)
+                else:
+                    REGISTRE.terminer(cle, travail, res)
+                    travail.future.set_result(res)
+
+            # Le thread part AVANT le test de déconnexion : un demandeur rattaché
+            # pendant l'attente doit toujours voir son `future` résolu.
+            try:
+                threading.Thread(target=_tache, daemon=True, name="transcribe-segment").start()
+            except BaseException:  # noqa: BLE001
+                # Même réponse (503 « abandonnée, réessayez ») pour le propriétaire
+                # et les rattachés : on résout le future, personne ne reste suspendu.
+                REGISTRE.terminer(cle, travail, None)
+                travail.future.set_exception(audio_transcribe.TranscriptionAbandonnee())
+        # Premier test de déconnexion DANS le même try que l'attente : une
+        # annulation pendant cet await libère aussi la place du demandeur.
+        if await request.is_disconnected():
+            REGISTRE.quitter(travail)
+            return None
+        loop = asyncio.get_running_loop()
+        fini = asyncio.Event()
+
+        def _signal(_f) -> None:
+            try:
+                loop.call_soon_threadsafe(fini.set)
+            except RuntimeError:
+                pass
+
+        travail.future.add_done_callback(_signal)
+        while not fini.is_set():
+            try:
+                await asyncio.wait_for(fini.wait(), timeout=2.0)
+            except asyncio.TimeoutError:
+                if await request.is_disconnected():
+                    REGISTRE.quitter(travail)
+                    return None
+    except asyncio.CancelledError:
+        REGISTRE.quitter(travail)
+        raise
+    return travail.future.result()
+
+
 @router.post("/audio/transcribe-segment")
-async def transcribe_segment(background_tasks: BackgroundTasks, file: UploadFile = File(...)):
+async def transcribe_segment(
+    request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...)
+):
     """Transcrit un segment audio autonome (utilisé par la rotation de
     segments de record.html) — endpoint sans état, indépendant de toute
     mission/entretien. Même contrat d'erreur `{"error": ...}` que
@@ -52,7 +114,9 @@ async def transcribe_segment(background_tasks: BackgroundTasks, file: UploadFile
         # Whisper est CPU-bound : hors de la boucle d'événements (finding perf audit
         # 2026-07-24 — un endpoint async qui transcrit en direct bloquait TOUTES les
         # autres requêtes pendant plusieurs minutes).
-        text = await asyncio.to_thread(audio_transcribe.transcribe_audio, contenu)
+        text = await _transcrire_dedoublonne(request, contenu)
+        if text is None:  # client parti : personne à qui répondre
+            return JSONResponse({"error": "client déconnecté"}, status_code=499)
     except UploadTropVolumineux as exc:
         # 413, pas 5xx : le JS de record.html relance automatiquement les seuls
         # `status >= 500`. Un refus de taille est définitif pour ces octets —
@@ -65,6 +129,11 @@ async def transcribe_segment(background_tasks: BackgroundTasks, file: UploadFile
         # à distance dont le micro n'entend pas le casque, mauvais périphérique)
         # — un matching sur le message français serait fragile.
         return JSONResponse({"error": str(exc), "code": "no_speech"}, status_code=422)
+    except audio_transcribe.TranscriptionAbandonnee:
+        return JSONResponse(
+            {"error": "Transcription abandonnée, réessayez.", "code": "busy", "retry_after_s": 10},
+            status_code=503, headers={"Retry-After": "10"},
+        )
     except audio_transcribe.TranscriptionBusyError as exc:
         # Avant `TranscriptionError` (dont elle hérite) : le verrou du modèle
         # Whisper était occupé par un autre segment/onglet plus de

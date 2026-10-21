@@ -293,6 +293,14 @@
   ],
   [
     "POST",
+    "/interviews/{interview_id}/tranches/relancer"
+  ],
+  [
+    "POST",
+    "/interviews/{interview_id}/tranches/{job_id}/relancer"
+  ],
+  [
+    "POST",
     "/interviews/{interview_id}/verbatims/{question_id}"
   ],
   [

@@ -44,7 +44,7 @@
   <label>
     Date de l'entretien
     <input type="date" name="interview_date"
-           value="{{ identity.interview_date if identity else '' }}">
+           value="{{ (identity.interview_date if identity else '') or aujourdhui_iso() }}">
   </label>
   <div class="form-actions">
     <a class="btn" href="/missions/{{ mission.id }}">Annuler</a>

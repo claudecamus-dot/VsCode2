@@ -32,8 +32,13 @@ import logging
 import os
 import re
 import threading
+from contextlib import contextmanager
+from contextvars import ContextVar
 import urllib.error
 import urllib.request
+from functools import wraps
+
+from app.services.priority_lock import FOND, LIVE, PriorityLock
 
 logger = logging.getLogger(__name__)
 
@@ -485,7 +490,41 @@ def _is_ollama_timeout(exc: Exception) -> bool:
 # tranches d'un autre entretien, et inversement. Il est pris par requête HTTP
 # (`_call_ollama_once`), pas par traitement : deux traitements s'entrelacent
 # tronçon par tronçon au lieu de s'exclure pendant des minutes.
-_OLLAMA_UN_A_LA_FOIS = threading.Semaphore(1)
+_OLLAMA_UN_A_LA_FOIS = PriorityLock()
+
+# Priorité de l'appelant : LIVE par défaut (génération déclenchée à l'écran) ;
+# les traitements de fond (BackgroundTasks) entrent dans `en_fond()` et cèdent
+# donc à un live en attente entre deux appels Ollama (le verrou est pris par
+# appel HTTP, jamais par traitement).
+_PRIORITE_OLLAMA: ContextVar[int] = ContextVar("priorite_ollama", default=LIVE)
+
+
+@contextmanager
+def en_fond():
+    jeton = _PRIORITE_OLLAMA.set(FOND)
+    try:
+        yield
+    finally:
+        _PRIORITE_OLLAMA.reset(jeton)
+
+
+@contextmanager
+def avec_priorite(priorite: int):
+    """Pose la priorité Ollama de l'appelant (LIVE ou FOND) le temps du bloc."""
+    jeton = _PRIORITE_OLLAMA.set(priorite)
+    try:
+        yield
+    finally:
+        _PRIORITE_OLLAMA.reset(jeton)
+
+
+def au_fond(fn):
+    """Décorateur : exécute `fn` (tâche de fond) en priorité FOND."""
+    @wraps(fn)
+    def _enveloppe(*a, **k):
+        with en_fond():
+            return fn(*a, **k)
+    return _enveloppe
 
 
 def ollama_num_thread() -> int | None:
@@ -501,37 +540,28 @@ def ollama_num_thread() -> int | None:
 
 
 def _call_ollama_once(payload: bytes, model: str) -> dict:
-    # OLLAMA-COUPE-TEMPORAIRE (2026-10-08, demande utilisateur : « pour l'instant
-    # on ne fait que la transcription ») — l'appel réseau vers Ollama est MIS EN
-    # COMMENTAIRE ci-dessous. Tous les appelants (tours de table, structuration,
-    # analyses, synthèses) reçoivent cette AIError au lieu de tenter une connexion.
-    # Pour réactiver : supprimer le `raise` et décommenter le bloc d'origine.
-    # Ne PAS committer en l'état : marqueur grep `OLLAMA-COUPE-TEMPORAIRE`.
-    raise AIError(
-        "Ollama est désactivé temporairement (appels mis en commentaire dans "
-        "ai_common.py) — seule la transcription est active."
+    req = urllib.request.Request(
+        f"{ollama_host()}/api/chat",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
     )
-    # --- code d'origine ---
-    # req = urllib.request.Request(
-    #     f"{ollama_host()}/api/chat",
-    #     data=payload,
-    #     headers={"Content-Type": "application/json"},
-    #     method="POST",
-    # )
-    # # Attente BORNÉE du verrou (revue 2026-10-06, F1) : derrière une génération
-    # # bloquée, une attente sans fin figeait l'appelant pour toujours.
-    # if not _OLLAMA_UN_A_LA_FOIS.acquire(timeout=ollama_verrou_timeout()):
-    #     occupe = AIError(
-    #         "Ollama est occupé par une autre génération depuis trop longtemps — "
-    #         "réessaie dans quelques minutes (OLLAMA_VERROU_TIMEOUT)."
-    #     )
-    #     occupe.transitoire = True
-    #     raise occupe
-    # try:
-    #     with urllib.request.urlopen(req, timeout=ollama_timeout()) as resp:
-    #         return json.loads(resp.read().decode("utf-8"))
-    # finally:
-    #     _OLLAMA_UN_A_LA_FOIS.release()
+    # Attente BORNÉE du verrou (revue 2026-10-06, F1) : derrière une génération
+    # bloquée, une attente sans fin figeait l'appelant pour toujours.
+    if not _OLLAMA_UN_A_LA_FOIS.acquire(
+        timeout=ollama_verrou_timeout(), priority=_PRIORITE_OLLAMA.get()
+    ):
+        occupe = AIError(
+            "Ollama est occupé par une autre génération depuis trop longtemps — "
+            "réessaie dans quelques minutes (OLLAMA_VERROU_TIMEOUT)."
+        )
+        occupe.transitoire = True
+        raise occupe
+    try:
+        with urllib.request.urlopen(req, timeout=ollama_timeout()) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    finally:
+        _OLLAMA_UN_A_LA_FOIS.release()
 
 
 def ollama_verrou_timeout() -> float:
@@ -662,6 +692,10 @@ def warm_up_ollama() -> None:
     encore démarré, serveur injoignable) — le premier appel réel retentera
     et remontera l'erreur normale (`_call_ollama`) le cas échéant.
 
+    Pas de `au_fond` ici (M2, tranché) : l'appel n'utilise PAS le verrou
+    `_OLLAMA_UN_A_LA_FOIS` (urlopen direct), donc il ne peut ni passer devant
+    un direct ni le retarder au verrou ; une priorité n'aurait aucun effet.
+
     `OLLAMA_WARM_UP=0` le désactive — miroir de `WHISPER_WARM_UP` : le serveur
     des tests navigateur (`tests/test_e2e_*.py`) ne doit pas attendre jusqu'à
     `OLLAMA_TIMEOUT` (300 s) qu'un Ollama absent ou muet réponde AVANT
@@ -671,20 +705,14 @@ def warm_up_ollama() -> None:
         return
     if active_provider() != "ollama":
         return
-    # OLLAMA-COUPE-TEMPORAIRE (2026-10-08) : le préchauffage réseau est MIS EN
-    # COMMENTAIRE (aucune connexion à Ollama au démarrage du site). Pour réactiver :
-    # supprimer le `return` et décommenter le bloc d'origine. Ne PAS committer en
-    # l'état.
-    return
-    # --- code d'origine ---
-    # payload = json.dumps({
-    #     "model": active_model(), "messages": [], "keep_alive": ollama_keep_alive(),
-    # }).encode("utf-8")
-    # req = urllib.request.Request(
-    #     f"{ollama_host()}/api/chat",
-    #     data=payload,
-    #     headers={"Content-Type": "application/json"},
-    #     method="POST",
-    # )
-    # with urllib.request.urlopen(req, timeout=ollama_timeout()):
-    #     pass
+    payload = json.dumps({
+        "model": active_model(), "messages": [], "keep_alive": ollama_keep_alive(),
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        f"{ollama_host()}/api/chat",
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=ollama_timeout()):
+        pass

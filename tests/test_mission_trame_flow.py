@@ -2151,6 +2151,13 @@ def _soffice_path() -> str | None:
     return None
 
 
+def _profil_soffice_unique(base: Path) -> str:
+    """Profil LibreOffice PROPRE à ce run. Sans lui, soffice partage le profil
+    utilisateur par défaut : une autre instance ouverte (autre run de test,
+    pptx-verify) fait quitter celle-ci en code 1, stderr vide, sous charge."""
+    return "-env:UserInstallation=" + (base / "profil_lo").resolve().as_uri()
+
+
 @pytest.mark.skipif(_soffice_path() is None, reason="LibreOffice non installé")
 def test_export_pptx_renders_cleanly_in_a_real_engine(client: TestClient, tmp_path: Path) -> None:
     """US7.2 (vérification visuelle) : `verifier_geometrie()` ne détecte que
@@ -2176,8 +2183,9 @@ def test_export_pptx_renders_cleanly_in_a_real_engine(client: TestClient, tmp_pa
     pptx_path = tmp_path / "export.pptx"
     pptx_path.write_bytes(response.content)
     result = subprocess.run(
-        [_soffice_path(), "--headless", "--convert-to", "pdf", "--outdir", str(tmp_path), str(pptx_path)],
-        capture_output=True, timeout=120,
+        [_soffice_path(), _profil_soffice_unique(tmp_path), "--headless", "--convert-to", "pdf",
+         "--outdir", str(tmp_path), str(pptx_path)],
+        capture_output=True, timeout=int(os.environ.get("SOFFICE_TIMEOUT_S", "300")),
     )
     assert result.returncode == 0, result.stderr.decode(errors="replace")
     pdf_path = tmp_path / "export.pdf"

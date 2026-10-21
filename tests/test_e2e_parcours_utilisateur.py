@@ -98,13 +98,18 @@ def _python_sur_base(base_db: Path, code: str, *args: str) -> str:
     return res.stdout.strip().splitlines()[-1]
 
 
-def _sans_erreur(nav: Navigateur, etape: str, *, sauf: tuple[str, ...] = ()) -> None:
+def _sans_erreur(nav: Navigateur, etape: str, *,
+                 sauf: tuple[tuple[str, int], ...] = ()) -> None:
     """Aucune réponse 4xx/5xx, ressource perdue, exception JS ou erreur CDP
-    depuis le début du parcours (`sauf` : chemins dont l'erreur est ATTENDUE et
-    déjà asserée sur place)."""
+    depuis le début du parcours. `sauf` : des `(suffixe_de_chemin, statut)` dont
+    CE refus précis est ATTENDU et déjà asséré sur place — un autre statut sur le
+    même chemin (500, 403 CSRF…) reste une erreur. Le contrôle porte sur le statut
+    HTTP des requêtes du navigateur ; le libellé « Origine non autorisée » n'est
+    qu'un filet de plus."""
     nav.drainer()
     inattendues = [r for r in nav.erreurs()
-                   if not any(str(r.get("url", "")).endswith(s) for s in sauf)]
+                   if not any(str(r.get("url", "")).split("?")[0].endswith(chemin)
+                              and r.get("status") == statut for chemin, statut in sauf)]
     assert not inattendues, f"{etape} : réponses en erreur {inattendues}"
     assert not nav.exceptions, f"{etape} : exceptions JS {nav.exceptions}"
     assert not nav.erreurs_cdp, f"{etape} : erreur CDP {nav.erreurs_cdp}"
@@ -325,7 +330,7 @@ def test_le_cookie_de_session_garde_connecte_sur_plusieurs_ecrans(
         "page protégée toujours servie après effacement du cookie")
     assert "Témoin cookie" not in nav.texte(), "contenu protégé fuité sans cookie"
     assert _statut_document(nav, f"/missions/{mid}") == 401
-    _sans_erreur(nav, "Cookie effacé", sauf=(f"/missions/{mid}",))
+    _sans_erreur(nav, "Cookie effacé", sauf=((f"/missions/{mid}", 401),))
 
 
 # --------------------------------------------------------------------------- #
@@ -388,8 +393,9 @@ def test_fiche_supprimee_ailleurs_action_de_l_ancien_onglet(serveur, nav: Naviga
     base, base_db = serveur
     mid, iid, qid = _python_sur_base(base_db, _SEED_FICHE).split()
     nav.naviguer(f"{base}/interviews/{iid}")
-    assert "Témoin fantôme" in nav.texte() or nav.evaluer(
-        "document.querySelector('.identity-name').value") == "Témoin fantôme"
+    assert nav.evaluer(
+        "document.querySelector('.identity-name').value") == "Témoin fantôme", (
+        "la fiche n'affiche pas le nom de l'interviewé dans son champ d'identité")
     _sans_erreur(nav, "Ouvrir la fiche")
     assert _python_sur_base(base_db, _SUPPRIMER, "entretien", iid) == "ok"
 
@@ -491,7 +497,12 @@ def test_entretien_guide_repondre_recharger_relire_terminer(serveur, nav: Naviga
     assert nav.evaluer(f"document.querySelector({json.dumps(champ)}).value") == reponse
     texte = nav.texte()
     assert "1/2 répondues" in texte, texte
-    assert "répondue" in texte.lower()  # badge en majuscules à l'écran (text-transform)
+    # Le BADGE de la question répondue (élément ciblé, pas un mot cherché dans toute
+    # la page : « répondue » figure déjà dans « 1/2 répondues »), en majuscules à
+    # l'écran (text-transform) ; celui de l'autre question ne le dit pas.
+    _attendre_visible(nav, f"#status-{q1}", "Répondue")
+    assert _texte_slot(nav, f"#status-{q2}").strip().lower() != _texte_slot(
+        nav, f"#status-{q1}").strip().lower(), "les deux questions affichent le même badge"
     autre = f"textarea[hx-post='/interviews/{iid}/answers/{q2}']"
     assert nav.evaluer(f"document.querySelector({json.dumps(autre)}).value") == ""
     _sans_erreur(nav, "Recharger la fiche")
@@ -502,16 +513,32 @@ def test_entretien_guide_repondre_recharger_relire_terminer(serveur, nav: Naviga
     texte = nav.texte()
     assert "1 / 2 questions répondues" in texte, texte
     assert "Questions non couvertes (1)" in texte, texte
-    assert "Qui arbitre les conflits ?" in texte and "à poser" in texte.lower()
-    assert "Comment décidez-vous ?" not in texte.split("Questions non couvertes")[1]
+    manquees = nav.evaluer(
+        "Array.from(document.querySelectorAll('ul.missed li')).map(function(li){"
+        "var b=li.querySelector('.badge');"
+        "return {texte:li.innerText, badge:b?b.innerText.trim().toLowerCase():''};})")
+    assert len(manquees) == 1, manquees
+    assert "Qui arbitre les conflits ?" in manquees[0]["texte"], manquees
+    assert manquees[0]["badge"] == "à poser", manquees  # badge de la question non couverte
+    assert "Comment décidez-vous ?" not in manquees[0]["texte"], manquees
     _sans_erreur(nav, "Récapitulatif de fin")
 
     nav.cliquer_et_attendre(f"form[action='/interviews/{iid}/finish'] button[type=submit]")
     assert nav.url().rstrip("/").endswith(f"/missions/{mid}"), nav.url()
-    texte = nav.texte()
-    assert "Alice Guidée" in texte and "terminé" in texte.lower(), texte
-    assert "Continuer la saisie" not in texte, "l'entretien terminé propose encore de continuer"
-    assert "1/2" in texte, texte
+    # La LIGNE de l'entretien dans la table de la mission (pas un mot « terminé »
+    # cherché dans toute la page) : pastille d'état, absence de « Continuer »,
+    # couverture 1/2.
+    ligne = nav.evaluer(
+        "(function(){var tr=Array.from(document.querySelectorAll('tr')).find(function(t){"
+        "return t.innerText.indexOf('Alice Guidée')>=0;}); if(!tr) return null;"
+        "var p=tr.querySelector('.pill-done,.pill-draft,[class*=pill-]:not(.pill)');"
+        "var pills=Array.from(tr.querySelectorAll('.pill')).map(function(x){return x.className+'='+x.innerText.trim();});"
+        "return {texte:tr.innerText, pills:pills};})()")
+    assert ligne, "la ligne de « Alice Guidée » est absente de la mission"
+    assert any(x.startswith("pill pill-done=") and x.lower().endswith("terminé")
+               for x in ligne["pills"]), ligne
+    assert "Continuer la saisie" not in ligne["texte"], "l'entretien terminé propose encore de continuer"
+    assert "1/2" in ligne["texte"], ligne
     _sans_erreur(nav, "Marquer terminé")
 
 
@@ -520,6 +547,27 @@ def test_entretien_guide_repondre_recharger_relire_terminer(serveur, nav: Naviga
 # --------------------------------------------------------------------------- #
 _MSG_FICHE_INTROUVABLE = (
     "⚠ fiche introuvable — rien n'est enregistré. Copiez votre texte avant de quitter.")
+
+
+def _delai_effacement_s() -> float:
+    """Fenêtre d'observation « le message ne s'efface pas » : DÉRIVÉE de la constante
+    `CLEAR_DELAY_MS` d'autosave.js (+ 1 s de marge), pas un 4,5 s / 3,5 s écrit à la
+    main qui divergerait en silence si le délai changeait. Une absence d'effacement
+    ne s'observe que dans la durée : c'est la seule attente temporelle conservée."""
+    import re
+    src = (_RACINE / "app" / "static" / "autosave.js").read_text(encoding="utf-8")
+    m = re.search(r"CLEAR_DELAY_MS\s*=\s*(\d+)", src)
+    assert m, "CLEAR_DELAY_MS introuvable dans autosave.js"
+    return int(m.group(1)) / 1000 + 1.0
+
+
+def _reste_affiche(nav: Navigateur, slot: str, message: str) -> None:
+    """Le message est présent à CHAQUE lecture pendant toute la fenêtre d'effacement
+    des erreurs non persistantes (+ marge)."""
+    fin = time.monotonic() + _delai_effacement_s()
+    while time.monotonic() < fin:
+        assert message in _texte_slot(nav, slot), "message effacé"
+        time.sleep(0.2)
 
 
 def _texte_slot(nav: Navigateur, selecteur: str) -> str:
@@ -542,12 +590,9 @@ def test_autosave_fiche_supprimee_message_explicite(serveur, nav: Navigateur) ->
     saisie = "Texte à ne pas perdre"
     _saisir_au_clavier(nav, champ, saisie)
     _attendre_visible(nav, slot, _MSG_FICHE_INTROUVABLE)
-    debut = time.monotonic()
-    # Toujours là après plus de 3 s (l'ancien message d'échec s'effaçait à 3 s) :
-    # polling jusqu'à 4,5 s, le message doit être présent à CHAQUE lecture.
-    while time.monotonic() - debut < 4.5:
-        assert _MSG_FICHE_INTROUVABLE in _texte_slot(nav, slot), "message effacé"
-        time.sleep(0.3)
+    # Toujours là après le délai d'effacement des erreurs non persistantes (3 s dans
+    # autosave.js) : présent à CHAQUE lecture sur toute la fenêtre dérivée.
+    _reste_affiche(nav, slot, _MSG_FICHE_INTROUVABLE)
     assert _MSG_FICHE_INTROUVABLE in nav.texte()
     assert nav.evaluer(f"document.querySelector({json.dumps(champ)}).value") == saisie
     assert nav.evaluer(
@@ -584,9 +629,6 @@ def test_autosave_session_expiree_propose_la_reconnexion(serveur, nav: Navigateu
     assert infos["href"] == "/connexion" and infos["target"] == "_blank", infos
     assert "noopener" in infos["rel"], infos
     # Le message persiste au-delà de 3 s et la saisie de l'onglet courant reste.
-    fin = time.monotonic() + 3.5  # au-delà de l'effacement à 3 s des erreurs non persistantes
-    while time.monotonic() < fin:
-        assert "session expirée — reconnectez-vous" in _texte_slot(nav, slot), "message effacé"
-        time.sleep(0.2)
+    _reste_affiche(nav, slot, "session expirée — reconnectez-vous")
     assert nav.evaluer(f"document.querySelector({json.dumps(champ)}).value") == saisie
     assert nav.url().endswith(f"/interviews/{iid}"), nav.url()

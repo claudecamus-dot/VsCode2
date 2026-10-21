@@ -18,6 +18,7 @@ import logging
 
 from ..db import SessionLocal
 from ..models import GlobalSynthesis, Mission
+from .ai_common import au_fond
 from .constats import apply_constats_ia
 from .mission_axes import axes_of
 from .synthese_ai import SynthesisAIError, generate_constats, generate_global_synthesis
@@ -73,6 +74,7 @@ def _generer_constats(db, mission, material_by_theme, material_libre) -> str | N
     return None
 
 
+@au_fond
 def run_global_synthesis_job(mission_id: int) -> None:
     db = SessionLocal()
     try:

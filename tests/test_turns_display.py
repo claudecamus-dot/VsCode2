@@ -372,21 +372,18 @@ def test_ecran_detail_applique_les_memes_regles(client):
         db.close()
 
     html = client.get(f"/interviews/{interview_id}").text
-    assert _count_fields(html, "turn_interlocuteur") == len(_TURNS)
-    assert _count_fields(html, "turn_question") == len(_TURNS)
-    assert _count_fields(html, "turn_remarque") == len(_TURNS)
-    assert _count_fields(html, "turn_section_title") == len(_TURNS)
-    assert _count_fields(html, "turn_id") == len(_TURNS)  # l'id reste posté par tour
-    assert html.count("data-speaker-echo>") == 1
-    assert "Réponse / commentaire" in html
-    assert ">Remarque<" not in html
+    # 2026-10-19 : plus d'écran d'édition des tours sur la fiche -> aucun champ
+    # turn_* n'est posté (le serveur conserve alors les tours existants).
+    for champ in ("turn_interlocuteur", "turn_question", "turn_remarque",
+                  "turn_section_title", "turn_id"):
+        assert _count_fields(html, champ) == 0
+    assert "data-speaker-echo" not in html
 
-    # Réorganisation en onglets (2026-07-27) : Transcription / Tour de table /
-    # Aperçu, chaque téléchargement dans son onglet, enregistrement HORS onglets.
-    for tab in ("tours", "transcription", "apercu"):
+    # Deux onglets : Transcription / Aperçu, enregistrement HORS onglets.
+    for tab in ("transcription", "apercu"):
         assert f'data-turntab="{tab}"' in html
-    # Tour de table : export PDF via les champs du formulaire courant.
-    assert 'formaction="/interviews/turns/export-pdf"' in html
+    assert 'data-turntab="tours"' not in html and 'id="turntab-tours"' not in html
+    assert 'formaction="/interviews/turns/export-pdf"' not in html
     # Transcription : uniquement l'export de la transcription.
     assert f"/interviews/{interview_id}/export/transcription/pdf" in html
     # Aperçu : rendu par sections (titre de section présent une fois).
@@ -422,28 +419,147 @@ def _entretien_libre(raw_transcript: str | None, avec_tours: bool = True) -> int
         db.close()
 
 
-def test_ordre_des_onglets_transcription_puis_tour_de_table_puis_apercu(client):
-    """Ordre demandé (2026-07-27) : 1. Transcription 2. Tour de table
-    3. Aperçu — et c'est bien la Transcription qui s'affiche à l'ouverture."""
+def test_ordre_des_onglets_transcription_puis_apercu(client):
+    """Deux onglets (2026-10-19) : Transcription puis Aperçu. Avec des tours
+    enregistrés, c'est l'Aperçu qui s'affiche à l'ouverture."""
     html = client.get(f"/interviews/{_entretien_libre('Texte brut.')}").text
-    positions = [html.index(f'data-turntab="{tab}"') for tab in ("transcription", "tours", "apercu")]
+    positions = [html.index(f'data-turntab="{tab}"') for tab in ("transcription", "apercu")]
     assert positions == sorted(positions)
-    assert "Tour de table" in html
-    # Panneau visible à l'ouverture = transcription ; les deux autres masqués.
-    assert '<div id="turntab-transcription" class="rec-tab-panel">' in html
-    assert '<div id="turntab-tours" class="rec-tab-panel" hidden>' in html
-    assert '<div id="turntab-apercu" class="rec-tab-panel" hidden>' in html
+    assert html.count("data-turntab=") == 2
+    assert "Tour de table" not in html and "tour de table" not in html
 
 
-def test_les_deux_exports_pdf_sont_disponibles(client):
-    """Un bouton d'export par onglet : transcription (lien GET) et tour de
-    table (submit sur les champs du formulaire courant)."""
+def test_l_apercu_defile_dans_un_cadre_comme_la_transcription(client):
+    """Demande utilisateur du 2026-10-20 : l'Aperçu a un défilement, comme le champ de
+    transcription. La classe est posée sur l'article de l'Aperçu de la fiche ET la
+    feuille de style servie lui donne une hauteur bornée + `overflow-y: auto`
+    (pytest ne voit pas le CSS : on lit la feuille réellement servie)."""
+    html = client.get(f"/interviews/{_entretien_libre('Texte brut.')}").text
+    apercu = html[html.index('id="turntab-apercu"'):]
+    assert 'class="preview-doc preview-doc-scroll"' in apercu
+    css = client.get("/static/app.css").text
+    regle = re.search(r"\.preview-doc-scroll\s*\{([^}]*)\}", css)
+    assert regle, "règle .preview-doc-scroll absente de app.css"
+    assert "max-height" in regle.group(1) and "overflow-y: auto" in regle.group(1)
+    # à l'impression, le cadre ne doit pas tronquer le document
+    assert re.search(r"@media print[^@]*\.preview-doc-scroll\s*\{[^}]*overflow: visible", css, re.S)
+    assert '<div id="turntab-transcription" class="rec-tab-panel" hidden>' in html
+    assert '<div id="turntab-apercu" class="rec-tab-panel">' in html
+
+
+def test_onglet_par_defaut_transcription_sans_tours_ou_structuration_non_finie(client):
+    sans_tours = client.get(f"/interviews/{_entretien_libre('Brut.', avec_tours=False)}").text
+    assert '<div id="turntab-transcription" class="rec-tab-panel">' in sans_tours
+    assert '<div id="turntab-apercu" class="rec-tab-panel" hidden>' in sans_tours
+    iid = _entretien_libre("Brut.")
+    db = SessionLocal()
+    try:
+        db.get(Interview, iid).structuration_status = "echec"
+        db.commit()
+    finally:
+        db.close()
+    en_echec = client.get(f"/interviews/{iid}").text
+    assert '<div id="turntab-transcription" class="rec-tab-panel">' in en_echec
+
+
+def test_parametre_onglet_force_l_onglet_et_tours_vaut_apercu(client):
+    iid = _entretien_libre("Brut.")
+    forcee = client.get(f"/interviews/{iid}?onglet=transcription").text
+    assert '<div id="turntab-transcription" class="rec-tab-panel">' in forcee
+    ancien = client.get(f"/interviews/{iid}?onglet=tours").text
+    assert '<div id="turntab-apercu" class="rec-tab-panel">' in ancien
+
+
+def test_pave_informations_est_dans_l_apercu_avant_le_rendu(client):
+    iid = _entretien_libre("Brut.")
+    html = client.get(f"/interviews/{iid}").text
+    apercu = html.split('id="turntab-apercu"')[1]
+    assert "<h2>Informations</h2>" in apercu
+    assert 'class="identite-bloc"' in apercu and 'name="interviewee_name"' in apercu
+    assert 'name="resume"' in apercu
+    assert apercu.index('name="interviewee_name"') < apercu.index("preview-doc")
+    # ... et rien d'éditable dans l'onglet Transcription.
+    transcription = html.split('id="turntab-transcription"')[1].split('id="turntab-apercu"')[0]
+    assert 'name="interviewee_name"' not in transcription
+
+
+def test_les_exports_pdf_de_la_fiche_sans_tour_de_table(client):
+    """Seul l'export de la transcription reste proposé dans les onglets."""
     interview_id = _entretien_libre("Texte brut.")
     html = client.get(f"/interviews/{interview_id}").text
     assert f'href="/interviews/{interview_id}/export/transcription/pdf"' in html
     assert "Télécharger la transcription (PDF)" in html
-    assert 'formaction="/interviews/turns/export-pdf"' in html
-    assert "Télécharger le tour de table (PDF)" in html
+    assert 'formaction="/interviews/turns/export-pdf"' not in html
+    assert "Télécharger le tour de table (PDF)" not in html
+
+
+def test_enregistrer_les_informations_conserve_les_tours(client):
+    """P1 : POST du seul pavé Informations (aucun champ turn_*) -> les tours
+    existants et la répartition restent intacts, identité et résumé mis à jour,
+    redirection sur l'onglet Aperçu."""
+    iid = _entretien_libre("Brut.")
+    db = SessionLocal()
+    try:
+        it = db.get(Interview, iid)
+        it.repartition = {"contexte": "- Contexte conservé"}
+        db.commit()
+        avant = [(t.id, t.position, t.interlocuteur, t.question, t.remarque, t.section_title)
+                 for t in sorted(it.turns, key=lambda t: t.position)]
+    finally:
+        db.close()
+    assert len(avant) == len(_TURNS) >= 3
+    r = client.post(
+        f"/interviews/{iid}/libre",
+        data={"interviewee_name": "Nouveau Nom", "interviewee_role": "DSI",
+              "interviewee_entity": "Direction", "interview_date": "2026-10-19",
+              "resume": "Message central."},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert r.headers["location"] == f"/interviews/{iid}?onglet=apercu"
+    db = SessionLocal()
+    try:
+        it = db.get(Interview, iid)
+        apres = [(t.id, t.position, t.interlocuteur, t.question, t.remarque, t.section_title)
+                 for t in sorted(it.turns, key=lambda t: t.position)]
+        assert apres == avant
+        assert it.repartition == {"contexte": "- Contexte conservé"}
+        assert (it.interviewee_name, it.interviewee_role, it.interviewee_entity) == (
+            "Nouveau Nom", "DSI", "Direction")
+        assert it.interview_date.isoformat() == "2026-10-19"
+        assert it.resume == "Message central."
+    finally:
+        db.close()
+
+
+def test_post_sans_champ_identite_ni_resume_ne_les_efface_pas(client):
+    iid = _entretien_libre("Brut.")
+    db = SessionLocal()
+    try:
+        it = db.get(Interview, iid)
+        it.resume = "Résumé existant."
+        it.interviewee_role = "CTO"
+        db.commit()
+    finally:
+        db.close()
+    assert client.post(f"/interviews/{iid}/libre", data={}, follow_redirects=False).status_code == 303
+    db = SessionLocal()
+    try:
+        it = db.get(Interview, iid)
+        assert it.resume == "Résumé existant." and it.interviewee_role == "CTO"
+        assert it.interviewee_name == "Marc Dupont" and len(it.turns) == len(_TURNS)
+    finally:
+        db.close()
+
+
+def test_date_illisible_renvoie_au_pave_informations_de_l_apercu(client):
+    iid = _entretien_libre("Brut.")
+    r = client.post(f"/interviews/{iid}/libre", data={"interview_date": "31/12/2026"},
+                    follow_redirects=False)
+    assert r.headers["location"] == f"/interviews/{iid}?onglet=apercu&date_invalide=1"
+    html = client.get(r.headers["location"]).text
+    assert "le pavé <strong>Informations</strong> de l'onglet Aperçu" in html
+    assert "onglet <strong>Tour de table</strong>" not in html
 
 
 def test_tour_de_table_renseigne_implique_transcription_renseignee(client):
@@ -452,9 +568,9 @@ def test_tour_de_table_renseigne_implique_transcription_renseignee(client):
     même sans `raw_transcript` (entretiens d'avant le champ, imports .docx)."""
     interview_id = _entretien_libre(None)
     html = client.get(f"/interviews/{interview_id}").text
-    assert "Reconstituée à partir du tour de table" in html
+    assert "Reconstituée à partir de l'aperçu" in html
     # La matière des tours est bien restituée dans le panneau transcription.
-    panneau = html.split('id="turntab-transcription"')[1].split('id="turntab-tours"')[0]
+    panneau = html.split('id="turntab-transcription"')[1].split('id="turntab-apercu"')[0]
     assert "On travaille en silo." in panneau
     assert "Comment ça se passe ?" in panneau
     # ... et l'export reste proposé (avant, le bouton disparaissait avec le texte).
@@ -507,20 +623,9 @@ def test_l_ecran_detail_permet_de_corriger_une_identite(client):
     assert 'class="identite-bloc"' in html
     assert 'name="interviewee_name"' in html
 
-    db = SessionLocal()
-    try:
-        turns = [(str(t.id), t.interlocuteur, t.question or "", t.remarque or "",
-                  t.section_title or "") for t in db.get(Interview, interview_id).turns]
-    finally:
-        db.close()
     response = client.post(
         f"/interviews/{interview_id}/libre",
         data={
-            "turn_id": [t[0] for t in turns],
-            "turn_interlocuteur": [t[1] for t in turns],
-            "turn_question": [t[2] for t in turns],
-            "turn_remarque": [t[3] for t in turns],
-            "turn_section_title": [t[4] for t in turns],
             "interviewee_name": "Michel Nakache",
             "interviewee_role": "DSI",
             "interviewee_entity": "Direction technique",

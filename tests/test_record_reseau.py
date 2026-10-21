@@ -292,7 +292,9 @@ def test_le_refus_occupe_ne_consomme_pas_le_budget_des_echecs_reels(ecran: Path)
     )
     # Revue bmad-code-review 2026-09-16 (finding 6) : les deux assertions
     # ci-dessus laissaient passer deux mutations graves sans le voir.
-    assert "uploadSegment(blob, attempt, lostId, gen, onSettle, busyUntil)" in busy, (
+    # record_libre.html propage en plus `ctx` (X-Segment-Id stable, 2026-10-19).
+    assert ("uploadSegment(blob, attempt, lostId, gen, onSettle, busyUntil)" in busy
+            or "uploadSegment(blob, attempt, lostId, gen, onSettle, busyUntil, ctx)" in busy), (
         f"{ecran.name} : la relance \"occupé\" ne propage plus `busyUntil` en "
         "6e argument — sans lui, `uploadSegment` recalcule une fenêtre de "
         "patience FRAÎCHE à chaque relance (boucle sans fin possible)"

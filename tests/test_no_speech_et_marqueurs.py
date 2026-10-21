@@ -74,7 +74,7 @@ def _mission_id(client: TestClient) -> int:
 def test_transcribe_segment_no_speech_porte_le_code_structure(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def _no_speech(content: bytes) -> str:
+    def _no_speech(content: bytes, **_kw) -> str:
         raise audio_transcribe.NoSpeechError("Aucune parole détectée dans l'enregistrement.")
 
     monkeypatch.setattr(audio_transcribe, "transcribe_audio", _no_speech)
@@ -95,7 +95,7 @@ def test_transcribe_segment_echec_technique_sans_code(
     bannière « vérifiez la source audio » ne doit pas se déclencher sur un
     flux corrompu, dont le remède est différent."""
 
-    def _technique(content: bytes) -> str:
+    def _technique(content: bytes, **_kw) -> str:
         raise audio_transcribe.TranscriptionError("Fichier audio illisible : bidon")
 
     monkeypatch.setattr(audio_transcribe, "transcribe_audio", _technique)
@@ -304,7 +304,10 @@ def test_un_segment_refuse_en_422_garde_son_audio_et_son_bouton_de_relance(
     html = client.get(f"/missions/{mission_id}/interviews/{path_suffix}").text
 
     # 1. la branche 422 conserve l'audio (et ne fabrique plus un marqueur figé) ;
-    assert "keepLostSegment(blob, detail, lostId, !muet)" in html
+    # record-libre: 5e argument `segId` (dédup serveur, 2026-10-19) ; même contrat `!muet`.
+    attendu = ("keepLostSegment(blob, detail, lostId, !muet, segId)" if path_suffix == "record-libre"
+               else "keepLostSegment(blob, detail, lostId, !muet)")
+    assert attendu in html
     assert "appendTranscript('⚠ [segment perdu : '" not in html
     # 1 bis. …et le caractère bloquant se décide sur `code`, PAS sur le statut :
     #        `false` en dur ici serait le retour exact du défaut corrigé.
@@ -314,7 +317,9 @@ def test_un_segment_refuse_en_422_garde_son_audio_et_son_bouton_de_relance(
     assert 'id="rec-lost-list"' in html
     assert "retryLostSegments([seg.id])" in html
     # 3. seuls les segments bloquants gèlent la soumission et l'alerte de sortie ;
-    assert "keepLostSegment(blob, reason, lostId, true)" in html
+    # record-libre: 5e argument `segId` ; l'abandon reste BLOQUANT (`true`) dans les deux écrans.
+    assert ("keepLostSegment(blob, reason, lostId, true, segId)" if path_suffix == "record-libre"
+            else "keepLostSegment(blob, reason, lostId, true)") in html
     assert html.count("lostSegments.some(function (s) { return s.blocking; })") >= 2
     # 4. une RELANCE ne compte pas dans la série de segments muets consécutifs
     #    (sinon relancer N vieux segments annonce « aucune parole depuis ~N min »).
@@ -366,8 +371,15 @@ def test_les_relances_sont_gelees_pendant_l_enregistrement_et_la_liste_plafonnee
     html = client.get(f"/missions/{mission_id}/interviews/{path_suffix}").text
 
     # #20 — gel pendant l'enregistrement, des deux niveaux de relance…
-    assert "lostRetryBtn.disabled = n === 0 || recordingActive;" in html
-    assert "btn.disabled = recordingActive;" in html
+    if path_suffix == "record-libre":
+        # Décision utilisateur 2026-10-19: relances ACCESSIBLES pendant l'enregistrement
+        # (mises en file derrière le direct, prouvé par exécution dans
+        # test_navigateur_file_segments.py); grisées seulement pendant une relance en cours.
+        assert "lostRetryBtn.disabled = n === 0 || lostRetryActive > 0;" in html
+        assert "btn.disabled = lostRetryActive > 0;" in html
+    else:
+        assert "lostRetryBtn.disabled = n === 0 || recordingActive;" in html
+        assert "btn.disabled = recordingActive;" in html
     # …et réouverture à l'arrêt (sinon le gel ne se lève jamais).
     assert html.count("refreshLostBanner();") >= 2
     # Marqueur du seul appel qui rouvre les boutons à l'arrêt. Assertion sur le

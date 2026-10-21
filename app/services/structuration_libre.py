@@ -21,6 +21,8 @@ from sqlalchemy.orm import object_session
 
 from .. import db as _db
 from ..models import Interview, InterviewTurn
+from .ai_common import au_fond, avec_priorite
+from .priority_lock import FOND, LIVE
 from .interview_libre_extract_ai import (
     InterviewLibreExtractAIError,
     extract_turns_from_text,
@@ -397,7 +399,8 @@ def _finir(interview_id: int, jeton: str) -> bool:
 # Tests : exécution immédiate dans l'appelant (posé par tests/conftest.py).
 EXECUTION_SYNCHRONE = False
 
-# Éléments de file : (id, marque, échéance | None, jeton | None).
+# Éléments de file : (id, marque, échéance | None, jeton | None, priorité) ;
+# priorité absente = FOND (anciens éléments à 4 champs).
 _file: queue.Queue = queue.Queue()
 # id -> marque de l'inscription en cours. La marque empêche la fin d'une
 # exécution ancienne d'effacer l'inscription d'une relance plus récente (G2).
@@ -442,8 +445,14 @@ _attentes_sans_progres = 0
 
 def _traiter(element) -> None:
     """Une étape du worker : prise, attente NON bloquante, ou fin."""
+    interview_id, marque, echeance, jeton, *reste = element
+    priorite = reste[0] if reste else FOND
+    with avec_priorite(priorite):
+        _traiter_prioritaire(interview_id, marque, echeance, jeton, priorite)
+
+
+def _traiter_prioritaire(interview_id, marque, echeance, jeton, priorite) -> None:
     global _attentes_sans_progres
-    interview_id, marque, echeance, jeton = element
     termine = True
     try:
         if echeance is None:
@@ -458,7 +467,7 @@ def _traiter(element) -> None:
             # fois qu'un tour COMPLET de la file n'a fait qu'attendre.
             _attentes_sans_progres += 1
             tour_complet = _attentes_sans_progres > _file.qsize()
-            _file.put((interview_id, marque, echeance, jeton))
+            _file.put((interview_id, marque, echeance, jeton, priorite))
             if tour_complet:
                 _attentes_sans_progres = 0
                 time.sleep(ATTENTE_PAS_S)
@@ -475,6 +484,7 @@ def _traiter(element) -> None:
             _liberer(interview_id, marque)
 
 
+@au_fond  # un Thread neuf retombe sur LIVE : la priorité FOND se pose DANS la cible
 def _boucle() -> None:
     while True:
         element = _file.get()
@@ -494,7 +504,7 @@ def _demarrer_worker() -> None:
             _fil.start()
 
 
-def planifier_structuration(interview_id: int) -> bool:
+def planifier_structuration(interview_id: int, priorite: int = FOND) -> bool:
     """Met l'entretien en file de structuration. False si déjà en file ou en
     cours (dédoublonnage). Ne bloque jamais l'appelant."""
     marque = object()
@@ -509,7 +519,7 @@ def planifier_structuration(interview_id: int) -> bool:
             _liberer(interview_id, marque)
         return True
     _demarrer_worker()
-    _file.put((interview_id, marque, None, None))
+    _file.put((interview_id, marque, None, None, priorite))
     return True
 
 
@@ -573,7 +583,8 @@ def relancer(interview_id: int) -> bool:
     # retirée ici ; sa propre désinscription, marquée, ne touchera pas la
     # nouvelle.
     _liberer(interview_id)
-    return planifier_structuration(interview_id)
+    # Relance demandée à l'écran (clic) : LIVE, pas derrière le fond.
+    return planifier_structuration(interview_id, LIVE)
 
 
 def reconcile_en_cours_on_startup() -> int:

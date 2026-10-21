@@ -254,14 +254,10 @@ def _attendre(nav: Navigateur, expression: str, delai_s: float, quoi: str):
 
 
 def _tour_de_table(nav: Navigateur) -> str:
-    """Le tour de table est ÉDITABLE : ses tours vivent dans des champs
-    (`turn_section_title`, `turn_interlocuteur`, `turn_question`,
-    `turn_remarque`), invisibles d'`innerText` — on lit leurs valeurs."""
+    """Depuis le 2026-10-19 l'onglet « Tour de table » (édition des tours) n'existe plus :
+    seul l'APERÇU, rendu lecture seule des mêmes tours, est affiché. On lit son texte."""
     return nav.evaluer(
-        "Array.from(document.querySelectorAll("
-        "'input[name=turn_section_title],input[name=turn_interlocuteur],"
-        "textarea[name=turn_question],textarea[name=turn_remarque]'"
-        ")).map(function(e){return e.value;}).join(' | ')"
+        "((document.getElementById('turntab-apercu')||{}).textContent||'').replace(/\\s+/g, ' ')"
     )
 
 
@@ -314,16 +310,28 @@ def _parler_et_attendre_le_tour_de_table(nav: Navigateur, nom: str, repartition_
 
     nav.cliquer("#rec-start")
     _attendre(nav, "!document.getElementById('rec-stop').hidden", 30, "Démarrer (micro accordé)")
-    time.sleep(_DUREE_ENREGISTREMENT_S)
+    # État, pas sommeil : on arrête quand le CHRONOMÈTRE de l'écran (`#rec-timer`,
+    # « mm:ss » alimenté par l'enregistrement réel) a atteint la durée voulue.
+    _attendre(
+        nav,
+        "(function(){var t=(document.getElementById('rec-timer')||{}).textContent||'';"
+        " var m=/(\\d+):(\\d+)/.exec(t);"  # tolérant : « 00:07 », « 1:07 », préfixe/suffixe
+        f" return !!m && parseInt(m[1],10)*60+parseInt(m[2],10) >= {_DUREE_ENREGISTREMENT_S};}})()",
+        _DUREE_ENREGISTREMENT_S + 30, "chronomètre d'enregistrement",
+    )
     nav.cliquer("#rec-stop")
 
     texte = _attendre(
         nav, "document.getElementById('rec-transcript').value.trim()",
         _DELAI_TRANSCRIPTION_S, "transcription de la dernière tranche",
     )
-    assert re.search(r"test|record|transcri|pipeline|hello", texte, re.I), (
-        f"le texte transcrit ne ressemble pas au clip : {texte!r}"
-    )
+    # Le clip dit « Hello, this is a test recording for the transcription pipeline » :
+    # au moins DEUX mots-clés distincts, entiers (un seul « test » ou un préfixe
+    # « record »/« transcri » dans n'importe quel bruit ne suffit plus). Whisper
+    # `tiny` peut en perdre ou en déformer un : d'où 2 sur 5, pas la phrase exacte.
+    mots = {m.lower() for m in re.findall(
+        r"\b(hello|test|recording|transcription|pipeline)\b", texte, re.I)}
+    assert len(mots) >= 2, f"le texte transcrit ne ressemble pas au clip : {texte!r} (mots : {mots})"
     if repartition_attendue:
         repartition = _attendre(
             nav, "document.getElementById('rec-repartition').innerText.trim()",
@@ -345,8 +353,10 @@ def test_l_enregistrement_libre_transcrit_la_parole_et_s_enregistre(
     url, texte = _enregistrer_un_entretien_libre(nav, serveur, "E2E Micro")
     page = nav.texte()
     assert "E2E Micro" in page
-    # La transcription enregistrée est celle de l'écran (lecture seule, onglet
-    # Transcription actif par défaut).
+    # La transcription enregistrée est celle de l'écran (lecture seule). La fiche
+    # s'ouvre sur l'Aperçu dès que les tours sont faits : l'utilisateur ouvre
+    # l'onglet Transcription avant de la lire, le test aussi.
+    nav.cliquer(".rec-tab[data-turntab=transcription]")
     # La phrase ENTIÈRE, champ VISIBLE (pas un seul mot, pas un textarea masqué).
     # `.value` est la seule lecture fiable d'un textarea (son innerText est le
     # contenu par défaut du balisage, pas la valeur courante).
@@ -357,7 +367,7 @@ def test_l_enregistrement_libre_transcrit_la_parole_et_s_enregistre(
     transcrit = nav.evaluer("(document.querySelector('textarea.record-transcript')||{}).value||''")
     assert " ".join(texte.split()) in " ".join(transcrit.split()), (texte, transcrit)
     # Le tour de table porte les tours rendus par l'IA — et la parole transcrite.
-    nav.cliquer(".rec-tab[data-turntab=tours]")
+    nav.cliquer(".rec-tab[data-turntab=apercu]")
     tours = _tour_de_table(nav)
     assert "Extraction n°1" in tours, tours
     assert "Pouvez-vous vous présenter ?" in tours and texte.split()[0] in tours, tours
@@ -387,7 +397,7 @@ def test_le_tour_de_table_se_rejoue_autant_de_fois_que_necessaire(
         assert "/retranscrire" in nav.url(), nav.url()
         nav.cliquer_et_attendre("form[action$='/retranscrire/confirmer'] button.btn-primary")
         assert nav.url().rstrip("/") == url.rstrip("/"), nav.url()
-        nav.cliquer(".rec-tab[data-turntab=tours]")
+        nav.cliquer(".rec-tab[data-turntab=apercu]")
         tours = _tour_de_table(nav)
         attendu = avant + rejeu
         assert f"Extraction n°{attendu}" in tours, f"rejeu {rejeu} : {tours[:600]}"
@@ -450,7 +460,7 @@ def test_enregistrer_ouvre_la_fiche_tout_de_suite_puis_structurer_en_tache_de_fo
         90, "badge « fait » après Relancer",
     )
     assert faux_ollama.extractions > avant
-    nav.cliquer(".rec-tab[data-turntab=tours]")
+    nav.cliquer(".rec-tab[data-turntab=apercu]")
     assert "Extraction n°" in _tour_de_table(nav)
     assert not nav.evaluer(
         "!!document.querySelector('#structuration-statut[hx-trigger]')"

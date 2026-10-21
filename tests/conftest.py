@@ -350,20 +350,59 @@ def vider_recordings_de_test() -> None:
     s'accumulent aussi — ils portent désormais le préfixe `1_import_…`, donc la
     mission n° 1 de ce module-là se les voit attribuer comme orphelins.
 
-    Garde-fou : on ne touche qu'un répertoire situé sous le temporaire système
-    et dérivé d'`APP_DB_PATH`. Jamais `data/recordings`, qui porte les
-    enregistrements réels de l'utilisateur (une confusion de ce type a déjà
-    coûté des données sur ce projet)."""
+    Garde-fou en LISTE BLANCHE STRICTE (revues 2026-10-19 : une liste noire du seul
+    `data/` du dépôt courant effaçait l'audio réel d'un AUTRE dossier de données
+    si `APP_DB_PATH` en héritait ; puis un garde fondé sur le seul nom `app.db`
+    laissait passer une COPIE de la base placée sous le temporaire — perte
+    irréversible). On ne supprime que si TOUT ceci est vrai :
+      - `APP_DB_PATH` est ABSOLU et non vide ;
+      - le dossier n'est pas le `data/` du dépôt et ne contient aucune base `*.db`
+        autre que `APP_DB_PATH` lui-même (ni `app.db`, ni une copie) ;
+      - ET soit `APP_DB_PATH` est EXACTEMENT la base de test que ce conftest a
+        choisie (`_TEST_DB`, dans le temporaire système), soit l'autorisation est
+        EXPLICITE (`APP_TEST_CLEAN_RECORDINGS=1`, bissection avec une base de test
+        placée où l'on veut — sous la responsabilité de qui pose la variable).
+    Sinon : on ne supprime rien."""
     from pathlib import Path
 
-    recordings = Path(os.environ["APP_DB_PATH"]).parent / "recordings"
-    temp = Path(tempfile.gettempdir()).resolve()
-    try:
-        if temp not in recordings.resolve().parents:
-            return  # pas sous le temporaire système : on ne touche à rien
-    except OSError:
+    brut = os.environ.get("APP_DB_PATH", "").strip()
+    if not brut:
         return
-    for chemin in recordings.glob("*"):
+    base = Path(brut)
+    if not base.is_absolute():
+        return
+    try:
+        reel = (Path(__file__).resolve().parent.parent / "data").resolve()
+        base_res = base.resolve()
+        res = (base_res.parent / "recordings").resolve()
+        if reel == res.parent or reel in res.parents:
+            return
+        base_de_test = Path(_TEST_DB).resolve()
+        est_la_base_de_test = base_res == base_de_test
+        # Une autre base dans le dossier (app.db, copie, sauvegarde) = donnees
+        # reelles probables : on ne touche a rien. Sauf pour LA base de test que
+        # ce conftest a lui-meme posee dans le temporaire systeme : ce dossier est
+        # partage avec toute la machine (des dizaines de `*.db` d'autres outils),
+        # son `recordings/` n'appartient qu'aux tests, et y renoncer laissait les
+        # residus s'accumuler jusqu'a faire echouer `test_mission_backups`.
+        if not est_la_base_de_test:
+            for voisin in res.parent.glob("*.db"):
+                if voisin.resolve() != base_res:
+                    return
+        elif (res.parent / "app.db").exists():
+            # TMP/TEMP pose sur un dossier de donnees : `_TEST_DB` y atterrit aussi.
+            return
+        # Un `recordings` qui est un lien ou une jonction peut pointer ailleurs
+        # (le `data/recordings` d'un autre depot) : on ne vide pas.
+        raw = base_res.parent / "recordings"
+        if raw.is_symlink() or (hasattr(os.path, "isjunction") and os.path.isjunction(raw)):
+            return
+        autorise = os.environ.get("APP_TEST_CLEAN_RECORDINGS") == "1"
+        if not (est_la_base_de_test or autorise):
+            return
+    except (OSError, RuntimeError):
+        return
+    for chemin in res.glob("*"):
         if chemin.is_file():
             try:
                 chemin.unlink()
@@ -496,98 +535,21 @@ except Exception:  # pragma: no cover - garde-fou si l'API TestClient change
     pass
 
 
-# --------------------------------------------------------------------------- #
-# OLLAMA-COUPE-TEMPORAIRE (2026-10-13) : tant que `_call_ollama_once` est coupé
-# (ai_common.py, demande utilisateur du 2026-10-08), 29 tests nommés rougissent
-# uniquement à cause de la coupe. On les SKIP, par node-id en dur, et seulement
-# si la coupe est OBSERVABLEMENT active (appel réel, urlopen patché : aucun
-# réseau). Coupe levée => aucun skip, les 29 tests se réveillent seuls.
-# RÉACTIVATION : à la levée de la coupe (marqueurs `OLLAMA-COUPE-TEMPORAIRE` dans
-# app/services/ai_common.py et `TOUR-DE-TABLE-COUPE-TEMPORAIRE` dans
-# libre_detail.html), les skips se réveillent seuls. Supprimer ensuite ce bloc,
-# la liste, le hook, puis inverser tests/test_libre_detail_transcription_seule.py.
-# --------------------------------------------------------------------------- #
-_TESTS_COUPES_OLLAMA = frozenset({
-    ("test_ai_common.py", "test_call_ollama_payload_includes_num_ctx"),
-    ("test_ai_common.py", "test_call_ollama_payload_includes_keep_alive"),
-    ("test_ai_common.py", "test_warm_up_ollama_sends_empty_messages_to_preload"),
-    ("test_ai_common.py", "test_warm_up_ollama_propagates_errors_to_caller"),
-    ("test_ai_common.py", "test_call_ollama_retries_once_on_timeout_then_succeeds"),
-    ("test_ai_common.py", "test_call_ollama_gives_up_after_second_timeout"),
-    ("test_ai_common.py", "test_call_ollama_connection_refused_is_not_retried"),
-    ("test_ai_common.py", "test_call_ai_json_propage_le_drapeau_timeout"),
-    ("test_interview_segment_jobs.py", "test_record_libre_enregistre_malgre_une_tranche_en_echec"),
-    ("test_structurer_entretien.py", "test_route_structurer_refuse_un_entretien_deja_structure_et_le_dit"),
-    ("test_structurer_entretien.py", "test_un_seul_appel_ollama_a_la_fois"),
-    ("test_structurer_entretien.py", "test_fiche_libre_affiche_badge_et_bouton"),
-    ("test_structurer_entretien.py", "test_fiche_libre_structuree_sans_sondage"),
-    ("test_structurer_entretien.py", "test_verrou_ollama_attente_bornee"),
-    ("test_e2e_premiers_clics.py", "test_lancer_le_tour_de_table_depuis_la_fiche"),
-    ("test_e2e_enregistrement_libre.py", "test_l_enregistrement_libre_transcrit_la_parole_et_s_enregistre"),
-    ("test_e2e_enregistrement_libre.py", "test_le_tour_de_table_se_rejoue_autant_de_fois_que_necessaire"),
-    ("test_e2e_enregistrement_libre.py", "test_enregistrer_ouvre_la_fiche_tout_de_suite_puis_structurer_en_tache_de_fond"),
-    ("test_libre_corrections_revue.py", "test_edition_fiche_libre_signale_une_date_illisible"),
-    ("test_ollama_integration.py", "test_extract_turns_real_ollama_is_nonempty_and_not_catastrophically_slow"),
-    ("test_ollama_integration.py", "test_repartition_real_ollama_is_nonempty"),
-    ("test_ollama_integration.py", "test_extract_turns_real_ollama_keeps_content_on_unlabeled_monologue"),
-    ("test_ollama_integration.py", "test_synthese_globale_remplit_toutes_les_rubriques"),
-    ("test_ollama_warm_up.py", "test_le_warm_up_ollama_appelle_le_serveur_par_defaut"),
-    ("test_ollama_warm_up.py", "test_toute_autre_valeur_garde_le_warm_up_ollama"),
-    ("test_turns_display.py", "test_ecran_detail_applique_les_memes_regles"),
-    ("test_turns_display.py", "test_ordre_des_onglets_transcription_puis_tour_de_table_puis_apercu"),
-    ("test_turns_display.py", "test_les_deux_exports_pdf_sont_disponibles"),
-    ("test_turns_display.py", "test_l_ecran_detail_permet_de_corriger_une_identite"),
-})
-_COUPE_OLLAMA_ACTIVE: bool | None = None  # cache : évalué une seule fois
+@pytest.fixture(autouse=True)
+def _registre_segments_vide():
+    """Le dédoublonnage de /audio/transcribe-segment (sha1 du blob) ne doit pas
+    faire fuiter un résultat d'un test à l'autre."""
+    from app.services.segment_dedupe import REGISTRE
 
+    import threading
 
-def _coupe_ollama_active() -> bool:
-    """True si `_call_ollama_once` lève l'AIError « désactivé temporairement »."""
-    global _COUPE_OLLAMA_ACTIVE
-    if _COUPE_OLLAMA_ACTIVE is None:
-        from unittest import mock
+    def _joindre():
+        for t in threading.enumerate():
+            if t.name == "transcribe-segment":
+                t.join(30)  # un thread démon en vol ne doit pas déborder sur le test suivant
 
-        class _Sentinelle(Exception):
-            pass
-
-        from app.services import ai_common
-
-        try:
-            with mock.patch("urllib.request.urlopen", side_effect=_Sentinelle):
-                ai_common._call_ollama_once(b"{}", "x")
-            _COUPE_OLLAMA_ACTIVE = False
-        except _Sentinelle:
-            _COUPE_OLLAMA_ACTIVE = False
-        except ai_common.AIError as exc:
-            _COUPE_OLLAMA_ACTIVE = "désactivé temporairement" in str(exc)
-        except Exception:
-            _COUPE_OLLAMA_ACTIVE = False  # dans le doute : pas de skip
-    return _COUPE_OLLAMA_ACTIVE
-
-
-def pytest_collection_modifyitems(config, items):
-    cibles = [
-        it for it in items
-        if (os.path.basename(str(it.fspath)), it.name) in _TESTS_COUPES_OLLAMA
-    ]
-    if cibles and _coupe_ollama_active():
-        # Garde : une entrée dont le fichier est collecté mais dont le nom ne
-        # l'est pas (test renommé) ne doit pas sortir de la liste en silence.
-        fichiers = {os.path.basename(str(it.fspath)) for it in items}
-        noms = {(os.path.basename(str(it.fspath)), it.name) for it in items}
-        manquantes = sorted(
-            e for e in _TESTS_COUPES_OLLAMA if e[0] in fichiers and e not in noms
-        )
-        # Pas de garde quand la sélection (node-id `::`) filtre déjà la collecte.
-        args = getattr(config, "args", None) or []
-        if manquantes and not any("::" in str(a) for a in args):
-            raise pytest.UsageError(
-                "_TESTS_COUPES_OLLAMA : entrées introuvables (test renommé ?) : "
-                + ", ".join(f"{f}::{n}" for f, n in manquantes)
-            )
-        marque = pytest.mark.skip(
-            reason="OLLAMA-COUPE-TEMPORAIRE : appels Ollama coupés dans ai_common.py "
-                   "(se réveille seul à la réactivation)"
-        )
-        for it in cibles:
-            it.add_marker(marque)
+    _joindre()
+    REGISTRE.vider()
+    yield
+    _joindre()
+    REGISTRE.vider()

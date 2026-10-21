@@ -81,7 +81,7 @@
             {% if iv.interviewee_role %}<span class="muted">— {{ iv.interviewee_role }}</span>{% endif %}
             {% if iv.mode == 'libre' %}<span class="pill">Libre</span>{% endif %}
             {% if iv.mode == 'libre' and iv.structuration_status and iv.structuration_status != 'fait' %}
-            <span class="badge badge-structuration badge-{{ iv.structuration_status }}">{{ {'a_traiter': 'à structurer', 'en_cours': 'structuration en cours', 'echec': 'structuration en échec'}.get(iv.structuration_status, iv.structuration_status) }}</span>
+            <span class="badge badge-structuration badge-{{ iv.structuration_status }}">{{ {'a_traiter': 'à structurer', 'en_cours': 'structuration en cours', 'echec': 'structuration en échec', 'a_transcrire': 'transcription à relancer'}.get(iv.structuration_status, iv.structuration_status) }}</span>
             {% endif %}
           </td>
           <td>{{ iv.interview_date.strftime('%d/%m/%Y') if iv.interview_date else '—' }}</td>

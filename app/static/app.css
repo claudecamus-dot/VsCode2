@@ -1016,6 +1016,10 @@ textarea.htmx-request, input.htmx-request, select.htmx-request {
   border: 1px solid var(--border); border-radius: var(--radius);
   box-shadow: var(--shadow); padding: 32px 40px;
 }
+/* Fiche d'entretien : l'Aperçu défile dans un cadre de hauteur bornée, comme le
+   champ de transcription de l'onglet voisin (demande utilisateur 2026-10-20).
+   Modificateur dédié : `.preview-doc` sert aussi à d'autres écrans qui ne défilent pas. */
+.preview-doc-scroll { max-height: 26rem; overflow-y: auto; }
 .preview-doc-head { border-bottom: 2px solid var(--border); margin-bottom: 20px; padding-bottom: 12px; }
 .preview-doc-head h1 { margin: 0 0 4px; }
 .preview-theme { margin-bottom: 28px; }
@@ -1057,6 +1061,7 @@ textarea.htmx-request, input.htmx-request, select.htmx-request {
 @media print {
   .no-print, .topbar { display: none !important; }
   .preview-doc { box-shadow: none; border: none; padding: 0; max-width: none; }
+  .preview-doc-scroll { max-height: none; overflow: visible; }
   body { background: #fff; }
 }
 

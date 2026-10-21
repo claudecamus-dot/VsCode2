@@ -160,9 +160,10 @@ def test_drain_parallel_acquires_and_releases_global_semaphore(
             self.acquis = 0
             self.max_simultane = 0
 
-        def acquire(self):
+        def acquire(self, blocking=True, timeout=None):
             self.acquis += 1
             self.max_simultane = max(self.max_simultane, self.acquis)
+            return True
 
         def release(self):
             self.acquis -= 1
@@ -191,6 +192,7 @@ def test_drain_parallel_acquires_and_releases_global_semaphore(
     faux_sem = FauxSemaphore()
     monkeypatch.setattr(audio_transcribe, "_GLOBAL_WORKERS_SEMAPHORE", faux_sem)
     monkeypatch.setattr(audio_transcribe, "ProcessPoolExecutor", FauxExecutor)
+    monkeypatch.setattr(audio_transcribe, "GLOBAL_MAX_PARALLEL_WORKERS", 8)
 
     blocks = ["b0", "b1", "b2"]
     resultats = list(audio_transcribe._drain_parallel(blocks, 0, 3, n_workers=3))

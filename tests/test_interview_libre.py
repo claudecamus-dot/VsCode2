@@ -764,10 +764,10 @@ def test_libre_flow_manual_identity_wins_over_transcript_detection(
     assert "Nom Mal Compris" not in response.text
 
 
-def test_libre_detail_edit_updates_turns_not_repartition(
+def test_libre_detail_edit_ignores_turns_and_repartition(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """save_libre_detail met à jour les tours (et le résumé) mais NE touche PLUS
+    """save_libre_detail IGNORE les champs turn_* (tours conservés) et NE touche PLUS
     la répartition — matière de niveau mission, retirée de l'écran de consultation
     le 2026-07-20 (le router n'accepte plus les champs `repartition_*`). Les
     envoyer quand même doit rester sans effet, jamais écraser la répartition
@@ -829,10 +829,11 @@ def test_libre_detail_edit_updates_turns_not_repartition(
         # celle envoyée par l'édition (save_libre_detail ne l'édite plus).
         assert interview.repartition["contexte"] == "- Contexte de test"
         assert interview.repartition["culture_adn"] == "- Culture de test"
-        # Les tours, eux, sont bien mis à jour par ce même POST.
+        # Les tours postés (ancien formulaire d'un onglet périmé) sont IGNORÉS
+        # depuis le 2026-10-19 : les tours existants sont conservés tels quels.
         turns = sorted(interview.turns, key=lambda t: t.position)
-        assert turns[0].question == "Comment ça se passe (corrigé) ?"
-        assert turns[1].remarque == "Silos corrigés à la relecture."
+        assert turns[0].question == "Comment ça se passe ?"
+        assert turns[1].remarque == "Beaucoup de silos entre équipes."
     finally:
         session.close()
 
@@ -1442,9 +1443,13 @@ def test_nettoyer_brouillons_emporte_un_entretien_a_zero_tour(
     response = client.post("/missions/brouillons/nettoyer", follow_redirects=False)
     assert response.status_code == 303
 
+    # REVUE 2026-10-19 (lot serveur et données) : ce test affirmait l'inverse (la
+    # mission était emportée). Or l'entretien à 0 tour porte son TEXTE (et son audio) :
+    # le nettoyage le supprimait, texte perdu. Un libre à 0 tour n'est « vide » que
+    # sans texte, audio, jeton, et une structuration terminée (`_interview_vide`).
     session = SessionLocal()
     try:
-        assert session.get(Mission, mission_id) is None
+        assert session.get(Mission, mission_id) is not None
     finally:
         session.close()
 

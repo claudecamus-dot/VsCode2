@@ -731,3 +731,92 @@ class Navigateur:
         """Tout ce qui, côté réseau, n'a pas abouti : 4xx/5xx ET ressources
         jamais reçues. Appeler `drainer()` avant pour lire l'état à jour."""
         return self.erreurs_http() + list(self.echecs_reseau)
+
+    # --- ajouts « états limites » (tests/test_e2e_limites.py) ----------------
+    def cookies(self, url: str) -> list[dict]:
+        """Cookies que le navigateur enverrait à `url` (HttpOnly compris, ce que
+        `document.cookie` ne montre pas)."""
+        return self._run(self._cmd("Network.getCookies", urls=[url])).get("cookies", [])
+
+    def supprimer_cookie(self, nom: str, url: str) -> None:
+        """Efface un cookie côté navigateur (session expirée simulée)."""
+        self._run(self._cmd("Network.deleteCookies", name=nom, url=url))
+
+    def double_cliquer(self, selecteur: str) -> None:
+        """Vrai double-clic souris : deux séquences presse/relâche
+        (clickCount 1 puis 2) envoyées l'une derrière l'autre, SANS attendre la
+        navigation ni vider les évènements entre les deux — comme une main."""
+        x, y = self._point_de_clic(selecteur)
+        self._run(self._cmd("Input.dispatchMouseEvent", type="mouseMoved", x=x, y=y))
+        for n in (1, 2):
+            for genre in ("mousePressed", "mouseReleased"):
+                self._run(self._cmd(
+                    "Input.dispatchMouseEvent", type=genre, x=x, y=y,
+                    button="left", clickCount=n,
+                ))
+        self.drainer()
+
+    # --- ajouts publics (2026-10-16) ----------------------------------------
+    def autoriser_telechargements(self, dossier: Path | str) -> None:
+        """Les téléchargements sont acceptés et déposés dans `dossier`."""
+        params = dict(behavior="allow", downloadPath=str(dossier))
+        try:
+            self._run(self._cmd("Browser.setDownloadBehavior", **params))
+        except RuntimeError:
+            self._run(self._cmd_sur(self._ws_navigateur, "Browser.setDownloadBehavior", **params))
+
+    def choisir_option(self, selecteur: str, valeur: str) -> None:
+        """Choix d'une option de <select> au CLAVIER réel (focus puis
+        flèches : la liste native ne se déroule pas en headless). Le navigateur
+        émet lui-même `input` et `change` à chaque flèche. Échoue si `valeur`
+        n'est pas atteinte."""
+        lire = ("(function(){var s=document.querySelector(" + json.dumps(selecteur) + ");"
+                " return s ? [s.value, Array.from(s.options).map(function(o){return o.value;})] : null;})()")
+        etat = self.evaluer(lire)
+        assert etat, f"liste introuvable : {selecteur}"
+        courant, options = etat
+        assert valeur in options, f"option {valeur!r} absente de {selecteur} : {options}"
+        self.evaluer("(document.querySelector(" + json.dumps(selecteur) + ").focus(), true)")
+        i, j = options.index(courant), options.index(valeur)
+        cle, vk = ("ArrowDown", 40) if j > i else ("ArrowUp", 38)
+        for _ in range(abs(j - i)):
+            for genre in ("rawKeyDown", "keyUp"):
+                self._run(self._cmd("Input.dispatchKeyEvent", type=genre, key=cle, code=cle,
+                                    windowsVirtualKeyCode=vk, nativeVirtualKeyCode=vk))
+        self.drainer()
+        assert self.evaluer(lire)[0] == valeur, f"{selecteur} : {valeur!r} non atteinte"
+
+    def emuler_latence(self, latence_ms: int) -> None:
+        """Ajoute `latence_ms` de latence réseau à chaque requête (0 = retire)."""
+        self._run(self._cmd("Network.emulateNetworkConditions", offline=False,
+                            latency=latence_ms, downloadThroughput=-1, uploadThroughput=-1))
+
+
+def coupe_ollama_active() -> bool:
+    """Vrai si `_call_ollama_once` (app/services/ai_common.py) contient un
+    `raise AIError(...)` NON commenté dont le texte dit « désactivé
+    temporairement » (la coupe OLLAMA-COUPE-TEMPORAIRE). Analyse syntaxique :
+    insensible aux commentaires, docstrings et gardes ajoutés. Échoue
+    lisiblement si la fonction a disparu."""
+    import ast
+
+    chemin = Path(__file__).resolve().parents[1] / "app" / "services" / "ai_common.py"
+    arbre = ast.parse(chemin.read_text(encoding="utf-8"))
+    fonction = next((n for n in ast.walk(arbre)
+                     if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                     and n.name == "_call_ollama_once"), None)
+    if fonction is None:
+        raise AssertionError(
+            f"`_call_ollama_once` est introuvable dans {chemin} : le test ne sait plus "
+            "dire si la coupe Ollama est active — mettre à jour coupe_ollama_active()")
+    for noeud in ast.walk(fonction):
+        if isinstance(noeud, ast.Raise) and isinstance(noeud.exc, ast.Call):
+            appel = noeud.exc
+            nom = getattr(appel.func, "id", getattr(appel.func, "attr", ""))
+            if nom == "AIError" and any(
+                isinstance(c, ast.Constant) and isinstance(c.value, str)
+                and "désactivé temporairement" in c.value
+                for a in appel.args for c in ast.walk(a)
+            ):
+                return True
+    return False

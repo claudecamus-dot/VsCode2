@@ -90,7 +90,9 @@ def test_verrou_occupe_leve_busy_au_lieu_de_bloquer(monkeypatch: pytest.MonkeyPa
         audio_transcribe._MODEL_LOCK.release()
 
     assert ecoule < 1.0, f"a bloque {ecoule:.2f}s au lieu de respecter SEGMENT_LOCK_TIMEOUT_S"
-    assert capture.value.retry_after_s == pytest.approx(0.2)
+    # Estimation (file x durée récente), bornée 10..240 : plus la constante du timeout.
+    assert capture.value.retry_after_s == pytest.approx(audio_transcribe.estimer_retry_after())
+    assert audio_transcribe.RETRY_AFTER_MIN_S <= capture.value.retry_after_s <= audio_transcribe.RETRY_AFTER_MAX_S
     modele_espion.assert_not_called()  # le segment concurrent n'a jamais ete tente
 
 
@@ -172,7 +174,7 @@ def test_route_segment_renvoie_503_retry_after_quand_occupe(
     en-tête `Retry-After` + `code: "busy"` — distinct du 422 `no_speech`/
     erreur de contenu, puisque le segment n'a pas été tenté."""
 
-    def _toujours_occupe(_content: bytes) -> str:
+    def _toujours_occupe(_content: bytes, **_kw) -> str:
         exc = audio_transcribe.TranscriptionBusyError("occupe")
         exc.retry_after_s = 7.0
         raise exc
@@ -199,7 +201,7 @@ def test_route_segment_distingue_busy_de_no_speech(
     `TranscriptionError` — si son `except` était placé APRÈS le générique, il
     ne serait jamais atteint et Busy tomberait en 422 sans `code: "busy"`."""
 
-    def _no_speech(_content: bytes) -> str:
+    def _no_speech(_content: bytes, **_kw) -> str:
         raise audio_transcribe.NoSpeechError("Aucune parole détectée dans l'enregistrement.")
 
     monkeypatch.setattr(audio_transcribe, "transcribe_audio", _no_speech)
@@ -237,7 +239,7 @@ def test_route_notes_transcribe_renvoie_503_retry_after_quand_occupe(
     finally:
         session.close()
 
-    def _toujours_occupe(_content: bytes) -> str:
+    def _toujours_occupe(_content: bytes, **_kw) -> str:
         exc = audio_transcribe.TranscriptionBusyError("occupe")
         exc.retry_after_s = 5.0
         raise exc

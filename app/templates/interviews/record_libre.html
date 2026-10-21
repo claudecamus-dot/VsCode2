@@ -258,7 +258,7 @@
     {% set ident_name = identity.interviewee_name if identity else '' %}
     {% set ident_role = identity.interviewee_role if identity else '' %}
     {% set ident_entity = identity.interviewee_entity if identity else '' %}
-    {% set ident_date = identity.interview_date if identity else '' %}
+    {% set ident_date = (identity.interview_date if identity else '') or aujourdhui_iso() %}
     {% set ident_hint = "Ce qui est laissé vide sera complété par ce que l'IA relève à l'oral, si elle le trouve — sinon l'entretien s'enregistre « Sans nom » (corrigeable ensuite sur sa fiche)." %}
     {% include "interviews/_identite_block.html" %}
   </section>
@@ -358,6 +358,21 @@
   var backupRecorder, backupChunks;
   var recordingActive = false;
   var pendingSegments = 0;
+  // File SÉQUENTIELLE des segments en direct : au plus un POST /audio/transcribe-segment
+  // en vol (le verrou Whisper sérialise de toute façon). `pendingSegments` compte
+  // file + en vol. `segEpoch` change à chaque reset : le règlement d'un envoi d'une
+  // session abandonnée ne débloque pas la file de la nouvelle.
+  var segQueue = [];
+  // Relances MANUELLES (priorité basse): jamais en parallèle d'un envoi direct, jamais devant lui.
+  var lowQueue = [];
+  var lostRetryActive = 0;  // relances manuelles lancées et pas encore réglées
+  var lowEnVol = 0;         // 1 si une relance manuelle occupe l'emplacement (déjà comptée dans pendingSegments)
+  var segInFlight = false;
+  var segEpoch = 0;
+  var segmentSeq = 0;
+  // Segments dont le 503 « occupé » a épuisé la patience ALORS QUE l'audio complet
+  // est déjà sur le serveur : ni perdus ni bloquants, à relancer après l'enregistrement.
+  var waitingSegments = [];
   // Reprise d'un segment de transcription non transmis (2026-07-29). Un fetch
   // qui échoue AVANT toute réponse HTTP (« Failed to fetch » : redémarrage du
   // serveur, coupure réseau, veille) faisait disparaître définitivement la
@@ -371,12 +386,22 @@
   // ferait renvoyer le même blob et doublerait la charge sur un serveur saturé.
   var NET_TIMEOUT_MS = 120000;         // le serveur rend la main tout de suite (création de job, poll de statut)
   var TRANSCRIBE_TIMEOUT_MS = 900000;  // Whisper est CPU-bound et sérialisé derrière son verrou : la file peut être longue
+  // Refus « occupé » (503 busy) : délai de la n-ième relance (n >= 1) =
+  // min(BUSY_BACKOFF_MAX_MS, max(retry_after_s, BUSY_BACKOFF_BASE_MS * 2^n)) -> 60, 120, 240, 240 s.
+  // Mesuré le 2026-10-19 : 118 POST en 503 contre 3 en 200 quand tout repartait toutes les 60 s.
+  var BUSY_BACKOFF_BASE_MS = 30000;
+  var BUSY_BACKOFF_MAX_MS = 240000;
   var UPLOAD_TIMEOUT_MS = 600000;      // envoi d'un fichier audio entier sur un réseau d'entreprise
   // Délais ENTRE tentatives : N valeurs = N relances = N+1 tentatives en tout.
   // (L'ancien tableau portait une 3e valeur morte — la condition `attempt + 1 <
   // length` ne lisait jamais l'indice 2, et un lecteur y voyait 4 tentatives ;
   // revue R3-m3 du 2026-08-31.)
-  var SEGMENT_RETRY_DELAYS_MS = [2000, 6000];
+  var SEGMENT_RETRY_DELAYS_MS = [2000, 6000, 15000, 30000];
+  // Tranches de sauvegarde (pas de verrou Whisper) : budget court inchangé, il tient « Enregistrer » grisé.
+  var BACKUP_RETRY_DELAYS_MS = [2000, 6000];
+  // Posé au submit accepté : pas de boîte native « Quitter le site ? » pendant NOTRE envoi
+  // (si elle était annulée, le POST n'aurait pas lieu et le bouton resterait grisé).
+  var envoiEnCours = false;
   // Relances de la CRÉATION d'une tranche d'extraction (POST /interviews/
   // segment-jobs), incident du 2026-09-08 : ce POST était un tir unique et
   // muet — sur échec, le texte restait en réserve jusqu'au tick suivant (5 min),
@@ -419,11 +444,20 @@
   // le champ caché -> « une seule tranche apparaît » alors que le disque en a
   // plusieurs, bug réel du 2026-07-20).
   var pendingBackups = 0;
+  // Envois de sauvegarde CONFIRMÉS par le serveur dans CETTE session (upload réussi ou
+  // import rattaché) : seul fondement de `copieServeur`. Les entrées de `backupSegments`
+  // restaurées d'un brouillon n'en font pas partie (la dernière tranche, en mémoire de
+  // l'onglet planté, peut manquer).
+  var backupConfirmes = 0;
+  // Session RESTAURÉE d'un brouillon (onglet planté) : sa dernière tranche, seulement en
+  // mémoire de l'onglet disparu, peut manquer sans trou visible. Tant qu'elle n'est pas
+  // réinitialisée, aucune « copie serveur » complète n'est affirmée.
+  var sessionRestauree = false;
   // Position chronologique de la prochaine tranche, attribuée AU MOMENT de
   // l'upload (les évènements `stop` du MediaRecorder sont sérialisés, donc
   // dans l'ordre) et non à la résolution du fetch — sinon deux uploads en vol
   // lisent la même longueur de tableau et se voient attribuer la même position.
-  var nextBackupPosition = 0;
+  var nextBackupPosition = 0; backupConfirmes = 0; sessionRestauree = false;
   var transcriptSoFar = {{ (identity.transcript if identity else '') | tojson }};
   var backupSegments = (function () {
     try {
@@ -648,7 +682,12 @@
 
   function updateSubmitState() {
     var hasTranscript = !!transcriptSoFar.trim();
-    var busy = pendingSegments > 0 || pendingSegmentJobSubmits > 0 || pendingBackups > 0 || finalizing;
+    // « Enregistrer sans attendre » (demande du 2026-10-19) : la transcription en
+    // vol (`traitement`) ne gèle plus l'enregistrement dès que l'AUDIO COMPLET est
+    // déjà sur le serveur (`copieServeur`, plus bas) — « Relancer la transcription »
+    // repart de lui. Restent des blocages DURS : envoi d'une tranche de sauvegarde
+    // en cours, dernière tranche non livrée (`finalizing`), copie locale seule.
+    var traitement = pendingSegments > 0 || pendingSegmentJobSubmits > 0;
     // Revue adversariale 2026-07-29 : un segment perdu (`lostSegments`) n'est
     // gardé qu'en mémoire de l'onglet — rien ne bloquait « Enregistrer
     // l'entretien » pendant que le bandeau prévenait « ne ferme pas cet
@@ -659,6 +698,15 @@
     // un 422 conservé pour rejeu a déjà atteint le serveur, le geler
     // rendrait un entretien à distance (des dizaines de 422) inenregistrable.
     var lost = lostSegments.some(function (s) { return s.blocking; }) || lostRetryBlocking > 0;
+    // Segments non transcrits MAIS audio complet déjà sur le serveur (toutes les
+    // tranches de sauvegarde transmises, aucune copie locale en attente) : le
+    // blob du segment n'est plus la seule copie. Plus de gel dur — une
+    // confirmation explicite au clic (cf. submit), puis « Relancer la
+    // transcription » depuis l'entretien repart de l'audio sauvegardé.
+    var copieServeur = !sessionRestauree && backupConfirmes > 0 && (backupSegments || []).length > 0 && !pendingBackups
+      && !(backupPerdusLocaux || []).length;
+    var segmentsNonTranscrits = lostSegments.filter(function (s) { return s.blocking; }).length;
+    if (lost && copieServeur) lost = false;
     // EC3-2 (revue du 2026-09-01) — même faille que `lostSegments` ci-dessus, un
     // étage plus bas : une tranche de SAUVEGARDE non transmise n'existe que dans
     // l'onglet (URL de blob). Rien ne bloquait « Enregistrer l'entretien », dont
@@ -672,19 +720,41 @@
     // l'erreur — donc détruisait la transcription. Ce n'est pas une impasse :
     // l'export PDF reste ouvert (route sans mission), et c'est ce que le
     // bandeau demande de faire.
-    submitBtn.disabled = recordingActive || busy || lost || localEnAttente
-      || missionAbsente || !hasTranscript;
+    var busyDur = pendingBackups > 0 || finalizing;
+    var attendre = busyDur || (traitement && !copieServeur);
+    var aDuContenu = hasTranscript || copieServeur;  // texte OU audio déjà sauvegardé
+    submitBtn.disabled = recordingActive || attendre || lost || localEnAttente
+      || missionAbsente || !aDuContenu;
     // L'export PDF de la transcription est disponible dès que l'enregistrement
     // est arrêté et qu'il y a du texte — indépendamment de l'extraction IA (il
     // n'utilise que le texte) et sans attendre les uploads audio en cours.
     pdfBtn.disabled = recordingActive || !hasTranscript;
-    if (!recordingActive && !busy && hasTranscript) {
+    if (!recordingActive && !finalizing && pendingBackups > 0) {
+      var deja = (backupSegments || []).length;
+      statusEl.textContent = 'Envoi de l’audio en cours (' + deja + '/' + (deja + pendingBackups)
+        + ') — ne ferme pas l’onglet.';
+    } else if (!recordingActive && !attendre && aDuContenu) {
       // Le libellé générique mentirait pendant le gel EC3-2 : le bouton serait
       // désactivé sans que rien n'explique pourquoi.
-      statusEl.textContent = localEnAttente
+      // Segments « en attente de transcription » : jamais bloquants (absents de `lost`/`attendre`).
+      var enAttente = (typeof waitingSegments !== 'undefined') ? waitingSegments.length : 0;
+      var msgAttente = enAttente + ' segment' + (enAttente > 1 ? 's' : '') + ' en attente de transcription : '
+        + 'l’audio est sauvegardé, tu pourras relancer la transcription après l’enregistrement.';
+      statusEl.textContent = (traitement && copieServeur)
+        ? 'Enregistrement terminé. Audio sauvegardé : la transcription se termine en arrière-plan, '
+          + 'tu pourras la relancer depuis l’entretien.' + (enAttente ? ' ' + msgAttente : '')
+        : (enAttente && copieServeur)
+        ? msgAttente
+        : (segmentsNonTranscrits && copieServeur)
+        ? segmentsNonTranscrits + ' segment' + (segmentsNonTranscrits > 1 ? 's' : '')
+          + ' non transcrit' + (segmentsNonTranscrits > 1 ? 's' : '')
+          + ' : l’audio complet est sauvegardé, tu pourras relancer la transcription après l’enregistrement.'
+        : localEnAttente
         ? 'Récupère la ou les tranches non transmises ci-dessous (« Télécharger cette '
           + 'tranche »), puis clique « J’ai récupéré… » : enregistrer l’entretien '
           + 'maintenant détruirait ces copies locales.'
+        : lost
+        ? 'Un segment n’a pas pu être transcrit : relance-le ou abandonne-le pour enregistrer.'
         : 'Enregistrement terminé — prêt à envoyer.';
     }
   }
@@ -706,7 +776,7 @@
     });
     segmentRecorder.addEventListener('stop', function () {
       var blob = new Blob(segmentChunks, { type: segmentRecorder.mimeType || 'audio/webm' });
-      uploadSegment(blob);
+      enqueueSegment(blob);
       if (recordingActive) startSegment();
       else recorderFinalized();  // arrêt final : dernière tranche de transcription livrée
     });
@@ -907,16 +977,20 @@
   // Conserve l'audio d'un segment non abouti pour un rejeu manuel. Appelée par
   // les DEUX natures d'échec (cf. `lostSegments`) : jeter le blob laissait un
   // trou définitif dans la transcription, sans aucune issue que la ressaisie.
-  function keepLostSegment(blob, reason, lostId, blocking) {
+  function keepLostSegment(blob, reason, lostId, blocking, segId, attente) {
     var id = lostId || nextLostSegmentId++;
     // `gen` : génération de l'enregistrement auquel cette parole appartient.
     // Une relance déclenchée APRÈS un « Recommencer » doit être rejetée par la
     // garde de génération d'uploadSegment, sinon son texte — appartenant à la
     // session abandonnée — atterrit dans la nouvelle transcription (le marqueur
     // n'y existant plus, `replaceLostMarker` le colle en fin de texte).
-    lostSegments.push({
+    var entree = {
       id: id, blob: blob, reason: reason, blocking: !!blocking, gen: backupGeneration,
-    });
+      segId: segId || '',  // même X-Segment-Id à la relance manuelle (dédup serveur)
+      attente: !!attente,  // « en attente de transcription »: audio sauvegardé, non bloquant
+    };
+    lostSegments.push(entree);
+    if (entree.attente) waitingSegments.push(entree);
     // Marqueur posé une seule fois : sur une relance (lostId) il est déjà dans
     // le texte, à la place exacte où le rejeu réinsérera la parole.
     if (!lostId) appendTranscript(lostMarker(id));
@@ -932,10 +1006,12 @@
     // pendant l'entretien retarde la transcription des segments EN COURS —
     // jusqu'à décrocher, sur un entretien à distance qui en accumule un par
     // minute. Les blobs attendent en mémoire, l'alerte de sortie les protège.
-    lostRetryBtn.disabled = n === 0 || recordingActive;
+    // Relances toujours ACCESSIBLES tant qu'il reste quelque chose à relancer; pendant
+    // l'enregistrement elles passent en file DERRIÈRE le direct (lowQueue). Grisées
+    // seulement pendant qu'une relance est déjà en cours.
+    lostRetryBtn.disabled = n === 0 || lostRetryActive > 0;
     lostRetryBtn.title = recordingActive
-      ? 'À relancer une fois l’enregistrement arrêté : une relance pendant '
-        + 'l’entretien retarderait la transcription en direct.'
+      ? 'La relance sera mise en file derrière la transcription en direct.'
       : '';
     // Chaque appel (perte, résolution, fin de relance) recale aussi le gate
     // de soumission : c'est la SEULE façon dont `lostSegments`/`lostRetryBlocking`
@@ -944,15 +1020,22 @@
     lostListEl.textContent = '';
     if (!n) return;
     var bloquants = lostSegments.filter(function (s) { return s.blocking; }).length;
+    var nAttente = lostSegments.filter(function (s) { return s.attente; }).length;
     lostTextEl.textContent = n + ' segment' + (n > 1 ? 's' : '') + ' de transcription non abouti'
       + (n > 1 ? 's' : '') + ' — relance ci-dessous, le texte se remettra à sa place dans la '
       + 'transcription (là où figure son marqueur). '
       + (bloquants
           ? 'Ne ferme pas cet onglet avant : l’audio de ' + (bloquants > 1 ? 'ces ' + bloquants + ' segments' : 'ce segment')
             + ' n’existe qu’ici.'
-          : 'Ces segments ont bien atteint le serveur, qui n’y a pas détecté de parole : '
-            + 'les rejouer rendra le même résultat tant que la transcription n’est pas '
-            + 'reconfigurée. Leur audio reste gardé ici au cas où.');
+          : (nAttente
+              ? nAttente + ' segment' + (nAttente > 1 ? 's' : '') + ' en attente de transcription : '
+                + 'l’audio est sauvegardé, relance-' + (nAttente > 1 ? 'les' : 'le') + ' ci-dessous ou depuis la fiche. '
+              : '')
+            + (n > nAttente
+              ? 'Les autres ont bien atteint le serveur, qui n’y a pas détecté de parole : '
+                + 'les rejouer rendra le même résultat tant que la transcription n’est pas '
+                + 'reconfigurée. Leur audio reste gardé ici au cas où.'
+              : ''));
     // Une ligne par segment, avec son bouton : le « bout de ligne » demandé.
     // PLAFONNÉE : un entretien à distance dont le micro ne capte rien produit un
     // segment non abouti PAR MINUTE (90 sur le cas réel de la mission 16) — la
@@ -967,7 +1050,8 @@
     // l'unique ligne actionnable était invisible et la seule issue proposée
     // relançait 90 segments qui rendront le même résultat par construction.
     var bloquantsVisibles = lostSegments.filter(function (s) { return s.blocking; });
-    var muets = lostSegments.filter(function (s) { return !s.blocking; });
+    var muets = lostSegments.filter(function (s) { return !s.blocking && !s.attente; })
+      .concat(lostSegments.filter(function (s) { return s.attente; }));  // en attente: en queue = gardés par le plafond
     var place = Math.max(0, LOST_LIST_MAX - bloquantsVisibles.length);
     // `place` PEUT valoir 0 (≥ LOST_LIST_MAX segments bloquants à eux seuls —
     // le pire cas que ce plafond existe pour couvrir). `slice(-0)` n'est PAS
@@ -994,7 +1078,7 @@
       btn.type = 'button';
       btn.className = 'btn btn-sm';
       btn.textContent = '↻ Relancer le segment ' + seg.id;
-      btn.disabled = recordingActive;  // même verrou Whisper que la relance globale
+      btn.disabled = lostRetryActive > 0;  // en file derrière le direct pendant l'enregistrement
       btn.addEventListener('click', function () { retryLostSegments([seg.id]); });
       li.appendChild(label);
       li.appendChild(btn);
@@ -1178,6 +1262,9 @@
     }
     if (!queue.length) return;
     lostSegments = reste;
+    waitingSegments = waitingSegments.filter(function (s) { return queue.indexOf(s) < 0; });
+    lostRetryActive += queue.length;
+    var ep = segEpoch;  // un reset (Recommencer / nouvelle session) invalide ce drain
     // COMPTEUR, pas drapeau (revue adversariale 2026-07-30) : deux drains
     // peuvent coexister (une relance ciblée en vol, puis un clic sur « Relancer
     // tous »), et une affectation booléenne laissait le second ÉCRASER l'état du
@@ -1199,15 +1286,18 @@
       var seg = queue.shift();
       if (!seg) {
         refreshLostBanner();  // rien de neuf à annoncer, mais relève le gate si tout a réussi
+        maybeSubmitFinalJob();  // fin du drain: le job final peut partir (le garde l'empêchait en plein drain)
         return;
       }
-      uploadSegment(seg.blob, 0, seg.id, seg.gen, function () {
-        // Décompté à l'ABOUTISSEMENT de CE segment (succès, échec, abandon),
+      lowQueue.push({ seg: seg, done: function () {
+        if (ep !== segEpoch) return;  // drain d'une session abandonnée: ne touche à rien
+        lostRetryActive = Math.max(0, lostRetryActive - 1);        // Décompté à l'ABOUTISSEMENT de CE segment (succès, échec, abandon),
         // jamais à la fin de la file : un drain concurrent ne peut donc plus
         // remettre le compte à zéro pour le compte d'un autre.
         if (seg.blocking) lostRetryBlocking = Math.max(0, lostRetryBlocking - 1);
         next();
-      });
+      } });
+      pumpSegments();
     })();
   }
 
@@ -1236,6 +1326,7 @@
   // blob de cet onglet — fermer sans l'avoir téléchargée la détruit, exactement
   // comme fermer pendant un upload en vol.
   window.addEventListener('beforeunload', function (e) {
+    if (envoiEnCours) return;
     var localEnAttente = (backupPerdusLocaux || []).length > 0 && !backupLocalAcquitte;
     // `pendingSegments` (revue bmad-code-review 2026-09-16, lot 2 atelier-dev
     // "occupé") : un refus "occupé" peut désormais garder un segment en vol
@@ -1248,7 +1339,95 @@
     e.returnValue = '';
   });
 
-  function uploadSegment(blob, attempt, lostId, genArg, onSettle, busyUntilArg) {
+  // L'audio COMPLET de la session est-il déjà sur le serveur ? (même critère que
+  // `copieServeur` dans updateSubmitState : toutes les tranches transmises, aucune
+  // copie locale en attente, session non restaurée.)
+  function copieServeurAcquittee() {
+    // Pendant l'enregistrement / la finalisation, la tranche en cours n'est PAS encore sur
+    // le serveur: le blob du segment est alors la seule copie de son texte.
+    return !recordingActive && !finalizing && !sessionRestauree && backupConfirmes > 0
+      && (backupSegments || []).length > 0 && !pendingBackups && !(backupPerdusLocaux || []).length;
+  }
+
+  // File FIFO du flux direct : un segment émis toutes les SEGMENT_MS ne part que
+  // quand le précédent a fini (succès, abandon ou mise en attente). L'ordre des
+  // textes est celui des segments (appendTranscript à l'aboutissement, un à la fois).
+  function enqueueSegment(blob) {
+    segQueue.push({
+      blob: blob, gen: backupGeneration, segId: (sessionToken || 'x') + '-' + (++segmentSeq),
+    });
+    pendingSegments++;  // compte file + en vol
+    updateSubmitState();
+    pumpSegments();
+  }
+
+  function pumpSegments() {
+    while (!segInFlight && (segQueue.length || lowQueue.length)) {
+      if (!segQueue.length) {  // direct d'abord; relance manuelle seulement quand la file directe est vide
+        var low = lowQueue.shift();
+        if (low.seg.gen !== backupGeneration) { low.done(); continue; }  // session abandonnée (done: no-op si époque changée)
+        segInFlight = true;
+        lowEnVol = 1;
+        var epochLow = segEpoch;
+        try {
+          uploadSegment(low.seg.blob, 0, low.seg.id, low.seg.gen, function () {
+            if (epochLow === segEpoch) lowEnVol = 0;
+            low.done();
+            if (epochLow !== segEpoch) return;
+            segInFlight = false;
+            pumpSegments();
+          }, undefined, { segId: low.seg.segId, attente: low.seg.attente, blocking: low.seg.blocking, low: true });
+        } catch (e) {  // exception SYNCHRONE: l'emplacement ne reste pas pris, le segment est conservé
+          console.error('segment: relance impossible', e);
+          if (epochLow === segEpoch) { segInFlight = false; lowEnVol = 0; }
+          keepLostSegment(low.seg.blob, 'erreur d’envoi', low.seg.id, low.seg.blocking, low.seg.segId, low.seg.attente);
+          low.done();
+        }
+        continue;
+      }
+      var item = segQueue.shift();
+      if (item.gen !== backupGeneration) {  // session abandonnée entre-temps
+        pendingSegments--;
+        updateSubmitState();
+        continue;
+      }
+      segInFlight = true;
+      var epoch = segEpoch;
+      try {
+        uploadSegment(item.blob, 0, undefined, item.gen, function () {
+          if (epoch !== segEpoch) return;  // reset survenu : la file de la nouvelle session est à elle
+          segInFlight = false;
+          pumpSegments();
+        }, undefined, { segId: item.segId, preCounted: true });
+      } catch (e) {  // exception SYNCHRONE: l'emplacement ne reste pas pris, le segment est conservé
+        console.error('segment: envoi impossible', e);
+        if (epoch === segEpoch) segInFlight = false;
+        pendingSegments = Math.max(0, pendingSegments - 1);
+        keepLostSegment(item.blob, 'erreur d’envoi', undefined, true, item.segId);
+      }
+    }
+  }
+
+  // Remise à zéro (nouvelle session / Recommencer) : vide la file, oublie les
+  // segments en attente, débloque la file pour la session suivante.
+  function resetSegmentQueue() {
+    pendingSegments = Math.max(0, pendingSegments - segQueue.length);
+    segQueue = [];
+    lowQueue = [];
+    lostRetryActive = 0;
+    lowEnVol = 0;
+    segEpoch++;
+    segInFlight = false;
+    segmentSeq = 0;
+    waitingSegments = [];
+  }
+
+  function uploadSegment(blob, attempt, lostId, genArg, onSettle, busyUntilArg, ctx) {
+    // `ctx` (partagé par TOUTES les tentatives du même blob) : segId = en-tête
+    // X-Segment-Id stable (dédup serveur), preCounted = déjà compté dans
+    // `pendingSegments` par la file, busyN = nombre de refus « occupé » déjà reçus.
+    ctx = ctx || {};
+    var segId = ctx.segId || '';
     // Garde de génération (calquée sur uploadBackup) : un segment de transcription
     // encore en vol au moment d'un « Recommencer »/redémarrage ne doit pas
     // ressusciter le texte d'une session abandonnée dans la nouvelle (constat Edge
@@ -1273,13 +1452,25 @@
     // tentatives et partirait sans le texte que la reprise va rendre.
     // `busyUntilArg` distingue une RELANCE "occupé" (même `attempt`, ne doit
     // pas re-compter un segment déjà en vol) d'un premier appel.
-    if (!attempt && !busyUntilArg) { pendingSegments++; updateSubmitState(); }
+    if (!attempt && !busyUntilArg && !ctx.preCounted) { pendingSegments++; updateSubmitState(); }
 
+    var settled = false;
     function settle() {
-      pendingSegments--;
-      updateSubmitState();
-      maybeSubmitFinalJob();  // transcription stabilisée -> job final si aucun n'a couvert le reliquat
-      if (onSettle) onSettle();  // relance séquentielle : le segment perdu suivant
+      if (settled) return;  // idempotent: jamais de double décrément
+      settled = true;
+      pendingSegments = Math.max(0, pendingSegments - 1);
+      try {
+        updateSubmitState();
+        maybeSubmitFinalJob();  // transcription stabilisée -> job final si aucun n'a couvert le reliquat
+      } finally {
+        if (onSettle) onSettle();  // TOUJOURS: libère l'emplacement de la file / le compte des relances
+      }
+    }
+    // J2: une relance manuelle (basse priorité) PENDANT l'enregistrement ne dort jamais dans
+    // l'emplacement unique (backoff / reprise réseau): elle le rend et redevient relançable.
+    function cederLaPlace(reason) {
+      keepLostSegment(blob, reason, lostId, !!ctx.blocking, segId, !!ctx.attente);
+      settle();
     }
 
     // Échec transitoire (« Failed to fetch » : serveur redémarré, Wi-Fi coupé,
@@ -1296,10 +1487,11 @@
       // Le blob part directement dans le bandeau : relance MANUELLE possible,
       // abandon possible — un état actionnable au lieu d'un gel de 45 min.
       if (timedOut) {
-        keepLostSegment(blob, reason, lostId, true);  // bloquant : seule copie de cette parole
+        keepLostSegment(blob, reason, lostId, true, segId);  // bloquant : seule copie de cette parole
         settle();
         return;
       }
+      if (ctx.low && recordingActive) { cederLaPlace(reason); return; }
       if (attempt < SEGMENT_RETRY_DELAYS_MS.length) {
         statusEl.textContent = 'Segment non transmis (' + reason + ') — nouvelle tentative ('
           + (attempt + 2) + '/' + (SEGMENT_RETRY_DELAYS_MS.length + 1) + ')…';
@@ -1315,11 +1507,11 @@
           // une alternance "occupé" -> échec transitoire -> "occupé" repartait
           // sur une fenêtre de patience FRAÎCHE à chaque retour côté "occupé",
           // cumulant plusieurs fenêtres au lieu d'une seule bornée.
-          uploadSegment(blob, attempt + 1, lostId, gen, onSettle, busyUntil);
+          uploadSegment(blob, attempt + 1, lostId, gen, onSettle, busyUntil, ctx);
         }, SEGMENT_RETRY_DELAYS_MS[attempt]);
         return;  // pendingSegments reste tenu par la tentative initiale
       }
-      keepLostSegment(blob, reason, lostId, true);  // bloquant : seule copie de cette parole
+      keepLostSegment(blob, reason, lostId, true, segId);  // bloquant : seule copie de cette parole
       settle();
     }
 
@@ -1329,34 +1521,35 @@
     // budget `SEGMENT_RETRY_DELAYS_MS` (réservé aux échecs réels, cf.
     // `retryOrGiveUp` ci-dessus) : `attempt` reste inchangé d'une relance
     // "occupé" à l'autre, seule `busyUntil` borne la patience totale.
+    // Patience épuisée sur « occupé » : si l'audio complet est DÉJÀ sur le serveur
+    // (copieServeurAcquittee), le segment n'est pas perdu — il passe « en attente de
+    // transcription » (non bloquant, pas rejoué en boucle). Sinon, comme avant :
+    // perdu et BLOQUANT (le blob est la seule copie). Une relance manuelle (lostId)
+    // reste dans la liste des perdus.
+    function giveUpBusy(reason) {
+      if ((!lostId || ctx.attente) && copieServeurAcquittee()) {
+        keepLostSegment(blob, reason, lostId, false, segId, true);  // conserve blob + segId, visible et relançable
+      } else {
+        keepLostSegment(blob, reason, lostId, true, segId);
+      }
+      settle();
+    }
     function retryBusyOrGiveUp(reason, retryAfterS) {
       if (gen !== backupGeneration) { settle(); return; }
-      if (Date.now() >= busyUntil) {
-        // Fenêtre de patience épuisée : même traitement qu'un délai maximal
-        // atteint (timedOut) — le blob part dans le bandeau, relance manuelle
-        // possible.
-        keepLostSegment(blob, reason, lostId, true);
-        settle();
-        return;
-      }
-      // `retry_after_s` vient du serveur (délai qu'il a lui-même attendu
-      // avant de refuser) ; repli à 2 s si absent/invalide. Borné à la fois à
-      // 60 s (un `WHISPER_SEGMENT_LOCK_TIMEOUT_S` mal réglé ne doit pas faire
-      // dormir le client des minutes) et au reliquat de `busyUntil` (revue
-      // bmad-code-review 2026-09-16 : sans ce second plafond, `delayMs` seul
-      // pouvait dépasser une fenêtre de patience déjà quasi épuisée).
+      if (ctx.low && recordingActive) { cederLaPlace(reason); return; }
+      if (Date.now() >= busyUntil) { giveUpBusy(reason); return; }
       var reliquat = busyUntil - Date.now();
-      if (reliquat <= 0) {
-        keepLostSegment(blob, reason, lostId, true);
-        settle();
-        return;
-      }
-      var delayMs = Math.min(reliquat, 60000, Math.max(1000, (Number(retryAfterS) || 2) * 1000));
+      // n-ième refus : max(retry_after_s, BASE * 2^n) plafonné à BUSY_BACKOFF_MAX_MS
+      // (60, 120, 240, 240 s), puis borné au reliquat de `busyUntil`.
+      ctx.busyN = (ctx.busyN || 0) + 1;
+      var backoff = Math.min(BUSY_BACKOFF_MAX_MS, Math.max(
+        (Number(retryAfterS) || 2) * 1000, BUSY_BACKOFF_BASE_MS * Math.pow(2, ctx.busyN)));
+      var delayMs = Math.min(reliquat, backoff);
       statusEl.textContent = 'Transcription momentanément occupée — nouvelle tentative dans '
         + Math.round(delayMs / 1000) + ' s…';
       setTimeout(function () {
         if (gen !== backupGeneration) { settle(); return; }
-        uploadSegment(blob, attempt, lostId, gen, onSettle, busyUntil);
+        uploadSegment(blob, attempt, lostId, gen, onSettle, busyUntil, ctx);
       }, delayMs);
     }
 
@@ -1368,17 +1561,28 @@
     // complet, portant la patience totale à ~2× la fenêtre annoncée par le
     // commentaire de `busyUntil` ci-dessus.
     var delaiRequete = busyUntilArg
-      ? Math.max(1000, Math.min(TRANSCRIBE_TIMEOUT_MS, busyUntil - Date.now()))
+      ? Math.min(TRANSCRIBE_TIMEOUT_MS, Math.max(120000, busyUntil - Date.now()))  // plancher: la dernière tentative n'expire pas en 1 s
       : TRANSCRIBE_TIMEOUT_MS;
-    recFetch('/audio/transcribe-segment', { method: 'POST', body: formData }, delaiRequete)
+    recFetch('/audio/transcribe-segment', {
+      method: 'POST', body: formData,
+      headers: segId ? { 'X-Segment-Id': segId } : {},
+    }, delaiRequete)
       .then(function (res) {
         return res.json().then(function (data) { return { ok: res.ok, status: res.status, data: data }; });
       })
       .then(function (result) {
         if (gen !== backupGeneration) { settle(); return; }  // session abandonnée : ne pas ressusciter
         if (result.ok && result.data.text) {
-          if (lostId) replaceLostMarker(lostId, result.data.text);
-          else appendTranscript(result.data.text);
+          try {
+            if (lostId) replaceLostMarker(lostId, result.data.text);
+            else appendTranscript(result.data.text);
+          } catch (e) {
+            // Texte reçu mais non ajouté: ne jamais le perdre sans trace (non bloquant, relançable).
+            console.error('segment: texte reçu non ajouté', e);
+            keepLostSegment(blob, 'texte reçu non ajouté', lostId, false, segId);
+            settle();
+            return;
+          }
           resetNoSpeech();  // de la parole est repassée : la source audio vit
           settle();
           return;
@@ -1417,13 +1621,21 @@
         var muet = result.data.code === 'no_speech';
         if (muet && !lostId) noteNoSpeech();
         console.error('segment de transcription non abouti', result.data);
-        keepLostSegment(blob, detail, lostId, !muet);
+        keepLostSegment(blob, detail, lostId, !muet, segId);
         settle();
-      })
-      .catch(function (err) {
+      }, function (err) {
+        // .then(ok, ko) et non .catch: une exception DANS le traitement du résultat
+        // ne doit pas relancer retryOrGiveUp (double règlement, réémission).
         // `recTimeout` : délai maximal atteint (rec_fetch.js) — pas de relance
         // automatique des mêmes octets (R3-M5/M6).
         retryOrGiveUp(err.message, !!(err && err.recTimeout));
+      })
+      .catch(function (e) {
+        console.error('segment: exception de traitement', e);
+        if (!settled) {  // jamais perdre le blob sans trace
+          try { keepLostSegment(blob, 'erreur de traitement', lostId, true, segId); } catch (e2) { console.error(e2); }
+        }
+        settle();  // idempotent: le compteur ne reste pas gelé, rien n'est réémis
       });
   }
 
@@ -1810,14 +2022,14 @@
       // les mêmes octets attendrait 10 min de plus en tenant « Enregistrer »
       // grisé. La tranche est marquée perdue et DITE (refreshBackupStatus) —
       // le texte transcrit, lui, reste complet.
-      if (!timedOut && attempt < SEGMENT_RETRY_DELAYS_MS.length) {
+      if (!timedOut && attempt < BACKUP_RETRY_DELAYS_MS.length) {
         backupStatusEl.textContent = 'Sauvegarde audio de la tranche ' + (position + 1)
           + ' non transmise (' + reason + ') — nouvelle tentative ('
-          + (attempt + 2) + '/' + (SEGMENT_RETRY_DELAYS_MS.length + 1) + ')…';
+          + (attempt + 2) + '/' + (BACKUP_RETRY_DELAYS_MS.length + 1) + ')…';
         setTimeout(function () {
           if (gen !== backupGeneration) { settle(); return; }
           uploadBackup(blob, attempt + 1, position, gen);
-        }, SEGMENT_RETRY_DELAYS_MS[attempt]);
+        }, BACKUP_RETRY_DELAYS_MS[attempt]);
         return;  // pendingBackups reste tenu par la tentative initiale
       }
       if (backupPerdus.indexOf(position) < 0) backupPerdus.push(position);
@@ -1846,6 +2058,7 @@
         if (result.ok && result.data.path) {
           signalerMissionAbsente(result.data);
           backupSegments.push({ filename: result.data.path, position: position });
+          backupConfirmes++;
           backupSegments.sort(function (a, b) { return a.position - b.position; });
           audioSegmentsHidden.value = JSON.stringify(backupSegments);
           // `audio_backup_path` reste la DERNIÈRE tranche (rétrocompatible avec
@@ -2000,6 +2213,7 @@
       ? backupSegments[backupSegments.length - 1].position + 1
       : 0;
     backupSegments.push({ filename: nom, position: position });
+    backupConfirmes++;
     backupSegments.sort(function (a, b) { return a.position - b.position; });
     audioSegmentsHidden.value = JSON.stringify(backupSegments);
     backupPathHidden.value = backupSegments[backupSegments.length - 1].filename;
@@ -2302,7 +2516,7 @@
       backupPathHidden.value = '';
       backupSegments = [];
       backupPerdus = [];   // nouvelle session : les pertes de la précédente ne la concernent plus
-      nextBackupPosition = 0;
+      nextBackupPosition = 0; backupConfirmes = 0; sessionRestauree = false;
       // Budget de relance des tranches d'extraction : par session (F2, cf. resetBtn).
       jobEchecsConsecutifs = 0;
       clearTimeout(jobRetryTimer);
@@ -2328,6 +2542,7 @@
       // L'audio des segments non aboutis de la session précédente n'a plus de
       // place où revenir (transcription remise à zéro) : on l'abandonne avec elle.
       lostSegments = [];
+      resetSegmentQueue();
       // Le drapeau aussi, pas seulement la file : une relance en vol au moment
       // du reset le laissait à `true` sur un état par ailleurs remis à zéro
       // (revue adversariale 2026-07-30). Les uploads encore en vol sont écartés
@@ -2392,6 +2607,7 @@
     // finale ; ses gardes (pendingSegmentJobSubmits, slice.trim) le rendent
     // idempotent, donc un appel par .finally de segment est sûr.
     if (recordingActive) return;      // encore en cours : le timer 5 min s'en charge
+    if (lostRetryActive > 0 || lowQueue.length) return;  // un drain de relances est en cours: son texte doit d'abord arriver
     if (pendingSegments > 0) return;  // une transcription de segment est encore en vol
     if (!transcriptSoFar.slice(coveredLen).trim()) return;  // rien de neuf à extraire
     if (!sessionToken) {              // widget Test : aucune session d'enregistrement encore
@@ -2470,7 +2686,7 @@
     backupPathHidden.value = '';
     backupSegments = [];
     backupPerdus = [];   // « Recommencer » : repartir sans les pertes de la session jetée
-    nextBackupPosition = 0;
+    nextBackupPosition = 0; backupConfirmes = 0; sessionRestauree = false;
     audioSegmentsHidden.value = '[]';
     // Palier 2 : repartir sur une session vierge (les jobs éventuels de la
     // session précédente deviennent des orphelins inoffensifs côté serveur).
@@ -2482,6 +2698,7 @@
     backupStatusEl.textContent = '';
     clearBackupList();
     lostSegments = [];
+    resetSegmentQueue();
     lostRetryBlocking = 0;
     refreshLostBanner();
     resetNoSpeech();
@@ -2651,6 +2868,7 @@
       segmentJobPosition = brouillon.segmentJobPosition || 0;
       if (Array.isArray(brouillon.backupSegments) && brouillon.backupSegments.length) {
         backupSegments = brouillon.backupSegments;
+        sessionRestauree = true;
         nextBackupPosition = backupSegments.length;  // une tranche suivante ne réutilise pas un numéro (F15)
         audioSegmentsHidden.value = JSON.stringify(backupSegments);
         backupPathHidden.value = backupSegments[backupSegments.length - 1].filename;
@@ -2670,8 +2888,43 @@
   })();
   // « Enregistrer l'entretien » : le brouillon est marqué envoyé, pas effacé —
   // si la requête échoue après la redirection, il reste restaurable sept jours.
-  document.getElementById('record-form').addEventListener('submit', function () {
-    if (typeof recDraft !== 'undefined') recDraft.marquerEnvoye(MISSION_ID);
+  document.getElementById('record-form').addEventListener('submit', function (ev) {
+    var nonTranscrits = lostSegments.filter(function (s) { return s.blocking; }).length;
+    // + relances manuelles encore dans la closure du drain (hors celle déjà comptée en vol)
+    var enVol = pendingSegments + pendingSegmentJobSubmits + Math.max(0, lostRetryActive - lowEnVol);
+    var aRelancer = nonTranscrits + waitingSegments.length;
+    if (sessionRestauree && !aRelancer && !enVol && !confirm('Session restaurée : l’audio de la session précédente peut être incomplet (sa dernière tranche a pu être perdue). Enregistrer quand même ?')) {
+      ev.preventDefault();
+      return;
+    }
+    if ((aRelancer || enVol) && !confirm((enVol ? enVol + ' segment(s) en cours de transcription. ' : '')
+        + (aRelancer ? aRelancer + ' segment(s) à relancer (en attente ou perdus) : l’audio est sauvegardé, '
+          + 'tu pourras les relancer depuis la fiche. ' : '')
+        + 'Enregistrer maintenant ?')) {
+      ev.preventDefault();
+      return;
+    }
+    var form = ev.target;
+    function poser(nom, valeur) {
+      var champ = form.querySelector('input[name="' + nom + '"]');
+      if (!champ) { champ = document.createElement('input'); champ.type = 'hidden'; champ.name = nom; form.appendChild(champ); }
+      champ.value = valeur;
+    }
+    // Jeton jamais nul : sans lui deux POST (double clic) créeraient deux entretiens.
+    if (!sessionToken) { sessionToken = newSessionToken(); sessionTokenHidden.value = sessionToken; }
+    var dernier = backupSegments.length ? backupSegments[backupSegments.length - 1].position + 1 : 0;
+    poser('audio_attendu', Math.max(nextBackupPosition, dernier));  // tranches de sauvegarde attendues (serveur : contiguïté)
+    poser('transcription_incomplete', (enVol + waitingSegments.length > 0
+      || lostSegments.some(function (s) { return s.blocking; })) ? '1' : '');
+    envoiEnCours = true;
+    submitBtn.disabled = true;  // un seul POST (double clic), le confirm() est accepté
+    if (typeof recDraft !== 'undefined') recDraft.marquerEnvoye(MISSION_ID, undefined, sessionToken);
+  });
+  // Retour arrière / bfcache après le 303 : la page revient avec le bouton figé à
+  // disabled=true et envoiEnCours=true ; on réarme et on recalcule l'état réel.
+  window.addEventListener('pageshow', function () {
+    envoiEnCours = false;
+    updateSubmitState();
   });
 })();
 </script>

@@ -52,6 +52,7 @@ except ModuleNotFoundError:
     pytest.skip("websockets (uvicorn[standard]) requis", allow_module_level=True)
 
 from e2e_serveur import serveur_uvicorn  # noqa: E402
+import navigateur_cdp  # noqa: E402
 from navigateur_cdp import Navigateur, trouver_navigateur  # noqa: E402
 
 _NAVIGATEUR = trouver_navigateur()
@@ -112,17 +113,21 @@ def _creer_mission(nav: Navigateur, base: str, nom: str) -> str:
     return url
 
 
-def _sans_erreur(nav: Navigateur, etape: str, *, sauf: tuple[str, ...] = ()) -> None:
+def _sans_erreur(nav: Navigateur, etape: str, *, sauf: tuple[tuple[str, int], ...] = ()) -> None:
     """Aucune erreur depuis le DÉBUT du parcours — après avoir ramassé ce qui
     est encore sur la socket, sinon l'assertion lit un état périmé.
 
-    `sauf` liste les chemins dont un 4xx est ATTENDU et déjà asséré sur place :
-    depuis la garde de régénération (G, 2026-09-27), un clic « Régénérer » sur une
-    liste éditée répond 400 exprès. Un tel refus reste une erreur réseau pour le
-    navigateur, il ne doit pas pour autant aveugler le reste du parcours."""
+    `sauf` liste des `(suffixe_de_chemin, statut)` dont UN refus précis est ATTENDU
+    et déjà asséré sur place : depuis la garde de régénération (G, 2026-09-27), un
+    clic « Régénérer » sur une liste éditée répond 400 exprès. L'exemption est
+    étroite : seul ce STATUT sur ce chemin est toléré — un 500, un 403 CSRF ou un 401
+    sur le même chemin reste une erreur (avant : tout statut du chemin était exempté).
+    Le contrôle porte sur le statut HTTP des requêtes du navigateur, jamais sur un
+    libellé : l'assertion de texte en fin de fonction n'est qu'un filet de plus."""
     nav.drainer()
     inattendues = [r for r in nav.erreurs()
-                   if not any(str(r.get("url", "")).endswith(s) for s in sauf)]
+                   if not any(str(r.get("url", "")).split("?")[0].endswith(chemin)
+                              and r.get("status") == statut for chemin, statut in sauf)]
     assert not inattendues, f"{etape} : réponses en erreur {inattendues}"
     assert not nav.exceptions, f"{etape} : exceptions JS {nav.exceptions}"
     assert not nav.erreurs_cdp, f"{etape} : le pilote a reçu une erreur CDP {nav.erreurs_cdp}"
@@ -170,7 +175,8 @@ def test_choisir_le_mode_puis_demarrer(serveur: str, nav: Navigateur) -> None:
     nav.naviguer(serveur + "/demarrer")
     nav.cliquer_et_attendre("form[action='/entretiens/libre/nouveau'] button[type=submit]")
     assert nav.url().rstrip("/").endswith("/record-libre"), nav.url()
-    assert nav.evaluer(_REC_START_UTILISABLE), "bouton Démarrer absent, masqué ou désactivé"
+    assert nav.evaluer(_REC_START_UTILISABLE), "bouton Démarrer absent ou masqué"
+    _assert_demarrer_reagit(nav)
     _sans_erreur(nav, "Démarrer un entretien libre")
 
 
@@ -205,7 +211,8 @@ def test_parcours_premiers_clics(serveur: str, nav: Navigateur) -> None:
 
     nav.naviguer(url_mission)
     nav.cliquer_et_attendre("a[href$='/interviews/record-libre']")
-    assert nav.evaluer(_REC_START_UTILISABLE), "bouton Démarrer absent, masqué ou désactivé"
+    assert nav.evaluer(_REC_START_UTILISABLE), "bouton Démarrer absent ou masqué"
+    _assert_demarrer_reagit(nav)
     _sans_erreur(nav, "Écran d'enregistrement libre")
 
     nav.naviguer(url_mission)
@@ -235,6 +242,14 @@ m.kpis = [MissionKpi(position=0, libelle="KPI initial", cible="")]
 m.risks = [MissionRisk(position=0, risque="Risque initial", gravite=2, probabilite=2)]
 db.commit()
 print(m.id, m.kpis[0].id, m.risks[0].id)
+"""
+
+_LIRE_RISQUE = r"""
+import sys
+from app.db import SessionLocal
+from app.models import MissionRisk
+r = SessionLocal().get(MissionRisk, int(sys.argv[1]))
+print(repr((r.gravite, r.risque)))
 """
 
 _LIRE_SUIVI = r"""
@@ -272,40 +287,76 @@ def _attendre_texte(nav: Navigateur, selecteur: str, attendu: str, delai_s: floa
     raise AssertionError(f"« {attendu} » jamais apparu dans {selecteur}")
 
 
-# Bouton Démarrer : présent ET visible (`offsetParent`) ET `!disabled`. Seules les
-# deux premières parties sont PROUVÉES : le mutant `display:none` est rouge, mais le
-# mutant `disabled` passait (le JS de la page réactive le bouton avant la lecture),
-# donc la clause `!e.disabled` n'est pas démontrée par ces tests.
+# Bouton Démarrer : présent ET visible (`offsetParent`). La clause `!e.disabled` a été
+# RETIRÉE (2026-10-16) : elle était vacuante — le JS de la page réactive le bouton
+# avant la lecture, le mutant `disabled` passait. L'UTILISABILITÉ est prouvée par
+# `_assert_demarrer_reagit` : un vrai clic de souris produit un effet.
 _REC_START_UTILISABLE = (
     "(function(){var e=document.getElementById('rec-start');"
-    " return !!(e && e.offsetParent !== null && !e.disabled);})()")
+    " return !!(e && e.offsetParent !== null);})()")
 
-# Message d'échec IA : Ollama est injoignable exprès. Selon l'état de
-# `_call_ollama_once` (coupe OLLAMA-COUPE-TEMPORAIRE, ou réseau réel), le service
-# lève l'un de ces deux textes, rendus tels quels dans `<p class="ai-error">`.
-_MESSAGES_ECHEC_IA = (
-    "Ollama est désactivé temporairement",  # OLLAMA-COUPE-TEMPORAIRE : texte en dur de la coupe (à retirer à la levée)
-    "Impossible de joindre Ollama sur http://127.0.0.1:9",
-)
+_ETAT_DEMARRER = (
+    "(function(){var b=document.getElementById('rec-start');"
+    " var st=document.getElementById('rec-status');"
+    " var stop=document.getElementById('rec-stop');"
+    " return JSON.stringify({d:!!(b&&b.disabled),s:st?st.textContent.trim():'',"
+    " r:!!(stop&&!stop.hidden)});})()")
+
+
+def _assert_demarrer_reagit(nav: Navigateur, delai_s: float = 15.0) -> None:
+    """Un VRAI clic sur « Démarrer l'enregistrement » a un effet observable : le
+    bouton se verrouille (verrou synchrone anti double-clic), le statut change
+    (« Micro inaccessible » sans micro, etc.) ou l'enregistrement démarre. Un
+    bouton resté désactivé (`disabled` figé) ne produit AUCUN de ces effets : le
+    clic de souris sur un bouton désactivé n'émet pas d'évènement `click`."""
+    import json
+    import time
+    avant = json.loads(nav.evaluer(_ETAT_DEMARRER))
+    nav.cliquer("#rec-start")
+    fin = time.monotonic() + delai_s
+    apres = avant
+    while time.monotonic() < fin:
+        apres = json.loads(nav.evaluer(_ETAT_DEMARRER))
+        if apres != avant:
+            # Ce module n'ajoute aucun drapeau de faux micro à Navigateur : sans
+            # micro, aucun enregistrement ne démarre. Garde : si un micro existait
+            # (drapeaux ajoutés plus tard), on arrête proprement avant de naviguer.
+            if apres["r"]:
+                nav.cliquer("#rec-stop")
+            return
+        time.sleep(0.2)
+    raise AssertionError(f"le clic sur Démarrer n'a produit aucun effet : avant={avant} après={apres}")
+
+
+# Message d'échec IA : Ollama est injoignable exprès. Le service lève l'un de DEUX
+# textes selon l'état de `_call_ollama_once`. Le test exige LA variante qui correspond
+# à l'état réel du code (lu dans le source), pas « l'une ou l'autre » : sinon un
+# service qui bascule de variante resterait vert.
+_MSG_COUPE = "Ollama est désactivé temporairement"  # texte de l'ancienne coupe Ollama (levée le 2026-10-19) ; ne sert que si `coupe_ollama_active()`
+_MSG_RESEAU = "Impossible de joindre Ollama sur http://127.0.0.1:9"
+
+
+_coupe_ollama_active = navigateur_cdp.coupe_ollama_active  # détection AST partagée (tests/navigateur_cdp.py)
 
 
 def _assert_echec_ia_rendu(nav: Navigateur) -> None:
-    """Le bandeau `.ai-error` VISIBLE porte « ⚠ » + le texte exact du service IA —
-    pas un « ⚠ » quelconque (garde 400, 500 ou autre erreur)."""
+    """Le bandeau `.ai-error` VISIBLE porte « ⚠ » + le texte exact de LA variante
+    attendue du service IA (coupe OU réseau selon l'état du code) — pas un « ⚠ »
+    quelconque (garde 400, 500 ou autre erreur), ni l'autre variante."""
     visibles = nav.evaluer(
         "Array.from(document.querySelectorAll('.ai-error')).filter(function(e){"
         "return e.offsetParent !== null;}).map(function(e){return e.innerText;})")
     assert len(visibles) == 1, f"un seul bandeau .ai-error visible attendu : {visibles}"
     message = visibles[0].strip()
     assert message.startswith("⚠ "), message
-    assert any(m in message for m in _MESSAGES_ECHEC_IA), (
-        f"message d'échec IA inattendu : {message[:300]}")
+    attendu = _MSG_COUPE if _coupe_ollama_active() else _MSG_RESEAU
+    assert attendu in message, (
+        f"message d'échec IA : « {attendu} » attendu (coupe active={_coupe_ollama_active()}) : "
+        f"{message[:300]}")
     # Vraie garde : le texte de la garde « sera remplacée » (confirmation serveur)
     # ne doit plus être visible NULLE PART sur la page (hors `.ai-error`) une fois
-    # la confirmation donnée ; l'ancienne assertion portait sur `message`, déjà
-    # contraint par les textes Ollama ci-dessus, donc vacuante.
+    # la confirmation donnée.
     assert "sera remplacée" not in nav.texte(), "la garde est toujours affichée"
-
 
 
 def _saisir_au_clavier(nav: Navigateur, selecteur: str, valeur: str) -> None:
@@ -369,7 +420,7 @@ def test_indicateurs_et_risques_autosave_et_generation(
                 if r["url"].endswith("/kpis/generate")] == [400], nav.erreurs_http()
         assert "sera remplacée" in nav.texte(), nav.texte()[:300]
         nav.cliquer_et_attendre("form.confirmation-regeneration button[type=submit]")
-        _sans_erreur(nav, "Régénérer les indicateurs", sauf=("/kpis/generate",))
+        _sans_erreur(nav, "Régénérer les indicateurs", sauf=(("/kpis/generate", 400),))
         # Le 2e POST, lui, n'a PAS été refusé : un seul 400 sur cette route.
         assert [r["status"] for r in nav.erreurs_http()
                 if r["url"].endswith("/kpis/generate")] == [400], nav.erreurs_http()
@@ -385,7 +436,7 @@ def test_indicateurs_et_risques_autosave_et_generation(
         assert "sera remplacée" in nav.texte(), nav.texte()[:300]
         nav.cliquer_et_attendre("form.confirmation-regeneration button[type=submit]")
         _sans_erreur(nav, "Régénérer les risques",
-                     sauf=("/kpis/generate", "/risques/generate"))
+                     sauf=(("/kpis/generate", 400), ("/risques/generate", 400)))
         assert [r["status"] for r in nav.erreurs_http()
                 if r["url"].endswith("/risques/generate")] == [400], nav.erreurs_http()
         _assert_echec_ia_rendu(nav)
@@ -452,7 +503,7 @@ def test_grille_maturite_autosave_et_generation(
                 if r["url"].endswith("/maturite/generate")] == [400], nav.erreurs_http()
         assert "sera remplacée" in nav.texte(), nav.texte()[:300]
         nav.cliquer_et_attendre("form.confirmation-regeneration button[type=submit]")
-        _sans_erreur(nav, "Régénérer la grille de maturité", sauf=("/maturite/generate",))
+        _sans_erreur(nav, "Régénérer la grille de maturité", sauf=(("/maturite/generate", 400),))
         assert [r["status"] for r in nav.erreurs_http()
                 if r["url"].endswith("/maturite/generate")] == [400], nav.erreurs_http()
         _assert_echec_ia_rendu(nav)
@@ -493,12 +544,16 @@ def test_apercu_risques_et_maturite_suit_la_saisie_sans_rechargement(
         nav.remplir(f"textarea[hx-post='/risques/{rid}/field'][hx-vals*='risque']", "Risque modifié")
         assert "Risque modifié" in nav.evaluer("document.getElementById('risk-register').textContent")
         _attendre_texte(nav, f"#risk-saved-{rid}", "enregistré")
+        # Le DOM ci-dessus est écrit par le script de la page : seule la BASE prouve
+        # que l'autosave a réellement persisté la saisie (gravité ET texte).
+        assert _python_sur_base(base_db, _LIRE_RISQUE, rid) == repr((3, "Risque modifié"))
 
         nav.cliquer(".tab[data-tab='maturite']")
         assert nav.evaluer(jauge).startswith("1|1 · ")
         nav.remplir(f"select[hx-post='/maturites/{lid}/field'][hx-vals*='score']", "3")
         assert nav.evaluer(jauge) == "3|3 · Maîtrisé"
         _attendre_texte(nav, f"#mat-saved-{lid}", "enregistré")
+        assert _python_sur_base(base_db, _LIRE_MATURITE, lid) == repr((3, ""))
         assert nav.evaluer("window.__meme_page") == 1, "la page a été rechargée"
         _sans_erreur(nav, "Aperçu en direct")
 
@@ -721,7 +776,17 @@ def test_onglet_perime_axe_variante_rapprochee_et_axe_disparu_refuse(
         # 2) Axe disparu de la mission : refusé, et la base garde la valeur snappée.
         nav.evaluer(f"document.getElementById('kpi-saved-{kid}').textContent=''")
         nav.remplir(select, "Axe supprime ailleurs")
-        nav.drainer()
+        # Attente d'un ÉTAT (le 400 reçu PUIS plus aucune requête htmx en vol), pas
+        # d'un instant : l'absence de « enregistré » n'a de sens qu'une fois la
+        # réponse traitée par le client, sinon elle est vraie « par avance ».
+        import time
+        fin = time.monotonic() + 10
+        while time.monotonic() < fin:
+            nav.drainer()
+            if (any(r["url"].endswith(f"/kpis/{kid}/field") for r in nav.erreurs_http())
+                    and not nav.evaluer("!!document.querySelector('.htmx-request')")):
+                break
+            time.sleep(0.2)
         refus = [r for r in nav.erreurs_http() if r["url"].endswith(f"/kpis/{kid}/field")]
         assert [r["status"] for r in refus] == [400], nav.erreurs_http()
         assert not nav.exceptions, nav.exceptions
@@ -893,7 +958,7 @@ def test_garde_swot_editee_a_la_main_passe_par_la_confirmation(
 
         # 2e clic : la confirmation franchit la garde.
         nav.cliquer_et_attendre("form.confirmation-regeneration button[type=submit]")
-        _sans_erreur(nav, "Régénérer la SWOT confirmée", sauf=("/swot/generate",))
+        _sans_erreur(nav, "Régénérer la SWOT confirmée", sauf=(("/swot/generate", 400),))
         texte = nav.texte()
         assert "faites à la main" not in texte, "la garde se redéclenche malgré la confirmation"
         _assert_echec_ia_rendu(nav)
@@ -1001,7 +1066,7 @@ def test_le_formulaire_de_connexion_connecte(serveur: str, nav: Navigateur) -> N
     # Les 401 de l'atterrissage anonyme et du mauvais mot de passe sont
     # attendus et assérés sur place ; le POST du BON mot de passe, lui, est
     # prouvé par la redirection vers `/` asséré ci-dessus.
-    _sans_erreur(nav, "Se connecter", sauf=("/missions", "/connexion"))
+    _sans_erreur(nav, "Se connecter", sauf=(("/missions", 401), ("/connexion", 401)))
 
 
 def test_la_capture_du_harnais_rend_un_png_reel(
@@ -1056,9 +1121,9 @@ def test_lancer_le_tour_de_table_depuis_la_fiche(
     with serveur_uvicorn(dossier, OLLAMA_HOST="http://127.0.0.1:9") as base:
         nav.naviguer(f"{base}/interviews/{iid}")
         _sans_erreur(nav, "Ouvrir la fiche")
-        assert "Lancer le tour de table" in nav.texte()
+        assert "Générer l'aperçu" in nav.texte()
         nav.cliquer_et_attendre(f"form[action='/interviews/{iid}/structurer'] button[type=submit]")
-        _sans_erreur(nav, "Lancer le tour de table", sauf=())
+        _sans_erreur(nav, "Générer l'aperçu", sauf=())
         fin = time.monotonic() + 30
         statut = "fait"
         while time.monotonic() < fin:

@@ -85,6 +85,19 @@ def _tranches_audio(interview: Interview) -> tuple[list[str], int]:
     return presents, len(references) - len(presents)
 
 
+def _trou_de_positions(interview: Interview) -> bool:
+    """Vrai si les positions entières des tranches référencées ont un trou
+    (ex. 0, 2) : une tranche manque même si les fichiers présents sont tous là."""
+    positions = set()
+    for seg in interview.audio_segments or []:
+        pos = seg.get("position") if isinstance(seg, dict) else None
+        if isinstance(pos, int) and not isinstance(pos, bool) and 0 <= pos <= 999:  # même borne que _etat_audio
+            positions.add(pos)
+    if not positions:
+        return False
+    return bool(set(range(0, max(positions) + 1)) - positions)
+
+
 def _rang_segment(seg: dict) -> int:
     """Clé de tri coercitive d'une tranche : `position` vient d'un champ caché
     client, une valeur non entière ne doit pas faire lever le tri (elle prend
@@ -530,9 +543,29 @@ def retranscrire_confirmer(
         )
     if transcript.strip():
         interview.raw_transcript = transcript.strip()
-    db.commit()
-
     job = _job_retranscription(db, interview_id)
+    # Tours validés par l'utilisateur : la structuration en attente (a_transcrire,
+    # a_traiter, echec) est faite. `en_cours` reste tel quel (un worker le porte).
+    # (Le cas « texte sans tour » est déjà refusé en 400 plus haut : rien à planifier.)
+    if interview.structuration_status in ("a_transcrire", "a_traiter", "echec"):
+        interview.structuration_status = "fait"
+    # Retranscription COMPLÈTE (ni erreur de job, ni tranche audio introuvable) :
+    # plus de tranche manquante, et les jobs de tranche d'origine sont supprimés
+    # pour qu'une relance ne réécrive pas les tours qui viennent d'être validés.
+    _, absentes = _tranches_audio(interview)
+    # Job expiré/absent (None) : rien ne prouve que la retranscription est allée à
+    # son terme -> pas « complète » (on ne supprime pas les jobs de tranche).
+    complete = (
+        job is not None and not job.error and not absentes
+        and not _trou_de_positions(interview)
+    )
+    jeton = interview.segment_token if complete else None
+    if complete:
+        interview.tranches_manquantes = 0
+    db.commit()
+    if jeton:
+        delete_segment_jobs(db, jeton)
+
     if job is not None:
         _oublier_job_retranscription(db, job)
     return RedirectResponse(f"/interviews/{interview_id}", status_code=303)
