@@ -741,6 +741,8 @@ def _transcrire_bloc_sequentiel(blocs: list, index: int, total: int,
         tentatives[index] = tentatives.get(index, 0) + 1
         try:
             return _transcribe_pcm_sequential(blocs[index])
+        except TranscriptionFondBusyError:
+            raise   # classe conservée : `_est_reessayable` la refuse (AD-6)
         except Exception as exc:
             if (isinstance(exc, (TranscriptionError, OSError))
                     or tentatives[index] >= BLOC_MAX_TENTATIVES):
