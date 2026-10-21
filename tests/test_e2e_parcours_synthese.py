@@ -320,6 +320,9 @@ def test_telecharger_la_fiche_et_la_transcription_en_pdf(
     texte_fiche = _texte_pdf(fiche)
     assert "Le comité tranche toujours." in texte_fiche, texte_fiche[:400]
     assert "Export de secours" not in texte_fiche, "repli de secours servi : build_interview_pdf casse"
+    # La fiche s'ouvre sur l'Aperçu dès que les tours sont faits : le lien du PDF de la
+    # transcription est dans l'onglet Transcription, que l'utilisateur ouvre d'abord.
+    nav.cliquer(".rec-tab[data-turntab=transcription]")
     transcription = _telecharger(
         nav, "a[href$='/export/transcription/pdf']", tmp_path / "transcription", "*.pdf")
     assert transcription.name == "transcription_alice_fiche.pdf", transcription.name

@@ -312,7 +312,12 @@ def test_un_segment_refuse_en_422_garde_son_audio_et_son_bouton_de_relance(
     # 1 bis. …et le caractère bloquant se décide sur `code`, PAS sur le statut :
     #        `false` en dur ici serait le retour exact du défaut corrigé.
     assert "keepLostSegment(blob, detail, lostId, false)" not in html
-    assert "var muet = result.data.code === 'no_speech';" in html
+    # Depuis la fusion de transcription-fiable, la nature du refus est décidée par le plan
+    # partagé (`RETRY_PLAN.classer`, rec_retry.js) ; `muet` n'en est que le reflet. Le
+    # classement 422 `no_speech` → non rejoué, non bloquant est figé À L'EXÉCUTION par
+    # tests/test_navigateur_enregistrer_handlers.py (plan de relance partagé).
+    assert "RETRY_PLAN.classer(" in html
+    assert "var muet = nature === 'no_speech';" in html
     # 2. un segment non abouti a son propre bouton de relance « en bout de ligne » ;
     assert 'id="rec-lost-list"' in html
     assert "retryLostSegments([seg.id])" in html
