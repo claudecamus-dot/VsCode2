@@ -95,6 +95,12 @@
     <span class="rec-timer" id="rec-timer">00:00</span>
     <span class="muted" id="rec-status"></span>
   </div>
+  <!-- Alerte de complétude d'un import de fichier (job terminé mais incomplet) :
+       texte posé par JS depuis rec_retry.js, jamais de texte transcrit ni de
+       chemin. Séparée de #rec-status, qui est réécrit en permanence. -->
+  <div class="notice" id="rec-completude-banner" role="status" hidden>
+    <span id="rec-completude-text"></span>
+  </div>
 
   <!-- Import d'un entretien déjà enregistré (au lieu du micro). Même
        comportement qu'un enregistrement en direct : le serveur transcrit le
@@ -170,6 +176,7 @@
     <button class="btn btn-sm" type="button" id="rec-draft-discard">Ignorer</button>
   </div>
   <div class="autosave-line"><span class="muted" id="rec-backup-status"></span>
+    <span class="muted" id="rec-replay-status" role="status" aria-live="polite" hidden></span>
     <!-- Tranche d'extraction non transmise : avant le 2026-09-08 ce POST échouait
          en silence (aucune relance, aucun mot à l'écran) — cf. submitSegmentJob. -->
     <span class="muted" id="rec-job-status"></span>
@@ -396,9 +403,42 @@
   // (L'ancien tableau portait une 3e valeur morte — la condition `attempt + 1 <
   // length` ne lisait jamais l'indice 2, et un lecteur y voyait 4 tentatives ;
   // revue R3-m3 du 2026-08-31.)
-  var SEGMENT_RETRY_DELAYS_MS = [2000, 6000, 15000, 30000];
-  // Tranches de sauvegarde (pas de verrou Whisper) : budget court inchangé, il tient « Enregistrer » grisé.
-  var BACKUP_RETRY_DELAYS_MS = [2000, 6000];
+  // DECISION DE FUSION (fiab -> libre-async) : UNE source de budget de relance
+  // automatique = RETRY_PLAN (static/rec_retry.js).
+  // les anciennes constantes locales de délais (segments ET sauvegardes) sont supprimées (le test
+  // test_rec_retry_chargement l'exige). `keepLostSegment` / `lowQueue` /
+  // `cederLaPlace` restent le repli APRES épuisement du plan, jamais un 2e retry.
+  // Plan de reprise PARTAGÉ (static/rec_retry.js, lot « transcription fiable »,
+  // commit 4) : plus de copie locale du budget de retry — record.html et
+  // record_libre.html dupliquaient la même constante, et le correctif « un 422
+  // transient se rejoue » devait être écrit deux fois.
+  var RETRY_PLAN = window.recRetryPlan;
+  // Compteur DISCRET des segments rejoués automatiquement (réseau, 5xx, 422
+  // transient) : un retry réussi est un échec masqué — le critère est « tout
+  // du 1er coup » — donc compté et visible, mais en gris neutre près de la
+  // ligne de statut, PAS dans le bandeau rouge des segments perdus (réservé
+  // aux blobs gardés). Les rejeux « occupé » (503, file normale du verrou) ne
+  // sont PAS comptés : ce n'est pas un échec. Remis à zéro avec `lostSegments`.
+  var segmentsRejoues = 0;
+  var replayStatusEl = document.getElementById('rec-replay-status');
+  function refreshReplayStatus() {
+    replayStatusEl.hidden = segmentsRejoues === 0;
+    replayStatusEl.textContent = segmentsRejoues === 0 ? '' :
+      segmentsRejoues + ' segment' + (segmentsRejoues > 1 ? 's' : '') + ' rejoué'
+      + (segmentsRejoues > 1 ? 's' : '') + ' automatiquement';
+  }
+  // Alerte de COMPLÉTUDE d'un import de fichier (job `done` ET statut
+  // `incomplet` seulement) : un bandeau persistant, séparé de `statusEl` —
+  // updateSubmitState et les autres écritures de statut l'écraseraient sinon.
+  // Le texte vient de rec_retry.js (une seule rédaction pour les 3 écrans).
+  var completudeEl = document.getElementById('rec-completude-banner');
+  var completudeTextEl = document.getElementById('rec-completude-text');
+  function afficherCompletude(c) {
+    var msg = RETRY_PLAN.messageCompletude(c);
+    completudeTextEl.textContent = msg;
+    completudeEl.hidden = !msg;
+  }
+  function masquerCompletude() { afficherCompletude(null); }
   // Posé au submit accepté : pas de boîte native « Quitter le site ? » pendant NOTRE envoi
   // (si elle était annulée, le POST n'aurait pas lieu et le bouton resterait grisé).
   var envoiEnCours = false;
@@ -1415,6 +1455,7 @@
     segQueue = [];
     lowQueue = [];
     lostRetryActive = 0;
+    lostRetryBlocking = 0;  // la garde d'époque (retryLostSegments) interdit tout décrément ultérieur
     lowEnVol = 0;
     segEpoch++;
     segInFlight = false;
@@ -1444,7 +1485,7 @@
     attempt = attempt || 0;
     // Fenêtre de patience pour un refus "occupé" (503, verrou Whisper
     // saturé côté serveur — atelier-dev lot 2, 2026-09-15) : DISTINCTE du
-    // budget `SEGMENT_RETRY_DELAYS_MS` réservé aux échecs réels. Même
+    // budget `RETRY_PLAN` réservé aux échecs réels. Même
     // raisonnement que record.html.
     var busyUntil = busyUntilArg || (Date.now() + TRANSCRIBE_TIMEOUT_MS);
     // Le gate de soumission couvre TOUTE la chaîne de reprise, pas la seule
@@ -1477,7 +1518,9 @@
     // machine en veille — ou 5xx passager). Le blob est CONSERVÉ : c'est la
     // seule copie de cette minute de parole côté transcription, la jeter
     // faisait un trou définitif (signalement utilisateur 2026-07-29).
-    function retryOrGiveUp(reason, timedOut) {
+    // `nature` ('retry' réseau/5xx | 'transient' 422 rejouable) choisit le
+    // palier de délais du plan commun (rec_retry.js) ; défaut 'retry'.
+    function retryOrGiveUp(reason, timedOut, nature) {
       if (gen !== backupGeneration) { settle(); return; }
       // Délai maximal atteint (err.recTimeout — revue R3-M5/M6) : PAS de
       // relance automatique. La fenêtre généreuse (15 min) a déjà été attendue
@@ -1492,9 +1535,17 @@
         return;
       }
       if (ctx.low && recordingActive) { cederLaPlace(reason); return; }
-      if (attempt < SEGMENT_RETRY_DELAYS_MS.length) {
+      var nat = nature || 'retry';
+      var delai = RETRY_PLAN.delaiPour(nat, attempt);
+      if (delai !== null) {
         statusEl.textContent = 'Segment non transmis (' + reason + ') — nouvelle tentative ('
-          + (attempt + 2) + '/' + (SEGMENT_RETRY_DELAYS_MS.length + 1) + ')…';
+          + (attempt + 2) + '/' + RETRY_PLAN.nbEssais(nat) + ')…';
+        // Délai accepté : pendant cette attente (2 s / 6 s / 15 s au plus, plan
+        // RETRY_PLAN), `segInFlight` reste pris, y compris pour une relance basse
+        // priorité si un enregistrement démarre entre-temps. Le segment direct
+        // suivant attend donc au plus ce délai (+ une requête) : retard borné, rien
+        // n'est perdu (le blob reste tenu) — accepté plutôt que d'ajouter un
+        // chemin d'annulation du minuteur.
         // Garde de génération RE-TESTÉE au réveil, pas seulement à la
         // programmation (revue adversariale 2026-07-30) : un échec survenu juste
         // avant un « Recommencer » ou un nouveau démarrage envoyait sinon 1 à 2
@@ -1507,8 +1558,18 @@
           // une alternance "occupé" -> échec transitoire -> "occupé" repartait
           // sur une fenêtre de patience FRAÎCHE à chaque retour côté "occupé",
           // cumulant plusieurs fenêtres au lieu d'une seule bornée.
+          // Compté ICI, après la garde : une relance annulée par un
+          // « Recommencer » n'a pas eu lieu.
+          // UN compte par SEGMENT (1re relance de ce blob, `attempt === 0`), pas par
+          // relance : un segment rejoué trois fois restait affiché « 3 segments
+          // rejoués ». Une relance MANUELLE d'un segment perdu (`lostId`) n'est pas
+          // « automatique » : elle n'entre pas dans ce compteur.
+          if (attempt === 0 && !lostId) {
+            segmentsRejoues++;
+            refreshReplayStatus();
+          }
           uploadSegment(blob, attempt + 1, lostId, gen, onSettle, busyUntil, ctx);
-        }, SEGMENT_RETRY_DELAYS_MS[attempt]);
+        }, delai);
         return;  // pendingSegments reste tenu par la tentative initiale
       }
       keepLostSegment(blob, reason, lostId, true, segId);  // bloquant : seule copie de cette parole
@@ -1518,7 +1579,7 @@
     // Refus "occupé" (503, `code: "busy"`) : le verrou `_MODEL_LOCK` est pris
     // par un autre segment/onglet plus longtemps que le serveur ne patiente
     // (atelier-dev lot 2, 2026-09-15). PAS un échec — ne consomme donc PAS le
-    // budget `SEGMENT_RETRY_DELAYS_MS` (réservé aux échecs réels, cf.
+    // budget `RETRY_PLAN` (réservé aux échecs réels, cf.
     // `retryOrGiveUp` ci-dessus) : `attempt` reste inchangé d'une relance
     // "occupé" à l'autre, seule `busyUntil` borne la patience totale.
     // Patience épuisée sur « occupé » : si l'audio complet est DÉJÀ sur le serveur
@@ -1593,11 +1654,19 @@
         // `retryBusyOrGiveUp` ci-dessus) — le laisser tomber dans
         // `retryOrGiveUp` lui ferait consommer les 2 relances courtes
         // réservées aux échecs réels.
-        if (result.status === 503 && result.data.code === 'busy') {
+        // Classification dans rec_retry.js (une seule source, testée sous node).
+        var nature = RETRY_PLAN.classer(result.status, result.data);
+        if (nature === 'busy') {
           retryBusyOrGiveUp(detail, result.data.retry_after_s);
           return;
         }
-        if (result.status >= 500) { retryOrGiveUp(detail); return; }
+        if (nature === 'retry') { retryOrGiveUp(detail); return; }
+        // 422 `code: "transient"` (worker Whisper tué, flux vide : audio intact,
+        // traitement raté) : rejoué automatiquement, 3 paliers (2/6/15 s) ; une
+        // fois épuisé, retryOrGiveUp le range dans le bandeau BLOQUANT — le blob
+        // reste la seule copie de cette parole. La route est sans état : rien
+        // n'a été inséré avant le refus, rejouer ne duplique aucun texte.
+        if (nature === 'transient') { retryOrGiveUp(detail, false, 'transient'); return; }
         // 422 : le serveur a bien reçu l'audio mais n'a rendu aucun texte.
         // DEUX natures, à ne pas confondre — le serveur répond 422 pour TOUT
         // `TranscriptionError`, pas seulement l'absence de parole :
@@ -1618,7 +1687,7 @@
         // consécutifs — relancer 20 vieux segments faisait grimper le compteur
         // à 20 et affichait « aucune parole depuis ~20 min » alors qu'il
         // s'agissait de rejeux d'un même passé (revue adversariale 2026-07-30).
-        var muet = result.data.code === 'no_speech';
+        var muet = nature === 'no_speech';
         if (muet && !lostId) noteNoSpeech();
         console.error('segment de transcription non abouti', result.data);
         keepLostSegment(blob, detail, lostId, !muet, segId);
@@ -2022,14 +2091,14 @@
       // les mêmes octets attendrait 10 min de plus en tenant « Enregistrer »
       // grisé. La tranche est marquée perdue et DITE (refreshBackupStatus) —
       // le texte transcrit, lui, reste complet.
-      if (!timedOut && attempt < BACKUP_RETRY_DELAYS_MS.length) {
+      if (!timedOut && attempt < RETRY_PLAN.delaisReseau.length) {
         backupStatusEl.textContent = 'Sauvegarde audio de la tranche ' + (position + 1)
           + ' non transmise (' + reason + ') — nouvelle tentative ('
-          + (attempt + 2) + '/' + (BACKUP_RETRY_DELAYS_MS.length + 1) + ')…';
+          + (attempt + 2) + '/' + (RETRY_PLAN.delaisReseau.length + 1) + ')…';
         setTimeout(function () {
           if (gen !== backupGeneration) { settle(); return; }
           uploadBackup(blob, attempt + 1, position, gen);
-        }, BACKUP_RETRY_DELAYS_MS[attempt]);
+        }, RETRY_PLAN.delaisReseau[attempt]);
         return;  // pendingBackups reste tenu par la tentative initiale
       }
       if (backupPerdus.indexOf(position) < 0) backupPerdus.push(position);
@@ -2280,6 +2349,9 @@
             // générique, qui écraserait sinon ce message.
             statusEl.textContent = 'Fichier transcrit (' + consumed + ' bloc'
               + (consumed > 1 ? 's' : '') + ') — prêt à continuer.';
+            // Bandeau persistant SOUS ce message (élément à part, que
+            // updateSubmitState n'écrase pas) ; rien si complet / non évaluable.
+            afficherCompletude(data.completude);
             return;
           }
           statusEl.textContent = 'Transcription du fichier en cours — ' + consumed
@@ -2420,6 +2492,7 @@
     }
     var gen = backupGeneration;
     hideFileRetry();  // nouvel import : l'échec précédent n'est plus reprenable
+    masquerCompletude();  // et l'alerte de complétude du précédent n'est plus d'actualité
     fileImportDone = false;
     pendingSegments++;
     testUploadBtn.disabled = true;
@@ -2543,6 +2616,9 @@
       // place où revenir (transcription remise à zéro) : on l'abandonne avec elle.
       lostSegments = [];
       resetSegmentQueue();
+      segmentsRejoues = 0;
+      refreshReplayStatus();
+      masquerCompletude();
       // Le drapeau aussi, pas seulement la file : une relance en vol au moment
       // du reset le laissait à `true` sur un état par ailleurs remis à zéro
       // (revue adversariale 2026-07-30). Les uploads encore en vol sont écartés
@@ -2699,6 +2775,9 @@
     clearBackupList();
     lostSegments = [];
     resetSegmentQueue();
+    segmentsRejoues = 0;
+    refreshReplayStatus();
+    masquerCompletude();
     lostRetryBlocking = 0;
     refreshLostBanner();
     resetNoSpeech();

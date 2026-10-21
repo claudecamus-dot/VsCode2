@@ -215,15 +215,43 @@ def test_sans_segment_perdu_le_message_pret_a_envoyer_reste():
 
 
 # ---------------------------------------------------------------- relances de segment
-def test_relances_de_segment_allongees_et_tranches_de_sauvegarde_inchangees():
+def test_plan_de_relance_partage_et_tranches_de_sauvegarde_inchangees():
+    """Arbitrage utilisateur 2026-10-21 : le plan partagé `RETRY_PLAN` (static/rec_retry.js)
+    est l'UNIQUE propriétaire du budget de relance d'un segment (2 relances pour un 5xx,
+    3 pour un 422 transient) ; l'allongement local à 4 relances est abandonné. Les valeurs
+    sont lues dans le script RÉEL, exécuté sous node : un changement silencieux du plan
+    rougit ce test."""
+    plan = _node("""
+var window = {};
+%s
+var p = window.recRetryPlan;
+console.log(JSON.stringify({
+  reseau: Array.from(p.delaisReseau), tableTransient: Array.from(p.delaisTransient),
+  nbRetry: p.nbEssais('retry'), nbTransient: p.nbEssais('transient'),
+  retry: [0, 1, 2].map(function (i) { return p.delaiPour('retry', i); }),
+  transient: [0, 1, 2, 3].map(function (i) { return p.delaiPour('transient', i); }),
+  busy: p.delaiPour('busy', 0), noSpeech: p.delaiPour('no_speech', 0), timeout: p.delaiPour('timeout', 0),
+  definitif: p.delaiPour('definitif', 0),
+  c422: p.classer(422, { code: 'transient' }), c503: p.classer(503, { code: 'busy' }),
+  c500: p.classer(500, {}), c422nu: p.classer(422, {}) }));
+""" % (RACINE / "app" / "static" / "rec_retry.js").read_text(encoding="utf-8"))
+    assert plan["reseau"] == [2000, 6000] and plan["tableTransient"] == [2000, 6000, 15000]
+    assert plan["nbRetry"] == 3 and plan["nbTransient"] == 4
+    assert plan["retry"] == [2000, 6000, None]            # 5xx : 2 relances
+    assert plan["transient"] == [2000, 6000, 15000, None]  # 422 transient : 3 relances
+    assert plan["busy"] is None and plan["noSpeech"] is None
+    assert plan["timeout"] is None and plan["definitif"] is None
+    assert (plan["c422"], plan["c503"], plan["c500"], plan["c422nu"]) == (
+        "transient", "busy", "retry", "definitif")
     for chemin in (LIBRE, RECORD):
         src = chemin.read_text(encoding="utf-8")
-        seg = re.search(r"var SEGMENT_RETRY_DELAYS_MS = (\[[^\]]*\]);", src)
-        bak = re.search(r"var BACKUP_RETRY_DELAYS_MS = (\[[^\]]*\]);", src)
-        assert seg and json.loads(seg.group(1)) == [2000, 6000, 15000, 30000], chemin.name
-        assert bak and json.loads(bak.group(1)) == [2000, 6000], chemin.name
-        # le budget des tranches de sauvegarde ne partage plus la constante des segments
-        assert "attempt < BACKUP_RETRY_DELAYS_MS.length" in src, chemin.name
+        # aucune constante locale de délais : le plan partagé est la seule source
+        assert "SEGMENT_RETRY_DELAYS_MS" not in src, chemin.name
+        assert "var RETRY_PLAN = window.recRetryPlan;" in src, chemin.name
+        # les tranches de sauvegarde gardent le budget réseau [2000, 6000] (jamais le plan transient)
+        assert "attempt < RETRY_PLAN.delaisReseau.length" in src, chemin.name
+        assert "RETRY_PLAN.delaisReseau[attempt]" in src, chemin.name
+        assert "delaisTransient" not in src, chemin.name
 
 
 def test_relance_occupe_respecte_retry_after_et_reste_en_attente():
@@ -235,4 +263,5 @@ def test_relance_occupe_respecte_retry_after_et_reste_en_attente():
     bloc = _fonction(src, "uploadSegment")
     assert "Number(retryAfterS) || 2" in bloc
     assert "uploadSegment(blob, attempt, lostId, gen, onSettle, busyUntil, ctx)" in bloc
-    assert "result.status === 503 && result.data.code === 'busy'" in bloc
+    # Fusion fiab : la classification « busy » vit dans static/rec_retry.js.
+    assert "RETRY_PLAN.classer(result.status, result.data)" in bloc and "nature === 'busy'" in bloc

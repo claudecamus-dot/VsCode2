@@ -35,6 +35,7 @@ def blocs_factices(monkeypatch):
     """Court-circuite le décodage audio : `iter_transcribe_blocks` travaille sur
     une liste de blocs déjà découpés, seule chose qui compte ici."""
     monkeypatch.setattr(audio_transcribe, "_faster_whisper", lambda: object())
+    monkeypatch.setattr(audio_transcribe, "BLOC_RETRY_PAUSE_S", 0)
     monkeypatch.setattr(
         audio_transcribe,
         "split_pcm_blocks",
@@ -96,14 +97,24 @@ def test_pool_sain_ne_declenche_aucun_repli(blocs_factices, monkeypatch):
     assert [t for _i, _total, t in rendus] == [f"parallele{i}" for i in range(5)]
 
 
-def test_erreur_non_liee_au_pool_reste_une_erreur_fonctionnelle(blocs_factices, monkeypatch):
-    """Le repli ne doit pas avaler un vrai problème (fichier illisible, modèle
-    absent) : seule la mort du pool déclenche une dégradation."""
+def test_erreur_non_liee_au_pool_est_rejouee_puis_remonte_avec_sa_cause(blocs_factices, monkeypatch):
+    """Une erreur qui n'est pas la mort du pool est désormais REJOUÉE (palier
+    suivant puis séquentiel, 3 tentatives au total : un échec transitoire d'un
+    worker ne doit plus coûter l'import) ; si elle persiste, elle remonte avec sa
+    cause exacte et sans fuite du texte. Coût assumé : une erreur déterministe
+    relance un ou deux pools avant d'échouer (voir le triage du lot)."""
     def _drain(blocks, start, total, n_workers):
         raise ValueError("flux corrompu")
         yield  # pragma: no cover - fait de _drain un générateur
 
+    # Le bloc fautif est rejoué (filet « transcription fiable ») : le séquentiel
+    # échoue lui aussi pour la même cause, les tentatives s'épuisent et c'est
+    # CETTE cause — pas celle d'un double aux erreurs différentes — qui remonte.
+    def _sequentiel(bloc):
+        raise ValueError("flux corrompu")
+
     monkeypatch.setattr(audio_transcribe, "_drain_parallel", _drain)
+    monkeypatch.setattr(audio_transcribe, "_transcribe_pcm_sequential", _sequentiel)
 
     with pytest.raises(audio_transcribe.TranscriptionError) as capture:
         list(audio_transcribe.iter_transcribe_blocks(b"audio"))

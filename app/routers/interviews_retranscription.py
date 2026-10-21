@@ -377,6 +377,7 @@ def retranscrire_statut(interview_id: int, db: Session = Depends(get_session)):
         {
             "status": status,
             "error": erreur,
+            "completude": job.completude,
             "blocs": len(job.blocks or []),
             "blocs_total": job.total_blocks,
             "tranches_faites": job.files_done or 0,

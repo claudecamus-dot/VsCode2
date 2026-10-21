@@ -370,7 +370,9 @@ async def transcribe_notes(
             headers={"Retry-After": str(retry_after)},
         )
     except audio_transcribe.TranscriptionError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=422)
+        return JSONResponse(
+            audio_transcribe.corps_erreur_transcription(exc), status_code=422
+        )
     except Exception:
         logger.exception("Échec inattendu de la transcription des notes libres")
         return JSONResponse(

@@ -765,19 +765,23 @@ def _stub_whisper(monkeypatch, textes, erreur_a=None):
     monkeypatch.setattr(audio_transcribe, "_faster_whisper", lambda: object())
     monkeypatch.setattr(audio_transcribe, "ProcessPoolExecutor", _InlineExecutor)
     monkeypatch.setattr(audio_transcribe, "MAX_PARALLEL_WORKERS", 2)
+    monkeypatch.setattr(audio_transcribe, "BLOC_RETRY_PAUSE_S", 0)
     appels = {"n": 0}
 
     def _chunk(args):
         i = appels["n"]
         appels["n"] += 1
-        if erreur_a is not None and i == erreur_a:
+        if erreur_a is not None and i >= erreur_a:  # panne durable : les retries s'épuisent
             raise RuntimeError("worker mort")
         return textes[i]
 
     monkeypatch.setattr(audio_transcribe, "_transcribe_pcm_chunk", _chunk)
-    monkeypatch.setattr(
-        audio_transcribe, "_transcribe_pcm_sequential", lambda pcm: textes[0]
-    )
+    def _sequentiel(pcm):
+        if erreur_a is not None:
+            raise RuntimeError("worker mort")
+        return textes[0]
+
+    monkeypatch.setattr(audio_transcribe, "_transcribe_pcm_sequential", _sequentiel)
     return np
 
 
@@ -894,7 +898,9 @@ def test_les_deux_ecrans_importent_par_blocs(client, chemin, monkeypatch):
     # Segments micro perdus (« Failed to fetch ») : relance auto puis manuelle.
     assert "rec-lost-banner" in html
     assert "retryLostSegments" in html
-    assert "SEGMENT_RETRY_DELAYS_MS" in html
+    # Budget de relance : source UNIQUE depuis le lot « transcription fiable »
+    # (static/rec_retry.js), plus de constante recopiée dans chaque écran.
+    assert "RETRY_PLAN.delaisReseau" in html
     # Correctifs concurrence JS (revue adversariale 2026-07-29) — marqueurs de
     # régression template (pytest ne peut pas exécuter ce JS, cf. mémoire
     # feedback-frontend-render-check-plus-template-regression-test) :

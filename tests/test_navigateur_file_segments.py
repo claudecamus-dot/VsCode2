@@ -50,7 +50,7 @@ const OK = function (t) { return { ok: true, status: 200, data: { text: t } }; }
 
 let backupGeneration = 0, pendingSegments = 0, sessionToken = 'tokA';
 let segQueue = [], segInFlight = false, segEpoch = 0, segmentSeq = 0, waitingSegments = [];
-const TRANSCRIBE_TIMEOUT_MS = %(timeout)d, SEGMENT_RETRY_DELAYS_MS = [2000, 6000];
+const TRANSCRIBE_TIMEOUT_MS = %(timeout)d;
 const BUSY_BACKOFF_BASE_MS = 30000, BUSY_BACKOFF_MAX_MS = 240000;
 let backupConfirmes = %(acquitte)d, sessionRestauree = false, pendingBackups = 0;
 let backupSegments = %(backups)s, backupPerdusLocaux = [], backupLocalAcquitte = false;
@@ -74,6 +74,12 @@ Object.defineProperty(lostListEl, 'textContent', { set: function () { this.ch = 
 function appendTranscript(t) { textes.push(t); transcriptSoFar += t; }
 function replaceLostMarker(id, t) { textes.push('R' + id + ':' + t); } function resetNoSpeech() {} function noteNoSpeech() {}
 
+// Le VRAI plan de reprise (static/rec_retry.js), exécuté tel quel (fusion fiab).
+%(rec_retry)s
+const RETRY_PLAN = window.recRetryPlan;
+let segmentsRejoues = 0;
+function refreshReplayStatus() {}
+
 %(fonctions)s
 
 %(scenario)s
@@ -86,6 +92,7 @@ def _lancer(scenario: str, *, timeout: int = 10_000_000, acquitte: bool = False)
         "timeout": timeout,
         "acquitte": 1 if acquitte else 0,
         "backups": json.dumps([{"position": 0}] if acquitte else []),
+        "rec_retry": (LIBRE.parents[2] / "static" / "rec_retry.js").read_text(encoding="utf-8"),
         "fonctions": "\n".join(_fonction(src, f) for f in _FONCTIONS),
         "scenario": scenario,
     }
@@ -457,6 +464,27 @@ _S_J3 = r"""
 def test_drain_d_une_session_abandonnee_ne_contamine_pas_la_nouvelle():
     out = _lancer(_S_J3)
     assert out == {"fetchs": 1, "bas": 0, "actif": 0, "blocage": 1}
+
+
+# M4: un reset avec une relance BLOQUANTE en vol remet aussi `lostRetryBlocking` à 0 (la garde
+# d'époque interdit ensuite tout décrément : l'alerte de sortie resterait levée à tort).
+_S_M4 = r"""
+(async () => {
+  keepLostSegment({ tag: 'a' }, 'x', undefined, true, 'tokA-8');
+  retryLostSegments();
+  await tick();
+  const avant = [lostRetryActive, lostRetryBlocking];
+  backupGeneration++; sessionToken = 'tokB'; resetSegmentQueue();   // « Recommencer »
+  await repondre(0, OK('vieux'));                                    // décompte refusé par la garde d'époque
+  console.log(JSON.stringify({ avant: avant, actif: lostRetryActive, blocage: lostRetryBlocking }));
+})();
+"""
+
+
+def test_reset_remet_a_zero_le_blocage_des_relances_en_vol():
+    out = _lancer(_S_M4)
+    assert out["avant"] == [1, 1]
+    assert out == {"avant": [1, 1], "actif": 0, "blocage": 0}
 
 
 # JA: exception de traitement avant toute conservation -> le blob est gardé (bloquant), pas perdu.

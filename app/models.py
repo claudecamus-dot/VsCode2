@@ -1096,6 +1096,12 @@ class AudioFileJob(Base):
     # en place) pour que SQLAlchemy détecte le changement sur une colonne JSON.
     blocks: Mapped[list] = mapped_column(JSON, default=list)
     error: Mapped[str | None] = mapped_column(Text, default=None)
+    # Bilan de complétude (`audio_transcribe.bilan_completude`) CUMULÉ sur toutes
+    # les exécutions du job : blocs vides, tranches ignorées, blocs rejoués après
+    # un échec masqué. Colonne et non `error` : `error` est remis à None à chaque
+    # reprise, donc les incidents d'avant une coupure se perdaient. NULL pour un
+    # job antérieur à la colonne. Ni chemin ni texte transcrit.
+    completude: Mapped[dict | None] = mapped_column(JSON, default=None)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 

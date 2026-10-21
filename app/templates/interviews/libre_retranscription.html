@@ -32,6 +32,12 @@
   {% endif %}
   <p id="retr-progress" class="seg-progress" aria-live="polite">Démarrage…</p>
   <progress id="retr-bar" value="0" max="1"></progress>
+  {# Alerte de complétude (job `done` ET `incomplet` seulement) : texte posé par
+     JS depuis /static/rec_retry.js (même rédaction que les écrans
+     d'enregistrement), jamais de texte transcrit ni de chemin. Pas de bouton :
+     le backend ne sait pas relancer un job `done` — la relance existante
+     (« Relancer la retranscription ») ne couvre que les tranches d'extraction. #}
+  <div class="notice" id="retr-completude" role="status" hidden></div>
   <div class="form-actions">
     <a class="btn" href="/interviews/{{ interview.id }}">← Revenir à l'entretien</a>
     {# Reprise AU BLOC échoué (jamais depuis le début) : c'est la route de
@@ -67,6 +73,7 @@
 <script>
 (function () {
   var progressEl = document.getElementById('retr-progress');
+  var completudeEl = document.getElementById('retr-completude');
   var barEl = document.getElementById('retr-bar');
   var suiteForm = document.getElementById('retr-suite-form');
   var relancerForm = document.getElementById('retr-relancer-form');
@@ -146,6 +153,9 @@
                 : '');
           barEl.max = 1;
           barEl.value = 1;
+          var msgCompletude = recRetryPlan.messageCompletude(s.completude);
+          completudeEl.textContent = msgCompletude;
+          completudeEl.hidden = !msgCompletude;
           suiteForm.hidden = false;
           if (s.ia_total > s.ia_faites) relancerForm.hidden = false;
           abandonForm.hidden = false;

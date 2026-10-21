@@ -149,7 +149,14 @@ async def transcribe_segment(
             headers={"Retry-After": str(retry_after)},
         )
     except audio_transcribe.TranscriptionError as exc:
-        return JSONResponse({"error": str(exc)}, status_code=422)
+        corps = audio_transcribe.corps_erreur_transcription(exc)
+        # Journal d'échec des segments du direct : ils ne sont pas persistés,
+        # sans cette ligne le critère « aucun segment en échec du 1er coup »
+        # n'est pas mesurable côté serveur. Ni texte ni chemin : le code seul.
+        logger.warning(
+            "Segment direct refusé (422, code=%s)", corps.get("code", "definitif")
+        )
+        return JSONResponse(corps, status_code=422)
     except Exception:
         # Message FIXE, jamais `str(exc)` : sur ce chemin l'exception est
         # quelconque (OSError de whisper, disque plein…) et son texte porte
@@ -448,6 +455,8 @@ def transcribe_file_status(
         "done": len(blocks),
         "total": job.total_blocks,
         "error": error,
+        # Bilan de complétude cumulé (dict) ou null pour un job ancien.
+        "completude": job.completude,
         # Nom du fichier importé (2026-09-01), pour que le client le RATTACHE à
         # l'entretien via `audio_segments`. Sans ce rattachement, l'audio
         # importé survit désormais sur le disque mais reste un orphelin :
