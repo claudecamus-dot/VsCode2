@@ -449,10 +449,12 @@
       ],
       "pertinence": "Sous-agents = ~38 % de la facture du hub ; le papier (Proc. ACM Softw. Eng. vol.3 FSE, DOI 10.1145/3797084, 17 mars 2026) elague les observations perimees/redondantes d'une trajectoire. Chiffres cites comme citation (SWE-Bench, agent Claude, corpus tiers), jamais mesures chez nous.",
       "date": "2026-10-11",
-      "statut": "nouveau",
+      "statut": "adopte",
       "regle_proposee": "Mesure a froid : part des tokens d'entree des sous-agents issue de sorties d'outils anciennes (runs.jsonl/usage) ; critere : un brief de sous-agent long impose une borne de sortie d'outil ou un filtrage avant lecture.",
       "action_corrective": "Au hub : mesurer sur 10 runs de sous-agents la part des tokens d'entree redondants avant tout essai ; ensuite tester un filtrage des sorties volumineuses (hook PreToolUse) sur un projet pilote. Reproduire avant d'adopter le chiffre.",
-      "revue_par_pairs": "oui"
+      "revue_par_pairs": "oui",
+      "date_arbitrage": "2026-10-20",
+      "arbitrage": "ADOPTE par l'utilisateur le 2026-10-20 (texte integral regle_proposee + action_corrective affiche puis confirme) ; application au hub VScode5 via evolution-flotte, mesure d'abord, chiffre du papier non adopte avant reproduction"
     }
   ]
 }

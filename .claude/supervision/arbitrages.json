@@ -766,6 +766,16 @@
       ],
       "decision": "ACCEPTE + APPLIQUE 2026-09-29 (VSCode2 151f10f) : sortie brute de -CheckOnly exigee par run-dev-server et revue-increment ; port unique 8020",
       "preuve_application": "grep -c CheckOnly : run-dev-server/SKILL.md 2, revue-increment/SKILL.md 1 ; tasks.json 8020 x2"
+    },
+    {
+      "cible": "veille:agentdiet-fse-2026",
+      "date": "2026-10-20",
+      "titre": "AgentDiet (FSE 2026) : reduction de trajectoire d'agent",
+      "categories": [
+        "pratique-dev"
+      ],
+      "decision": "ACCEPTE 2026-10-20 (utilisateur, texte integral affiche) : regle de mesure a froid + action corrective au hub VScode5 ; NON APPLIQUE a ce stade : mesure sur 10 runs de sous-agents a faire avant tout essai de filtrage | MESURE 2026-10-20 : part redondante mediane 1,5 % (0,2-6,7 %) sur 10 transcripts de sous-agents >=10 tours, flotte, 14 j ; chiffre du papier NON reproduit ; pilote filtre PreToolUse NON justifie (seuil 20 %)",
+      "preuve_application": "scripts scratchpad agentdiet/run10.py (graine 7), mesure a froid lecture seule"
     }
   ]
 }
