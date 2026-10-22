@@ -1584,35 +1584,35 @@
       // le fichier est téléchargeable juste en dessous serait faux, et
       // l'inverse (promettre un lien absent) le serait tout autant.
       try {
-      var copieOk;
-      try {
-        copieOk = offrirBackupEnLocal(blob);
-      } catch (eCopie) {
-        // La copie locale a ELLE-MÊME échoué (J3) : on pose le message en dur, sinon
-        // l'écran garde « nouvelle tentative… » et l'utilisateur soumet sans savoir que
-        // cette sauvegarde (seule copie de l'audio) est perdue.
-        console.error('sauvegarde audio: copie locale en erreur', eCopie);
-        backupStatusEl.textContent = '⚠ AUDIO NON SAUVEGARDÉ : la sauvegarde n’a pas pu être '
-          + 'transmise (' + reason + ') et sa copie locale a échoué. Ne quitte pas cette page '
-          + 'avant d’avoir récupéré l’enregistrement. Le texte transcrit, lui, reste complet.';
-        return;  // finally : settle()
-      }
-      // Copie gardée : un échec d'AFFICHAGE ne doit pas prétendre le contraire.
-      try {
-      if (copieOk) {
-        backupStatusEl.textContent = '⚠ Sauvegarde audio NON transmise (' + reason
-          + '), mais l’enregistrement n’est pas perdu : récupère-le avec '
-          + '« Télécharger l’enregistrement » ci-dessous, puis rends-le à l’entretien '
-          + 'avec « Rattacher sans transcrire » — surtout pas « Transcrire ce fichier » : '
-          + 'le texte est déjà là, le retranscrire dirait l’entretien deux fois. '
-          + 'Le texte transcrit, lui, reste complet.';
-      } else {
-        backupStatusEl.textContent = '⚠ AUDIO PERDU : la sauvegarde n’a pas pu être '
-          + 'transmise (' + reason + '). Le texte transcrit, lui, reste complet.';
-      }
-      } catch (eAff) {
-        console.error('sauvegarde audio: affichage du message d’échec', eAff);
-      }
+        var copieOk;
+        try {
+          copieOk = offrirBackupEnLocal(blob);
+        } catch (eCopie) {
+          // La copie locale a ELLE-MÊME échoué (J3) : on pose le message en dur, sinon
+          // l'écran garde « nouvelle tentative… » et l'utilisateur soumet sans savoir que
+          // cette sauvegarde (seule copie de l'audio) est perdue.
+          console.error('sauvegarde audio: copie locale en erreur', eCopie);
+          backupStatusEl.textContent = '⚠ AUDIO NON SAUVEGARDÉ : la sauvegarde n’a pas pu être '
+            + 'transmise (' + reason + ') et sa copie locale a échoué. Ne quitte pas cette page '
+            + 'avant d’avoir récupéré l’enregistrement. Le texte transcrit, lui, reste complet.';
+          return;  // finally : settle()
+        }
+        // Copie gardée : un échec d'AFFICHAGE ne doit pas prétendre le contraire.
+        try {
+          if (copieOk) {
+            backupStatusEl.textContent = '⚠ Sauvegarde audio NON transmise (' + reason
+              + '), mais l’enregistrement n’est pas perdu : récupère-le avec '
+              + '« Télécharger l’enregistrement » ci-dessous, puis rends-le à l’entretien '
+              + 'avec « Rattacher sans transcrire » — surtout pas « Transcrire ce fichier » : '
+              + 'le texte est déjà là, le retranscrire dirait l’entretien deux fois. '
+              + 'Le texte transcrit, lui, reste complet.';
+          } else {
+            backupStatusEl.textContent = '⚠ AUDIO PERDU : la sauvegarde n’a pas pu être '
+              + 'transmise (' + reason + '). Le texte transcrit, lui, reste complet.';
+          }
+        } catch (eAff) {
+          console.error('sauvegarde audio: affichage du message d’échec', eAff);
+        }
       } finally {
         settle();  // garanti même si offrirBackupEnLocal lève (gate figé sinon)
       }
