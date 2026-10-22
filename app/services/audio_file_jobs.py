@@ -258,6 +258,7 @@ def run_audio_file_job(job_id: int) -> None:
     (`len(blocks) - blocks_before_file`) — les tranches déjà transcrites ne sont
     jamais re-décodées."""
     db = SessionLocal()
+    jeton_battement = None
     _noter_bilan = None   # défini plus bas ; le filet `except Exception` le teste
     try:
         job = db.get(AudioFileJob, job_id)
@@ -266,6 +267,10 @@ def run_audio_file_job(job_id: int) -> None:
         job.status = "running"
         job.error = None
         db.commit()
+        # AD-2 : l'attente de permis du fond bat le cœur du job (cf. `_battement`).
+        jeton_battement = audio_transcribe.BATTEMENT_ATTENTE.set(
+            lambda: _battement(db, job)
+        )
         incidents: list[str] = []
         # Bilan de complétude CUMULÉ sur les exécutions : on repart de ce qui est
         # déjà persisté (`job.error` est remis à None à la reprise, les incidents
@@ -528,6 +533,8 @@ def run_audio_file_job(job_id: int) -> None:
             # (le rattrapage au démarrage le libérera) — le dire au journal.
             logger.exception("Secours d'échec impossible (job %s) : statut peut-être figé", job_id)
     finally:
+        if jeton_battement is not None:
+            audio_transcribe.BATTEMENT_ATTENTE.reset(jeton_battement)
         # Le fichier importé n'est PLUS supprimé au succès (2026-09-01, règle
         # « l'audio ne se supprime que par une action sur le site »). C'était la
         # dernière suppression automatique du chemin nominal, et la plus chère :

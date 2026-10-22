@@ -62,6 +62,7 @@ from __future__ import annotations
 
 import collections
 import contextlib
+import contextvars
 import io
 import logging
 import multiprocessing
@@ -213,6 +214,25 @@ _ACQUISITION_PERMIS_LOCK = threading.Lock()
 # cours + une marge. `retry_after_s` (renvoyé en `Retry-After`) n'est PLUS ce
 # délai : c'est `estimer_retry_after()` (file réelle x durée récente).
 SEGMENT_LOCK_TIMEOUT_S = float(os.environ.get("WHISPER_SEGMENT_LOCK_TIMEOUT_S", "150"))
+
+# AD-2 : l'attente de permis du FOND n'a (volontairement) pas d'échéance — une
+# attente légitime sous charge ne doit pas devenir un échec. Sans signe de vie,
+# un job bloqué plus longtemps que le seuil de péremption paraît mort et un clic
+# « Reprendre » le double. Le job de fond dépose ici un rappel (son battement) ;
+# la boucle d'attente l'appelle toutes les BATTEMENT_ATTENTE_S secondes (horloge
+# monotone), jamais à chaque tour de 0,05 s.
+BATTEMENT_ATTENTE = contextvars.ContextVar("battement_attente", default=None)
+BATTEMENT_ATTENTE_S = 60.0
+
+
+def _signaler_vivant() -> None:
+    rappel = BATTEMENT_ATTENTE.get()
+    if rappel is None:
+        return
+    try:
+        rappel()
+    except Exception:   # un battement raté ne doit jamais casser l'attente
+        logger.warning("Battement d'attente de permis impossible.", exc_info=True)
 
 # Estimation honnête du `retry_after_s` d'un refus « occupé » (2026-10-19) :
 # avant, la constante SEGMENT_LOCK_TIMEOUT_S, sans rapport avec la file réelle.
@@ -681,6 +701,7 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
         # il dégrade son parallélisme au lieu de bloquer sur un jeu complet.
         deadline = time.monotonic() + SEGMENT_LOCK_TIMEOUT_S
         expire = False
+        prochain_battement = time.monotonic() + BATTEMENT_ATTENTE_S
         with (_compte_attente() if priority == LIVE else contextlib.nullcontext()):
             while True:
                 with _ACQUISITION_PERMIS_LOCK:     # section courte, jamais tenue en attente
@@ -700,6 +721,9 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
                         break
                     time.sleep(min(0.05, reste))
                 else:
+                    if time.monotonic() >= prochain_battement:
+                        _signaler_vivant()
+                        prochain_battement = time.monotonic() + BATTEMENT_ATTENTE_S
                     time.sleep(0.05)
         if expire:
             exc = TranscriptionBusyError("Transcription momentanément occupée, réessayez.")
