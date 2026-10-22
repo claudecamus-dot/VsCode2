@@ -154,3 +154,41 @@ def test_libre_blob_vide_n_est_pas_poste_ni_position_ni_perte():
     } + scen
     out = _node(script)
     assert out == {"pending": 0, "posts": 0, "pos": 0, "perdus": 0, "garder": 0, "segs": 0}, out
+
+
+def test_libre_settle_segment_updatesubmitstate_qui_leve_n_empeche_pas_le_job_final():
+    # J2 (jumeau libre) : uploadSegment de record_libre.html.
+    src = _sans_commentaires(LIBRE.read_text(encoding="utf-8"))
+    script = r"""
+const timers = []; const pend = []; const textes = []; const window = {};
+function FormData() {} FormData.prototype.append = function () {};
+function File() {}
+function setTimeout(fn, d) { timers.push({ fn: fn, delai: d }); return timers.length; }
+async function tick() { for (let i = 0; i < 30; i++) await Promise.resolve(); }
+function recFetch() {
+  return new Promise(function (res) {
+    pend.push(function (r) { res({ ok: r.ok, status: r.status, json: function () { return Promise.resolve(r.data); } }); });
+  });
+}
+let pendingSegments = 0, backupGeneration = 1, recordingActive = false, armed = false, submits = 0;
+const TRANSCRIBE_TIMEOUT_MS = 10000000, BUSY_BACKOFF_MAX_MS = 1, BUSY_BACKOFF_BASE_MS = 1;
+const statusEl = { textContent: '' };
+const Date = { now: function () { return 0; } };
+function appendTranscript(t) { textes.push(t); } function replaceLostMarker() {} function resetNoSpeech() {}
+function noteNoSpeech() {} function keepLostSegment() {} function refreshReplayStatus() {} function copieServeurAcquittee() { return false; }
+function updateSubmitState() { if (armed) throw new Error('boomUpd'); }
+function maybeSubmitFinalJob() { submits++; }
+""" + (_ROOT / "app" / "static" / "rec_retry.js").read_text(encoding="utf-8") + r"""
+const RETRY_PLAN = window.recRetryPlan;
+""" + _fonction(src, "uploadSegment") + r"""
+(async () => {
+  let settled = 0;
+  uploadSegment({ type: 'audio/webm' }, 0, undefined, undefined, function () { settled++; });
+  await tick();
+  armed = true;
+  pend[0]({ ok: true, status: 200, data: { text: 'hello' } }); await tick();
+  console.log(JSON.stringify({ pending: pendingSegments, onSettle: settled, submits: submits, textes: textes.length }));
+})();
+"""
+    out = _node(script)
+    assert out == {"pending": 0, "onSettle": 1, "submits": 1, "textes": 1}, out

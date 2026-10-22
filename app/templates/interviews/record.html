@@ -1166,8 +1166,9 @@
       settled = true;
       pendingSegments = Math.max(0, pendingSegments - 1);
       try {
-        updateSubmitState();
-        maybeSubmitFinalJob();  // transcription stabilisée -> job final si un reliquat reste
+        try { updateSubmitState(); } catch (e1) { console.error('settle: updateSubmitState', e1); }
+        // Chacun isolé (J2) : si updateSubmitState lève, le job final du reliquat part quand même.
+        try { maybeSubmitFinalJob(); } catch (e2) { console.error('settle: maybeSubmitFinalJob', e2); }  // transcription stabilisée -> job final si un reliquat reste
       } finally {
         if (onSettle) onSettle();  // relance séquentielle : le segment perdu suivant
       }

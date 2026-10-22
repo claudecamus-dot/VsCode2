@@ -205,3 +205,25 @@ def test_backup_blob_vide_n_est_pas_poste_et_ne_tient_pas_le_gate():
     assert out["posts"] == 0, out
     assert out["pending"] == 0, out
     assert "PERDU" not in out["statut"] and "NON" not in out["statut"], out
+
+
+def test_settle_updatesubmitstate_qui_leve_n_empeche_pas_le_job_final():
+    # J2 : updateSubmitState leve -> maybeSubmitFinalJob jamais appele -> reliquat jamais soumis.
+    src = _sans_commentaires(RECORD.read_text(encoding="utf-8"))
+    script = (_SCRIPT % {
+        "boom": 0,
+        "rec_retry": (_ROOT / "app" / "static" / "rec_retry.js").read_text(encoding="utf-8"),
+        "fonction": _fonction(src, "uploadSegment"),
+    }).replace("function updateSubmitState() {}",
+               "let armed = false; function updateSubmitState() { if (armed) throw new Error('boomUpd'); }") + r"""
+(async () => {
+  let settled = 0;
+  uploadSegment({ type: 'audio/webm' }, 0, undefined, undefined, function () { settled++; });
+  await tick();
+  armed = true;
+  pend[0](OK); await tick();
+  console.log(JSON.stringify({ pending: pendingSegments, onSettle: settled, submits: submits, textes: textes.length }));
+})();
+"""
+    out = _node(script)
+    assert out == {"pending": 0, "onSettle": 1, "submits": 1, "textes": 1}, out
