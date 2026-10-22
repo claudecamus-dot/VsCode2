@@ -253,8 +253,9 @@ def _reinit_db() -> None:
 
 
 def test_invariant_plafond_essais_bloc_via_job_de_fond(monkeypatch):
-    """Un bloc toujours en échec est tenté exactement `BLOC_PLAFOND_ESSAIS` fois
-    par le job de fond, et ce plafond suit BLOC_MAX_TENTATIVES et BLOC_RETRIES."""
+    """Un bloc toujours en échec est tenté exactement `plafond_essais_bloc(BLOC_RETRIES)`
+    fois par le job de fond (le plafond est recalculé à l'appel : il suit un patch de
+    BLOC_MAX_TENTATIVES ou de BLOC_RETRIES)."""
     _reinit_db()
     monkeypatch.setattr(at, "BLOC_RETRY_PAUSE_S", 0)
     monkeypatch.setattr(audio_file_jobs, "BLOC_RETRY_DELAY_S", 0)
@@ -288,8 +289,5 @@ def test_invariant_plafond_essais_bloc_via_job_de_fond(monkeypatch):
             engine.dispose()
         except Exception:
             pass
-    attendu = (audio_file_jobs.BLOC_RETRIES + 1) * at.BLOC_MAX_TENTATIVES
-    assert audio_file_jobs.BLOC_PLAFOND_ESSAIS == attendu == at.plafond_essais_bloc(
-        audio_file_jobs.BLOC_RETRIES
-    )
-    assert len(appels) == audio_file_jobs.BLOC_PLAFOND_ESSAIS, len(appels)
+    plafond = at.plafond_essais_bloc(audio_file_jobs.BLOC_RETRIES)
+    assert len(appels) == plafond, (len(appels), plafond)

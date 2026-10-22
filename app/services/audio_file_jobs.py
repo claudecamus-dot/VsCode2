@@ -219,8 +219,6 @@ def reprendre_job_echoue_ou_perime(db: Session, job: AudioFileJob) -> bool:
 # Nouveaux essais d'un bloc dont la transcription échoue (échec transitoire).
 BLOC_RETRIES = 2
 BLOC_RETRY_DELAY_S = 2.0
-# Plafond réel d'essais par bloc, dérivé (source : audio_transcribe).
-BLOC_PLAFOND_ESSAIS = audio_transcribe.plafond_essais_bloc(BLOC_RETRIES)
 
 
 def _est_reessayable(exc: BaseException) -> bool:
@@ -228,7 +226,8 @@ def _est_reessayable(exc: BaseException) -> bool:
     (par classe) ou l'échec générique au message fixe. Les autres
     `TranscriptionError` (décodage illisible, sans piste...) restent fatales."""
     if isinstance(exc, audio_transcribe.TranscriptionFondBusyError):
-        # Verrou de fond non obtenu en 1800 s : rejouer = BLOC_PLAFOND_ESSAIS x 1800 s par bloc (voir plafond_essais_bloc).
+        # Verrou de fond non obtenu en 1800 s : rejouer coûterait
+        # `audio_transcribe.plafond_essais_bloc(BLOC_RETRIES)` x 1800 s par bloc.
         return False
     if isinstance(exc, audio_transcribe.TranscriptionBusyError):
         return True

@@ -116,6 +116,7 @@ def plafond_essais_bloc(bloc_retries: int) -> int:
     cette source unique évite de réécrire « 9 » à la main."""
     return (bloc_retries + 1) * BLOC_MAX_TENTATIVES
 
+
 MODEL_SIZE = os.environ.get("WHISPER_MODEL", "medium")
 BEAM_SIZE = _entier_env("WHISPER_BEAM_SIZE", 2)
 
@@ -299,8 +300,8 @@ class NoSpeechError(TranscriptionError):
 
 class TranscriptionFondBusyError(TranscriptionError):
     """Verrou de FOND non obtenu après BACKGROUND_LOCK_TIMEOUT_S (30 min) : NON
-    réessayée par `audio_file_jobs._est_reessayable` (BLOC_PLAFOND_ESSAIS = 9 x 1800 s par bloc sinon :
-    (BLOC_RETRIES + 1) x BLOC_MAX_TENTATIVES)."""
+    réessayée par `audio_file_jobs._est_reessayable` (`plafond_essais_bloc` x 1800 s
+    par bloc sinon)."""
 
 
 class TranscriptionAbandonnee(Exception):
