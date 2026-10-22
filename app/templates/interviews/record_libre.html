@@ -1503,7 +1503,10 @@
       try {
         try { updateSubmitState(); } catch (e1) { console.error('settle: updateSubmitState', e1); }
         // Chacun isolé (J2) : si updateSubmitState lève, le job final du reliquat part quand même.
-        try { maybeSubmitFinalJob(); } catch (e2) { console.error('settle: maybeSubmitFinalJob', e2); }  // transcription stabilisée -> job final si aucun n'a couvert le reliquat
+        try { maybeSubmitFinalJob(); } catch (e2) {
+          console.error('settle: maybeSubmitFinalJob', e2);
+          try { statusEl.textContent = 'La suite automatique n’a pas pu démarrer ; recharge la page ou relance l’extraction.'; } catch (e3) { console.error(e3); }
+        }  // transcription stabilisée -> job final si aucun n'a couvert le reliquat
       } finally {
         if (onSettle) onSettle();  // TOUJOURS: libère l'emplacement de la file / le compte des relances
       }
