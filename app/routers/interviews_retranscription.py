@@ -6,7 +6,11 @@ ordre d'enregistrement des routes et nom de logger inchangés.
 """
 from __future__ import annotations
 
+import json
+import logging
+import secrets
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import (
     APIRouter,
@@ -20,7 +24,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..db import RECORDINGS_DIR, get_session
+from ..db import DATA_DIR, RECORDINGS_DIR, get_session
 from ..models import (
     AudioFileJob,
     Interview,
@@ -56,6 +60,72 @@ from .interviews_libre import (
 )
 
 router = APIRouter(tags=["interviews"])
+logger = logging.getLogger(__name__)
+
+
+def _archiver_ancien_contenu(
+    interview: Interview, nouveau_texte: str, nouveaux_tours: list[dict]
+) -> None:
+    """Copie l'ancien texte et les anciens tours dans un fichier JSON hors base
+    (`DATA_DIR/archives_transcription`) avant qu'une confirmation ne les écrase.
+
+    Rien si l'ancien contenu est vide ou identique au nouveau. Un échec est
+    journalisé (numéro d'entretien seulement, jamais le contenu) et NE bloque
+    PAS la confirmation. Création exclusive (`open(..., "x")`) : pas de
+    `os.replace`, interdit dans `app/` par test_audio_jamais_supprime."""
+    try:
+        anciens = [
+            {
+                "interlocuteur": t.interlocuteur,
+                "question": t.question,
+                "remarque": t.remarque,
+                "section": t.section_title,
+                "ordre": t.position,
+            }
+            for t in sorted(interview.turns, key=lambda t: (t.position or 0, t.id or 0))
+        ]
+        ancien_texte = interview.raw_transcript or ""
+        if not ancien_texte.strip() and not anciens:
+            return
+        nouveaux = [
+            (t["interlocuteur"], t["question"], t["remarque"], t["section_title"])
+            for t in nouveaux_tours
+        ]
+        if ancien_texte.strip() == nouveau_texte.strip() and nouveaux == [
+            (a["interlocuteur"], a["question"], a["remarque"], a["section"])
+            for a in anciens
+        ]:
+            return
+        maintenant = datetime.now(timezone.utc)
+        dossier = DATA_DIR / "archives_transcription"
+        dossier.mkdir(parents=True, exist_ok=True)
+        contenu = json.dumps(
+            {
+                "interview_id": interview.id,
+                "archive_le": maintenant.isoformat(),
+                "raw_transcript": ancien_texte,
+                "tours": anciens,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        base = f"entretien_{int(interview.id)}_{maintenant.strftime('%Y%m%dT%H%M%S')}"
+        nom = f"{base}.json"
+        for _ in range(5):
+            try:
+                with open(dossier / nom, "x", encoding="utf-8") as f:
+                    f.write(contenu)
+                return
+            except FileExistsError:
+                nom = f"{base}_{secrets.token_hex(3)}.json"
+        raise OSError("collision de nom d'archive")
+    except Exception:
+        logger.warning(
+            "archivage de l'ancienne transcription impossible (entretien %s)",
+            getattr(interview, "id", "?"),
+            exc_info=False,
+        )
+
 
 # --------------------------------------------------------------------------- #
 # Retranscription d'un entretien DÉJÀ enregistré, depuis ses tranches audio
@@ -531,6 +601,7 @@ def retranscrire_confirmer(
             status_code=400, detail="Transcription absente : rien n'a été remplacé."
         )
 
+    _archiver_ancien_contenu(interview, transcript, turns)
     for turn in list(interview.turns):
         db.delete(turn)
     db.flush()
@@ -547,7 +618,9 @@ def retranscrire_confirmer(
         )
     if transcript.strip():
         interview.raw_transcript = transcript.strip()
-    job = _job_retranscription(db, interview_id)
+    # Un job ORPHELIN hérité par recyclage d'identifiant SQLite est étranger :
+    # traité comme absent (cf. `_job_retranscription_de_cet_entretien`).
+    job = _job_retranscription_de_cet_entretien(db, interview)
     # Tours validés par l'utilisateur : la structuration en attente (a_transcrire,
     # a_traiter, echec) est faite. `en_cours` reste tel quel (un worker le porte).
     # (Le cas « texte sans tour » est déjà refusé en 400 plus haut : rien à planifier.)

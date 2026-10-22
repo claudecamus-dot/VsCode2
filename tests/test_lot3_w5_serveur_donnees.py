@@ -267,14 +267,19 @@ def test_nettoyage_ne_supprime_pas_un_libre_a_zero_tour_qui_porte_du_contenu():
 def test_confirmation_remet_fait_zero_tranche_et_supprime_les_jobs():
     c = TestClient(app)
     mid = _mission(c)
+    # Le job doit porter de l'audio de CET entretien (garde d'intersection).
+    RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+    (RECORDINGS_DIR / "w5conf_tranche0.webm").write_bytes(b"x")
     with SessionLocal() as db:
         iid = _libre(db, mid, raw_transcript="avant", structuration_status="a_traiter",
-                     segment_token="w5-conf", tranches_manquantes=2)
+                     segment_token="w5-conf", tranches_manquantes=2,
+                     audio_segments=[{"filename": "w5conf_tranche0.webm", "position": 0}])
         db.add(InterviewSegmentJob(session_token="w5-conf", interview_id=iid, mission_id=mid,
                                    position=0, status="done", text="t"))
         # Job de retranscription terminé SANS erreur (sans lui, la confirmation
         # n'est plus « complète » : lot 4 W9 B5).
-        db.add(AudioFileJob(session_token="w5-job", filename="", filenames=[],
+        db.add(AudioFileJob(session_token="w5-job", filename="",
+                            filenames=["w5conf_tranche0.webm"],
                             interview_id=iid, status="done", block_seconds=60, blocks=[]))
         db.commit()
     r = c.post(f"/interviews/{iid}/retranscrire/confirmer", data={
