@@ -424,8 +424,7 @@
   function refreshReplayStatus() {
     replayStatusEl.hidden = segmentsRejoues === 0;
     replayStatusEl.textContent = segmentsRejoues === 0 ? '' :
-      segmentsRejoues + ' segment' + (segmentsRejoues > 1 ? 's' : '') + ' rejoué'
-      + (segmentsRejoues > 1 ? 's' : '') + ' automatiquement';
+      segmentsRejoues + ' segment' + (segmentsRejoues > 1 ? 's' : '') + ' repris automatiquement';
   }
   // Alerte de COMPLÉTUDE d'un import de fichier (job `done` ET statut
   // `incomplet` seulement) : un bandeau persistant, séparé de `statusEl` —
@@ -1073,7 +1072,7 @@
               : '')
             + (n > nAttente
               ? 'Les autres ont bien atteint le serveur, qui n’y a pas détecté de parole : '
-                + 'les rejouer rendra le même résultat tant que la transcription n’est pas '
+                + 'les relancer rendra le même résultat tant que la transcription n’est pas '
                 + 'reconfigurée. Leur audio reste gardé ici au cas où.'
               : ''));
     // Une ligne par segment, avec son bouton : le « bout de ligne » demandé.

@@ -6,7 +6,7 @@ Ce que ce module joue, sur l'écran RÉEL d'enregistrement libre (vrai uvicorn,
 base temporaire, faux micro Chromium qui rejoue un clip de parole) :
 
 - un 422 `code: "transient"` puis un 200 -> le texte s'insère, AUCUN bandeau
-  « segments perdus », et la ligne discrète « 1 segment rejoué automatiquement »
+  « segments perdus », et la ligne discrète « 1 segment repris automatiquement »
   est visible ;
 - 4 réponses 422 transient de suite (initial + 3 relances à 2 s / 6 s / 15 s) ->
   le bandeau BLOQUANT apparaît, le blob est gardé ;
@@ -179,7 +179,7 @@ def test_un_422_transient_puis_un_succes_insere_le_texte_sans_bandeau_d_echec(se
         nav, "(function(){var e=document.getElementById('rec-replay-status');"
              "return e.hidden ? '' : e.textContent;})()", 10, "compteur de segments rejoués",
     )
-    assert rejoue.strip() == "1 segment rejoué automatiquement", rejoue
+    assert rejoue.strip() == "1 segment repris automatiquement", rejoue
     # Neutre : le compteur n'est PAS dans le bandeau rouge des segments perdus.
     assert nav.evaluer("document.getElementById('rec-lost-banner').contains("
                        "document.getElementById('rec-replay-status'))") is False
@@ -219,7 +219,7 @@ def test_trois_422_transient_de_suite_finissent_dans_le_bandeau_bloquant_sans_pe
         "Un segment n’a pas pu être transcrit : relance-le ou abandonne-le pour enregistrer.")
     # UN segment rejoué trois fois = « 1 segment rejoué » (le compteur compte les segments,
     # pas les relances : « 3 segments rejoués » était faux, revue du commit 4).
-    assert nav.evaluer("document.getElementById('rec-replay-status').textContent") == "1 segment rejoué automatiquement"
+    assert nav.evaluer("document.getElementById('rec-replay-status').textContent") == "1 segment repris automatiquement"
     _capturer(nav, "bandeau_bloquant")
 
 

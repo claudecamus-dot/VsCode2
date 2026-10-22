@@ -56,7 +56,7 @@
   {%- elif bilan_audio.etat == 'en_cours' %}Transcription de l'audio en cours.
   {%- elif bilan_audio.statut == 'incomplet' %}⚠ Transcription incomplète{% if bilan_audio.blocs_vides %} : {{ bilan_audio.blocs_vides }} passage{{ 's' if bilan_audio.blocs_vides > 1 else '' }} sans texte{% endif %}.
   {%- elif bilan_audio.statut == 'complet' %}Transcription complète.{% endif %}
-  {% if bilan_audio.blocs_rejoues %}{{ bilan_audio.blocs_rejoues }} passage{{ 's' if bilan_audio.blocs_rejoues > 1 else '' }} audio relancé{{ 's' if bilan_audio.blocs_rejoues > 1 else '' }} automatiquement, puis réussi{{ 's' if bilan_audio.blocs_rejoues > 1 else '' }}.{% endif %}
+  {% if bilan_audio.blocs_rejoues %}{{ bilan_audio.blocs_rejoues }} passage{{ 's' if bilan_audio.blocs_rejoues > 1 else '' }} audio repris automatiquement, puis réussi{{ 's' if bilan_audio.blocs_rejoues > 1 else '' }}.{% endif %}
 </p>
 {% endif %}
 {% if tranches_manquantes %}

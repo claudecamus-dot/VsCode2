@@ -120,8 +120,8 @@
       // ne rend pas la transcription incomplète, il doit pourtant se voir.
       var relances = entiers(c.blocs_rejoues).length;
       return relances
-        ? relances + ' passage' + (relances > 1 ? 's' : '') + ' audio relancé'
-          + (relances > 1 ? 's' : '') + ' automatiquement, puis réussi'
+        ? relances + ' passage' + (relances > 1 ? 's' : '') + ' audio repris'
+          + ' automatiquement, puis réussi'
           + (relances > 1 ? 's' : '') + '.'
         : '';
     }

@@ -1,4 +1,4 @@
-"""P5 : la fiche entretien montre dans un vrai navigateur les passages audio relancés."""
+"""P5 : la fiche entretien montre dans un vrai navigateur les passages audio repris."""
 from __future__ import annotations
 
 import json
@@ -39,5 +39,5 @@ def test_la_fiche_montre_les_blocs_relances(tmp_path_factory, nav) -> None:
         assert not nav.erreurs_http(), nav.erreurs_http()
         texte = nav.texte()
         assert "Transcription complète." in texte, texte[:500]
-        assert "2 passages audio relancés automatiquement, puis réussis." in texte
+        assert "2 passages audio repris automatiquement, puis réussis." in texte
         assert nav.evaluer("document.getElementById('bilan-audio') !== null")

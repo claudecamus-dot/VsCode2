@@ -35,8 +35,8 @@ def msg() -> dict:
 
 
 def test_complet_avec_blocs_relances_affiche_le_compte(msg: dict) -> None:
-    assert msg["deux"] == "2 passages audio relancés automatiquement, puis réussis."
-    assert msg["un"] == "1 passage audio relancé automatiquement, puis réussi."
+    assert msg["deux"] == "2 passages audio repris automatiquement, puis réussis."
+    assert msg["un"] == "1 passage audio repris automatiquement, puis réussi."
     assert "rejoué" not in msg["deux"]
 
 
@@ -46,7 +46,7 @@ def test_rien_a_dire_reste_vide(msg: dict, cle: str) -> None:
 
 
 def test_non_evaluable_avec_relances_montre_le_compte(msg: dict) -> None:
-    assert msg["non_evaluable"] == "1 passage audio relancé automatiquement, puis réussi."
+    assert msg["non_evaluable"] == "1 passage audio repris automatiquement, puis réussi."
 
 
 def test_incomplet_garde_son_message(msg: dict) -> None:
