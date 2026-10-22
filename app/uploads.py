@@ -53,6 +53,7 @@ Trois gardes distinctes, parce que les dégâts sont distincts :
 from __future__ import annotations
 
 import io
+import logging
 import os
 import struct
 import zipfile
@@ -133,6 +134,7 @@ MAX_AUDIO_UPLOAD_BYTES = _mo_env("MAX_AUDIO_UPLOAD_MB", 100)
 
 
 _TAILLE_MORCEAU = 1024 * 1024
+logger = logging.getLogger(__name__)
 
 
 class UploadTropVolumineux(Exception):
@@ -332,7 +334,16 @@ class EcritureAudioTropVolumineuse(UploadTropVolumineux):
     """Le flux audio a dépassé le plafond PENDANT l'écriture disque."""
 
 
-def ecrire_audio_borne(fichier, destination, taille_bloc: int = 1024 * 1024) -> int:
+class UploadVide(Exception):
+    """Flux de 0 octet refusé par `ecrire_audio_borne(refuser_vide=True)`.
+
+    Volontairement PAS une sous-classe d'`UploadTropVolumineux` : une route qui
+    attrape celle-ci répondrait 413 à un fichier vide."""
+
+
+def ecrire_audio_borne(
+    fichier, destination, taille_bloc: int = 1024 * 1024, refuser_vide: bool = False
+) -> int:
     """Copie `fichier` vers `destination` en s'arrêtant AU PLAFOND audio, et
     rend le nombre d'octets écrits.
 
@@ -369,12 +380,20 @@ def ecrire_audio_borne(fichier, destination, taille_bloc: int = 1024 * 1024) -> 
                         f"{plafond // (1024 * 1024)} Mo)."
                     )
                 sortie.write(bloc)
+            if refuser_vide and ecrits == 0:
+                # Fichier que CETTE fonction vient de créer : le retirer ci-dessous
+                # n'est pas la suppression d'un enregistrement existant.
+                raise UploadVide("Flux audio vide : 0 octet reçu.")
     except BaseException:
         # Y COMPRIS sur une interruption : un fichier partiel ne doit jamais
         # survivre à l'écriture qui l'a abandonné.
         try:
             os.unlink(destination)
         except OSError:
-            pass
+            # Fichier verrouillé (antivirus, indexeur) : l'exception d'origine
+            # (413, 422...) prime. Nom seul, jamais le chemin absolu.
+            logger.warning(
+                "Fichier audio partiel non supprimé : %s", os.path.basename(destination)
+            )
         raise
     return ecrits
