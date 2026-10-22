@@ -1545,7 +1545,7 @@
     // Règlement idempotent (EH-5, même patron que uploadSegment) : si
     // updateSubmitState lève après le décrément, le .catch ne doit ni
     // re-décrémenter ni re-POSTer une sauvegarde déjà acceptée.
-    var settled = false;
+    var settled = false, acked = false;
     function settle() {
       if (settled) return;
       settled = true;
@@ -1575,6 +1575,7 @@
       // ne dit « perdu » que si même ça a échoué — annoncer une perte alors que
       // le fichier est téléchargeable juste en dessous serait faux, et
       // l'inverse (promettre un lien absent) le serait tout autant.
+      try {
       if (offrirBackupEnLocal(blob)) {
         backupStatusEl.textContent = '⚠ Sauvegarde audio NON transmise (' + reason
           + '), mais l’enregistrement n’est pas perdu : récupère-le avec '
@@ -1586,7 +1587,9 @@
         backupStatusEl.textContent = '⚠ AUDIO PERDU : la sauvegarde n’a pas pu être '
           + 'transmise (' + reason + '). Le texte transcrit, lui, reste complet.';
       }
-      settle();
+      } finally {
+        settle();  // garanti même si offrirBackupEnLocal lève (gate figé sinon)
+      }
     }
 
     if (!attempt) backupStatusEl.textContent = 'Sauvegarde audio en cours…';
@@ -1601,6 +1604,7 @@
         if (result.ok && result.data.path) {
           signalerMissionAbsente(result.data);
           backupPathHidden.value = result.data.path;
+          acked = true;  // le serveur a la sauvegarde : plus de re-POST
           backupStatusEl.textContent = '✓ sauvegarde audio complète effectuée.';
           var backupUrl = urlAudio(result.data.path);
           // Une tentative précédente a pu offrir le blob en local (EC-3) : le
@@ -1623,7 +1627,11 @@
       .catch(function (err) {
         // Déjà réglée (settle a levé après le décrément) : relancer
         // re-posterait une sauvegarde acceptée (EH-5).
-        if (settled) { console.error('sauvegarde audio: erreur après règlement', err); return; }
+        if (acked || settled) {
+          console.error('sauvegarde audio: erreur après acquittement', err);
+          try { settle(); } catch (e2) { console.error(e2); }
+          return;
+        }
         // `recTimeout` : délai maximal atteint (rec_fetch.js) — pas de relance
         // automatique des mêmes octets (R3-M5/M6).
         retryOrGiveUp(err.message, !!(err && err.recTimeout));

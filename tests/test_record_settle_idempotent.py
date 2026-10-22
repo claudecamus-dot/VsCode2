@@ -99,8 +99,10 @@ const UPLOAD_TIMEOUT_MS = 10000000;
 const backupStatusEl = { textContent: '' }, backupPathHidden = { value: '' };
 const audioPlayerEl = {}, audioDownloadEl = {}, audioPlaybackEl = {};
 const seen = [];
-function signalerMissionAbsente() {} function oublierBackupLocal() {} function brancherRepliOrphelin() {}
-function urlAudio(p) { return p; } function offrirBackupEnLocal() { return true; }
+function signalerMissionAbsente() {} function oublierBackupLocal() {}
+let boomBrancher = %(boomBrancher)s, boomOffrir = %(boomOffrir)s;
+function brancherRepliOrphelin() { if (boomBrancher > 0) { boomBrancher--; throw new Error('boomBrancher'); } }
+function urlAudio(p) { return p; } function offrirBackupEnLocal() { if (boomOffrir > 0) { boomOffrir--; throw new Error('boomOffrir'); } return true; }
 function updateSubmitState() {
   seen.push(pendingBackups);
   if (armed && boom > 0) { boom--; throw new Error('boom'); }
@@ -123,13 +125,15 @@ _SCENARIO_BACKUP = r"""
 """
 
 
-def _lancer_backup(boom: int) -> dict:
+def _lancer_backup(boom: int, brancher: int = 0, offrir: int = 0, reponses=None) -> dict:
     src = _sans_commentaires(RECORD.read_text(encoding="utf-8"))
     script = _SCRIPT_BACKUP % {
         "boom": boom,
+        "boomBrancher": brancher,
+        "boomOffrir": offrir,
         "rec_retry": (_ROOT / "app" / "static" / "rec_retry.js").read_text(encoding="utf-8"),
         "fonction": _fonction(src, "uploadBackup"),
-    } + _SCENARIO_BACKUP
+    } + (_SCENARIO_BACKUP if reponses is None else _SCENARIO_BACKUP_SEQ.replace("%%REP%%", reponses))
     return _node(script)
 
 
@@ -144,3 +148,36 @@ def test_backup_settle_qui_leve_ne_double_decremente_pas_pendingbackups():
 def test_backup_settle_nominal_inchange():
     out = _lancer_backup(boom=0)
     assert out == {"pendant": 1, "pending": 0, "posts": 1, "min": 0}
+
+
+_SCENARIO_BACKUP_SEQ = r"""
+(async () => {
+  const REP = %%REP%%;
+  uploadBackup({ type: 'audio/webm' }, 0, undefined);
+  await tick();
+  const pendant = pendingBackups;
+  for (let k = 0; k < REP.length; k++) {
+    if (!pend[k]) { if (timers[k - 1]) { timers[k - 1].fn(); await tick(); } }
+    if (pend[k]) { pend[k](REP[k]); await tick(); }
+  }
+  console.log(JSON.stringify({ pendant: pendant, pending: pendingBackups, posts: posts.length }));
+})();
+"""
+_OK = "{ ok: true, status: 200, data: { path: 'a.webm' } }"
+_KO = "{ ok: false, status: 500, data: { error: 'x' } }"
+
+
+def test_backup_chemin_echec_qui_leve_libere_quand_meme_le_gate():
+    # echec definitif (5xx x4) ; offrirBackupEnLocal leve : le gate doit tomber a 0
+    out = _lancer_backup(0, offrir=99, reponses="[" + ",".join([_KO] * 4) + "]")
+    assert out["pending"] == 0, out
+
+
+def test_backup_throw_apres_ecriture_du_chemin_ne_reposte_pas():
+    out = _lancer_backup(0, brancher=1, reponses="[" + _OK + "]")
+    assert out["posts"] == 1 and out["pending"] == 0, out
+
+
+def test_backup_5xx_puis_relance_reussie_compte_une_fois():
+    out = _lancer_backup(0, reponses="[" + _KO + "," + _OK + "]")
+    assert out["posts"] == 2 and out["pending"] == 0 and out["pendant"] == 1, out
