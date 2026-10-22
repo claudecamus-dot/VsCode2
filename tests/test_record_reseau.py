@@ -251,7 +251,7 @@ def test_le_refus_occupe_ne_consomme_pas_le_budget_des_echecs_reels(ecran: Path)
     """Lot 2 atelier-dev (2026-09-15) : un 503 `code: "busy"` (verrou
     `_MODEL_LOCK` occupé, cf. `audio_transcribe.TranscriptionBusyError`) n'est
     PAS un échec — il ne doit jamais tomber dans `retryOrGiveUp`, qui ne
-    dispose que de 2 relances courtes (`SEGMENT_RETRY_DELAYS_MS`) réservées
+    dispose que de 2 relances courtes (`RETRY_PLAN.delaisReseau`) réservées
     aux échecs réels. Sans la branche dédiée AVANT le `>= 500` générique, un
     refus "occupé" répété (contention normale, un segment derrière un autre)
     ferait perdre le segment en quelques secondes au lieu d'attendre la
@@ -296,7 +296,7 @@ def test_le_refus_occupe_ne_consomme_pas_le_budget_des_echecs_reels(ecran: Path)
     assert "uploadSegment(blob, attempt," in busy and "attempt + 1" not in busy, (
         f"{ecran.name} : la relance \"occupé\" incrémente `attempt` — elle "
         "consommerait alors le budget des 2 relances réservées aux échecs "
-        "réels (`SEGMENT_RETRY_DELAYS_MS`), régressant la patience d'avant "
+        "réels (`RETRY_PLAN.delaisReseau`), régressant la patience d'avant "
         "ce correctif"
     )
     # Revue bmad-code-review 2026-09-16 (finding 6) : les deux assertions

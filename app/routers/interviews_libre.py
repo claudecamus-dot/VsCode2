@@ -331,7 +331,6 @@ def _enregistrer_libre_direct(
             relance = existant.structuration_status == "a_transcrire" and not sans_texte
             if relance:
                 existant.structuration_status = "a_traiter"
-                existant.tranches_manquantes = tranches
             db.commit()
             if relance:
                 background_tasks.add_task(au_fond(planifier_structuration), existant.id)

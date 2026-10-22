@@ -107,7 +107,7 @@ async def transcribe_segment(
     try:
         # Borne mémoire AVANT tout décodage (finding audit-technique securite
         # du 2026-09-09) : `await file.read()` nu matérialisait tout le corps de
-        # la requête d'un coup sur une route non authentifiée — un envoi de
+        # la requête d'un coup (route ouverte à tout client connecté) — un envoi de
         # plusieurs Go faisait tomber le processus. Plafond AUDIO, pas celui des
         # documents (cf. `uploads.MAX_AUDIO_UPLOAD_BYTES`).
         contenu = await lire_upload_audio_borne(file)

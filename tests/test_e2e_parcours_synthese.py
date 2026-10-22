@@ -14,8 +14,8 @@ ni `test_e2e_parcours_utilisateur.py` ne rejouaient dans un vrai navigateur.
 
 Non atteint (dit, pas caché) : `/interviews/synthese/export-pdf` — son bouton
 (`libre_review.html`) n'est servi qu'après une génération IA réussie du wizard
-libre ; Ollama est coupé (OLLAMA-COUPE-TEMPORAIRE), l'écran est inatteignable
-par un clic. Les trois `…/generate` en échec lisible sont déjà couverts ailleurs.
+libre ; écrit pendant la coupe temporaire d'Ollama (levée le 2026-10-19), où
+l'écran était inatteignable par un clic : à réévaluer. Les trois `…/generate` en échec lisible sont déjà couverts ailleurs.
 
 Règles tenues : ce que l'utilisateur VOIT (innerText), clics souris réels,
 polling plutôt que `sleep` fixe, une mission semée par test, persistance relue

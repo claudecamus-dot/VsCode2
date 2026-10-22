@@ -179,7 +179,7 @@ def _valeur(nav: Navigateur, selecteur: str) -> str:
 
 
 # Message d'échec IA : l'un de DEUX textes selon l'état de `_call_ollama_once`
-# (coupe temporaire OLLAMA-COUPE-TEMPORAIRE ou réseau). On exige LA variante qui
+# (coupe temporaire d'Ollama, levée le 2026-10-19, ou réseau). On exige LA variante qui
 # correspond au code réel, pas « l'une ou l'autre ».
 _MSG_COUPE = "Ollama est désactivé temporairement"
 _MSG_RESEAU = "Impossible de joindre Ollama sur http://127.0.0.1:9"

@@ -795,7 +795,7 @@ class Navigateur:
 def coupe_ollama_active() -> bool:
     """Vrai si `_call_ollama_once` (app/services/ai_common.py) contient un
     `raise AIError(...)` NON commenté dont le texte dit « désactivé
-    temporairement » (la coupe OLLAMA-COUPE-TEMPORAIRE). Analyse syntaxique :
+    temporairement » (coupe temporaire d'Ollama, levée le 2026-10-19). Analyse syntaxique :
     insensible aux commentaires, docstrings et gardes ajoutés. Échoue
     lisiblement si la fonction a disparu."""
     import ast

@@ -181,8 +181,8 @@ _ACQUISITION_PERMIS_LOCK = threading.Lock()
 # précédent, et cette attente reste sous ~60s. Un timeout plus court (ex. 8s)
 # déclencherait le refus "occupé" sur ce cas NORMAL (un seul onglet, une seule
 # transcription en avance) : côté client, `uploadSegment()` n'a que 2 relances
-# à délai court (`SEGMENT_RETRY_DELAYS_MS`, valeurs à relire dans record.html : le
-# commentaire d'origine « ~8 s cumulées » est périmé) avant d'abandonner
+# à délai court (plan `RETRY_PLAN` de rec_retry.js, valeurs à y relire) avant
+# d'abandonner
 # le segment — bien en-deçà des 900s de patience qu'il accordait avant ce
 # correctif (`TRANSCRIBE_TIMEOUT_MS`, le fetch attendait le déblocage du
 # verrou sans jamais échouer). Un timeout serveur trop court aurait donc fait
@@ -292,7 +292,8 @@ class NoSpeechError(TranscriptionError):
 
 class TranscriptionFondBusyError(TranscriptionError):
     """Verrou de FOND non obtenu après BACKGROUND_LOCK_TIMEOUT_S (30 min) : NON
-    réessayée par `audio_file_jobs._est_reessayable` (3 x 1800 s par bloc sinon)."""
+    réessayée par `audio_file_jobs._est_reessayable` (9 x 1800 s par bloc sinon :
+    (BLOC_RETRIES + 1) x BLOC_MAX_TENTATIVES)."""
 
 
 class TranscriptionAbandonnee(Exception):
