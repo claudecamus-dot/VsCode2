@@ -2122,17 +2122,21 @@
       // téléchargeable de la liste des tranches (EC-3). settle() est garanti
       // même si un effet d'affichage lève (sinon le gate reste figé).
       try {
-        garderTrancheEnLocal(position, blob);
-        refreshBackupStatus();
-        refreshBackupList();
-      } catch (eAff) {
-        // Affichage de la perte en échec : sans ce texte en dur, la tranche
-        // (déjà dans backupPerdus) disparaît de l'écran et l'utilisateur peut
-        // soumettre sans avertissement.
-        console.error('sauvegarde audio: chemin d’échec en erreur', eAff);
-        backupStatusEl.textContent = '⚠ Tranche n° ' + (position + 1) + ' d’audio NON SAUVEGARDÉE '
-          + '(' + reason + ') et sa copie locale a échoué. Ne quitte pas cette page '
-          + 'avant d’avoir récupéré l’enregistrement. Le texte transcrit, lui, reste complet.';
+        try {
+          garderTrancheEnLocal(position, blob);
+        } catch (eGarde) {
+          // La copie locale a ELLE-MÊME échoué (J3) : sans ce texte en dur, la tranche
+          // (déjà dans backupPerdus) disparaît de l'écran et l'utilisateur peut
+          // soumettre sans avertissement.
+          console.error('sauvegarde audio: copie locale en erreur', eGarde);
+          backupStatusEl.textContent = '⚠ Tranche n° ' + (position + 1) + ' d’audio NON SAUVEGARDÉE '
+            + '(' + reason + ') et sa copie locale a échoué. Ne quitte pas cette page '
+            + 'avant d’avoir récupéré l’enregistrement. Le texte transcrit, lui, reste complet.';
+          return;  // finally : settle()
+        }
+        // Copie gardée : un échec d'AFFICHAGE ne doit pas prétendre le contraire.
+        try { refreshBackupStatus(); } catch (eAff1) { console.error('sauvegarde audio: affichage du statut', eAff1); }
+        try { refreshBackupList(); } catch (eAff2) { console.error('sauvegarde audio: affichage de la liste', eAff2); }
       } finally {
         settle();
       }

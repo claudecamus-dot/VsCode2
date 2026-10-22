@@ -192,3 +192,10 @@ const RETRY_PLAN = window.recRetryPlan;
 """
     out = _node(script)
     assert out == {"pending": 0, "onSettle": 1, "submits": 1, "textes": 1}, out
+
+
+def test_libre_affichage_qui_leve_ne_pretend_pas_que_la_copie_locale_a_echoue():
+    # J3 : refreshBackupList leve ALORS QUE garderTrancheEnLocal a reussi -> pas de « NON SAUVEGARDEE ».
+    out = _lancer(0, 1, reponses=_KO4)
+    assert out["garder"] == 1 and out["pending"] == 0, out
+    assert "NON SAUVEGARD" not in out["statut"], out

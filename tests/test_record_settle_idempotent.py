@@ -227,3 +227,21 @@ def test_settle_updatesubmitstate_qui_leve_n_empeche_pas_le_job_final():
 """
     out = _node(script)
     assert out == {"pending": 0, "onSettle": 1, "submits": 1, "textes": 1}, out
+
+
+def test_backup_affichage_qui_leve_ne_pretend_pas_que_la_copie_locale_a_echoue():
+    # J3 : la copie locale est gardee ; seule l'affectation du texte leve -> pas de « NON SAUVEGARDE ».
+    src = _sans_commentaires(RECORD.read_text(encoding="utf-8"))
+    script = _SCRIPT_BACKUP % {
+        "boom": 0, "boomBrancher": 0, "boomOffrir": 0,
+        "rec_retry": (_ROOT / "app" / "static" / "rec_retry.js").read_text(encoding="utf-8"),
+        "fonction": _fonction(src, "uploadBackup"),
+    }
+    script = script.replace(
+        "const backupStatusEl = { textContent: '' }",
+        "const backupStatusEl = { _t: '', get textContent() { return this._t; }, "
+        "set textContent(v) { if (v.indexOf('NON transmise') >= 0) throw new Error('boomAff'); this._t = v; } }")
+    script += _SCENARIO_BACKUP_SEQ.replace("%%REP%%", "[" + ",".join([_KO] * 4) + "]")
+    out = _node(script)
+    assert out["pending"] == 0, out
+    assert "NON SAUVEGARD" not in out["statut"], out
