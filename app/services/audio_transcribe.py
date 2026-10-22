@@ -588,6 +588,9 @@ def _transcribe_pcm_sequential(pcm, priority: int = FOND) -> str:
             exc.retry_after_s = estimer_retry_after()
             raise exc
     else:
+        # Pas de battement ici (A3) : l'attente est bornée par BACKGROUND_LOCK_TIMEOUT_S
+        # (1800 s) et le seuil de péremption par défaut du job est de 3 h (10800 s,
+        # AUDIO_FILE_JOB_STALE_AFTER_S) : cette attente ne peut pas le faire déclarer périmé.
         if not _MODEL_LOCK.acquire(timeout=BACKGROUND_LOCK_TIMEOUT_S, priority=FOND):
             raise TranscriptionFondBusyError(ECHEC_TRANSCRIPTION)
     try:
