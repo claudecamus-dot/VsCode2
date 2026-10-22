@@ -16,7 +16,16 @@ import threading
 import time
 import uuid
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from fastapi.responses import JSONResponse
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
@@ -24,13 +33,13 @@ from sqlalchemy.orm import Session
 from ..db import RECORDINGS_DIR, get_session
 from ..models import AudioFileJob, Mission
 from ..services import ai_common, audio_transcribe, mission_backups
-from ..services.segment_dedupe import REGISTRE, cle_segment
 from ..services.audio_file_jobs import (
     is_audio_file_job_stale,
     purge_stale_audio_file_jobs,
     reprendre_job_echoue_ou_perime,
     run_audio_file_job,
 )
+from ..services.segment_dedupe import REGISTRE, cle_segment
 from ..uploads import UploadTropVolumineux, ecrire_audio_borne, lire_upload_audio_borne
 
 logger = logging.getLogger(__name__)
@@ -86,7 +95,7 @@ async def _transcrire_dedoublonne(request: Request, contenu: bytes):
         while not fini.is_set():
             try:
                 await asyncio.wait_for(fini.wait(), timeout=2.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if await request.is_disconnected():
                     REGISTRE.quitter(travail)
                     return None

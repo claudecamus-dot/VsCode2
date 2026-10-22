@@ -31,11 +31,10 @@ import json
 import logging
 import os
 import re
-import threading
-from contextlib import contextmanager
-from contextvars import ContextVar
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import wraps
 
 from app.services.priority_lock import FOND, LIVE, PriorityLock

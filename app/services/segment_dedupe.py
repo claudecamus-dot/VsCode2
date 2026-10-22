@@ -47,7 +47,7 @@ class RegistreSegments:
     def __init__(self, clock=time.monotonic) -> None:
         self._lock = threading.Lock()
         self._vol: dict[str, Travail] = {}
-        self._faits: "collections.OrderedDict[str, tuple[float, str]]" = collections.OrderedDict()
+        self._faits: collections.OrderedDict[str, tuple[float, str]] = collections.OrderedDict()
         self._clock = clock
 
     def resultat_recent(self, cle: str):

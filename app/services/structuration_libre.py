@@ -22,7 +22,6 @@ from sqlalchemy.orm import object_session
 from .. import db as _db
 from ..models import Interview, InterviewTurn
 from .ai_common import au_fond, avec_priorite
-from .priority_lock import FOND, LIVE
 from .interview_libre_extract_ai import (
     InterviewLibreExtractAIError,
     extract_turns_from_text,
@@ -34,6 +33,7 @@ from .interview_segment_jobs import (
     segment_jobs_status,
     tranches_a_rattraper,
 )
+from .priority_lock import FOND, LIVE
 
 # Récupération synchrone d'une tranche d'extraction non aboutie, dans la requête
 # « Voir le résultat » : plafonnée, sinon un Ollama indisponible transforme ce

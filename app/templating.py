@@ -60,4 +60,5 @@ def _aujourdhui_iso() -> str:
 templates.env.globals["aujourdhui_iso"] = _aujourdhui_iso
 
 from .services.tranches_echec import tranches_en_echec as _tranches_en_echec  # noqa: E402
+
 templates.env.globals["tranches_en_echec"] = _tranches_en_echec
