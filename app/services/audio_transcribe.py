@@ -340,7 +340,7 @@ class TranscriptionBusyError(TranscriptionError):
     retry_after_s: float = 0.0
 
 
-def corps_erreur_transcription(exc: "TranscriptionError") -> dict:
+def corps_erreur_transcription(exc: TranscriptionError) -> dict:
     """Corps JSON d'un refus 422 de transcription (routes segment et dictée).
 
     `code: "transient"` ne qualifie QUE l'échec de transcription lui-même
