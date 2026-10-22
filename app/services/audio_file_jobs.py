@@ -279,6 +279,12 @@ def run_audio_file_job(job_id: int) -> None:
         ignorees: list[int] = [
             r for r in (acquis.get("tranches_ignorees") or []) if isinstance(r, int)
         ]
+        # EH-2 : un job `running` d'avant la migration a `completude` NULL mais
+        # `files_done` > 0. Ses durées reprises valent alors None (inconnues) et,
+        # `_somme_durees` rendant None contagieux, le bilan final est
+        # `non_evaluable` : VOULU — on ne fabrique jamais une durée (0.0 ferait
+        # dire « complet » à un fichier peut-être tronqué) et on ne sous-estime
+        # jamais l'écart en silence. Figé par test_audio_completude_jobs.
         if job.filenames and (job.files_done or 0) > 0:
             durees = {
                 "conteneur": acquis.get("duree_conteneur_s"),

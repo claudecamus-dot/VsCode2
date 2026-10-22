@@ -550,3 +550,46 @@ def test_accepte_stats_voit_les_kwargs_et_le_parametre_stats():
     assert audio_file_jobs._accepte_stats(lambda c, block_s=None, stats=None: None)
     assert audio_file_jobs._accepte_stats(lambda *a, **k: None)
     assert not audio_file_jobs._accepte_stats(lambda c, block_s=None: None)
+
+
+# --------------------------------------------------------------------------- #
+# EH-2 : job d'avant la migration (completude NULL) repris -> non_evaluable VOULU
+# --------------------------------------------------------------------------- #
+def test_reprise_d_un_job_a_completude_null_reste_non_evaluable(monkeypatch):
+    """Un `running` d'avant la migration a `completude` NULL et `files_done` > 0 :
+    les durées des tranches déjà faites sont INCONNUES. Le bilan final doit être
+    `non_evaluable` (None contagieux), jamais « complet » — on ne fabrique pas
+    une durée. Comportement voulu, figé ici (EH-2)."""
+    a, b = _fichier("eh2_a.webm"), _fichier("eh2_b.webm")
+    plan = {
+        a: {"blocs": ["A0."], "conteneur": 60.0, "decodee": 60.0},
+        b: {"blocs": ["B0."], "conteneur": 60.0, "decodee": 60.0},
+    }
+    monkeypatch.setattr(audio_transcribe, "iter_transcribe_blocks", _faux_iter(plan))
+    job_id = _creer_job(
+        filenames=[a, b], status="running", files_done=1, blocks=["A0."],
+        total_blocks=2, blocks_before_file=1, completude=None,
+    )
+
+    audio_file_jobs.run_audio_file_job(job_id)
+
+    fin = _relire(job_id)
+    assert fin.status == "done", fin.error
+    assert fin.completude["statut"] == "non_evaluable"
+    assert fin.completude["statut"] != "complet"
+
+
+def test_job_a_completude_null_sans_fichier_repart_de_durees_zero(monkeypatch):
+    """Témoin : `files_done` == 0 -> rien d'acquis, les durées repartent de 0 et
+    le bilan est évaluable (ici « complet »)."""
+    a = _fichier("eh2_t.webm")
+    plan = {a: {"blocs": ["T0."], "conteneur": 60.0, "decodee": 60.0}}
+    monkeypatch.setattr(audio_transcribe, "iter_transcribe_blocks", _faux_iter(plan))
+    job_id = _creer_job(filenames=[a], status="running", files_done=0, completude=None)
+
+    audio_file_jobs.run_audio_file_job(job_id)
+
+    fin = _relire(job_id)
+    assert fin.status == "done", fin.error
+    assert fin.completude["duree_conteneur_s"] == 60.0
+    assert fin.completude["statut"] == "complet"
