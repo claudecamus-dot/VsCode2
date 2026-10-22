@@ -160,7 +160,7 @@ _SCENARIO_BACKUP_SEQ = r"""
     if (!pend[k]) { if (timers[k - 1]) { timers[k - 1].fn(); await tick(); } }
     if (pend[k]) { pend[k](REP[k]); await tick(); }
   }
-  console.log(JSON.stringify({ pendant: pendant, pending: pendingBackups, posts: posts.length }));
+  console.log(JSON.stringify({ pendant: pendant, pending: pendingBackups, posts: posts.length, statut: backupStatusEl.textContent }));
 })();
 """
 _OK = "{ ok: true, status: 200, data: { path: 'a.webm' } }"
@@ -171,6 +171,7 @@ def test_backup_chemin_echec_qui_leve_libere_quand_meme_le_gate():
     # echec definitif (5xx x4) ; offrirBackupEnLocal leve : le gate doit tomber a 0
     out = _lancer_backup(0, offrir=99, reponses="[" + ",".join([_KO] * 4) + "]")
     assert out["pending"] == 0, out
+    assert "NON SAUVEGARD" in out["statut"], out  # la perte est DITE, pas un ancien « nouvelle tentative »
 
 
 def test_backup_throw_apres_ecriture_du_chemin_ne_reposte_pas():

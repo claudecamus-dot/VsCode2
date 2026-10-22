@@ -1587,6 +1587,14 @@
         backupStatusEl.textContent = '⚠ AUDIO PERDU : la sauvegarde n’a pas pu être '
           + 'transmise (' + reason + '). Le texte transcrit, lui, reste complet.';
       }
+      } catch (eAff) {
+        // Le message d'échec n'a pas pu être posé : on le pose en dur, sinon
+        // l'écran garde « nouvelle tentative… » et l'utilisateur soumet sans
+        // savoir que cette sauvegarde (seule copie de l'audio) est perdue.
+        console.error('sauvegarde audio: chemin d’échec en erreur', eAff);
+        backupStatusEl.textContent = '⚠ AUDIO NON SAUVEGARDÉ : la sauvegarde n’a pas pu être '
+          + 'transmise (' + reason + ') et sa copie locale a échoué. Ne quitte pas cette page '
+          + 'avant d’avoir récupéré l’enregistrement. Le texte transcrit, lui, reste complet.';
       } finally {
         settle();  // garanti même si offrirBackupEnLocal lève (gate figé sinon)
       }
@@ -1602,6 +1610,9 @@
       .then(function (result) {
         if (gen !== recGeneration) { settle(); return; }  // session abandonnée
         if (result.ok && result.data.path) {
+          // Acquittement = référence enregistrée (backupPathHidden, plus bas). Avant,
+          // une erreur doit relancer : un fichier orphelin côté serveur vaut mieux
+          // qu'une sauvegarde perdue.
           signalerMissionAbsente(result.data);
           backupPathHidden.value = result.data.path;
           acked = true;  // le serveur a la sauvegarde : plus de re-POST
@@ -1628,7 +1639,7 @@
         // Déjà réglée (settle a levé après le décrément) : relancer
         // re-posterait une sauvegarde acceptée (EH-5).
         if (acked || settled) {
-          console.error('sauvegarde audio: erreur après acquittement', err);
+          console.error(acked ? 'sauvegarde audio: erreur après acquittement' : 'sauvegarde audio: erreur après règlement', err);
           try { settle(); } catch (e2) { console.error(e2); }
           return;
         }

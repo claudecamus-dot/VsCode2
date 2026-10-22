@@ -103,7 +103,7 @@ _SCENARIO_SEQ = r"""
     if (pend[k]) { pend[k](REP[k]); await tick(); }
   }
   console.log(JSON.stringify({ pendant: pendant, pending: pendingBackups, posts: posts.length,
-    garder: garderAppels, perdus: backupPerdus.length,
+    garder: garderAppels, perdus: backupPerdus.length, statut: backupStatusEl.textContent,
     positions: backupSegments.map(function (s) { return s.position; }) }));
 })();
 """
@@ -121,6 +121,7 @@ def test_libre_chemin_echec_qui_leve_libere_le_gate_et_garde_une_fois():
 def test_libre_garder_qui_leve_libere_le_gate():
     out = _lancer(0, 0, boom_garder=1, reponses=_KO4)
     assert out["pending"] == 0, out
+    assert "NON SAUVEGARD" in out["statut"], out  # la perte est affichee malgre le throw
 
 
 def test_libre_erreur_avant_acquittement_relance_bien():
@@ -131,4 +132,5 @@ def test_libre_erreur_avant_acquittement_relance_bien():
 
 def test_libre_5xx_puis_relance_reussie_compte_une_fois():
     out = _lancer(0, 0, reponses="[" + _KO + "," + _OK + "]")
+    out.pop("statut")
     assert out == {"pendant": 1, "pending": 0, "posts": 2, "garder": 0, "perdus": 0, "positions": [0]}, out

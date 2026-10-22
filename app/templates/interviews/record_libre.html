@@ -2117,6 +2117,14 @@
         garderTrancheEnLocal(position, blob);
         refreshBackupStatus();
         refreshBackupList();
+      } catch (eAff) {
+        // Affichage de la perte en échec : sans ce texte en dur, la tranche
+        // (déjà dans backupPerdus) disparaît de l'écran et l'utilisateur peut
+        // soumettre sans avertissement.
+        console.error('sauvegarde audio: chemin d’échec en erreur', eAff);
+        backupStatusEl.textContent = '⚠ Tranche n° ' + (position + 1) + ' d’audio NON SAUVEGARDÉE '
+          + '(' + reason + ') et sa copie locale a échoué. Ne quitte pas cette page '
+          + 'avant d’avoir récupéré l’enregistrement. Le texte transcrit, lui, reste complet.';
       } finally {
         settle();
       }
@@ -2137,6 +2145,9 @@
         // réinitialisation entre-temps) : ne pas contaminer la nouvelle.
         if (gen !== backupGeneration) { settle(); return; }
         if (result.ok && result.data.path) {
+          // Acquittement = position enregistrée par le push ci-dessous. Avant,
+          // une erreur doit relancer : un fichier orphelin côté serveur vaut mieux
+          // qu'une tranche absente d'audio_segments.
           signalerMissionAbsente(result.data);
           backupSegments.push({ filename: result.data.path, position: position });
           acked = true;
@@ -2163,7 +2174,7 @@
         // Tranche déjà acquittée ou réglée : pas de re-POST (EH-5). On libère le
         // gate si le throw a précédé settle().
         if (acked || settled) {
-          console.error('sauvegarde audio: erreur après acquittement', err);
+          console.error(acked ? 'sauvegarde audio: erreur après acquittement' : 'sauvegarde audio: erreur après règlement', err);
           try { settle(); } catch (e2) { console.error(e2); }
           return;
         }
