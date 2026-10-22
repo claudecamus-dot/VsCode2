@@ -91,3 +91,39 @@ def test_rejets_existants_tiennent(client, nom):
     mid = _mission([])
     assert client.get(_base(mid, nom)).status_code == 400
     assert client.post(_base(mid, nom) + "/delete", follow_redirects=False).status_code == 400
+
+
+def test_delete_fichier_verrouille_409_fichier_et_reference_restent(client, monkeypatch):
+    """Trou n°8 : `unlink` lève PermissionError (fichier ouvert sous Windows) ->
+    409, le fichier ET sa référence en base restent (aucune référence orpheline,
+    aucune suppression à moitié)."""
+    from pathlib import Path
+
+    mid = _mission([])
+    RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+    f = RECORDINGS_DIR / f"{mid}_lock.webm"
+    f.write_bytes(b"audio")
+    with SessionLocal() as db:
+        itw = db.query(Interview).filter_by(mission_id=mid).one()
+        itw.audio_segments = [{"filename": f.name, "position": 0}]
+        itw.audio_backup_path = f.name
+        db.commit()
+    vrai_unlink = Path.unlink
+
+    def unlink_verrouille(self, *a, **kw):
+        if self.name == f.name:
+            raise PermissionError(13, "verrouillé")
+        return vrai_unlink(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "unlink", unlink_verrouille)
+    try:
+        r = client.post(_base(mid, f.name) + "/delete", follow_redirects=False)
+        assert r.status_code == 409
+        assert f.exists()
+        with SessionLocal() as db:
+            itw = db.query(Interview).filter_by(mission_id=mid).one()
+            assert [s["filename"] for s in itw.audio_segments] == [f.name]
+            assert itw.audio_backup_path == f.name
+    finally:
+        monkeypatch.undo()
+        f.unlink(missing_ok=True)

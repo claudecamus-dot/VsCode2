@@ -211,3 +211,32 @@ def test_jeton_long_lie_l_entretien_a_ses_tranches(client: TestClient, monkeypat
         interview = db.scalars(select(Interview).where(Interview.mission_id == mission_id)).one()
         assert interview.segment_token == jeton[:64]
         assert segment_jobs_status(db, interview.segment_token)["total"] == 1
+
+def test_reference_vers_fichier_supprime_du_disque_n_est_jamais_audio_complet(
+    tmp_path, monkeypatch
+) -> None:
+    """Trou n°4 : une référence dont le fichier a disparu (supprimé à la main,
+    volume démonté) ne doit pas se lire « audio complet ». VRAIE fonction, vrai
+    fichier créé puis retiré d'un RECORDINGS_DIR de test."""
+    from types import SimpleNamespace
+
+    from app.routers import interviews_libre
+
+    monkeypatch.setattr(interviews_libre, "RECORDINGS_DIR", tmp_path)
+    f0, f1 = tmp_path / "7_100_aa.webm", tmp_path / "7_101_bb.webm"
+    f0.write_bytes(b"x")
+    f1.write_bytes(b"x")
+    ident = {
+        "audio_backup_path": f1.name,
+        "audio_segments": json.dumps(
+            [{"filename": f0.name, "position": 0}, {"filename": f1.name, "position": 1}]
+        ),
+    }
+    mission = SimpleNamespace(id=7)
+    assert interviews_libre._etat_audio(mission, ident, 2) == (True, 0)  # témoin : complet
+    f1.unlink()  # disparition du dernier fichier
+    a_audio, manquantes = interviews_libre._etat_audio(mission, ident, 2)
+    assert a_audio is False or manquantes > 0
+    assert (a_audio, manquantes) == (True, 1)
+    f0.unlink()  # plus rien sur le disque
+    assert interviews_libre._etat_audio(mission, ident, 2)[0] is False
