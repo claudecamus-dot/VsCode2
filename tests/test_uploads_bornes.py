@@ -443,6 +443,36 @@ def test_sauvegarde_de_secours_trop_grosse_rend_413_et_dit_pourquoi(
     assert "trop volumineux" in response.json()["error"].lower()
 
 
+def test_sauvegarde_de_secours_vide_est_refusee_et_ne_laisse_aucun_fichier(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Un fichier vide n'est pas une sauvegarde : 422 + `error`, aucun fichier
+    de 0 octet dans RECORDINGS_DIR, aucune référence `path`. Le client garde
+    son blob sur tout non-2xx. Un fichier non vide reste accepté."""
+    dossier = tmp_path / "rec"
+    dossier.mkdir()
+    monkeypatch.setattr("app.routers.interviews_backup.RECORDINGS_DIR", dossier)
+    mission_id = _creer_mission(client, "Mission backup vide")
+
+    vide = client.post(
+        f"/missions/{mission_id}/interviews/record/backup",
+        files={"file": ("secours.webm", b"", "audio/webm")},
+    )
+    assert vide.status_code == 422, vide.text
+    corps = vide.json()
+    assert corps["error"]
+    assert "path" not in corps
+    assert list(dossier.iterdir()) == []
+
+    plein = client.post(
+        f"/missions/{mission_id}/interviews/record/backup",
+        files={"file": ("secours.webm", b"EBML-data", "audio/webm")},
+    )
+    assert plein.status_code == 200, plein.text
+    chemin = plein.json()["path"]
+    assert (dossier / chemin).stat().st_size > 0
+
+
 def test_le_plafond_audio_par_defaut_laisse_passer_un_enregistrement_reel() -> None:
     """Garde-fou sur la garde. Mesuré le 2026-09-09 sur les enregistrements du
     poste : MediaRecorder produit 15,72 Ko/s (18,43 Mio pour 1200,0 s,
