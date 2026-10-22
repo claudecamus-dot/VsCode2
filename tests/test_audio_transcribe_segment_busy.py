@@ -29,6 +29,11 @@ from app.models import Interview, Mission
 from app.routers import interviews as routeur_interviews
 from app.services import audio_transcribe
 
+try:
+    from _doublures import FakeSegment
+except ImportError:
+    from tests._doublures import FakeSegment
+
 
 def setup_module() -> None:
     # `engine.dispose()` AVANT l'unlink : un fichier de test precedent dans la
@@ -126,10 +131,6 @@ def test_deux_segments_concurrents_le_second_recoit_busy_proprement(
     non gérée ni un blocage silencieux au-delà du timeout configuré."""
     _sans_decodage(monkeypatch)
     monkeypatch.setattr(audio_transcribe, "SEGMENT_LOCK_TIMEOUT_S", 0.3)
-
-    class FakeSegment:
-        def __init__(self, text: str) -> None:
-            self.text = text
 
     def modele_lent(*_a, **_k):
         time.sleep(0.6)  # tient le verrou plus longtemps que le timeout du second appel

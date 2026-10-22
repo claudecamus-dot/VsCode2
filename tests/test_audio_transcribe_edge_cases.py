@@ -25,6 +25,11 @@ from app.services import audio_transcribe
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures" / "audio" / "synthetiques"
 
+try:
+    from _doublures import FakeSegment
+except ImportError:
+    from tests._doublures import FakeSegment
+
 
 @pytest.fixture
 def client() -> TestClient:
@@ -161,10 +166,6 @@ def test_transcribe_audio_transmet_bien_beam_size(monkeypatch: pytest.MonkeyPatc
     dur ailleurs. Avant le correctif du 2026-07-15/16, `BEAM_SIZE` était lu
     depuis `WHISPER_BEAM_SIZE` mais jamais passé à l'appel réel, donc le
     réglage qualité (medium + beam_size=2) n'avait aucun effet."""
-
-    class FakeSegment:
-        def __init__(self, text: str) -> None:
-            self.text = text
 
     def fake_transcribe(audio, **kwargs):
         return [FakeSegment(" bonjour ")], MagicMock()

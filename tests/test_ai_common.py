@@ -7,6 +7,11 @@ import pytest
 
 from app.services import ai_common
 
+try:
+    from _doublures import FakeResponse
+except ImportError:
+    from tests._doublures import FakeResponse
+
 
 def test_active_provider_defaults_to_ollama(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("AI_PROVIDER", raising=False)
@@ -188,16 +193,6 @@ def test_call_ollama_payload_includes_num_ctx(monkeypatch: pytest.MonkeyPatch) -
 
     captured = {}
 
-    class FakeResponse:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-        def read(self):
-            return b'{"message": {"content": "{}"}}'
-
     def fake_urlopen(req, timeout=None):
         captured["payload"] = json_module.loads(req.data.decode("utf-8"))
         captured["timeout"] = timeout
@@ -240,16 +235,6 @@ def test_call_ollama_payload_includes_keep_alive(monkeypatch: pytest.MonkeyPatch
     import json as json_module
 
     captured = {}
-
-    class FakeResponse:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *args):
-            return False
-
-        def read(self):
-            return b'{"message": {"content": "{}"}}'
 
     def fake_urlopen(req, timeout=None):
         captured["payload"] = json_module.loads(req.data.decode("utf-8"))
@@ -410,13 +395,6 @@ def test_call_ollama_retries_once_on_timeout_then_succeeds(monkeypatch: pytest.M
         calls.append(1)
         if len(calls) == 1:
             raise TimeoutError("premier appel trop lent")
-        class FakeResponse:
-            def __enter__(self):
-                return self
-            def __exit__(self, *a):
-                return False
-            def read(self):
-                return b'{"message": {"content": "{}"}}'
         return FakeResponse()
 
     monkeypatch.setattr(ai_common.urllib.request, "urlopen", fake_urlopen)
