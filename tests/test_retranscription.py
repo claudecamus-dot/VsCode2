@@ -1382,3 +1382,24 @@ def test_confirmer_une_retranscription_complete_consomme_les_jobs_de_tranche(cli
 
     assert _confirmer(client, ctx["interview_id"], ["Propos."]).status_code == 303
     assert _etat_apres_confirmation(ctx["interview_id"], "t3-complet") == (0, 0)
+
+
+def test_confirmer_ignore_un_job_complet_d_un_autre_entretien(client):
+    """Job COMPLET hérité par recyclage d'identifiant mais dont les fichiers
+    sont ceux d'un AUTRE entretien : traité comme absent -- texte écrit, jobs de
+    tranche et `tranches_manquantes` conservés (témoin : test ci-dessus)."""
+    ctx = _entretien_avec_tranches(nb_tranches=2)
+    _semer_jobs_de_tranche(ctx, "t3-etranger", erreur=None)
+    db = SessionLocal()
+    try:
+        job = db.query(AudioFileJob).filter(
+            AudioFileJob.session_token == "t3-etranger-job"
+        ).one()
+        job.filenames = ["autre_mission_ancien_entretien_0.webm"]
+        db.commit()
+    finally:
+        db.close()
+
+    assert _confirmer(client, ctx["interview_id"], ["Propos."]).status_code == 303
+    assert _etat_apres_confirmation(ctx["interview_id"], "t3-etranger") == (1, 1)
+    assert [t.remarque for t in _tours(ctx["interview_id"])] == ["Propos."]

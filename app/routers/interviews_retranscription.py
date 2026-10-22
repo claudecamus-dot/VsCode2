@@ -547,7 +547,9 @@ def retranscrire_confirmer(
         )
     if transcript.strip():
         interview.raw_transcript = transcript.strip()
-    job = _job_retranscription(db, interview_id)
+    # Un job ORPHELIN hérité par recyclage d'identifiant SQLite est étranger :
+    # traité comme absent (cf. `_job_retranscription_de_cet_entretien`).
+    job = _job_retranscription_de_cet_entretien(db, interview)
     # Tours validés par l'utilisateur : la structuration en attente (a_transcrire,
     # a_traiter, echec) est faite. `en_cours` reste tel quel (un worker le porte).
     # (Le cas « texte sans tour » est déjà refusé en 400 plus haut : rien à planifier.)
