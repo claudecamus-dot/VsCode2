@@ -13,7 +13,9 @@ from concurrent.futures.process import BrokenProcessPool
 import numpy as np
 import pytest
 
-from app.services import audio_transcribe as at
+from app.db import DB_PATH, RECORDINGS_DIR, SessionLocal, engine, init_db
+from app.models import AudioFileJob
+from app.services import audio_file_jobs, audio_transcribe as at
 
 
 @pytest.fixture(autouse=True)
@@ -236,3 +238,58 @@ def test_retry_journalise_sans_chemin_ni_texte(monkeypatch, caplog):
     gabarit = (r"Bloc \d+/\d+ en échec \(\w+(, \d+ workers)?\) — "
                r"tentative \d+/\d+(, palier suivant)?\.")
     assert all(re.fullmatch(gabarit, m) for m in msgs), msgs
+
+
+# --- Invariant CR-20 (refactor sans changement de comportement, pas une preuve P1) ---
+
+def _reinit_db() -> None:
+    try:
+        engine.dispose()
+    except Exception:
+        pass
+    if DB_PATH.exists():
+        DB_PATH.unlink()
+    init_db()
+
+
+def test_invariant_plafond_essais_bloc_via_job_de_fond(monkeypatch):
+    """Un bloc toujours en échec est tenté exactement `BLOC_PLAFOND_ESSAIS` fois
+    par le job de fond, et ce plafond suit BLOC_MAX_TENTATIVES et BLOC_RETRIES."""
+    _reinit_db()
+    monkeypatch.setattr(at, "BLOC_RETRY_PAUSE_S", 0)
+    monkeypatch.setattr(audio_file_jobs, "BLOC_RETRY_DELAY_S", 0)
+    monkeypatch.setattr(at, "_faster_whisper", lambda: object())
+    monkeypatch.setattr(at, "_probe_duration_s", lambda content: 5.0)
+    monkeypatch.setattr(
+        at, "_decode_to_pcm16k", lambda content: np.zeros(16000 * 5, dtype=np.float32)
+    )
+    appels = []
+
+    def _toujours_ko(bloc):
+        appels.append(1)
+        raise RuntimeError("echec transitoire")
+
+    monkeypatch.setattr(at, "_transcribe_pcm_sequential", _toujours_ko)
+    nom = "cr20_plafond_test.wav"
+    (RECORDINGS_DIR / nom).write_bytes(b"x")
+    try:
+        with SessionLocal() as db:
+            job = AudioFileJob(session_token="tok-cr20", status="pending", filename=nom)
+            db.add(job)
+            db.commit()
+            job_id = job.id
+        audio_file_jobs.run_audio_file_job(job_id)
+    finally:
+        try:
+            (RECORDINGS_DIR / nom).unlink()
+        except OSError:
+            pass
+        try:
+            engine.dispose()
+        except Exception:
+            pass
+    attendu = (audio_file_jobs.BLOC_RETRIES + 1) * at.BLOC_MAX_TENTATIVES
+    assert audio_file_jobs.BLOC_PLAFOND_ESSAIS == attendu == at.plafond_essais_bloc(
+        audio_file_jobs.BLOC_RETRIES
+    )
+    assert len(appels) == audio_file_jobs.BLOC_PLAFOND_ESSAIS, len(appels)
