@@ -2070,8 +2070,14 @@
     // tentatives et partirait sans la tranche que la reprise va sauver.
     if (!attempt) { pendingBackups++; updateSubmitState(); }
 
+    // Règlement idempotent (EH-5) + drapeau d'acquittement : une fois la tranche
+    // rangée dans backupSegments, un throw ultérieur (refreshBackup*, persistDraft)
+    // ne doit ni la re-POSTer (position en double) ni re-décrémenter.
+    var settled = false, acked = false;
     function settle() {
-      pendingBackups--;
+      if (settled) return;
+      settled = true;
+      pendingBackups = Math.max(0, pendingBackups - 1);
       updateSubmitState();
     }
 
@@ -2082,8 +2088,10 @@
       // Journalisé AVANT toute décision, y compris pour une session abandonnée :
       // le 2026-09-08, zéro tranche audio sur 2h d'entretien, et plus aucune
       // trace pour dire pourquoi (journal serveur tronqué, onglet mort).
-      noterEvenement({ type: 'backup-ko', position: position, raison: reason,
-                       essai: attempt + 1, delaiDepasse: !!timedOut });
+      try {
+        noterEvenement({ type: 'backup-ko', position: position, raison: reason,
+                         essai: attempt + 1, delaiDepasse: !!timedOut });
+      } catch (e0) { console.error(e0); }  // le journal ne doit pas bloquer la reprise
       if (gen !== backupGeneration) { settle(); return; }
       // Délai maximal atteint (err.recTimeout — revue R3-M5/M6) : pas de
       // relance automatique. L'upload est borné par la bande passante, pas par
@@ -2103,11 +2111,23 @@
       }
       if (backupPerdus.indexOf(position) < 0) backupPerdus.push(position);
       // Le blob n'est PAS lâché : il devient une ligne écoutable et
-      // téléchargeable de la liste des tranches (EC-3).
-      garderTrancheEnLocal(position, blob);
-      refreshBackupStatus();
-      refreshBackupList();
-      settle();
+      // téléchargeable de la liste des tranches (EC-3). settle() est garanti
+      // même si un effet d'affichage lève (sinon le gate reste figé).
+      try {
+        garderTrancheEnLocal(position, blob);
+        refreshBackupStatus();
+        refreshBackupList();
+      } catch (eAff) {
+        // Affichage de la perte en échec : sans ce texte en dur, la tranche
+        // (déjà dans backupPerdus) disparaît de l'écran et l'utilisateur peut
+        // soumettre sans avertissement.
+        console.error('sauvegarde audio: chemin d’échec en erreur', eAff);
+        backupStatusEl.textContent = '⚠ Tranche n° ' + (position + 1) + ' d’audio NON SAUVEGARDÉE '
+          + '(' + reason + ') et sa copie locale a échoué. Ne quitte pas cette page '
+          + 'avant d’avoir récupéré l’enregistrement. Le texte transcrit, lui, reste complet.';
+      } finally {
+        settle();
+      }
     }
 
     if (!attempt) {
@@ -2125,8 +2145,12 @@
         // réinitialisation entre-temps) : ne pas contaminer la nouvelle.
         if (gen !== backupGeneration) { settle(); return; }
         if (result.ok && result.data.path) {
+          // Acquittement = position enregistrée par le push ci-dessous. Avant,
+          // une erreur doit relancer : un fichier orphelin côté serveur vaut mieux
+          // qu'une tranche absente d'audio_segments.
           signalerMissionAbsente(result.data);
           backupSegments.push({ filename: result.data.path, position: position });
+          acked = true;
           backupConfirmes++;
           backupSegments.sort(function (a, b) { return a.position - b.position; });
           audioSegmentsHidden.value = JSON.stringify(backupSegments);
@@ -2147,6 +2171,13 @@
         }
       })
       .catch(function (err) {
+        // Tranche déjà acquittée ou réglée : pas de re-POST (EH-5). On libère le
+        // gate si le throw a précédé settle().
+        if (acked || settled) {
+          console.error(acked ? 'sauvegarde audio: erreur après acquittement' : 'sauvegarde audio: erreur après règlement', err);
+          try { settle(); } catch (e2) { console.error(e2); }
+          return;
+        }
         // `recTimeout` : délai maximal atteint (rec_fetch.js) — pas de relance
         // automatique des mêmes octets (R3-M5/M6).
         retryOrGiveUp(err.message, !!(err && err.recTimeout));

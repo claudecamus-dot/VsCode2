@@ -1158,11 +1158,19 @@
     // pas re-compter un segment déjà en vol) d'un premier appel.
     if (!attempt && !busyUntilArg) { pendingSegments++; updateSubmitState(); }
 
+    // Idempotent (EH-5, comme record_libre.html) : un seul décrément par segment, même si
+    // updateSubmitState/maybeSubmitFinalJob lève et que le .catch rappelle settle().
+    var settled = false;
     function settle() {
-      pendingSegments--;
-      updateSubmitState();
-      maybeSubmitFinalJob();  // transcription stabilisée -> job final si un reliquat reste
-      if (onSettle) onSettle();  // relance séquentielle : le segment perdu suivant
+      if (settled) return;
+      settled = true;
+      pendingSegments = Math.max(0, pendingSegments - 1);
+      try {
+        updateSubmitState();
+        maybeSubmitFinalJob();  // transcription stabilisée -> job final si un reliquat reste
+      } finally {
+        if (onSettle) onSettle();  // relance séquentielle : le segment perdu suivant
+      }
     }
 
     // Échec transitoire (« Failed to fetch » : serveur redémarré, Wi-Fi coupé,
@@ -1326,6 +1334,9 @@
       .catch(function (err) {
         // `recTimeout` : délai maximal atteint (rec_fetch.js) — pas de relance
         // automatique des mêmes octets (R3-M5/M6).
+        // Déjà réglé : l'erreur vient de settle() (callback), pas du réseau — relancer
+        // re-POSTerait un segment accepté et décrémenterait une 2e fois.
+        if (settled) { console.error('erreur après règlement du segment', err); return; }
         retryOrGiveUp(err.message, !!(err && err.recTimeout));
       });
   }
@@ -1531,8 +1542,14 @@
     // tentative en cours.
     if (!attempt) { pendingBackups++; updateSubmitState(); }
 
+    // Règlement idempotent (EH-5, même patron que uploadSegment) : si
+    // updateSubmitState lève après le décrément, le .catch ne doit ni
+    // re-décrémenter ni re-POSTer une sauvegarde déjà acceptée.
+    var settled = false, acked = false;
     function settle() {
-      pendingBackups--;
+      if (settled) return;
+      settled = true;
+      pendingBackups = Math.max(0, pendingBackups - 1);
       updateSubmitState();
     }
 
@@ -1558,6 +1575,7 @@
       // ne dit « perdu » que si même ça a échoué — annoncer une perte alors que
       // le fichier est téléchargeable juste en dessous serait faux, et
       // l'inverse (promettre un lien absent) le serait tout autant.
+      try {
       if (offrirBackupEnLocal(blob)) {
         backupStatusEl.textContent = '⚠ Sauvegarde audio NON transmise (' + reason
           + '), mais l’enregistrement n’est pas perdu : récupère-le avec '
@@ -1569,7 +1587,17 @@
         backupStatusEl.textContent = '⚠ AUDIO PERDU : la sauvegarde n’a pas pu être '
           + 'transmise (' + reason + '). Le texte transcrit, lui, reste complet.';
       }
-      settle();
+      } catch (eAff) {
+        // Le message d'échec n'a pas pu être posé : on le pose en dur, sinon
+        // l'écran garde « nouvelle tentative… » et l'utilisateur soumet sans
+        // savoir que cette sauvegarde (seule copie de l'audio) est perdue.
+        console.error('sauvegarde audio: chemin d’échec en erreur', eAff);
+        backupStatusEl.textContent = '⚠ AUDIO NON SAUVEGARDÉ : la sauvegarde n’a pas pu être '
+          + 'transmise (' + reason + ') et sa copie locale a échoué. Ne quitte pas cette page '
+          + 'avant d’avoir récupéré l’enregistrement. Le texte transcrit, lui, reste complet.';
+      } finally {
+        settle();  // garanti même si offrirBackupEnLocal lève (gate figé sinon)
+      }
     }
 
     if (!attempt) backupStatusEl.textContent = 'Sauvegarde audio en cours…';
@@ -1582,8 +1610,12 @@
       .then(function (result) {
         if (gen !== recGeneration) { settle(); return; }  // session abandonnée
         if (result.ok && result.data.path) {
+          // Acquittement = référence enregistrée (backupPathHidden, plus bas). Avant,
+          // une erreur doit relancer : un fichier orphelin côté serveur vaut mieux
+          // qu'une sauvegarde perdue.
           signalerMissionAbsente(result.data);
           backupPathHidden.value = result.data.path;
+          acked = true;  // le serveur a la sauvegarde : plus de re-POST
           backupStatusEl.textContent = '✓ sauvegarde audio complète effectuée.';
           var backupUrl = urlAudio(result.data.path);
           // Une tentative précédente a pu offrir le blob en local (EC-3) : le
@@ -1604,6 +1636,13 @@
         }
       })
       .catch(function (err) {
+        // Déjà réglée (settle a levé après le décrément) : relancer
+        // re-posterait une sauvegarde acceptée (EH-5).
+        if (acked || settled) {
+          console.error(acked ? 'sauvegarde audio: erreur après acquittement' : 'sauvegarde audio: erreur après règlement', err);
+          try { settle(); } catch (e2) { console.error(e2); }
+          return;
+        }
         // `recTimeout` : délai maximal atteint (rec_fetch.js) — pas de relance
         // automatique des mêmes octets (R3-M5/M6).
         retryOrGiveUp(err.message, !!(err && err.recTimeout));
