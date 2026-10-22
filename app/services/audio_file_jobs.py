@@ -226,7 +226,8 @@ def _est_reessayable(exc: BaseException) -> bool:
     (par classe) ou l'échec générique au message fixe. Les autres
     `TranscriptionError` (décodage illisible, sans piste...) restent fatales."""
     if isinstance(exc, audio_transcribe.TranscriptionFondBusyError):
-        # Verrou de fond non obtenu en 1800 s : rejouer = (BLOC_RETRIES + 1) x BLOC_MAX_TENTATIVES = 9 x 1800 s par bloc.
+        # Verrou de fond non obtenu en 1800 s : rejouer coûterait
+        # `audio_transcribe.plafond_essais_bloc(BLOC_RETRIES)` x 1800 s par bloc.
         return False
     if isinstance(exc, audio_transcribe.TranscriptionBusyError):
         return True
