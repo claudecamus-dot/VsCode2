@@ -47,7 +47,7 @@ _ECHECS_ATTENDUS = [
     "Échec de la transcription du fichier.",
     "Rattachement impossible (timeout)",
     "Micro inaccessible : Permission denied",
-    "Transcription interrompue au bloc 3.",
+    "Transcription interrompue au passage 3.",
 ]
 _NEUTRES_ATTENDUS = [
     "Enregistrement en cours…",
@@ -56,7 +56,7 @@ _NEUTRES_ATTENDUS = [
     "Relance de 3 segments…",
     "Segment non transmis (timeout) — nouvelle tentative (2/3)…",
     "Transcription momentanément occupée — nouvelle tentative dans 5 s…",
-    "Reprise de la transcription au bloc 4…",
+    "Reprise de la transcription au passage 4…",
     "Fichier transcrit (5 blocs)",
     "Un rattachement est déjà en cours — attends sa fin.",
     "Rattachement de « entretien.webm »…",
@@ -215,7 +215,7 @@ def test_les_vrais_messages_d_echec_du_fichier_sont_couverts(ecran: Path) -> Non
     for motif in (
         "non supporté par ce navigateur", "Relance impossible :",
         "Échec de la transcription", "Rattachement impossible", "Micro inaccessible",
-        "Transcription interrompue au bloc",
+        "Transcription interrompue au passage",
     ):
         assert motif in contenu_sans_la_liste, (
             f"{ecran.name} : le motif {motif!r} de STATUT_ECHEC_MOTIFS ne "

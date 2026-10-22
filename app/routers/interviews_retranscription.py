@@ -466,7 +466,7 @@ def retranscrire_appliquer(
     _, absentes = _tranches_audio(interview)
     if absentes:
         avertissements.append(
-            f"{absentes} tranche(s) audio référencée(s) par cet entretien sont "
+            f"{absentes} partie(s) audio référencée(s) par cet entretien sont "
             "introuvables sur le disque : la transcription relancée est trouée."
         )
     if not merged["turns"]:

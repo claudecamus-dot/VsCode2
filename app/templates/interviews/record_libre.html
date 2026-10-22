@@ -138,7 +138,7 @@
   <div class="notice rec-lost-banner" id="rec-file-retry-banner" hidden>
     <span id="rec-file-retry-text"></span>
     <button class="btn btn-sm" type="button" id="rec-file-retry"
-            title="Reprend la transcription au bloc qui a échoué, sans refaire les blocs déjà transcrits">↻ Relancer la transcription</button>
+            title="Reprend la transcription au passage qui a échoué, sans refaire les passages déjà transcrits">↻ Relancer la transcription</button>
   </div>
   <!-- D1 (arbitré le 2026-09-02). La mission peut disparaître PENDANT
        l'enregistrement : un entretien libre en cours est `_draft_vide`, donc
@@ -345,7 +345,7 @@
   var STATUT_ECHEC_MOTIFS = [
     'non supporté par ce navigateur', 'Relance impossible :',
     'Échec de la transcription', 'Rattachement impossible', 'Micro inaccessible',
-    'Transcription interrompue au bloc'
+    'Transcription interrompue au passage'
   ];
   function statutEstEchec(texte) {
     return STATUT_ECHEC_MOTIFS.some(function (motif) { return texte.indexOf(motif) !== -1; });
@@ -1742,7 +1742,7 @@
   function refreshBackupList() {
     var many = backupSegments.length > 1;
     audioPlaybackTitleEl.textContent = many
-      ? 'Enregistrement sauvegardé, par tranches de ' + Math.round(BACKUP_SEGMENT_MS / 60000) + ' min :'
+      ? 'Enregistrement sauvegardé, par parties de ' + Math.round(BACKUP_SEGMENT_MS / 60000) + ' min :'
       : 'Enregistrement sauvegardé :';
     backupSegments.forEach(function (seg, i) {
       var row = backupRowByFile[seg.filename];
@@ -1771,7 +1771,7 @@
         brancherRepliOrphelin(audio, link, seg.filename);
         backupRowByFile[seg.filename] = row;
       }
-      row.labelEl.textContent = many ? 'Tranche ' + (seg.position + 1) : '';
+      row.labelEl.textContent = many ? 'Partie ' + (seg.position + 1) : '';
       row.labelEl.hidden = !many;
       if (audioSegmentListEl.children[i] !== row) {
         audioSegmentListEl.insertBefore(row, audioSegmentListEl.children[i] || null);
@@ -1787,7 +1787,7 @@
         row.className = 'audio-segment';
         var label = document.createElement('span');
         label.className = 'muted';
-        label.textContent = 'Tranche ' + (perdue.position + 1) + ' — non transmise';
+        label.textContent = 'Partie ' + (perdue.position + 1) + ' — non transmise';
         var audio = document.createElement('audio');
         audio.controls = true;
         audio.className = 'record-audio-player';
@@ -1798,7 +1798,7 @@
         // Nom explicite : ce fichier va vivre sur le disque de l'utilisateur,
         // hors de toute mission — « entretien.webm » n'y serait pas retrouvable.
         link.setAttribute('download', 'entretien-{{ mission.id }}-tranche-' + (perdue.position + 1) + '.webm');
-        link.textContent = 'Télécharger cette tranche';
+        link.textContent = 'Télécharger cette partie';
         row.appendChild(label);
         row.appendChild(audio);
         row.appendChild(link);
@@ -2032,7 +2032,7 @@
   function refreshBackupStatus() {
     var n = backupSegments.length;
     var txt = n
-      ? '✓ sauvegarde audio effectuée (' + n + ' tranche' + (n > 1 ? 's' : '') + ').'
+      ? '✓ sauvegarde audio effectuée (' + n + ' partie' + (n > 1 ? 's' : '') + ').'
       : '';
     if (backupPerdus.length) {
       var m = backupPerdus.length;
@@ -2043,11 +2043,11 @@
       // locale a elle aussi échoué.
       var recuperables = backupPerdusLocaux.length === backupPerdus.length;
       txt += (txt ? ' ' : '')
-        + '⚠ ' + m + ' tranche' + (m > 1 ? 's' : '') + ' d’audio '
+        + '⚠ ' + m + ' partie' + (m > 1 ? 's' : '') + ' d’audio '
         + (recuperables ? 'NON TRANSMISE' : 'PERDUE') + (m > 1 ? 'S' : '')
         + ' (n° ' + backupPerdus.map(function (p) { return p + 1; }).join(', ') + ') — '
         + (recuperables
-            ? 'récupère-la' + (m > 1 ? 's' : '') + ' avec « Télécharger cette tranche » '
+            ? 'récupère-la' + (m > 1 ? 's' : '') + ' avec « Télécharger cette partie » '
               + 'ci-dessous, puis rends-la' + (m > 1 ? 's' : '') + ' à l’entretien avec '
               + '« Rattacher sans transcrire » — surtout pas « Transcrire ce fichier » : '
               + 'ce texte est déjà dans la transcription, le retranscrire dirait '
@@ -2066,7 +2066,7 @@
       try { noterEvenement({ type: 'backup-vide', actif: recordingActive }); } catch (e0) { console.error(e0); }
       // Signal VISIBLE (J1b), sauf si des tranches sont déjà rangées (leur statut de succès prime).
       if (!backupSegments.length) {
-        backupStatusEl.textContent = '⚠ Aucune donnée audio captée pour cette tranche (micro muet ou coupé ?) — rien à sauvegarder.';
+        backupStatusEl.textContent = '⚠ Aucune donnée audio captée pour cette partie (micro muet ou coupé ?) — rien à sauvegarder.';
       }
       return;
     }
@@ -2115,7 +2115,7 @@
       // grisé. La tranche est marquée perdue et DITE (refreshBackupStatus) —
       // le texte transcrit, lui, reste complet.
       if (!timedOut && attempt < RETRY_PLAN.delaisReseau.length) {
-        backupStatusEl.textContent = 'Sauvegarde audio de la tranche ' + (position + 1)
+        backupStatusEl.textContent = 'Sauvegarde audio de la partie ' + (position + 1)
           + ' non transmise (' + reason + ') — nouvelle tentative ('
           + (attempt + 2) + '/' + (RETRY_PLAN.delaisReseau.length + 1) + ')…';
         setTimeout(function () {
@@ -2136,7 +2136,7 @@
           // (déjà dans backupPerdus) disparaît de l'écran et l'utilisateur peut
           // soumettre sans avertissement.
           console.error('sauvegarde audio: copie locale en erreur', eGarde);
-          backupStatusEl.textContent = '⚠ Tranche n° ' + (position + 1) + ' d’audio NON SAUVEGARDÉE '
+          backupStatusEl.textContent = '⚠ Partie n° ' + (position + 1) + ' d’audio NON SAUVEGARDÉE '
             + '(' + reason + ') et sa copie locale a échoué. Ne quitte pas cette page '
             + 'avant d’avoir récupéré l’enregistrement. Le texte transcrit, lui, reste complet.';
           return;  // finally : settle()
@@ -2150,7 +2150,7 @@
     }
 
     if (!attempt) {
-      backupStatusEl.textContent = 'Sauvegarde audio en cours (tranche ' + (position + 1) + ')…';
+      backupStatusEl.textContent = 'Sauvegarde audio en cours (partie ' + (position + 1) + ')…';
       noterEvenement({ type: 'backup-envoi', position: position, octets: blob.size });
     }
     var formData = new FormData();
@@ -2226,12 +2226,12 @@
 
   function showFileRetry(message, consumed) {
     failedFileImport = null;  // renseigné par l'appelant, qui connaît le jobId
-    fileRetryTextEl.textContent = 'Bloc ' + (consumed + 1) + ' non transcrit : '
+    fileRetryTextEl.textContent = 'Passage ' + (consumed + 1) + ' non transcrit : '
       + (message || 'échec de la transcription') + '. '
       + (consumed > 0
-          ? 'Les ' + consumed + ' bloc' + (consumed > 1 ? 's' : '') + ' déjà transcrit'
+          ? 'Les ' + consumed + ' passage' + (consumed > 1 ? 's' : '') + ' déjà transcrit'
             + (consumed > 1 ? 's sont conservés' : ' est conservé') + ' — la reprise repart de là.'
-          : 'La reprise recommencera au premier bloc.');
+          : 'La reprise recommencera au premier passage.');
     fileRetryBannerEl.hidden = false;
     fileRetryBtn.disabled = false;
   }
@@ -2254,7 +2254,7 @@
     var gen = backupGeneration;
     fileRetryInFlight = true;
     fileRetryBtn.disabled = true;
-    statusEl.textContent = 'Reprise de la transcription au bloc ' + (info.consumed + 1) + '…';
+    statusEl.textContent = 'Reprise de la transcription au passage ' + (info.consumed + 1) + '…';
     var formData = new FormData();
     formData.append('job_id', info.jobId);
     formData.append('session_token', sessionToken);
@@ -2275,7 +2275,7 @@
         pendingSegments++;
         testUploadBtn.disabled = true;
         updateSubmitState();
-        statusEl.textContent = 'Reprise de la transcription au bloc ' + (info.consumed + 1) + '…';
+        statusEl.textContent = 'Reprise de la transcription au passage ' + (info.consumed + 1) + '…';
         pollFileImport(info.jobId, gen, info.consumed, 0);
       })
       .catch(function (err) {
@@ -2381,7 +2381,7 @@
             if (gen === backupGeneration) {
               showFileRetry(data.error, consumed);
               failedFileImport = { jobId: jobId, consumed: consumed };
-              statusEl.textContent = 'Transcription interrompue au bloc ' + (consumed + 1) + '.';
+              statusEl.textContent = 'Transcription interrompue au passage ' + (consumed + 1) + '.';
             }
             return;
           }
@@ -2405,7 +2405,7 @@
             return;
           }
           statusEl.textContent = 'Transcription du fichier en cours — ' + consumed
-            + (data.total ? '/' + data.total : '') + ' bloc(s) transcrit(s)…';
+            + (data.total ? '/' + data.total : '') + ' passage(s) transcrit(s)…';
           pollFileImport(jobId, gen, consumed, 0);
         })
         .catch(function (err) {
@@ -2522,7 +2522,7 @@
     // garde-fou était `recordingActive`, qui ne dit rien de ce qui est déjà
     // enregistré.
     if (backupSegments.length) {
-      statusEl.textContent = 'Cet entretien a déjà ' + backupSegments.length + ' tranche'
+      statusEl.textContent = 'Cet entretien a déjà ' + backupSegments.length + ' partie'
         + (backupSegments.length > 1 ? 's' : '') + ' d\'audio enregistrée'
         + (backupSegments.length > 1 ? 's' : '') + '. Transcrire ce fichier ajouterait un '
         + 'second enregistrement du même entretien, et la relance le transcrirait deux fois. '
@@ -2565,7 +2565,7 @@
         if (!result.ok || !result.data.job_id) {
           throw new Error(result.data.error || result.data.detail || 'import refusé');
         }
-        statusEl.textContent = 'Transcription du fichier en cours (par blocs)…';
+        statusEl.textContent = 'Transcription du fichier en cours (par passages)…';
         pollFileImport(result.data.job_id, gen, 0, 0);
       })
       .catch(function (err) {
@@ -3022,7 +3022,7 @@
     // + relances manuelles encore dans la closure du drain (hors celle déjà comptée en vol)
     var enVol = pendingSegments + pendingSegmentJobSubmits + Math.max(0, lostRetryActive - lowEnVol);
     var aRelancer = nonTranscrits + waitingSegments.length;
-    if (sessionRestauree && !aRelancer && !enVol && !confirm('Session restaurée : l’audio de la session précédente peut être incomplet (sa dernière tranche a pu être perdue). Enregistrer quand même ?')) {
+    if (sessionRestauree && !aRelancer && !enVol && !confirm('Session restaurée : l’audio de la session précédente peut être incomplet (sa dernière partie a pu être perdue). Enregistrer quand même ?')) {
       ev.preventDefault();
       return;
     }

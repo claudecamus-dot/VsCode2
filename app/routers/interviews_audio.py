@@ -359,7 +359,7 @@ def transcribe_file_retry(
         return JSONResponse(
             {
                 "error": "Tout le fichier a déjà été transcrit : l'échec ne vient "
-                "pas d'un bloc interrompu. Reprends depuis un autre fichier.",
+                "pas d'un passage interrompu. Reprends depuis un autre fichier.",
                 "status": "failed",
             },
             status_code=409,

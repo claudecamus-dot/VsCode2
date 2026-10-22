@@ -281,7 +281,7 @@ def test_un_import_termine_mais_incomplet_affiche_un_bandeau_persistant(serveur:
     _importer_un_fichier(nav, _INCOMPLET)
     _attendre(nav, "!document.getElementById('rec-completude-banner').hidden", 30, "bandeau de complétude")
     texte = nav.evaluer("document.getElementById('rec-completude-banner').innerText")
-    assert "Transcription incomplète" in texte and "bloc sans texte : 2" in texte, texte
+    assert "Transcription incomplète" in texte and "passage sans texte : 2" in texte, texte
     assert "un deux trois" not in texte and "import.wav" not in texte, "ni texte transcrit ni chemin"
     # Persistant : la ligne de statut est réécrite par d'autres chemins juste
     # après « Fichier transcrit » (constaté en réel : « Enregistrement terminé »),

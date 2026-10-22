@@ -838,7 +838,7 @@ def test_tranche_disparue_du_disque_est_signalee(client, monkeypatch):
     suivi = client.get(f"/interviews/{ctx['interview_id']}/retranscrire").text
     # Le template coupe la phrase sur deux lignes : on ancre sur le fragment
     # significatif, pas sur la phrase reconstituée.
-    assert "1 tranche(s) audio de cet entretien sont introuvables" in suivi
+    assert "1 partie(s) audio de cet entretien sont introuvables" in suivi
     revue = client.post(f"/interviews/{ctx['interview_id']}/retranscrire/appliquer").text
     assert "Ce résultat est incomplet" in revue
     assert "introuvables sur le disque" in revue
