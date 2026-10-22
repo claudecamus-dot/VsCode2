@@ -115,7 +115,7 @@
         {% if not global_synthesis or not global_synthesis.has_content %}
         <span class="muted">Nécessite la synthèse globale ci-dessus (déjà générée ou éditée).</span>
         {% else %}
-        <span class="muted">{{ 'Aucun axe pour l’instant.' if not axes else 'Voir/éditer le détail à l’étape 3 « Recommandations ».' }}</span>
+        <span class="muted">{{ "Aucun axe pour l'instant." if not axes else "Voir/éditer le détail à l'étape 3 « Recommandations »." }}</span>
         {% endif %}
       </form>
       {% if axes %}
