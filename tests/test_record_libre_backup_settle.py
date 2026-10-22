@@ -134,3 +134,23 @@ def test_libre_5xx_puis_relance_reussie_compte_une_fois():
     out = _lancer(0, 0, reponses="[" + _KO + "," + _OK + "]")
     out.pop("statut")
     assert out == {"pendant": 1, "pending": 0, "posts": 2, "garder": 0, "perdus": 0, "positions": [0]}, out
+
+
+def test_libre_blob_vide_n_est_pas_poste_ni_position_ni_perte():
+    # J1 : tranche finale de 0 octet -> pas de POST, pas de position, pas de « perte ».
+    scen = r"""
+(async () => {
+  uploadBackup({ type: 'audio/webm', size: 0 }, 0, undefined, undefined);
+  await tick();
+  console.log(JSON.stringify({ pending: pendingBackups, posts: posts.length, pos: nextBackupPosition,
+    perdus: backupPerdus.length, garder: garderAppels, segs: backupSegments.length }));
+})();
+"""
+    src = _sans_commentaires(LIBRE.read_text(encoding="utf-8"))
+    script = "let recordingActive = false;\n" + _SCRIPT % {
+        "boomSubmit": 0, "boomList": 0, "boomSignal": 0, "boomGarder": 0,
+        "rec_retry": (_ROOT / "app" / "static" / "rec_retry.js").read_text(encoding="utf-8"),
+        "fonction": _fonction(src, "uploadBackup"),
+    } + scen
+    out = _node(script)
+    assert out == {"pending": 0, "posts": 0, "pos": 0, "perdus": 0, "garder": 0, "segs": 0}, out

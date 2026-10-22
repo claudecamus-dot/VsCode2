@@ -182,3 +182,26 @@ def test_backup_throw_apres_ecriture_du_chemin_ne_reposte_pas():
 def test_backup_5xx_puis_relance_reussie_compte_une_fois():
     out = _lancer_backup(0, reponses="[" + _KO + "," + _OK + "]")
     assert out["posts"] == 2 and out["pending"] == 0 and out["pendant"] == 1, out
+
+
+_SCENARIO_VIDE = r"""
+(async () => {
+  uploadBackup({ type: 'audio/webm', size: 0 }, 0, undefined);
+  await tick();
+  console.log(JSON.stringify({ pending: pendingBackups, posts: posts.length, seen: seen.length, statut: backupStatusEl.textContent }));
+})();
+"""
+
+
+def test_backup_blob_vide_n_est_pas_poste_et_ne_tient_pas_le_gate():
+    # J1 : 0 octet -> 422 serveur -> rejoue 3 fois puis « perdu » a tort.
+    src = _sans_commentaires(RECORD.read_text(encoding="utf-8"))
+    script = _SCRIPT_BACKUP % {
+        "boom": 0, "boomBrancher": 0, "boomOffrir": 0,
+        "rec_retry": (_ROOT / "app" / "static" / "rec_retry.js").read_text(encoding="utf-8"),
+        "fonction": _fonction(src, "uploadBackup"),
+    } + _SCENARIO_VIDE
+    out = _node(script)
+    assert out["posts"] == 0, out
+    assert out["pending"] == 0, out
+    assert "PERDU" not in out["statut"] and "NON" not in out["statut"], out

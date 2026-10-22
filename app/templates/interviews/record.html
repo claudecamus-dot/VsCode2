@@ -1529,6 +1529,13 @@
   }
 
   function uploadBackup(blob, attempt, genArg) {
+    // Blob vide (J1) : rien à sauvegarder, et le serveur répond 422 sur 0 octet — le
+    // rejouer 3 fois puis le déclarer « perdu » serait faux. On ne poste pas, on ne tient
+    // jamais le gate (garde posée AVANT pendingBackups++).
+    if (blob && blob.size === 0) {
+      console.warn('sauvegarde audio: blob vide, non envoyé');
+      return;
+    }
     // Garde de génération, alignée sur la PREMIÈRE tentative — elle manquait
     // ICI, et ici seulement (revue du 2026-08-31) : tous les autres chemins du
     // fichier la portent (uploadSegment, submitSegmentJob, postRecoveredJob,

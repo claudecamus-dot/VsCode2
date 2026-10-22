@@ -2055,6 +2055,13 @@
   }
 
   function uploadBackup(blob, attempt, positionArg, genArg) {
+    // Blob vide (J1) : rien à sauvegarder, et le serveur répond 422 sur 0 octet — le
+    // rejouer 3 fois puis le déclarer « perdu » serait faux. Garde posée AVANT l'attribution
+    // de position et pendingBackups++ : aucune position consommée, jamais de gate tenu.
+    if (blob && blob.size === 0 && !attempt) {
+      try { noterEvenement({ type: 'backup-vide', actif: recordingActive }); } catch (e0) { console.error(e0); }
+      return;
+    }
     // Position figée à la PREMIÈRE tentative (dans l'ordre des évènements
     // `stop`), pas à la résolution du fetch : deux uploads en vol ne peuvent pas
     // se voir attribuer la même position, et une relance ne consomme pas un
