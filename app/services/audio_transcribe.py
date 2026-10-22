@@ -894,7 +894,7 @@ def iter_transcribe_blocks(
     Chaque bloc est tenté au plus `BLOC_MAX_TENTATIVES` fois PAR APPEL (pool
     compris), AVANT d'être rendu. `tentatives` et `blocs_rejoues` sont remis à
     zéro à chaque appel : le plafond réel par bloc est donc
-    `(BLOC_RETRIES + 1) x BLOC_MAX_TENTATIVES` quand l'appelant (job de fond)
+    `plafond_essais_bloc(BLOC_RETRIES)` quand l'appelant (job de fond)
     rappelle la fonction après un échec. Un échec dans le pool fait descendre d'un
     palier à partir du bloc fautif, puis le séquentiel prend les tentatives
     restantes. `stats` (optionnel, rempli en place) reçoit `blocs_rejoues`
