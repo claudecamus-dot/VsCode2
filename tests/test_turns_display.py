@@ -695,3 +695,23 @@ def test_entretien_structure_sans_trame_ne_500_pas(client):
     response = client.get(f"/interviews/{interview_id}")
     assert response.status_code == 200
     assert "La trame est vide" in response.text
+
+
+def test_apercu_propose_la_transcription_en_pdf_seulement_si_elle_existe(client):
+    """P2 : le PDF de la transcription est atteignable depuis l'Aperçu (onglet
+    par défaut), sans ouvrir l'onglet Transcription ; absent sans transcription
+    (la route répondrait 400)."""
+    iid = _entretien_libre("Texte brut de l'entretien.")
+    html = client.get(f"/interviews/{iid}").text
+    apercu = html.split('id="turntab-apercu"')[1]
+    assert 'id="apercu-transcription-pdf"' in apercu
+    assert f'href="/interviews/{iid}/export/transcription/pdf"' in apercu.split(
+        'id="apercu-transcription-pdf"')[1].split(">")[0]
+    assert "Télécharger la transcription (PDF)" in apercu
+    # Le lien de l'onglet Transcription reste (duplication, pas déplacement).
+    panneau = html.split('id="turntab-transcription"')[1].split('id="turntab-apercu"')[0]
+    assert "/export/transcription/pdf" in panneau and "apercu-transcription-pdf" not in panneau
+
+    vide = _entretien_libre(None, avec_tours=False)
+    html_vide = client.get(f"/interviews/{vide}").text
+    assert "apercu-transcription-pdf" not in html_vide

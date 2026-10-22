@@ -320,8 +320,8 @@ def test_telecharger_la_fiche_et_la_transcription_en_pdf(
     texte_fiche = _texte_pdf(fiche)
     assert "Le comité tranche toujours." in texte_fiche, texte_fiche[:400]
     assert "Export de secours" not in texte_fiche, "repli de secours servi : build_interview_pdf casse"
-    # La fiche s'ouvre sur l'Aperçu dès que les tours sont faits : le lien du PDF de la
-    # transcription est dans l'onglet Transcription, que l'utilisateur ouvre d'abord.
+    # Ici on ouvre l'onglet Transcription pour atteindre SON lien ; le lien dupliqué
+    # dans l'Aperçu a son propre clic (test_..._depuis_l_apercu), sans ouvrir l'onglet.
     nav.cliquer(".rec-tab[data-turntab=transcription]")
     transcription = _telecharger(
         nav, "a[href$='/export/transcription/pdf']", tmp_path / "transcription", "*.pdf")
@@ -692,3 +692,20 @@ def test_retranscription_sans_tour_propose_la_transcription_en_pdf(
     assert _lire(base_db, _LIRE_RETRANSCRIPTION, str(iid))["transcript"] == \
         "Ancienne transcription gamma."
     _sans_erreur(nav, "Retranscription sans tour : PDF de secours", sauf=("/record/backup/",))
+
+
+def test_telecharger_la_transcription_en_pdf_depuis_l_apercu(
+    serveur, nav: Navigateur, tmp_path
+) -> None:
+    """P5 : la fiche s'ouvre sur l'Aperçu ; le lien dupliqué dans l'Aperçu
+    (`#apercu-transcription-pdf`) est cliqué SANS ouvrir l'onglet Transcription."""
+    base, base_db = serveur
+    ids = _lire(base_db, _SEED_FICHE)
+    nav.naviguer(f"{base}/interviews/{ids['interview']}")
+    _sans_erreur(nav, "Ouvrir la fiche (Aperçu)")
+    transcription = _telecharger(
+        nav, "#apercu-transcription-pdf", tmp_path / "transcription_apercu", "*.pdf")
+    assert transcription.name == "transcription_alice_fiche.pdf", transcription.name
+    assert transcription.read_bytes()[:5] == b"%PDF-" and transcription.stat().st_size > 500
+    assert "Transcription brute alpha" in _texte_pdf(transcription)
+    _sans_erreur(nav, "Télécharger la transcription depuis l'Aperçu")

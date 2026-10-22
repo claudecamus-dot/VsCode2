@@ -175,6 +175,10 @@
           Transcription structurée par IA depuis un entretien libre — pas un
           verbatim mot à mot. L'aperçu reflète l'état <strong>enregistré</strong>
           de l'entretien.
+          {% if transcript %}
+          <br>Le texte brut : <a class="btn-link" id="apercu-transcription-pdf"
+             href="/interviews/{{ interview.id }}/export/transcription/pdf">Télécharger la transcription (PDF)</a>
+          {% endif %}
         </p>
       </header>
       {% if not sections %}
