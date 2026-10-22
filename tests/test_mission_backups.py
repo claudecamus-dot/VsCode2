@@ -1438,3 +1438,69 @@ def test_un_fichier_nettement_anterieur_reste_etranger_a_la_mission():
         assert not mission_backups.appartient_a_mission(
             ancien, mid, mission, RECORDINGS_DIR
         ), "un fichier d'un jour plus vieux que la mission n'est pas à elle"
+
+
+
+# --------------------------------------------------------------------------- #
+# Suppression de mission : une référence stockée polluée ne sort jamais du dossier
+# --------------------------------------------------------------------------- #
+
+
+def _mission_polluee(references: list[str]):
+    """Mission + entretien dont les segments sont `references` (bruts, comme en base)."""
+    with SessionLocal() as db:
+        mission = Mission(name="Mission polluée")
+        db.add(mission)
+        db.flush()
+        db.add(Interview(
+            mission_id=mission.id, interviewee_name="Testeur", mode="libre",
+            audio_segments=[{"filename": f, "position": i} for i, f in enumerate(references)],
+            audio_backup_path=references[0],
+        ))
+        db.commit()
+        return mission.id
+
+
+def test_suppression_de_mission_ne_touche_pas_un_fichier_hors_du_dossier(
+    client: TestClient, tmp_path,
+):
+    sentinelle_proche = RECORDINGS_DIR.parent / "sentinelle_hors_recordings.webm"
+    sentinelle_proche.write_bytes(b"s")
+    sentinelle_abs = tmp_path / "sentinelle_abs.webm"
+    sentinelle_abs.write_bytes(b"s")
+    try:
+        polluees = [
+            "..\\sentinelle_hors_recordings.webm",
+            "../sentinelle_hors_recordings.webm",
+            str(sentinelle_abs),
+            "sous/dossier.webm",
+            "x.webm:ads",
+            "D:\\hors.webm",
+        ]
+        mission_id = _mission_polluee(["import_1700000000.webm", *polluees])
+        legitime = _ecrire(f"{mission_id}_legitime.webm")
+        legacy = _ecrire("import_1700000000.webm")
+        r = client.post(f"/missions/{mission_id}/delete", follow_redirects=False)
+        assert r.status_code == 303
+        assert sentinelle_proche.is_file()
+        assert sentinelle_abs.is_file()
+        with SessionLocal() as db:
+            assert db.get(Mission, mission_id) is None
+        # Témoin : les noms légitimes (préfixe mission, import legacy référencé) partent.
+        assert not (RECORDINGS_DIR / legitime).exists()
+        assert not (RECORDINGS_DIR / legacy).exists()
+    finally:
+        sentinelle_proche.unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize("nom", [
+    "..\\x.webm", "../x.webm", "D:\\y.webm", "a/b.webm", "x.webm:ads", "", None, 3,
+    "a\x00b.webm", "a" * 256 + ".webm", "..",
+])
+def test_nom_fichier_sur_rejette_les_noms_non_sains(nom):
+    assert mission_backups.nom_fichier_sur(nom) is False
+
+
+@pytest.mark.parametrize("nom", ["12_abc.webm", "import_1700000000.webm", "7_r_1.mp4"])
+def test_nom_fichier_sur_accepte_les_noms_legitimes(nom):
+    assert mission_backups.nom_fichier_sur(nom) is True
