@@ -588,6 +588,9 @@ def _transcribe_pcm_sequential(pcm, priority: int = FOND) -> str:
             exc.retry_after_s = estimer_retry_after()
             raise exc
     else:
+        # Pas de battement ici (A3) : l'attente est bornée par BACKGROUND_LOCK_TIMEOUT_S
+        # (1800 s) et le seuil de péremption par défaut du job est de 3 h (10800 s,
+        # AUDIO_FILE_JOB_STALE_AFTER_S) : cette attente ne peut pas le faire déclarer périmé.
         if not _MODEL_LOCK.acquire(timeout=BACKGROUND_LOCK_TIMEOUT_S, priority=FOND):
             raise TranscriptionFondBusyError(ECHEC_TRANSCRIPTION)
     try:
@@ -891,7 +894,7 @@ def iter_transcribe_blocks(
     Chaque bloc est tenté au plus `BLOC_MAX_TENTATIVES` fois PAR APPEL (pool
     compris), AVANT d'être rendu. `tentatives` et `blocs_rejoues` sont remis à
     zéro à chaque appel : le plafond réel par bloc est donc
-    `(BLOC_RETRIES + 1) x BLOC_MAX_TENTATIVES` quand l'appelant (job de fond)
+    `plafond_essais_bloc(BLOC_RETRIES)` quand l'appelant (job de fond)
     rappelle la fonction après un échec. Un échec dans le pool fait descendre d'un
     palier à partir du bloc fautif, puis le séquentiel prend les tentatives
     restantes. `stats` (optionnel, rempli en place) reçoit `blocs_rejoues`
