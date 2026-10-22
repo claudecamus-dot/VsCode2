@@ -57,6 +57,7 @@ def test_log_run_appends_valid_run_with_ts(tmp_path):
         "plan": [{"etape": "revue", "agent": "Explore", "mode": "parallele", "modele": "haiku"}],
         "resultat": "succes",
         "reprises": 0,
+        "notes": "pytest 3 passed",  # preuve de verification exigee par le canon du 2026-10-22
         # Depuis le canon du 2026-09-11, un `succes` orchestré SANS trace de revue
         # d'incrément est refusé (cf. test dédié plus bas). Ce test-ci porte sur
         # l'append et l'horodatage, pas sur ce garde-fou : la dérogation motivée le
@@ -101,6 +102,7 @@ def test_log_run_avertit_succes_sur_livrable_utilisateur_sans_validation(tmp_pat
     l'utilisateur » imprime un AVERTISSEMENT — non bloquant, le run est journalisé."""
     base = {"demande": "refonte du deck de restitution", "qualification": "orchestre",
             "resultat": "succes", "reprises": 0,
+            "notes": "pytest 3 passed",  # preuve de verification exigee par le canon du 2026-10-22
             # Garde-fou revue-increment neutralisé : il est ORTHOGONAL à celui-ci et,
             # depuis le canon du 2026-09-11, il refuse au lieu d'avertir — sans cette
             # dérogation le run n'atteindrait même pas le contrôle de validation.
@@ -120,7 +122,7 @@ def test_log_run_avertit_succes_sur_livrable_utilisateur_sans_validation(tmp_pat
     # Avec validation notée -> l'avertissement VALIDATION se tait (celui sur
     # l'étape revue-increment, orthogonal, est testé séparément ci-dessous —
     # d'où l'assertion sur le message précis, pas sur « AVERTISSEMENT »).
-    ok = dict(base, notes="rendu final validé par l'utilisateur sur l'artefact exact")
+    ok = dict(base, notes="pytest 3 passed ; rendu final validé par l'utilisateur sur l'artefact exact")
     r2 = _log_run(tmp_path, ok)
     assert r2.returncode == 0 and "sans mention de validation" not in r2.stdout
 
@@ -131,7 +133,7 @@ def test_log_run_avertit_succes_sur_livrable_utilisateur_sans_validation(tmp_pat
 
     # succes sans livrable utilisateur (outillage) -> silencieux côté validation.
     outil = {"demande": "refactor du journal d'orchestration", "qualification": "orchestre",
-             "resultat": "succes",
+             "resultat": "succes", "notes": "pytest 3 passed",
              "derogation_revue": "test du garde-fou validation, pas de la revue",
              "livrable_utilisateur": False,
              "livrable_utilisateur_motif": "outillage interne, aucun artefact humain"}
@@ -168,6 +170,7 @@ def test_log_run_refuse_succes_sans_etape_revue_increment(tmp_path):
     donc `false` + motif : sans cela on ne testerait plus la revue mais la quittance."""
     base = {"demande": "refactor du journal d'orchestration", "qualification": "orchestre",
             "resultat": "succes", "plan": [{"etape": "implementation", "agent": "claude"}],
+            "notes": "pytest 3 passed",  # preuve de verification exigee par le canon du 2026-10-22
             "livrable_utilisateur": False,
             "livrable_utilisateur_motif": "outillage interne, aucun artefact humain"}
     r = _log_run(tmp_path, base)
@@ -182,7 +185,7 @@ def test_log_run_refuse_succes_sans_etape_revue_increment(tmp_path):
     assert len(_lignes_journal(tmp_path)) == 1
 
     # Échappatoire 2 — trace dans les notes (revue de campagne en fin de séance).
-    en_notes = dict(base, notes="couvert par la revue-increment de fin de seance")
+    en_notes = dict(base, notes="pytest 3 passed ; couvert par la revue-increment de fin de seance")
     r = _log_run(tmp_path, en_notes)
     assert r.returncode == 0 and "sans etape terminale" not in r.stdout
     assert len(_lignes_journal(tmp_path)) == 2
@@ -215,6 +218,7 @@ def test_log_run_stdin_tolere_le_bom_powershell(tmp_path):
     sans BOM le comportement est identique (utf-8-sig == utf-8)."""
     payload = {"demande": "run journalisé via pipe PowerShell — accents intacts",
                "qualification": "orchestre", "resultat": "succes",
+               "notes": "pytest 3 passed",  # preuve de verification exigee par le canon du 2026-10-22
                # Garde-fou revue-increment neutralisé : ce test porte sur le BOM.
                "derogation_revue": "test d'encodage stdin, pas un increment livre",
                # Canon du 2026-09-19 : `livrable_utilisateur` obligatoire sur tout
