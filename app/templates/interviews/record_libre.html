@@ -2070,8 +2070,14 @@
     // tentatives et partirait sans la tranche que la reprise va sauver.
     if (!attempt) { pendingBackups++; updateSubmitState(); }
 
+    // Règlement idempotent (EH-5) + drapeau d'acquittement : une fois la tranche
+    // rangée dans backupSegments, un throw ultérieur (refreshBackup*, persistDraft)
+    // ne doit ni la re-POSTer (position en double) ni re-décrémenter.
+    var settled = false, acked = false;
     function settle() {
-      pendingBackups--;
+      if (settled) return;
+      settled = true;
+      pendingBackups = Math.max(0, pendingBackups - 1);
       updateSubmitState();
     }
 
@@ -2127,6 +2133,7 @@
         if (result.ok && result.data.path) {
           signalerMissionAbsente(result.data);
           backupSegments.push({ filename: result.data.path, position: position });
+          acked = true;
           backupConfirmes++;
           backupSegments.sort(function (a, b) { return a.position - b.position; });
           audioSegmentsHidden.value = JSON.stringify(backupSegments);
@@ -2147,6 +2154,13 @@
         }
       })
       .catch(function (err) {
+        // Tranche déjà acquittée ou réglée : pas de re-POST (EH-5). On libère le
+        // gate si le throw a précédé settle().
+        if (acked || settled) {
+          console.error('sauvegarde audio: erreur après acquittement', err);
+          try { settle(); } catch (e2) { console.error(e2); }
+          return;
+        }
         // `recTimeout` : délai maximal atteint (rec_fetch.js) — pas de relance
         // automatique des mêmes octets (R3-M5/M6).
         retryOrGiveUp(err.message, !!(err && err.recTimeout));
