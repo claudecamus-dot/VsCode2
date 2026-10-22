@@ -83,3 +83,15 @@ Suite complète sur la fusion `24d494e` (`C:\tmp\merge-fiab`, config par défaut
 6. **Worktrees** : décider du sort de `cd/V2pd`, `cd/VSCode2`, `fl/F-vscode2` et des 5 `.claude/worktrees/agent-*` (non touchés).
 7. **Runs `en-cours` anciens** à solder avec accord : 2026-10-07, 20261015T151932-321de1, 20261016T174224-49c587, 20261019T104700-e6d266.
 8. **Vérifier la CI GitHub** après push (rappel : `ci.yml` ne part que sur PR / push main).
+
+## Journal d'actions — 2026-10-22
+
+- **Mise à jour de Claude Code** : `claude update` a échoué (« Unable to fetch latest version from npm registry »), mais `npm view @anthropic-ai/claude-code version` répond `2.1.308` (registre `https://registry.npmjs.org/`, aucun proxy configuré) = version installée (`claude --version` → 2.1.308). Rien à mettre à jour. À relancer si l'échec de `claude update` se reproduit.
+- **Salle `atelier-dev` (4 voix, tour 1) sur les défauts B/C** : partition de base A `interviews_libre.py` (EH-1, m1) / B `record_libre.html` + `record.html` (EH-5, 4 sites) / C `audio_file_jobs.py` + `audio_transcribe.py` (EH-2, CR-20, CR-21 app) / D tests et commentaires seuls (AD-5, SH-2, `test_record_reseau.py`). En attente de l'utilisateur : EH-1 (le `max(1,…)` est-il voulu ? un test existe déjà : `test_lot4_w9_serveur.py:274`), EH-2 (`non_evaluable` voulu ?), EH-3 (fuseau cible). Aucun fichier de code modifié.
+
+## Traitement du 2026-10-22 (après la salle atelier-dev)
+
+- **Branche cible de la propagation hub** : `feat/libre-async`. `main` est un ancêtre (0 commit que la branche n'a pas, 60 de moins) ; propager ailleurs créerait une divergence du dispositif. Commit limité à `.claude/`, sans les sorties runtime. Aucun push (hors allowlist).
+- **Fermés par commit** : m1, SH-2, CR-21, AD-5, partie commentaire de CR-20 (commit `chore: drop a dead write and fix stale comments`, 134 tests rejoués verts).
+- **EH-1 : sans suite.** Le `max(1, …)` est voulu : `tests/test_lot4_w9_serveur.py:274` fige `etat([-3]) == (True, 1)` (un segment reçu mais inexploitable laisse la position 0 manquante). Passer à `max(0, …)` déclarerait l'audio complet alors qu'aucune référence valide n'existe.
+- **Restent ouverts** : EH-5 (4 sites `pendingSegments--`, preuve par le harnais JS site par site), source unique du plafond d'essais de CR-20 (constante dérivée dans `audio_transcribe.py`, aucun renommage des constantes patchées), EH-2 (`non_evaluable` semble voulu : décision utilisateur), EH-3 (fuseau cible : décision utilisateur), AD-1/2/3, TOCTOU, done×2, EH-7, CR-22 à CR-27, section D.
