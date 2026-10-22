@@ -50,10 +50,6 @@ class RegistreSegments:
         self._faits: collections.OrderedDict[str, tuple[float, str]] = collections.OrderedDict()
         self._clock = clock
 
-    def resultat_recent(self, cle: str):
-        with self._lock:
-            return self._resultat_locked(cle)
-
     def _resultat_locked(self, cle):
         v = self._faits.get(cle)
         if v is None:

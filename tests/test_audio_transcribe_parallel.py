@@ -19,6 +19,11 @@ from app.services import audio_transcribe
 
 FIXTURE_PATH = Path(__file__).parent / "fixtures" / "audio" / "tts_anglais_synthetique.webm"
 
+try:
+    from _doublures import FakeSegment
+except ImportError:
+    from tests._doublures import FakeSegment
+
 
 # --------------------------------------------------------------------------- #
 # _probe_duration_s — sonde de durée sans décodage complet.
@@ -44,10 +49,6 @@ def test_probe_duration_returns_plausible_value_for_real_audio() -> None:
 def test_transcribe_audio_uses_sequential_path_below_threshold(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class FakeSegment:
-        def __init__(self, text: str) -> None:
-            self.text = text
-
     fake_model = MagicMock()
     fake_model.transcribe.side_effect = lambda audio, **kw: ([FakeSegment("bonjour")], MagicMock())
 
