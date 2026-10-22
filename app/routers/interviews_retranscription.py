@@ -10,7 +10,7 @@ import json
 import logging
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import (
     APIRouter,
@@ -96,7 +96,7 @@ def _archiver_ancien_contenu(
             for a in anciens
         ]:
             return
-        maintenant = datetime.now(timezone.utc)
+        maintenant = datetime.now(UTC)
         dossier = DATA_DIR / "archives_transcription"
         dossier.mkdir(parents=True, exist_ok=True)
         contenu = json.dumps(
