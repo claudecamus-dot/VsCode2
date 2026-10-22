@@ -1049,3 +1049,86 @@ def test_fait_partiel_sans_audio_ne_propose_pas_la_retranscription(client: TestC
         db.add(InterviewTurn(interview_id=interview_id, position=0, interlocuteur="A", remarque="x"))
         db.commit()
     assert "/retranscrire" not in client.get(f"/interviews/{interview_id}/structurer/statut").text
+
+
+# --------------------------------------------------------------------------- #
+# Doublon de jeton : un texte plus court n'écrase jamais le texte enregistré
+# (comité de test 2026-10-22). Les tests voisins (test_lot3_w5 « Court », test_b1
+# de test_lot4_w9_serveur) butent sur le STATUT de l'entretien, pas sur la
+# comparaison de longueur : seul un entretien `a_transcrire` sans tour atteint
+# `len(texte) > len(existant)`.
+# --------------------------------------------------------------------------- #
+def test_doublon_de_jeton_avec_texte_plus_court_garde_le_texte_long(
+    client: TestClient, monkeypatch
+) -> None:
+    programmes = _programmes(monkeypatch)
+    mission_id = _mission(client)
+    long_texte = "Un texte long déjà enregistré, avec beaucoup de propos."
+    iid = _creer_a_traiter(mission_id, texte=long_texte, jeton="tok-court",
+                           statut="a_transcrire")
+
+    client.post(
+        f"/missions/{mission_id}/interviews/record-libre/enregistrer",
+        data={"transcript": "Court.", "session_token": "tok-court"},
+        follow_redirects=False,
+    )
+
+    with SessionLocal() as db:
+        interview = db.get(Interview, iid)
+        assert interview.raw_transcript == long_texte
+        assert interview.structuration_status == "a_transcrire"
+    assert programmes == [], "aucune structuration ne doit être relancée"
+    assert len(_entretiens(mission_id)) == 1
+
+
+def test_doublon_de_jeton_a_transcrire_avec_texte_plus_long_complete_le_texte(
+    client: TestClient, monkeypatch
+) -> None:
+    """Témoin positif : le même doublon avec un texte PLUS LONG complète bien
+    l'entretien (sinon le test précédent passerait aussi avec une garde qui
+    refuse tout)."""
+    programmes = _programmes(monkeypatch)
+    mission_id = _mission(client)
+    iid = _creer_a_traiter(mission_id, texte="Court.", jeton="tok-long",
+                           statut="a_transcrire")
+
+    client.post(
+        f"/missions/{mission_id}/interviews/record-libre/enregistrer",
+        data={"transcript": "Un texte nettement plus long que le précédent.",
+              "session_token": "tok-long"},
+        follow_redirects=False,
+    )
+
+    with SessionLocal() as db:
+        interview = db.get(Interview, iid)
+        assert interview.raw_transcript == "Un texte nettement plus long que le précédent."
+        assert interview.structuration_status == "a_traiter"
+    assert programmes == [iid]
+
+
+def test_doublon_de_jeton_fait_avec_tours_garde_le_texte_long(
+    client: TestClient, monkeypatch
+) -> None:
+    """Entretien déjà structuré (`fait`, avec tours) : un rejeu plus court ne
+    touche ni le texte ni les tours."""
+    programmes = _programmes(monkeypatch)
+    mission_id = _mission(client)
+    long_texte = "Texte long validé, déjà structuré en tours."
+    iid = _creer_a_traiter(mission_id, texte=long_texte, jeton="tok-fait", statut="fait")
+    with SessionLocal() as db:
+        db.add(InterviewTurn(interview_id=iid, position=0, interlocuteur="Alice",
+                             question=None, remarque="Propos.", section_title=None))
+        db.commit()
+
+    client.post(
+        f"/missions/{mission_id}/interviews/record-libre/enregistrer",
+        data={"transcript": "Court.", "session_token": "tok-fait"},
+        follow_redirects=False,
+    )
+
+    with SessionLocal() as db:
+        interview = db.get(Interview, iid)
+        assert interview.raw_transcript == long_texte
+        assert interview.structuration_status == "fait"
+        assert len(interview.turns) == 1
+    assert programmes == []
