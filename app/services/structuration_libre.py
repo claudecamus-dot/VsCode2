@@ -225,7 +225,7 @@ def _attendre_les_tranches(jeton: str | None) -> None:
     Revue 2026-10-06 (F2) : s'arrêter au premier job `failed`/stale
     (`any_failed`) abandonnait les tranches voisines encore en traitement,
     comptées alors manquantes. Le drapeau stale n'est PAS consulté : son
-    horloge part de `created_at` (`_is_stale`) et ne se met pas en pause
+    horloge part de `created_at` (`is_stale`) et ne se met pas en pause
     pendant qu'une tranche attend le verrou Ollama — une tranche simplement
     retardée y passerait pour morte. Seule l'échéance borne l'attente."""
     if not jeton:

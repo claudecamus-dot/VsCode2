@@ -493,19 +493,10 @@ def _is_ollama_timeout(exc: Exception) -> bool:
 _OLLAMA_UN_A_LA_FOIS = PriorityLock()
 
 # Priorité de l'appelant : LIVE par défaut (génération déclenchée à l'écran) ;
-# les traitements de fond (BackgroundTasks) entrent dans `en_fond()` et cèdent
+# les traitements de fond (BackgroundTasks) entrent dans `avec_priorite(FOND)` et cèdent
 # donc à un live en attente entre deux appels Ollama (le verrou est pris par
 # appel HTTP, jamais par traitement).
 _PRIORITE_OLLAMA: ContextVar[int] = ContextVar("priorite_ollama", default=LIVE)
-
-
-@contextmanager
-def en_fond():
-    jeton = _PRIORITE_OLLAMA.set(FOND)
-    try:
-        yield
-    finally:
-        _PRIORITE_OLLAMA.reset(jeton)
 
 
 @contextmanager
@@ -522,7 +513,7 @@ def au_fond(fn):
     """Décorateur : exécute `fn` (tâche de fond) en priorité FOND."""
     @wraps(fn)
     def _enveloppe(*a, **k):
-        with en_fond():
+        with avec_priorite(FOND):
             return fn(*a, **k)
     return _enveloppe
 

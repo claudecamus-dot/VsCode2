@@ -91,7 +91,7 @@ def _make_draft_mission() -> int:
 def _stale_created_at() -> datetime:
     """Un `created_at` largement au-delà du seuil de péremption par défaut
     (45min) — naïf en UTC, comme ce que SQLite rend réellement (cf. le
-    correctif : SQLite ne préserve pas le tzinfo, `_is_stale` compare donc du
+    correctif : SQLite ne préserve pas le tzinfo, `is_stale` compare donc du
     naïf à du naïf)."""
     return datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=2)
 

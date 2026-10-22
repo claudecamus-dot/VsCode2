@@ -6,8 +6,6 @@ ordre d'enregistrement des routes et nom de logger inchangés.
 """
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -26,6 +24,7 @@ from ..models import (
     SEGMENT_JOB_KINDS,
     InterviewSegmentJob,
 )
+from ..services.horloge import utc_naif
 from ..services.interview_segment_jobs import (
     merge_segment_answers,
     merge_segment_turns,
@@ -169,7 +168,7 @@ def create_segment_job(
         # `created_at` remis à neuf : sinon `_is_stale` re-compte
         # immédiatement comme périmée une tranche qu'on vient de relancer, et
         # l'écran d'attente sort en erreur (2e passe, N14).
-        existant.created_at = datetime.now(UTC).replace(tzinfo=None)
+        existant.created_at = utc_naif()
         db.commit()
         # Programmation INCONDITIONNELLE, et c'est délibéré. La version
         # conditionnelle (`if ancien_statut != "pending"`) laissait une fenêtre
@@ -201,7 +200,7 @@ def create_segment_job(
             )
             .values(
                 status="pending", error=None,
-                created_at=datetime.now(UTC).replace(tzinfo=None),
+                created_at=utc_naif(),
             )
         ).rowcount
         db.commit()

@@ -14,7 +14,7 @@ La tranche de 30min est l'unité de *job*, pas l'unité d'*appel IA* :
 Garantie de correction, à coût BORNÉ (revue du 2026-07-20 — la première version
 retombait sur `extract_turns_from_text(transcript_ENTIER)` en cas de job KO,
 réintroduisant le mur multi-heures que le Palier 2 devait justement éviter) :
-un job qui échoue OU qui reste bloqué trop longtemps (`_is_stale`, cf. plus bas)
+un job qui échoue OU qui reste bloqué trop longtemps (`is_stale`, cf. plus bas)
 est re-traité individuellement — seule SA tranche (~30min max), jamais la
 transcription complète — par `recover_stalled_or_failed_jobs()`.
 
@@ -39,6 +39,7 @@ from sqlalchemy.orm import Session, load_only
 from ..db import SessionLocal
 from ..models import Interview, InterviewSegmentJob, Mission
 from .ai_common import au_fond
+from .horloge import utc_naif
 from .interview_extract_ai import (
     InterviewExtractAIError,
     extract_answers_from_text,
@@ -189,7 +190,7 @@ def _extract_with_retries(
     raise AssertionError("inatteignable")  # pragma: no cover
 
 
-def _is_stale(job: InterviewSegmentJob, now: datetime) -> bool:
+def is_stale(job: InterviewSegmentJob, now: datetime) -> bool:
     if job.status not in ("pending", "running"):
         return False
     created = job.created_at
@@ -205,7 +206,7 @@ def reconcile_running_on_startup() -> int:
     Une tâche de fond ne survit pas à son processus : au démarrage, plus aucun
     `run_segment_job` d'avant ne tourne, donc tout job encore `pending`/
     `running` en base est un mort dont personne ne ramassait le corps. Il
-    restait `running` À VIE — `_is_stale` ne le compte comme bloqué qu'au bout
+    restait `running` À VIE — `is_stale` ne le compte comme bloqué qu'au bout
     de 45min et seulement quand quelqu'un DEMANDE le statut, et
     `recover_stalled_or_failed_jobs` n'est appelé que par une route de
     finalisation. Une session jamais finalisée (onglet fermé, serveur coupé en
@@ -312,7 +313,7 @@ def run_segment_job(job_id: int) -> None:
     position avec une version plus longue), ni le résultat ni l'échec ne sont
     écrits — ils décrivent un texte qui n'est plus celui de la ligne. La ligne
     reste alors telle que la route l'a laissée, et c'est la tâche que la route
-    a programmée qui l'aboutira ; `_is_stale` reste le filet de dernier
+    a programmée qui l'aboutira ; `is_stale` reste le filet de dernier
     recours. Voir `_ecrire_si_texte_inchange`."""
     db = SessionLocal()
     texte_extrait = None
@@ -412,11 +413,11 @@ def segment_jobs_status(db: Session, session_token: str) -> dict:
             .order_by(InterviewSegmentJob.position)
         )
     )
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = utc_naif()
     total = len(jobs)
     done = sum(1 for j in jobs if j.status == "done")
     failed = sum(1 for j in jobs if j.status == "failed")
-    stale = sum(1 for j in jobs if _is_stale(j, now))
+    stale = sum(1 for j in jobs if is_stale(j, now))
     return {
         "jobs": jobs,
         "total": total,
@@ -477,7 +478,7 @@ def segment_jobs_status_light(
     if not session_token:
         return {"jobs": [], "total": 0, "done": 0, "failed": 0, "stale": 0,
                 "all_done": False, "any_failed": False}
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = utc_naif()
     total = db.scalar(
         select(func.count(InterviewSegmentJob.id)).where(
             InterviewSegmentJob.session_token == session_token
@@ -495,7 +496,7 @@ def segment_jobs_status_light(
             InterviewSegmentJob.status == "failed",
         )
     ) or 0
-    # `_is_stale` a besoin de `created_at` par ligne (pending/running) : pas
+    # `is_stale` a besoin de `created_at` par ligne (pending/running) : pas
     # d'agrégat SQL possible, mais colonnes réduites (jamais `text`).
     pending_or_running = list(
         db.scalars(
@@ -507,7 +508,7 @@ def segment_jobs_status_light(
             )
         )
     )
-    stale = sum(1 for j in pending_or_running if _is_stale(j, now))
+    stale = sum(1 for j in pending_or_running if is_stale(j, now))
     jobs = list(
         db.scalars(
             select(InterviewSegmentJob)
@@ -679,7 +680,7 @@ def purge_stale_segment_jobs(db: Session, max_age_days: int = 7) -> None:
     machine, ils ne doivent pas s'entasser en base pour toujours. Appelé à
     chaque création de job (auto-entretien, pas de tâche planifiée) ; 7 jours
     laissent large pour reprendre une session après erreur."""
-    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(
+    cutoff = utc_naif() - timedelta(
         days=max_age_days
     )
     # Garde (2026-10-06) : les tranches d'un entretien enregistré mais pas

@@ -142,7 +142,7 @@ def test_ollama_once_live_double_un_fond_en_attente(monkeypatch):
 
     def appel(octets, fond):
         def run():
-            with (ai_common.en_fond() if fond else contextlib.nullcontext()):
+            with (ai_common.avec_priorite(FOND) if fond else contextlib.nullcontext()):
                 ai_common._call_ollama_once(octets, "m")
         t = threading.Thread(target=run); t.start(); return t
 
@@ -162,7 +162,7 @@ def test_ollama_fond_cede_au_live():
 
     def appel(nom, fond):
         def run():
-            ctx = ai_common.en_fond() if fond else __import__("contextlib").nullcontext()
+            ctx = ai_common.avec_priorite(FOND) if fond else __import__("contextlib").nullcontext()
             with ctx:
                 assert verrou.acquire(timeout=5, priority=ai_common._PRIORITE_OLLAMA.get())
                 ordre.append(nom)

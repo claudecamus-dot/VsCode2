@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session, object_session
@@ -23,8 +23,9 @@ from sqlalchemy.orm import Session, object_session
 from .. import db as _db
 from ..models import Interview, InterviewSegmentJob
 from .ai_common import au_fond
+from .horloge import utc_naif
 from .interview_segment_jobs import (
-    _is_stale,
+    is_stale,
     recover_stalled_or_failed_jobs,
     segment_job_stale_after_s,
     segment_jobs_status,
@@ -54,10 +55,6 @@ def _attendre_fin_structuration(interview_id: int) -> str | None:
         time.sleep(ATTENTE_REJEU_PAS_S)
 
 
-def _maintenant() -> datetime:
-    return datetime.now(UTC).replace(tzinfo=None)
-
-
 def tranches_en_echec(interview: Interview) -> list[dict]:
     """Tranches relançables : `failed`, ou `pending`/`running` PÉRIMÉS (orphelins),
     avec du texte. Une tranche fraîche en cours de traitement n'en fait pas partie.
@@ -66,10 +63,10 @@ def tranches_en_echec(interview: Interview) -> list[dict]:
     db = object_session(interview)
     if not jeton or db is None:
         return []
-    now = _maintenant()
+    now = utc_naif()
     jobs = [
         j for j in segment_jobs_status(db, jeton)["jobs"]
-        if j.text.strip() and (j.status == "failed" or _is_stale(j, now))
+        if j.text.strip() and (j.status == "failed" or is_stale(j, now))
     ]
     return [
         {"id": j.id, "position": j.position, "error": (j.error or "")[:160]}
@@ -84,7 +81,7 @@ def reserver_tranches(db: Session, interview: Interview, job_id: int | None = No
     candidats = [t["id"] for t in tranches_en_echec(interview)]
     if job_id is not None:
         candidats = [job_id] if job_id in candidats else []
-    now = _maintenant()
+    now = utc_naif()
     limite = now - timedelta(seconds=segment_job_stale_after_s())
     obtenus = []
     for jid in candidats:
