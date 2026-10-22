@@ -2088,8 +2088,10 @@
       // Journalisé AVANT toute décision, y compris pour une session abandonnée :
       // le 2026-09-08, zéro tranche audio sur 2h d'entretien, et plus aucune
       // trace pour dire pourquoi (journal serveur tronqué, onglet mort).
-      noterEvenement({ type: 'backup-ko', position: position, raison: reason,
-                       essai: attempt + 1, delaiDepasse: !!timedOut });
+      try {
+        noterEvenement({ type: 'backup-ko', position: position, raison: reason,
+                         essai: attempt + 1, delaiDepasse: !!timedOut });
+      } catch (e0) { console.error(e0); }  // le journal ne doit pas bloquer la reprise
       if (gen !== backupGeneration) { settle(); return; }
       // Délai maximal atteint (err.recTimeout — revue R3-M5/M6) : pas de
       // relance automatique. L'upload est borné par la bande passante, pas par
@@ -2109,11 +2111,15 @@
       }
       if (backupPerdus.indexOf(position) < 0) backupPerdus.push(position);
       // Le blob n'est PAS lâché : il devient une ligne écoutable et
-      // téléchargeable de la liste des tranches (EC-3).
-      garderTrancheEnLocal(position, blob);
-      refreshBackupStatus();
-      refreshBackupList();
-      settle();
+      // téléchargeable de la liste des tranches (EC-3). settle() est garanti
+      // même si un effet d'affichage lève (sinon le gate reste figé).
+      try {
+        garderTrancheEnLocal(position, blob);
+        refreshBackupStatus();
+        refreshBackupList();
+      } finally {
+        settle();
+      }
     }
 
     if (!attempt) {

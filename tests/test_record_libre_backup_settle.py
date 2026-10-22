@@ -33,8 +33,9 @@ let armed = false, boomSubmit = %(boomSubmit)s, boomList = %(boomList)s;
 const UPLOAD_TIMEOUT_MS = 10000000;
 const backupStatusEl = { textContent: '' }, backupPathHidden = { value: '' }, audioSegmentsHidden = { value: '' };
 const backupSegments = [], backupPerdus = [];
-function noterEvenement() {} function signalerMissionAbsente() {} function persistDraft() {}
-function garderTrancheEnLocal() {} function refreshBackupStatus() {}
+let boomSignal = %(boomSignal)s, boomGarder = %(boomGarder)s, garderAppels = 0;
+function noterEvenement() {} function signalerMissionAbsente() { if (boomSignal > 0) { boomSignal--; throw new Error('boomSignal'); } } function persistDraft() {}
+function garderTrancheEnLocal() { garderAppels++; if (boomGarder > 0) { boomGarder--; throw new Error('boomGarder'); } } function refreshBackupStatus() {}
 function refreshBackupList() { if (boomList > 0) { boomList--; throw new Error('boomList'); } }
 function updateSubmitState() { if (armed && boomSubmit > 0) { boomSubmit--; throw new Error('boomSubmit'); } }
 %(rec_retry)s
@@ -58,14 +59,16 @@ _SCENARIO = r"""
 """
 
 
-def _lancer(boom_submit: int, boom_list: int) -> dict:
+def _lancer(boom_submit: int, boom_list: int, boom_signal: int = 0, boom_garder: int = 0, reponses=None) -> dict:
     src = _sans_commentaires(LIBRE.read_text(encoding="utf-8"))
     script = _SCRIPT % {
         "boomSubmit": boom_submit,
         "boomList": boom_list,
+        "boomSignal": boom_signal,
+        "boomGarder": boom_garder,
         "rec_retry": (_ROOT / "app" / "static" / "rec_retry.js").read_text(encoding="utf-8"),
         "fonction": _fonction(src, "uploadBackup"),
-    } + _SCENARIO
+    } + (_SCENARIO if reponses is None else _SCENARIO_SEQ.replace("%%REP%%", reponses))
     return _node(script)
 
 
@@ -87,3 +90,45 @@ def test_libre_throw_avant_settle_ne_reposte_pas_et_pas_de_position_en_double():
 def test_libre_nominal_inchange():
     out = _lancer(boom_submit=0, boom_list=0)
     assert out == {"pendant": 1, "pending": 0, "posts": 1, "positions": [0]}
+
+
+_SCENARIO_SEQ = r"""
+(async () => {
+  const REP = %%REP%%;
+  uploadBackup({ type: 'audio/webm', size: 1 }, 0, undefined, undefined);
+  await tick();
+  const pendant = pendingBackups;
+  for (let k = 0; k < REP.length; k++) {
+    if (!pend[k]) { if (timers[k - 1]) { timers[k - 1].fn(); await tick(); } }
+    if (pend[k]) { pend[k](REP[k]); await tick(); }
+  }
+  console.log(JSON.stringify({ pendant: pendant, pending: pendingBackups, posts: posts.length,
+    garder: garderAppels, perdus: backupPerdus.length,
+    positions: backupSegments.map(function (s) { return s.position; }) }));
+})();
+"""
+_OK = "{ ok: true, status: 200, data: { path: 'a.webm' } }"
+_KO = "{ ok: false, status: 500, data: { error: 'x' } }"
+_KO4 = "[" + ",".join([_KO] * 4) + "]"
+
+
+def test_libre_chemin_echec_qui_leve_libere_le_gate_et_garde_une_fois():
+    out = _lancer(0, 1, reponses=_KO4)  # refreshBackupList leve dans le chemin d'echec
+    assert out["pending"] == 0, out
+    assert out["garder"] == 1, out
+
+
+def test_libre_garder_qui_leve_libere_le_gate():
+    out = _lancer(0, 0, boom_garder=1, reponses=_KO4)
+    assert out["pending"] == 0, out
+
+
+def test_libre_erreur_avant_acquittement_relance_bien():
+    # signalerMissionAbsente leve AVANT backupSegments.push : le re-POST est correct
+    out = _lancer(0, 0, boom_signal=1, reponses="[" + _OK + "," + _OK + "]")
+    assert out["posts"] == 2 and out["pending"] == 0 and out["positions"] == [0], out
+
+
+def test_libre_5xx_puis_relance_reussie_compte_une_fois():
+    out = _lancer(0, 0, reponses="[" + _KO + "," + _OK + "]")
+    assert out == {"pendant": 1, "pending": 0, "posts": 2, "garder": 0, "perdus": 0, "positions": [0]}, out
