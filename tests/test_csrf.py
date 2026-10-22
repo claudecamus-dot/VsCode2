@@ -250,3 +250,43 @@ def test_le_journal_des_refus_est_regule_et_tronque(
     assert len(lignes) == 3
     assert len(lignes[2]) < 600, len(lignes[2])
     assert "(+5801 car.)" in lignes[2]
+
+
+# --- Routes audio (comité de test 2026-10-22, trou n°7) -------------------------
+#
+# `record/backup` était la seule route POST exercée ici ; les deux routes de
+# transcription audio n'avaient que des e2e à `fetch` simulé (P5). La garde est un
+# middleware global : on prouve qu'elle couvre AUSSI ces chemins, et qu'un POST
+# same-origin (ce que fait un vrai navigateur) n'est PAS arrêté par elle.
+
+_ROUTES_AUDIO = ["/audio/transcribe-file", "/audio/transcribe-segment"]
+
+
+def _vient_de_la_garde(resp) -> bool:
+    """Le 403 de la garde CSRF a un corps JSON signé ; un 403/422 de la route non."""
+    if resp.status_code != 403:
+        return False
+    try:
+        return "CSRF" in resp.json().get("error", "")
+    except ValueError:
+        return False
+
+
+@pytest.mark.parametrize("chemin", _ROUTES_AUDIO)
+def test_audio_post_origine_etrangere_est_bloque(
+    client: TestClient, chemin: str,
+) -> None:
+    resp = client.post(chemin, headers={"Origin": "http://attaquant.exemple"})
+    assert resp.status_code == 403
+    assert _vient_de_la_garde(resp), resp.text
+
+
+@pytest.mark.parametrize("chemin", _ROUTES_AUDIO)
+def test_audio_post_meme_origine_n_est_pas_arrete_par_la_garde(
+    client: TestClient, chemin: str,
+) -> None:
+    """Origin = Host du TestClient (comme un navigateur sur l'app). Corps vide :
+    la route répond ce qu'elle veut (validation 4xx), pas la garde."""
+    resp = client.post(chemin, headers={"Origin": "http://testserver"})
+    assert not _vient_de_la_garde(resp), resp.text
+    assert resp.status_code != 403, resp.text
