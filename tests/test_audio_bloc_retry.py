@@ -291,3 +291,54 @@ def test_invariant_plafond_essais_bloc_via_job_de_fond(monkeypatch):
             pass
     plafond = at.plafond_essais_bloc(audio_file_jobs.BLOC_RETRIES)
     assert len(appels) == plafond, (len(appels), plafond)
+
+
+def test_contrat_ad3_echec_transitoire_epuise_au_niveau_bas_puis_succes_au_2e_passage(monkeypatch):
+    """CONTRAT figé (AD-3) : le job de fond REJOUE un `ECHEC_TRANSCRIPTION` déjà épuisé
+    au niveau bas (le message générique couvre aussi des échecs transitoires, rien ne
+    les distingue d'un déterministe). Un bloc qui échoue `BLOC_MAX_TENTATIVES` fois
+    (= un passage complet du niveau bas) puis réussit fait donc aboutir le job au
+    2e passage. Le cas « toujours en échec » est couvert par l'invariant CR-20."""
+    _reinit_db()
+    monkeypatch.setattr(at, "BLOC_RETRY_PAUSE_S", 0)
+    monkeypatch.setattr(audio_file_jobs, "BLOC_RETRY_DELAY_S", 0)
+    monkeypatch.setattr(at, "_faster_whisper", lambda: object())
+    monkeypatch.setattr(at, "_probe_duration_s", lambda content: 5.0)
+    monkeypatch.setattr(
+        at, "_decode_to_pcm16k", lambda content: np.zeros(16000 * 5, dtype=np.float32)
+    )
+    appels = []
+    fautes = {"n": at.BLOC_MAX_TENTATIVES}
+
+    def _ko_puis_ok(bloc):
+        appels.append(1)
+        if fautes["n"] > 0:
+            fautes["n"] -= 1
+            raise RuntimeError("echec transitoire")
+        return "texte"
+
+    monkeypatch.setattr(at, "_transcribe_pcm_sequential", _ko_puis_ok)
+    nom = "ad3_contrat_test.wav"
+    (RECORDINGS_DIR / nom).write_bytes(b"x")
+    try:
+        with SessionLocal() as db:
+            job = AudioFileJob(session_token="tok-ad3", status="pending", filename=nom)
+            db.add(job)
+            db.commit()
+            job_id = job.id
+        audio_file_jobs.run_audio_file_job(job_id)
+        with SessionLocal() as db:
+            fin = db.get(AudioFileJob, job_id)
+            statut, blocs, erreur = fin.status, list(fin.blocks or []), fin.error
+    finally:
+        try:
+            (RECORDINGS_DIR / nom).unlink()
+        except OSError:
+            pass
+        try:
+            engine.dispose()
+        except Exception:
+            pass
+    assert statut == "done", erreur
+    assert blocs == ["texte"]
+    assert len(appels) == at.BLOC_MAX_TENTATIVES + 1
