@@ -1403,3 +1403,93 @@ def test_confirmer_ignore_un_job_complet_d_un_autre_entretien(client):
     assert _confirmer(client, ctx["interview_id"], ["Propos."]).status_code == 303
     assert _etat_apres_confirmation(ctx["interview_id"], "t3-etranger") == (1, 1)
     assert [t.remarque for t in _tours(ctx["interview_id"])] == ["Propos."]
+
+# --------------------------------------------------------------------------- #
+# Archive de l'ancien contenu avant écrasement par une confirmation
+# (comité SH-1 / garde 2026-10-22)
+# --------------------------------------------------------------------------- #
+def _confirmer_texte(client, interview_id: int, texte: str, remarque: str):
+    return client.post(
+        f"/interviews/{interview_id}/retranscrire/confirmer",
+        data={
+            "transcript": texte,
+            "turn_interlocuteur": ["Alice"],
+            "turn_question": [""],
+            "turn_remarque": [remarque],
+            "turn_section_title": [""],
+        },
+        follow_redirects=False,
+    )
+
+
+@pytest.fixture
+def dossier_archives(tmp_path, monkeypatch):
+    from app.routers import interviews_retranscription
+
+    monkeypatch.setattr(interviews_retranscription, "DATA_DIR", tmp_path)
+    return tmp_path / "archives_transcription"
+
+
+def test_confirmer_archive_l_ancien_texte_et_les_anciens_tours(client, dossier_archives):
+    import json
+
+    ctx = _entretien_avec_tranches(nb_tranches=1)
+    assert _confirmer_texte(client, ctx["interview_id"], "Nouveau texte.", "Nouveau.").status_code == 303
+    fichiers = list(dossier_archives.glob("*.json"))
+    assert len(fichiers) == 1
+    data = json.loads(fichiers[0].read_text(encoding="utf-8"))
+    assert data["interview_id"] == ctx["interview_id"]
+    assert data["raw_transcript"] == "Ancienne transcription."
+    assert data["archive_le"]
+    assert [(t["interlocuteur"], t["remarque"], t["ordre"]) for t in data["tours"]] == [
+        ("Alice", "Ancien propos.", 0)
+    ]
+    db = SessionLocal()
+    try:
+        assert db.get(Interview, ctx["interview_id"]).raw_transcript == "Nouveau texte."
+    finally:
+        db.close()
+
+
+def test_confirmer_sans_ancien_contenu_n_archive_rien(client, dossier_archives):
+    ctx = _entretien_avec_tranches(nb_tranches=1, avec_tours=False)
+    assert _confirmer_texte(client, ctx["interview_id"], "Nouveau.", "Propos.").status_code == 303
+    assert not dossier_archives.exists() or not list(dossier_archives.glob("*.json"))
+
+
+def test_confirmer_un_contenu_identique_n_archive_rien(client, dossier_archives):
+    ctx = _entretien_avec_tranches(nb_tranches=1)
+    reponse = _confirmer_texte(client, ctx["interview_id"], "Ancienne transcription.", "Ancien propos.")
+    assert reponse.status_code == 303
+    assert not dossier_archives.exists() or not list(dossier_archives.glob("*.json"))
+
+
+def test_confirmer_reussit_meme_si_l_archivage_echoue(client, tmp_path, monkeypatch, caplog):
+    from app.routers import interviews_retranscription
+
+    # DATA_DIR pointe sur un FICHIER : mkdir/ouverture de l'archive lèvent OSError.
+    fichier = tmp_path / "pas_un_dossier"
+    fichier.write_text("x", encoding="utf-8")
+    monkeypatch.setattr(interviews_retranscription, "DATA_DIR", fichier)
+    ctx = _entretien_avec_tranches(nb_tranches=1)
+    with caplog.at_level("WARNING"):
+        reponse = _confirmer_texte(client, ctx["interview_id"], "Nouveau texte.", "Nouveau.")
+    assert reponse.status_code == 303
+    db = SessionLocal()
+    try:
+        assert db.get(Interview, ctx["interview_id"]).raw_transcript == "Nouveau texte."
+    finally:
+        db.close()
+    alertes = [r for r in caplog.records if r.levelname == "WARNING" and "archivage" in r.getMessage()]
+    assert alertes
+    assert "Ancienne transcription." not in caplog.text
+
+
+def test_nom_d_archive_ne_contient_que_des_caracteres_surs(client, dossier_archives):
+    import re
+
+    ctx = _entretien_avec_tranches(nb_tranches=1)
+    _confirmer_texte(client, ctx["interview_id"], "Nouveau texte.", "Nouveau.")
+    noms = [f.name for f in dossier_archives.iterdir()]
+    assert noms
+    assert all(re.fullmatch(r"entretien_\d+_\d{8}T\d{6}(_[0-9a-f]{6})?\.json", n) for n in noms)
