@@ -205,6 +205,7 @@ def test_backup_blob_vide_n_est_pas_poste_et_ne_tient_pas_le_gate():
     assert out["posts"] == 0, out
     assert out["pending"] == 0, out
     assert "PERDU" not in out["statut"] and "NON" not in out["statut"], out
+    assert "Aucune donnée audio" in out["statut"], out  # J1b : signal visible
 
 
 def test_settle_updatesubmitstate_qui_leve_n_empeche_pas_le_job_final():

@@ -143,7 +143,7 @@ def test_libre_blob_vide_n_est_pas_poste_ni_position_ni_perte():
   uploadBackup({ type: 'audio/webm', size: 0 }, 0, undefined, undefined);
   await tick();
   console.log(JSON.stringify({ pending: pendingBackups, posts: posts.length, pos: nextBackupPosition,
-    perdus: backupPerdus.length, garder: garderAppels, segs: backupSegments.length }));
+    perdus: backupPerdus.length, garder: garderAppels, segs: backupSegments.length, statut: backupStatusEl.textContent }));
 })();
 """
     src = _sans_commentaires(LIBRE.read_text(encoding="utf-8"))
@@ -153,6 +153,7 @@ def test_libre_blob_vide_n_est_pas_poste_ni_position_ni_perte():
         "fonction": _fonction(src, "uploadBackup"),
     } + scen
     out = _node(script)
+    assert "Aucune donnée audio" in out.pop("statut"), out  # J1b : signal visible
     assert out == {"pending": 0, "posts": 0, "pos": 0, "perdus": 0, "garder": 0, "segs": 0}, out
 
 
