@@ -2157,9 +2157,9 @@
         // réinitialisation entre-temps) : ne pas contaminer la nouvelle.
         if (gen !== backupGeneration) { settle(); return; }
         if (result.ok && result.data.path) {
-          // Acquittement = position enregistrée par le push ci-dessous. Avant,
-          // une erreur doit relancer : un fichier orphelin côté serveur vaut mieux
-          // qu'une tranche absente d'audio_segments.
+          // Acquittement = position enregistrée par le push ci-dessous. Tant que `acked`
+          // est faux, une erreur doit relancer : un fichier orphelin côté serveur vaut
+          // mieux qu'une tranche absente d'audio_segments.
           signalerMissionAbsente(result.data);
           backupSegments.push({ filename: result.data.path, position: position });
           acked = true;

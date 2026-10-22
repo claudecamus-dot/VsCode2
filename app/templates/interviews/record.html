@@ -1158,8 +1158,8 @@
     // pas re-compter un segment déjà en vol) d'un premier appel.
     if (!attempt && !busyUntilArg) { pendingSegments++; updateSubmitState(); }
 
-    // Idempotent (EH-5, comme record_libre.html) : un seul décrément par segment, même si
-    // updateSubmitState/maybeSubmitFinalJob lève et que le .catch rappelle settle().
+    // Idempotent (EH-5) : un seul décrément par segment. Si updateSubmitState/maybeSubmitFinalJob
+    // lève, le .catch voit `settled` et ne relance pas (ni re-POST, ni second décrément).
     var settled = false;
     function settle() {
       if (settled) return;
@@ -1628,9 +1628,9 @@
       .then(function (result) {
         if (gen !== recGeneration) { settle(); return; }  // session abandonnée
         if (result.ok && result.data.path) {
-          // Acquittement = référence enregistrée (backupPathHidden, plus bas). Avant,
-          // une erreur doit relancer : un fichier orphelin côté serveur vaut mieux
-          // qu'une sauvegarde perdue.
+          // Acquittement = référence enregistrée (backupPathHidden, plus bas). Tant que
+          // `acked` est faux, une erreur doit relancer : un fichier orphelin côté serveur
+          // vaut mieux qu'une sauvegarde perdue.
           signalerMissionAbsente(result.data);
           backupPathHidden.value = result.data.path;
           acked = true;  // le serveur a la sauvegarde : plus de re-POST
