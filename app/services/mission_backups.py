@@ -20,12 +20,15 @@ la route qui l'utilise.
 """
 from __future__ import annotations
 
+import logging
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import load_only
+
+logger = logging.getLogger(__name__)
 
 # Un « orphelin » plus jeune que ce seuil peut appartenir à un enregistrement
 # EN COURS : pendant le wizard, les tranches uploadées ne sont référencées que
@@ -172,13 +175,25 @@ def mission_id_du_fichier(nom: str) -> int | None:
     return valeur
 
 
+def nom_fichier_sur(nom) -> bool:
+    """Un nom stocké est-il un simple nom de fichier, sans aucune échappée ?
+
+    str non vide, <= 255 caractères, ni séparateur slash ni antislash, ni `..`,
+    ni `:` (flux ADS / lecteur, F5), ni NUL, et `Path(nom).name == nom`. Garde
+    unique des chemins qui joignent un nom venu de la base ou du client à
+    `RECORDINGS_DIR` (validation à l'écriture ET suppression de mission)."""
+    if not isinstance(nom, str) or not nom or len(nom) > 255:
+        return False
+    if "/" in nom or "\\" in nom or ".." in nom or ":" in nom or "\x00" in nom:
+        return False
+    return Path(nom).name == nom
+
+
 def _reference_sure(nom, mission_id: int, recordings_dir: Path) -> bool:
     """Un nom de fichier venu du CLIENT désigne-t-il un enregistrement réel de
     cette mission ? Préfixe canonique `{mission_id}_` (`mission_id_du_fichier`),
     aucun séparateur de chemin, et le fichier existe dans `recordings_dir`."""
-    if not isinstance(nom, str) or not nom:
-        return False
-    if "/" in nom or "\\" in nom or ".." in nom or ":" in nom:  # ':' : flux ADS / lecteur (F5)
+    if not nom_fichier_sur(nom):
         return False
     if mission_id_du_fichier(nom) != mission_id:
         return False
@@ -449,7 +464,20 @@ def fichiers_de_mission(mission, recordings_dir: Path) -> list[Path]:
         for chemin in recordings_dir.glob(f"{mission.id}_*"):
             if chemin.is_file() and not _anterieur_a_la_mission(chemin, mission):
                 noms.add(chemin.name)
-    return [recordings_dir / nom for nom in sorted(noms) if (recordings_dir / nom).is_file()]
+    base = recordings_dir.resolve()
+    fichiers: list[Path] = []
+    for nom in sorted(n for n in noms if isinstance(n, str)):
+        if not nom_fichier_sur(nom):
+            logger.warning(
+                "Mission %s : référence audio non sûre ignorée (%r), rien n'est supprimé",
+                mission.id, nom[:80],
+            )
+            continue
+        chemin = recordings_dir / nom
+        # Dernier filet : même un nom « sûr » ne doit pas sortir du dossier.
+        if chemin.is_file() and chemin.resolve().is_relative_to(base):
+            fichiers.append(chemin)
+    return fichiers
 
 
 def _raison_orphelin(prefixe: str, mission, mtime: float | None) -> str:
