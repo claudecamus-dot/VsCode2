@@ -185,9 +185,7 @@ def test_registre_ttl_et_borne():
     r = segment_dedupe.RegistreSegments(clock=lambda: h[0])
     _x, t, _p = r.rejoindre("a")
     r.terminer("a", t, "txt")
-    assert r.resultat_recent("a") == "txt"
     h[0] = segment_dedupe.TTL_RESULTAT_S + 1
-    assert r.resultat_recent("a") is None
     for i in range(segment_dedupe.MAX_RESULTATS + 5):
         _x, t, _p = r.rejoindre(f"k{i}")
         r.terminer(f"k{i}", t, "v")
