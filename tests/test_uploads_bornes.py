@@ -473,6 +473,33 @@ def test_sauvegarde_de_secours_vide_est_refusee_et_ne_laisse_aucun_fichier(
     assert (dossier / chemin).stat().st_size > 0
 
 
+def test_sauvegarde_de_secours_vide_repond_422_meme_si_unlink_echoue(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fichier vide + unlink verrouillé (PermissionError) : 422 JSON avec `error`,
+    pas de `path`, aucun texte d'exception dans le corps (pas un 500)."""
+    dossier = tmp_path / "rec"
+    dossier.mkdir()
+    monkeypatch.setattr("app.routers.interviews_backup.RECORDINGS_DIR", dossier)
+    mission_id = _creer_mission(client, "Mission backup vide verrouille")
+
+    def _verrouille(self, *args, **kwargs):
+        raise PermissionError("SECRET-VERROU-C:\\chemin\\absolu")
+
+    monkeypatch.setattr(Path, "unlink", _verrouille)
+
+    rep = client.post(
+        f"/missions/{mission_id}/interviews/record/backup",
+        files={"file": ("secours.webm", b"", "audio/webm")},
+    )
+    assert rep.status_code == 422, rep.text
+    corps = rep.json()
+    assert corps["error"]
+    assert "path" not in corps
+    assert "SECRET-VERROU" not in rep.text
+    assert "PermissionError" not in rep.text
+
+
 def test_le_plafond_audio_par_defaut_laisse_passer_un_enregistrement_reel() -> None:
     """Garde-fou sur la garde. Mesuré le 2026-09-09 sur les enregistrements du
     poste : MediaRecorder produit 15,72 Ko/s (18,43 Mio pour 1200,0 s,

@@ -137,7 +137,16 @@ async def save_record_backup(
             # pourrait lâcher la sienne : perte silencieuse. On supprime le
             # fichier vide et on REFUSE (422) ; le client traite tout non-2xx
             # comme un échec et GARDE son blob (retryOrGiveUp).
-            (RECORDINGS_DIR / filename).unlink(missing_ok=True)
+            try:
+                (RECORDINGS_DIR / filename).unlink(missing_ok=True)
+            except OSError:
+                # Fichier verrouillé (antivirus, indexeur Windows) : on répond
+                # TOUT DE MÊME 422, sinon le PermissionError part en 500 et le
+                # client relance au lieu de garder sa copie. Nom serveur seul.
+                logger.warning(
+                    "Sauvegarde audio de secours VIDE : suppression impossible : %s",
+                    filename, exc_info=True,
+                )
             logger.warning("Sauvegarde audio de secours VIDE refusée : %s (mission %s)", filename, mission_id)
             return JSONResponse(
                 {"error": "Fichier audio vide : aucune sauvegarde n'a été écrite. "
