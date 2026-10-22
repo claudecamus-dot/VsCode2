@@ -95,7 +95,7 @@ async def _transcrire_dedoublonne(request: Request, contenu: bytes):
         while not fini.is_set():
             try:
                 await asyncio.wait_for(fini.wait(), timeout=2.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 if await request.is_disconnected():
                     REGISTRE.quitter(travail)
                     return None
