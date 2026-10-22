@@ -1085,3 +1085,29 @@ def test_fiche_reco_signale_un_ecart_porte_par_la_majorite() -> None:
     assert "(Écart important porté par la majorité, 2/3)" in tout
     tout = _texte_fiche(_mission_reco_un_constat(1, type_="ecart"))
     assert "(Écart important, 1/3)" in tout and "majorité" not in tout
+
+
+def test_date_couverture_est_le_jour_local_pas_utc(monkeypatch) -> None:
+    """Comité EH-3 : 23:30 UTC le 21/10/2026 = 01:30 le 22/10 à Paris (UTC+2) — la
+    couverture doit porter le 22/10/2026, pas la veille UTC. Horloge factice
+    déterministe : indépendante du fuseau de la machine de test et de tzdata."""
+    from datetime import UTC, datetime, timedelta, timezone
+
+    from pptx import Presentation
+
+    from app.services.pptx_export import slides_cadre
+
+    class _Horloge(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 10, 21, 23, 30, tzinfo=UTC)
+
+        def astimezone(self, tz=None):
+            return datetime.astimezone(self, tz or timezone(timedelta(hours=2)))
+
+    monkeypatch.setattr(slides_cadre, "datetime", _Horloge)
+    prs = Presentation()
+    slides_cadre._slide_cover(prs, Mission(name="Mission horloge"))
+    texte = " ".join(sh.text_frame.text for sh in prs.slides[0].shapes if sh.has_text_frame)
+    assert "22/10/2026" in texte
+    assert "21/10/2026" not in texte
