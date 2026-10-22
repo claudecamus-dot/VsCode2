@@ -1260,3 +1260,125 @@ def test_ecran_de_revue_affiche_le_tour_de_table_en_une_zone_lecture_seule(clien
     assert "turns-export-md" in html
     assert 'type="hidden" name="turn_remarque" value="Tour de : Nouveau bloc."' in html
     assert 'class="turn-textarea"' not in html
+
+
+# --------------------------------------------------------------------------- #
+# Confirmation de la revue : atomicité et conservation des jobs de tranche
+# (comité de test 2026-10-22)
+# --------------------------------------------------------------------------- #
+def _confirmer(client, interview_id: int, tours: list[str]):
+    return client.post(
+        f"/interviews/{interview_id}/retranscrire/confirmer",
+        data={
+            "transcript": "Nouvelle transcription.",
+            "turn_interlocuteur": ["Bob"] * len(tours),
+            "turn_question": [""] * len(tours),
+            "turn_remarque": tours,
+            "turn_section_title": [""] * len(tours),
+        },
+        follow_redirects=False,
+    )
+
+
+def test_confirmer_est_atomique_si_l_ecriture_d_un_tour_echoue(monkeypatch):
+    """`retranscrire_confirmer` supprime les anciens tours puis écrit les
+    nouveaux : si la création du 2e tour lève, la transaction doit être annulée
+    — anciens tours ET `raw_transcript` d'origine intacts, jamais un entretien
+    amputé de ses tours (perte de donnée)."""
+    from app.routers import interviews_retranscription
+
+    ctx = _entretien_avec_tranches(nb_tranches=1)
+    appels = {"n": 0}
+    vrai = interviews_retranscription.InterviewTurn
+
+    def _tour_qui_casse_au_deuxieme(*args, **kwargs):
+        appels["n"] += 1
+        if appels["n"] == 2:
+            raise RuntimeError("écriture du 2e tour impossible")
+        return vrai(*args, **kwargs)
+
+    monkeypatch.setattr(
+        interviews_retranscription, "InterviewTurn", _tour_qui_casse_au_deuxieme
+    )
+    client = TestClient(app, raise_server_exceptions=False)
+    reponse = _confirmer(client, ctx["interview_id"], ["Un.", "Deux."])
+
+    assert appels["n"] == 2, "le scénario doit bien atteindre le 2e tour"
+    assert reponse.status_code >= 500
+    assert [t.remarque for t in _tours(ctx["interview_id"])] == ["Ancien propos."]
+    db = SessionLocal()
+    try:
+        assert db.get(Interview, ctx["interview_id"]).raw_transcript == (
+            "Ancienne transcription."
+        )
+    finally:
+        db.close()
+
+
+def _semer_jobs_de_tranche(ctx: dict, jeton: str, *, erreur: str | None) -> None:
+    """Entretien avec un jeton de structuration d'origine, 1 tranche manquante,
+    un job de tranche conservable et un job de retranscription terminé."""
+    db = SessionLocal()
+    try:
+        interview = db.get(Interview, ctx["interview_id"])
+        interview.segment_token = jeton
+        interview.tranches_manquantes = 1
+        db.add(
+            InterviewSegmentJob(
+                session_token=jeton, interview_id=interview.id,
+                mission_id=ctx["mission_id"], position=0, status="done", text="t",
+            )
+        )
+        db.add(
+            AudioFileJob(
+                session_token=f"{jeton}-job", filename="", filenames=ctx["fichiers"],
+                interview_id=interview.id, status="done", error=erreur,
+                block_seconds=60, blocks=[],
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
+def _etat_apres_confirmation(interview_id: int, jeton: str) -> tuple[int, int]:
+    db = SessionLocal()
+    try:
+        restants = db.query(InterviewSegmentJob).filter(
+            InterviewSegmentJob.session_token == jeton
+        ).count()
+        return restants, db.get(Interview, interview_id).tranches_manquantes
+    finally:
+        db.close()
+
+
+def test_confirmer_une_retranscription_en_erreur_conserve_les_jobs_de_tranche(client):
+    """Job de retranscription en erreur : rien ne prouve que tout a été repris,
+    donc les jobs de tranche d'origine et le compte de tranches manquantes
+    restent (une relance pourra encore les rejouer)."""
+    ctx = _entretien_avec_tranches(nb_tranches=2)
+    _semer_jobs_de_tranche(ctx, "t3-erreur", erreur="Bloc 3 : Ollama indisponible")
+
+    assert _confirmer(client, ctx["interview_id"], ["Propos."]).status_code == 303
+    assert _etat_apres_confirmation(ctx["interview_id"], "t3-erreur") == (1, 1)
+
+
+def test_confirmer_avec_une_tranche_absente_conserve_les_jobs_de_tranche(client):
+    """Une tranche référencée mais disparue du disque : transcription trouée,
+    donc non « complète » — jobs de tranche et compte conservés."""
+    ctx = _entretien_avec_tranches(nb_tranches=2)
+    _semer_jobs_de_tranche(ctx, "t3-absente", erreur=None)
+    (RECORDINGS_DIR / ctx["fichiers"][1]).unlink()
+
+    assert _confirmer(client, ctx["interview_id"], ["Propos."]).status_code == 303
+    assert _etat_apres_confirmation(ctx["interview_id"], "t3-absente") == (1, 1)
+
+
+def test_confirmer_une_retranscription_complete_consomme_les_jobs_de_tranche(client):
+    """Témoin positif des deux tests ci-dessus : sans erreur ni tranche absente,
+    les jobs de tranche d'origine sont supprimés et le compte remis à zéro."""
+    ctx = _entretien_avec_tranches(nb_tranches=2)
+    _semer_jobs_de_tranche(ctx, "t3-complet", erreur=None)
+
+    assert _confirmer(client, ctx["interview_id"], ["Propos."]).status_code == 303
+    assert _etat_apres_confirmation(ctx["interview_id"], "t3-complet") == (0, 0)
