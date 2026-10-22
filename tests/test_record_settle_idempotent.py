@@ -205,6 +205,7 @@ def test_backup_blob_vide_n_est_pas_poste_et_ne_tient_pas_le_gate():
     assert out["posts"] == 0, out
     assert out["pending"] == 0, out
     assert "PERDU" not in out["statut"] and "NON" not in out["statut"], out
+    assert "Aucune donnée audio" in out["statut"], out  # J1b : signal visible
 
 
 def test_settle_updatesubmitstate_qui_leve_n_empeche_pas_le_job_final():
@@ -245,3 +246,16 @@ def test_backup_affichage_qui_leve_ne_pretend_pas_que_la_copie_locale_a_echoue()
     out = _node(script)
     assert out["pending"] == 0, out
     assert "NON SAUVEGARD" not in out["statut"], out
+
+
+def test_settle_job_final_qui_leve_affiche_un_message():
+    # J2b : updateSubmitState ET maybeSubmitFinalJob levent -> message visible, pas seulement console.
+    src = _sans_commentaires(RECORD.read_text(encoding="utf-8"))
+    script = (_SCRIPT % {
+        "boom": 99,
+        "rec_retry": (_ROOT / "app" / "static" / "rec_retry.js").read_text(encoding="utf-8"),
+        "fonction": _fonction(src, "uploadSegment"),
+    }) + _SCENARIO.replace("textes: textes.length", "textes: textes.length, statut: statusEl.textContent")
+    out = _node(script)
+    assert out["pending"] == 0 and out["onSettle"] == 1, out
+    assert "suite automatique" in out["statut"], out

@@ -1168,7 +1168,10 @@
       try {
         try { updateSubmitState(); } catch (e1) { console.error('settle: updateSubmitState', e1); }
         // Chacun isolé (J2) : si updateSubmitState lève, le job final du reliquat part quand même.
-        try { maybeSubmitFinalJob(); } catch (e2) { console.error('settle: maybeSubmitFinalJob', e2); }  // transcription stabilisée -> job final si un reliquat reste
+        try { maybeSubmitFinalJob(); } catch (e2) {
+          console.error('settle: maybeSubmitFinalJob', e2);
+          try { statusEl.textContent = 'La suite automatique n’a pas pu démarrer ; recharge la page ou relance l’extraction.'; } catch (e3) { console.error(e3); }
+        }  // transcription stabilisée -> job final si un reliquat reste
       } finally {
         if (onSettle) onSettle();  // relance séquentielle : le segment perdu suivant
       }
@@ -1535,6 +1538,8 @@
     // jamais le gate (garde posée AVANT pendingBackups++).
     if (blob && blob.size === 0) {
       console.warn('sauvegarde audio: blob vide, non envoyé');
+      // Signal VISIBLE (J1b) : sans lui, un micro muet donne un entretien sans audio, écran silencieux.
+      backupStatusEl.textContent = '⚠ Aucune donnée audio captée (micro muet ou coupé ?) — rien à sauvegarder.';
       return;
     }
     // Garde de génération, alignée sur la PREMIÈRE tentative — elle manquait

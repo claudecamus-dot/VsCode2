@@ -1503,7 +1503,10 @@
       try {
         try { updateSubmitState(); } catch (e1) { console.error('settle: updateSubmitState', e1); }
         // Chacun isolé (J2) : si updateSubmitState lève, le job final du reliquat part quand même.
-        try { maybeSubmitFinalJob(); } catch (e2) { console.error('settle: maybeSubmitFinalJob', e2); }  // transcription stabilisée -> job final si aucun n'a couvert le reliquat
+        try { maybeSubmitFinalJob(); } catch (e2) {
+          console.error('settle: maybeSubmitFinalJob', e2);
+          try { statusEl.textContent = 'La suite automatique n’a pas pu démarrer ; recharge la page ou relance l’extraction.'; } catch (e3) { console.error(e3); }
+        }  // transcription stabilisée -> job final si aucun n'a couvert le reliquat
       } finally {
         if (onSettle) onSettle();  // TOUJOURS: libère l'emplacement de la file / le compte des relances
       }
@@ -2061,6 +2064,10 @@
     // de position et pendingBackups++ : aucune position consommée, jamais de gate tenu.
     if (blob && blob.size === 0 && !attempt) {
       try { noterEvenement({ type: 'backup-vide', actif: recordingActive }); } catch (e0) { console.error(e0); }
+      // Signal VISIBLE (J1b), sauf si des tranches sont déjà rangées (leur statut de succès prime).
+      if (!backupSegments.length) {
+        backupStatusEl.textContent = '⚠ Aucune donnée audio captée pour cette tranche (micro muet ou coupé ?) — rien à sauvegarder.';
+      }
       return;
     }
     // Position figée à la PREMIÈRE tentative (dans l'ordre des évènements

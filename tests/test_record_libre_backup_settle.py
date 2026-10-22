@@ -143,7 +143,7 @@ def test_libre_blob_vide_n_est_pas_poste_ni_position_ni_perte():
   uploadBackup({ type: 'audio/webm', size: 0 }, 0, undefined, undefined);
   await tick();
   console.log(JSON.stringify({ pending: pendingBackups, posts: posts.length, pos: nextBackupPosition,
-    perdus: backupPerdus.length, garder: garderAppels, segs: backupSegments.length }));
+    perdus: backupPerdus.length, garder: garderAppels, segs: backupSegments.length, statut: backupStatusEl.textContent }));
 })();
 """
     src = _sans_commentaires(LIBRE.read_text(encoding="utf-8"))
@@ -153,6 +153,7 @@ def test_libre_blob_vide_n_est_pas_poste_ni_position_ni_perte():
         "fonction": _fonction(src, "uploadBackup"),
     } + scen
     out = _node(script)
+    assert "Aucune donnée audio" in out.pop("statut"), out  # J1b : signal visible
     assert out == {"pending": 0, "posts": 0, "pos": 0, "perdus": 0, "garder": 0, "segs": 0}, out
 
 
@@ -199,3 +200,37 @@ def test_libre_affichage_qui_leve_ne_pretend_pas_que_la_copie_locale_a_echoue():
     out = _lancer(0, 1, reponses=_KO4)
     assert out["garder"] == 1 and out["pending"] == 0, out
     assert "NON SAUVEGARD" not in out["statut"], out
+
+
+def test_libre_settle_job_final_qui_leve_affiche_un_message():
+    # J2b : maybeSubmitFinalJob leve -> message visible dans statusEl.
+    src = _sans_commentaires(LIBRE.read_text(encoding="utf-8"))
+    script = r"""
+const timers = []; const pend = []; const window = {};
+function FormData() {} FormData.prototype.append = function () {};
+function File() {}
+function setTimeout(fn, d) { timers.push({ fn: fn, delai: d }); return timers.length; }
+async function tick() { for (let i = 0; i < 30; i++) await Promise.resolve(); }
+function recFetch() { return new Promise(function (res) { pend.push(function (r) { res({ ok: r.ok, status: r.status, json: function () { return Promise.resolve(r.data); } }); }); }); }
+let pendingSegments = 0, backupGeneration = 1, recordingActive = false;
+const TRANSCRIBE_TIMEOUT_MS = 10000000, BUSY_BACKOFF_MAX_MS = 1, BUSY_BACKOFF_BASE_MS = 1;
+const statusEl = { textContent: '' };
+const Date = { now: function () { return 0; } };
+function appendTranscript() {} function replaceLostMarker() {} function resetNoSpeech() {}
+function noteNoSpeech() {} function keepLostSegment() {} function refreshReplayStatus() {} function copieServeurAcquittee() { return false; }
+function updateSubmitState() {}
+function maybeSubmitFinalJob() { throw new Error('boomFinal'); }
+""" + (_ROOT / "app" / "static" / "rec_retry.js").read_text(encoding="utf-8") + r"""
+const RETRY_PLAN = window.recRetryPlan;
+""" + _fonction(src, "uploadSegment") + r"""
+(async () => {
+  let settled = 0;
+  uploadSegment({ type: 'audio/webm' }, 0, undefined, undefined, function () { settled++; });
+  await tick();
+  pend[0]({ ok: true, status: 200, data: { text: 'hello' } }); await tick();
+  console.log(JSON.stringify({ pending: pendingSegments, onSettle: settled, statut: statusEl.textContent }));
+})();
+"""
+    out = _node(script)
+    assert out["pending"] == 0 and out["onSettle"] == 1, out
+    assert "suite automatique" in out["statut"], out
