@@ -1158,16 +1158,17 @@
     // pas re-compter un segment déjà en vol) d'un premier appel.
     if (!attempt && !busyUntilArg) { pendingSegments++; updateSubmitState(); }
 
-    // Idempotent (EH-5, comme record_libre.html) : un seul décrément par segment, même si
-    // updateSubmitState/maybeSubmitFinalJob lève et que le .catch rappelle settle().
+    // Idempotent (EH-5) : un seul décrément par segment. Si updateSubmitState/maybeSubmitFinalJob
+    // lève, le .catch voit `settled` et ne relance pas (ni re-POST, ni second décrément).
     var settled = false;
     function settle() {
       if (settled) return;
       settled = true;
       pendingSegments = Math.max(0, pendingSegments - 1);
       try {
-        updateSubmitState();
-        maybeSubmitFinalJob();  // transcription stabilisée -> job final si un reliquat reste
+        try { updateSubmitState(); } catch (e1) { console.error('settle: updateSubmitState', e1); }
+        // Chacun isolé (J2) : si updateSubmitState lève, le job final du reliquat part quand même.
+        try { maybeSubmitFinalJob(); } catch (e2) { console.error('settle: maybeSubmitFinalJob', e2); }  // transcription stabilisée -> job final si un reliquat reste
       } finally {
         if (onSettle) onSettle();  // relance séquentielle : le segment perdu suivant
       }
@@ -1529,6 +1530,13 @@
   }
 
   function uploadBackup(blob, attempt, genArg) {
+    // Blob vide (J1) : rien à sauvegarder, et le serveur répond 422 sur 0 octet — le
+    // rejouer 3 fois puis le déclarer « perdu » serait faux. On ne poste pas, on ne tient
+    // jamais le gate (garde posée AVANT pendingBackups++).
+    if (blob && blob.size === 0) {
+      console.warn('sauvegarde audio: blob vide, non envoyé');
+      return;
+    }
     // Garde de génération, alignée sur la PREMIÈRE tentative — elle manquait
     // ICI, et ici seulement (revue du 2026-08-31) : tous les autres chemins du
     // fichier la portent (uploadSegment, submitSegmentJob, postRecoveredJob,
@@ -1576,25 +1584,35 @@
       // le fichier est téléchargeable juste en dessous serait faux, et
       // l'inverse (promettre un lien absent) le serait tout autant.
       try {
-      if (offrirBackupEnLocal(blob)) {
-        backupStatusEl.textContent = '⚠ Sauvegarde audio NON transmise (' + reason
-          + '), mais l’enregistrement n’est pas perdu : récupère-le avec '
-          + '« Télécharger l’enregistrement » ci-dessous, puis rends-le à l’entretien '
-          + 'avec « Rattacher sans transcrire » — surtout pas « Transcrire ce fichier » : '
-          + 'le texte est déjà là, le retranscrire dirait l’entretien deux fois. '
-          + 'Le texte transcrit, lui, reste complet.';
-      } else {
-        backupStatusEl.textContent = '⚠ AUDIO PERDU : la sauvegarde n’a pas pu être '
-          + 'transmise (' + reason + '). Le texte transcrit, lui, reste complet.';
-      }
-      } catch (eAff) {
-        // Le message d'échec n'a pas pu être posé : on le pose en dur, sinon
-        // l'écran garde « nouvelle tentative… » et l'utilisateur soumet sans
-        // savoir que cette sauvegarde (seule copie de l'audio) est perdue.
-        console.error('sauvegarde audio: chemin d’échec en erreur', eAff);
-        backupStatusEl.textContent = '⚠ AUDIO NON SAUVEGARDÉ : la sauvegarde n’a pas pu être '
-          + 'transmise (' + reason + ') et sa copie locale a échoué. Ne quitte pas cette page '
-          + 'avant d’avoir récupéré l’enregistrement. Le texte transcrit, lui, reste complet.';
+        var copieOk;
+        try {
+          copieOk = offrirBackupEnLocal(blob);
+        } catch (eCopie) {
+          // La copie locale a ELLE-MÊME échoué (J3) : on pose le message en dur, sinon
+          // l'écran garde « nouvelle tentative… » et l'utilisateur soumet sans savoir que
+          // cette sauvegarde (seule copie de l'audio) est perdue.
+          console.error('sauvegarde audio: copie locale en erreur', eCopie);
+          backupStatusEl.textContent = '⚠ AUDIO NON SAUVEGARDÉ : la sauvegarde n’a pas pu être '
+            + 'transmise (' + reason + ') et sa copie locale a échoué. Ne quitte pas cette page '
+            + 'avant d’avoir récupéré l’enregistrement. Le texte transcrit, lui, reste complet.';
+          return;  // finally : settle()
+        }
+        // Copie gardée : un échec d'AFFICHAGE ne doit pas prétendre le contraire.
+        try {
+          if (copieOk) {
+            backupStatusEl.textContent = '⚠ Sauvegarde audio NON transmise (' + reason
+              + '), mais l’enregistrement n’est pas perdu : récupère-le avec '
+              + '« Télécharger l’enregistrement » ci-dessous, puis rends-le à l’entretien '
+              + 'avec « Rattacher sans transcrire » — surtout pas « Transcrire ce fichier » : '
+              + 'le texte est déjà là, le retranscrire dirait l’entretien deux fois. '
+              + 'Le texte transcrit, lui, reste complet.';
+          } else {
+            backupStatusEl.textContent = '⚠ AUDIO PERDU : la sauvegarde n’a pas pu être '
+              + 'transmise (' + reason + '). Le texte transcrit, lui, reste complet.';
+          }
+        } catch (eAff) {
+          console.error('sauvegarde audio: affichage du message d’échec', eAff);
+        }
       } finally {
         settle();  // garanti même si offrirBackupEnLocal lève (gate figé sinon)
       }
@@ -1610,9 +1628,9 @@
       .then(function (result) {
         if (gen !== recGeneration) { settle(); return; }  // session abandonnée
         if (result.ok && result.data.path) {
-          // Acquittement = référence enregistrée (backupPathHidden, plus bas). Avant,
-          // une erreur doit relancer : un fichier orphelin côté serveur vaut mieux
-          // qu'une sauvegarde perdue.
+          // Acquittement = référence enregistrée (backupPathHidden, plus bas). Tant que
+          // `acked` est faux, une erreur doit relancer : un fichier orphelin côté serveur
+          // vaut mieux qu'une sauvegarde perdue.
           signalerMissionAbsente(result.data);
           backupPathHidden.value = result.data.path;
           acked = true;  // le serveur a la sauvegarde : plus de re-POST
