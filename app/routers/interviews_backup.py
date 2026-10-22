@@ -131,10 +131,19 @@ async def save_record_backup(
             filename, octets, mission_id,
         )
         if not octets:
-            # Un fichier vide n'est pas une sauvegarde : c'est exactement le
-            # symptôme du 2026-09-08 (zéro octet d'audio sur 2h), à faire
-            # ressortir plutôt que le laisser passer pour « écrite ».
-            logger.warning("Sauvegarde audio de secours VIDE : %s (mission %s)", filename, mission_id)
+            # Un fichier vide n'est PAS une sauvegarde (incident du 2026-09-08 :
+            # zéro octet d'audio sur 2h). L'accepter ferait de ce fichier la
+            # référence de l'entretien, et le client, croyant la copie écrite,
+            # pourrait lâcher la sienne : perte silencieuse. On supprime le
+            # fichier vide et on REFUSE (422) ; le client traite tout non-2xx
+            # comme un échec et GARDE son blob (retryOrGiveUp).
+            (RECORDINGS_DIR / filename).unlink(missing_ok=True)
+            logger.warning("Sauvegarde audio de secours VIDE refusée : %s (mission %s)", filename, mission_id)
+            return JSONResponse(
+                {"error": "Fichier audio vide : aucune sauvegarde n'a été écrite. "
+                          "Conserve ton enregistrement et réessaie."},
+                status_code=422,
+            )
     except UploadTropVolumineux as exc:
         # 413, pas 500 — jumeau exact du correctif posé sur `transcribe_file`
         # (audit-technique sécurité du 2026-09-13). Le dépassement de plafond
