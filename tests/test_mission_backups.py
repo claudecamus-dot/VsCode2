@@ -196,6 +196,11 @@ def test_lister_ordonne_du_plus_ancien_au_plus_recent():
     os.utime(RECORDINGS_DIR / vieux, (1_700_000_000, 1_700_000_000))
     os.utime(RECORDINGS_DIR / recent, (1_800_000_000, 1_800_000_000))
     mid, _ = _mission_avec_entretien("Backup chrono", [])
+    # Durcissement (instabilite 2026-10-22, cause non reproduite) : un residu
+    # `{mid}_*` laisse dans le RECORDINGS_DIR partage (id reattribue, autre
+    # runner) fausserait l'inventaire exact des orphelins ci-dessous.
+    for residu in RECORDINGS_DIR.glob(f"{mid}_*"):
+        residu.unlink()
     orph_recent = _ecrire(f"{mid}_a_recent.webm")
     orph_vieux = _ecrire(f"{mid}_z_vieux.webm")
     os.utime(RECORDINGS_DIR / orph_recent, (1_800_000_000, 1_800_000_000))
