@@ -108,7 +108,17 @@ def _battement(db, job: AudioFileJob) -> None:
     2026-07-30). L'extraction IA en a autant besoin que la transcription : elle
     peut représenter la MAJEURE partie du temps total (~5 min par tranche)."""
     job.created_at = datetime.now(UTC).replace(tzinfo=None)
-    db.commit()
+    try:
+        db.commit()
+    except Exception:
+        # Un commit raté (SQLite « locked ») laisse la session à rétablir : sans
+        # rollback, le prochain accès DB du job lèverait PendingRollbackError, loin
+        # de la cause. On rétablit puis on relève : l'appelant journalise.
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        raise
 
 
 def _extraire_tours(db, job: AudioFileJob) -> None:

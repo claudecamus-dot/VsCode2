@@ -10,6 +10,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import text
 
 from app.db import DB_PATH, SessionLocal, engine, init_db
 from app.models import AudioFileJob
@@ -109,3 +110,31 @@ def test_un_rappel_qui_leve_ne_casse_pas_l_attente(monkeypatch):
 
     # L'attente continue jusqu'au _Stop du sleep : pas d'autre exception.
     assert _attendre_un_permis_occupe(monkeypatch, _casse) == 10
+
+
+def test_un_commit_de_battement_rate_laisse_la_session_utilisable(monkeypatch):
+    """A1 : le commit du battement échoue => rollback, la session reste utilisable
+    (pas de PendingRollbackError au prochain accès) et l'attente n'est pas coupée."""
+    _reinit_db()
+    try:
+        with SessionLocal() as db:
+            job = _job_perime(db)
+            vrai_commit = db.commit
+            etat = {"n": 0}
+
+            def _commit_ko():
+                etat["n"] += 1
+                if etat["n"] == 1:
+                    # Échec RÉEL du flush au commit : la session passe à « rollback requis ».
+                    job.status = None                # NOT NULL => IntegrityError
+                return vrai_commit()
+
+            monkeypatch.setattr(db, "commit", _commit_ko)
+            sleeps = _attendre_un_permis_occupe(
+                monkeypatch, lambda: audio_file_jobs._battement(db, job)
+            )
+            assert sleeps == 10                      # attente non interrompue
+            assert etat["n"] >= 1
+            assert db.execute(text("select 1")).scalar() == 1   # session utilisable
+    finally:
+        engine.dispose()
