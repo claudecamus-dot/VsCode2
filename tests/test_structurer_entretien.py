@@ -1053,8 +1053,8 @@ def test_fait_partiel_sans_audio_ne_propose_pas_la_retranscription(client: TestC
 
 # --------------------------------------------------------------------------- #
 # Doublon de jeton : un texte plus court n'écrase jamais le texte enregistré
-# (comité de test 2026-10-22). Les tests voisins (test_lot3_w5 « Court », test_b1
-# de test_lot4_w9_serveur) butent sur le STATUT de l'entretien, pas sur la
+# (comité de test 2026-10-22). Les tests voisins (test_enregistrement_libre_jobs_et_confirmation « Court », test_b1
+# de test_segments_direct_dedupe_et_busy) butent sur le STATUT de l'entretien, pas sur la
 # comparaison de longueur : seul un entretien `a_transcrire` sans tour atteint
 # `len(texte) > len(existant)`.
 # --------------------------------------------------------------------------- #
