@@ -3,9 +3,9 @@
     "source": "hub de supervision VScode5, .claude/veille/veille.json",
     "projection": "entrees dont projets_concernes nomme VSCode2",
     "ne_pas_editer": "Fichier GENERE, en lecture seule : une correction faite ici sera ecrasee a la prochaine propagation. La veille s'ecrit AU HUB, ou elle est lue (section 3 du wiki) et arbitree. Une veille lancee depuis ce depot doit y etre remontee.",
-    "date": "2026-10-13"
+    "date": "2026-10-22"
   },
-  "derniere_veille": "2026-10-11T15:47:52+02:00",
+  "derniere_veille": "2026-10-19T11:10:41+02:00",
   "entrees": [
     {
       "titre": "microsoft/hve-core — skill PowerPoint python-pptx pilotée par YAML",
@@ -447,14 +447,95 @@
         "VSCode2",
         "VSCode3"
       ],
-      "pertinence": "Sous-agents = ~38 % de la facture du hub ; le papier (Proc. ACM Softw. Eng. vol.3 FSE, DOI 10.1145/3797084, 17 mars 2026) elague les observations perimees/redondantes d'une trajectoire. Chiffres cites comme citation (SWE-Bench, agent Claude, corpus tiers), jamais mesures chez nous.",
+      "pertinence": "Sous-agents = ~38 % de la facture du hub ; le papier (Proc. ACM Softw. Eng. vol.3 FSE, DOI 10.1145/3797084, 17 mars 2026) elague les observations perimees/redondantes d'une trajectoire. Chiffres cites comme citation (SWE-Bench, agent Claude, corpus tiers), jamais mesures chez nous. [adopte le 2026-10-20 : mesure a froid outillee (scripts/mesure_redondance_sousagents.py, commit 3c818163) : mediane 2,8 % < seuil 10 %, pas de filtrage ; regle inscrite (commit 085c1b33)]",
       "date": "2026-10-11",
       "statut": "adopte",
       "regle_proposee": "Mesure a froid : part des tokens d'entree des sous-agents issue de sorties d'outils anciennes (runs.jsonl/usage) ; critere : un brief de sous-agent long impose une borne de sortie d'outil ou un filtrage avant lecture.",
       "action_corrective": "Au hub : mesurer sur 10 runs de sous-agents la part des tokens d'entree redondants avant tout essai ; ensuite tester un filtrage des sorties volumineuses (hook PreToolUse) sur un projet pilote. Reproduire avant d'adopter le chiffre.",
-      "revue_par_pairs": "oui",
-      "date_arbitrage": "2026-10-20",
-      "arbitrage": "ADOPTE par l'utilisateur le 2026-10-20 (texte integral regle_proposee + action_corrective affiche puis confirme) ; application au hub VScode5 via evolution-flotte, mesure d'abord, chiffre du papier non adopte avant reproduction"
+      "revue_par_pairs": "oui"
+    },
+    {
+      "titre": "PerspectiveGap (arXiv 2606.08878, preprint non relu) : benchmark de redaction de briefs de sous-agents, fuite de contexte",
+      "url": "https://arxiv.org/abs/2606.08878",
+      "type": "pratique",
+      "projets_concernes": [
+        "VScode5",
+        "VSCode1",
+        "VSCode2",
+        "VSCode3"
+      ],
+      "pertinence": "Prepint cs.CL/cs.MA (juin 2026, v2 juillet), non relu par les pairs : 110 scenarios, 33 modeles commerciaux, taux de reussite moyen 17,2 pct avec distracteurs (citation, pas une mesure chez nous). Recoupe nos briefs de sous-agents sans gabarit (52 sur 1053 au hub) et les fuites de contexte entre sous-agents. [adopte le 2026-10-20 : detecteur outille (scripts/mesure_recopie_briefs.py, commit f14b9a93) : 0 % de recopie sur 24 briefs, verdict non demontre, hook de taille inchange ; regle inscrite (commit 085c1b33)]",
+      "date": "2026-10-15",
+      "statut": "adopte",
+      "regle_proposee": "Brief de sous-agent : mesurer a froid la presence d'un gabarit autoportant (objectif, contexte strictement necessaire, sortie attendue) et signaler les briefs qui recopient tout le contexte parent.",
+      "action_corrective": "Hub : tester sur un echantillon de briefs journalises si le gabarit reduit les relances, avant tout durcissement du hook de taille de brief ; aucun changement des autres projets sans reproduction locale."
+    },
+    {
+      "titre": "Claude Code 2.1.295 : onFailure block pour hooks command/HTTP (fail-closed optionnel)",
+      "url": "https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md#2.1.295",
+      "type": "pratique",
+      "projets_concernes": [
+        "VScode5",
+        "VSCode1",
+        "VSCode2",
+        "VSCode3",
+        "VSCode4"
+      ],
+      "pertinence": "Les hooks garde-fou de la flotte sont fail-open par conception ; le changelog ajoute onFailure:block pour les rendre fail-closed. A evaluer pour les gardes destructifs seulement, pas pour les rappels (un hook casse bloquerait toute commande). [adopte le 2026-10-20 : regle inscrite a criteres-pratiques.md (commit e3e73170) ; inventaire : 0 onFailure sur 11 settings flotte ; activation par hook non faite (poste en 2.1.263 < 2.1.295, arbitrage par hook)]",
+      "date": "2026-10-15",
+      "statut": "adopte",
+      "source_referentiel": "Anthropic - Claude Code CHANGELOG 2.1.295 (non date dans l'extrait)",
+      "regle_proposee": "Pour chaque hook PreToolUse de garde destructive : declarer le comportement en cas d'echec (onFailure block ou fail-open documente) ; mesurable par lecture de settings.json.",
+      "action_corrective": "Hub puis cibles : inventorier les gardes PreToolUse, trancher par hook, tester le cas hook en echec avant activation. Rien activer sans arbitrage."
+    },
+    {
+      "titre": "Claude Code 2.1.299/2.1.296 : idle compaction (200K+) et autoCompactWindow pour sous-agents",
+      "url": "https://raw.githubusercontent.com/anthropics/claude-code/main/CHANGELOG.md#2.1.299",
+      "type": "pratique",
+      "projets_concernes": [
+        "VScode5",
+        "VSCode1",
+        "VSCode2"
+      ],
+      "pertinence": "Le CLAUDE.md du hub prescrit /compact manuel des 40 % ; le changelog ajoute idleCompaction (CLAUDE_CODE_IDLE_COMPACT_MIN_TOKENS) et autoCompactWindow pour sous-agents : mecanismes natifs a comparer a la discipline manuelle. A documenter, pas a activer. [adopte le 2026-10-20 : regle de reperage inscrite (commit 085c1b33) ; aucun reglage declare sur la flotte ; activation non faite (poste 2.1.263), decision utilisateur apres mesure]",
+      "date": "2026-10-15",
+      "statut": "adopte",
+      "source_referentiel": "Anthropic - Claude Code CHANGELOG 2.1.299 et 2.1.296",
+      "regle_proposee": "Reperage : settings idleCompaction/autoCompactWindow declares ou ecartes avec raison, par projet.",
+      "action_corrective": "Hub : lire la doc settings, mesurer l'effet sur une session longue avant de proposer l'activation ; decision utilisateur."
+    },
+    {
+      "titre": "GitHub Blog - How to write a great agents.md (2 500+ depots)",
+      "url": "https://github.blog/ai-and-ml/github-copilot/how-to-write-a-great-agents-md-lessons-from-over-2500-repositories/",
+      "type": "pratique",
+      "projets_concernes": [
+        "VScode5",
+        "VSCode1",
+        "VSCode2",
+        "VSCode3",
+        "VSCode4"
+      ],
+      "pertinence": "Complete l'entree AGENTS.md : commandes executables en tete, limites explicites (ne pas faire), exemples. Le gabarit CLAUDE.md de la flotte a Commandes et Regles ; ecart possible sur les limites explicites. Chiffre publie, non mesure chez nous. [adopte le 2026-10-20 : regle inscrite (commit 085c1b33) ; 6/8 CLAUDE.md conformes ; correctif hub et VSCode a faire]",
+      "date": "2026-10-15",
+      "statut": "adopte",
+      "source_referentiel": "GitHub Blog (editeur de Copilot, juge et partie) ; analyse de 2 500 depots, protocole non verifie ici",
+      "regle_proposee": "Chaque CLAUDE.md contient une section commandes executables et une liste de limites ; mesurable par grep de titres.",
+      "action_corrective": "Comparer les CLAUDE.md des 5 projets a ces deux sections ; completer les manquants sur arbitrage."
+    },
+    {
+      "titre": "mattpocock/skills git-guardrails-claude-code (skills.sh, 468,7K installs)",
+      "url": "https://www.skills.sh/",
+      "type": "skill",
+      "projets_concernes": [
+        "VScode5",
+        "VSCode1",
+        "VSCode2",
+        "VSCode3",
+        "VSCode4"
+      ],
+      "pertinence": "Reprise a comparer avant toute evolution des hooks garde-fou git destructif de la flotte (deja en place). Classement all-time lu sur skills.sh le 2026-10-15 ; contenu de la skill NON lu, qualification reprise telle quelle/adaptee/rien a faire sur le depot mattpocock/skills. Vus aussi : handoff (987,5K installs). [ecarte le 2026-10-20 : ecarte par l'utilisateur le 2026-10-20 : contenu non lu, gardes git deja en place au hub]",
+      "date": "2026-10-15",
+      "statut": "ecarte"
     }
   ]
 }

@@ -9,8 +9,10 @@
 À la fin du run (succès **ou** échec), une ligne dans `.claude/orchestration/runs.jsonl` :
 
 ```bash
-py .claude/orchestration/log_run.py '{"demande": "résumé court", "qualification": "orchestre", "playbook": "dev-verifie", "gabarit": "executor-lot", "topologie": "cascade", "plan": [{"etape": "revue design", "agent": "Explore", "mode": "parallele", "modele": "sonnet", "etat": "ok"}], "resultat": "succes", "reprises": 0, "notes": "", "livrable_utilisateur": false, "livrable_utilisateur_motif": "chantier interne, aucun artefact ouvert par un humain"}'
+py .claude/orchestration/log_run.py '{"demande": "résumé court", "qualification": "orchestre", "playbook": "dev-verifie", "gabarit": "executor-lot", "topologie": "cascade", "plan": [{"etape": "revue design", "agent": "Explore", "mode": "parallele", "modele": "sonnet", "etat": "ok"}], "resultat": "succes", "reprises": 0, "notes": "pytest 12 passed ; revue-increment jouee en fin de run", "livrable_utilisateur": false, "livrable_utilisateur_motif": "chantier interne, aucun artefact ouvert par un humain"}'
 ```
+
+Un `resultat: succes` dont les `notes` ne portent aucun marqueur de vérification (commande rejouée avec son résultat, sha de commit, `--check`) est **refusé** ; pour un run réellement non vérifiable, ajouter `"verification": "non-verifiee"` (le run reste journalisé et se déclare non vérifié).
 
 **`livrable_utilisateur` est OBLIGATOIRE** (booléen) depuis le 2026-09-19 — absent, le run
 est **refusé** (rien n'est écrit). Il déclare, dès la composition du plan, si ce run produit

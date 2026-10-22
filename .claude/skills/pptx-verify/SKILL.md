@@ -73,6 +73,18 @@ this check; Step 2 stays mandatory.** Thresholds live in `scripts/forme_check_se
 results and the rule they led to: `docs/redaction/etalonnage-forme-decks.md` (hub-only note).
 Never use `--strict` as a quality gate.
 
+## Step 1ter — Charter, weight, integrity (strict, 0 token)
+
+```bash
+py .claude/skills/pptx-verify/scripts/lint_charte.py deck.pptx --charte acn   # exit 1 on off-charter colour/font, 2 if charter unresolved
+py .claude/skills/pptx-verify/scripts/poids_deck.py deck.pptx                 # WARN 12 MB or 200 KB/slide, BLOCK 25 MB
+py .claude/skills/pptx-verify/scripts/integrite_pptx.py deck.pptx             # OPC relations, 0 problem
+```
+
+`generateur_squelette.py --sortie` runs all three itself. The charter is the reference deck's
+(`charte/<nom>/tokens.json`, derived by `deriver_tokens_charte.py`), never the deck compared with itself.
+These checks never replace Step 2.
+
 ## Step 2 — Render to images (the part that actually shows the design)
 
 **Windows + PowerPoint (preferred here):**
@@ -97,6 +109,26 @@ leaves the `.pdf` — read its pages directly.
 
 **No renderer at all:** dump each shape's text + bounds and say honestly the visual was
 not eye-checked. Do not pretend.
+
+## Iteration rule — render only the touched slides
+
+When iterating on user feedback (playbook `export-ppt-iteration`), render ONLY the slides
+touched with `render-pptx.ps1 -Slides <list>` (PowerPoint COM). The LibreOffice fallback
+`render-pptx.sh` has no list option, only a contiguous range (`-f first -l last`): render the
+smallest range covering the touched slides. Then compare with `render_diff.py` against the
+baseline render (behaviour on a partial candidate folder not yet verified: check that the
+slides missing from the candidate are not reported as changed). The `-Slides` list comes from
+the "recueillir les retours" step (comments, shape changes, text changes).
+A full render is done only before delivery. The mandatory checks are unchanged: only their
+scope narrows to the touched slides during iteration. A deck built from scratch
+(`export-ppt-verifie`) gets the full render.
+
+**Font caveat (not adopted, TO VALIDATE).** The theme font (Graphik) is not embedded: PowerPoint and
+LibreOffice substitute it differently, so text that fits in the control render can overflow on the
+user's machine, and "overflow / squashed" feedback is often not reproducible here. Embedding the font
+is only a lead (licence, fsType embeddable bit to check first). For such feedback, the playbook
+offers variants A/B/C to the user (step `strategie-forme`); entry checks (`~$` file, base, kinds of
+differences) run first in `export-ppt-iteration`.
 
 ## Step 3 — Eyeball against this checklist (defects geometry will NOT catch)
 

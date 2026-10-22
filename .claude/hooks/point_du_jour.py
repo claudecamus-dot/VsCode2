@@ -29,6 +29,7 @@ import json
 import os
 import re
 import sys
+import time
 import unicodedata
 
 RACINE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -585,15 +586,13 @@ def _date_plus_ancien_non_propage(source_rel, blob_copie):
     tort coute une journee, un rappel qui crie a tort se fait ignorer pour toujours.
     """
     try:
-        import subprocess
         cmd = ["git", "log", "-n", "40", "--format=C %cI", "--raw", "--abbrev=40",
                "--no-renames", "--", source_rel]
         lb = _lancement_borne()
         if lb is not None:
             out = lb.lancer_texte(cmd, delai=15, cwd=RACINE, errors="replace")
-        else:
-            out = subprocess.run(cmd, cwd=RACINE, capture_output=True, text=True,
-                                 encoding="utf-8", errors="replace", timeout=15)
+        else:  # no unbounded fallback: caught below -> None (fail-open)
+            raise OSError("_lancement_borne indisponible: pas de lancement non borne")  # fail-open via les except existants
     except Exception:  # pragma: no cover - fail-open
         return None
     if out.returncode != 0:
@@ -764,14 +763,12 @@ def lister_git_exe():
     if os.name != "nt":
         return None
     try:
-        import subprocess
         cmd = ["powershell", "-NoProfile", "-NonInteractive", "-Command", _PS_GIT]
         lb = _lancement_borne()
         if lb is not None:
             r = lb.lancer_texte(cmd, delai=DELAI_LISTE_PROCESSUS_S, errors="replace")
-        else:
-            r = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8",
-                               errors="replace", timeout=DELAI_LISTE_PROCESSUS_S)
+        else:  # no unbounded fallback: caught below -> None (fail-open)
+            raise OSError("_lancement_borne indisponible: pas de lancement non borne")  # fail-open via les except existants
         if r.returncode != 0:
             return None
         brut = (r.stdout or "").strip()
@@ -1031,12 +1028,212 @@ def ligne_revue_fonctionnement(chemin=None, maintenant=None):
         return None
 
 
+# --- Cache des mesures lentes (2026-10-21 : le hook depassait son plafond de 25 s) -------
+# On ne change JAMAIS ce qu'une mesure decide, seulement QUAND elle est recalculee.
+# Fail-open de bout en bout : cache absent, corrompu, illisible ou non inscriptible ->
+# la mesure est recalculee, sans bruit. `--sans-cache` force le recalcul (et reecrit).
+CACHE = os.path.join(RACINE, ".claude", "supervision", "point_du_jour_cache.json")
+CACHE_TTL_PROCESSUS_S = 600
+CACHE_TTL_KIT_S = 3600
+SANS_CACHE = False
+
+
+def _head_sha():
+    """SHA de HEAD du hub, lu dans .git sans lancer git ; None si illisible."""
+    try:
+        git = os.path.join(RACINE, ".git")
+        if os.path.isfile(git):  # worktree : `gitdir: <chemin>`
+            with open(git, encoding="utf-8") as f:
+                git = f.read().split(":", 1)[1].strip()
+            if not os.path.isabs(git):
+                git = os.path.join(RACINE, git)
+        with open(os.path.join(git, "HEAD"), encoding="utf-8") as f:
+            tete = f.read().strip()
+        if not tete.startswith("ref:"):
+            return tete or None
+        ref = tete.split(":", 1)[1].strip()
+        commun = git
+        try:
+            with open(os.path.join(git, "commondir"), encoding="utf-8") as f:
+                commun = os.path.normpath(os.path.join(git, f.read().strip()))
+        except OSError:
+            pass
+        for base in (git, commun):
+            try:
+                with open(os.path.join(base, *ref.split("/")), encoding="utf-8") as f:
+                    return f.read().strip() or None
+            except OSError:
+                continue
+        with open(os.path.join(commun, "packed-refs"), encoding="utf-8") as f:
+            for ligne in f:
+                if ligne.strip().endswith(" " + ref):
+                    return ligne.split()[0]
+    except Exception:  # noqa: BLE001 - fail-open
+        return None
+    return None
+
+
+CACHE_MAX_LIGNES = 20
+CACHE_MAX_CARS = 1500
+
+
+def _stat(chemin):
+    try:
+        s = os.stat(chemin)
+        return f"{chemin}:{s.st_mtime_ns}:{s.st_size}"
+    except OSError:
+        return f"{chemin}:absent"
+
+
+def _empreinte_kit():
+    """Empreinte BON MARCHE de ce dont depend la derive de kit : os.stat (mtime_ns, taille)
+    de export/MANIFESTE.json, de projets.json et de chaque fichier du manifeste chez chaque
+    cible. Aucun git, aucune lecture de contenu hors le manifeste (liste des destinations).
+    NB : le brief citait `.claude/kit-version.json`, qui n'existe pas ; la mesure compare les
+    destinations du manifeste (kit_installe.mesurer), ce sont elles qu'on surveille."""
+    try:
+        manifeste = os.path.join(RACINE, "export", "MANIFESTE.json")
+        projets = os.path.join(RACINE, "projets.json")
+        morceaux = [_stat(manifeste), _stat(projets)]
+        destinations = [f.get("destination") for f in
+                        (_charge(manifeste) or {}).get("fichiers", [])
+                        if isinstance(f, dict) and f.get("destination")]
+        hub = os.path.normcase(os.path.abspath(RACINE))
+        for pr in (_charge(projets) or {}).get("projets", []):
+            chemin = pr.get("chemin") or ""
+            if not chemin or os.path.normcase(os.path.abspath(chemin)) == hub:
+                continue
+            morceaux.extend(_stat(os.path.join(chemin, d)) for d in destinations)
+        import hashlib
+        return hashlib.sha1("\n".join(morceaux).encode("utf-8", "replace")).hexdigest()
+    except Exception:  # noqa: BLE001 - fail-open : cle degradee, jamais d'exception
+        return "empreinte-illisible"
+
+
+def _assainir(valeur):
+    """Relecture du cache = donnee non fiable : chaque ligne repasse par _ascii, bornee en
+    longueur et en nombre. Forme inattendue -> None (recalcul). Les elements sont soit une
+    chaine, soit [en_tete(bool), chaine]."""
+    if not isinstance(valeur, list) or len(valeur) > CACHE_MAX_LIGNES:
+        return None
+    sortie = []
+    for el in valeur:
+        if isinstance(el, str):
+            sortie.append(_ascii(el)[:CACHE_MAX_CARS])
+        elif (isinstance(el, list) and len(el) == 2 and isinstance(el[0], bool)
+              and isinstance(el[1], str)):
+            sortie.append([el[0], _ascii(el[1])[:CACHE_MAX_CARS]])
+        else:
+            return None
+    return sortie
+
+
+def _cache_lire(nom, cle, ttl, maintenant=None):
+    """Valeur memorisee pour `nom` si meme `cle` et plus jeune que `ttl` s, sinon None."""
+    if SANS_CACHE:
+        return None
+    try:
+        with open(CACHE, encoding="utf-8") as f:
+            entree = json.load(f)[nom]
+        age = (time.time() if maintenant is None else maintenant) - float(entree["t"])
+        if entree["cle"] == cle and 0 <= age < ttl:
+            return _assainir(entree["val"])
+    except Exception:  # noqa: BLE001 - cache absent/corrompu : on recalcule
+        pass
+    return None
+
+
+def _cache_ecrire(nom, cle, valeur, maintenant=None):
+    """Ecriture atomique (tmp + os.replace) ; silencieuse en cas d'echec."""
+    tmp = CACHE + f".{os.getpid()}.tmp"
+    try:
+        try:
+            with open(CACHE, encoding="utf-8") as f:
+                donnees = json.load(f)
+            if not isinstance(donnees, dict):
+                donnees = {}
+        except Exception:  # noqa: BLE001
+            donnees = {}
+        donnees[nom] = {"cle": cle, "t": time.time() if maintenant is None else maintenant,
+                        "val": valeur}
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(donnees, f)
+        os.replace(tmp, CACHE)
+    except Exception:  # noqa: BLE001 - fail-open
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
+def _avec_cache(nom, cle, ttl, calcul):
+    """`calcul()` -> (valeur, memorisable). Rejoue la valeur en cache tant qu'elle est fraiche."""
+    valeur = _cache_lire(nom, cle, ttl)
+    if valeur is not None:
+        return valeur
+    valeur, memorisable = calcul()
+    if memorisable:
+        _cache_ecrire(nom, cle, valeur)
+    return valeur
+
+
+def _lignes_processus():
+    """Lignes du recensement git/hooks/worktrees ; (lignes, memorisable)."""
+    lignes = []
+    try:
+        procs = lister_git_exe()  # ONE bounded call shared by both counters
+        mesure = procs is not None or os.name != "nt"
+        if procs is None and os.name == "nt":
+            lignes.append("processus orphelins (git/hooks) : non mesure (liste indisponible"
+                          f" ou > {DELAI_LISTE_PROCESSUS_S} s)")
+        procs = procs if procs is not None else []  # never a 2nd (slow) listing
+        for ligne_orph in (ligne_git_orphelins(procs), ligne_hooks_orphelins(procs),
+                           ligne_debit_git(procs), ligne_worktrees(compter_worktrees())):
+            if ligne_orph:
+                lignes.append(ligne_orph)
+        return lignes, mesure
+    except Exception as exc:  # fail-open : un hook ne bloque jamais la session
+        lignes.append(f"git orphelins : mesure impossible ({_ascii(str(exc))})")
+        return lignes, False
+
+
+def _lignes_kit():
+    """[(en_tete, ligne)] de la derive de kit ; (valeur, memorisable)."""
+    sortie = []
+    try:
+        sys.path.insert(0, os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dispositif"))
+        import kit_installe
+        derives = kit_installe.derives_par_projet()
+        if not derives:
+            return [], True
+        sortie.append((False, kit_installe.ligne_point_du_jour(derives)))
+        # Seuil bloquant : la derive agee passe EN TETE (SEUIL_DERIVE_BLOQUANTE_JOURS).
+        try:
+            import carte_generes
+            bloquante = ligne_derive_bloquante(
+                derives, kit_installe, carte_generes.construire(),
+                _chemins_projets(kit_installe))
+            if bloquante:
+                sortie.append((True, bloquante))
+        except Exception as exc:  # fail-open : le point du jour reste affiche
+            sortie.append((False, f"derive bloquante : mesure impossible ({_ascii(str(exc))})"))
+            return sortie, False
+        return sortie, True
+    except Exception as exc:
+        sortie.append((False, f"kit installe : mesure impossible ({_ascii(str(exc))})"))
+        return sortie, False
+
+
 def main(argv=None):
     # `--tout` (2026-10-01, finding `point_du_jour:tout-voir-reaffiche-la-liste-tronquee`) :
     # la notice de troncature renvoyait a la commande nue, qui re-tronquait la meme
     # liste. Lu a la main, sans argparse : un argument inconnu ne doit jamais faire
     # planter un hook SessionStart (fail-open), il est simplement ignore.
-    tout = "--tout" in (sys.argv[1:] if argv is None else argv)
+    args = sys.argv[1:] if argv is None else argv
+    tout = "--tout" in args
+    global SANS_CACHE
+    SANS_CACHE = "--sans-cache" in args
     # « Vous prevenir ailleurs » (salle atelier-idees, arbitre le 2026-08-31) : la
     # ligne ne DENOMBRE plus, elle donne la commande prete a taper — l'information
     # arrive dans le canal reellement utilise, avec le verbe qui la traite.
@@ -1113,18 +1310,9 @@ def main(argv=None):
         lignes.append(f"plantages de garde : mesure impossible ({_ascii(str(exc))})")
 
     # git.exe orphelins (> 30 min) : affiche seulement si > 0 ; fail-open.
-    try:
-        procs = lister_git_exe()  # ONE bounded call shared by both counters
-        if procs is None and os.name == "nt":
-            lignes.append("processus orphelins (git/hooks) : non mesure (liste indisponible"
-                          f" ou > {DELAI_LISTE_PROCESSUS_S} s)")
-        procs = procs if procs is not None else []  # never a 2nd (slow) listing
-        for ligne_orph in (ligne_git_orphelins(procs), ligne_hooks_orphelins(procs),
-                           ligne_debit_git(procs), ligne_worktrees(compter_worktrees())):
-            if ligne_orph:
-                lignes.append(ligne_orph)
-    except Exception as exc:  # fail-open : un hook ne bloque jamais la session
-        lignes.append(f"git orphelins : mesure impossible ({_ascii(str(exc))})")
+    # Recensement en cache 10 min (2026-10-21 : ~5 s a chaque session) ; les lignes ne
+    # sont memorisees que si la mesure a abouti (jamais « non mesure » ni erreur).
+    lignes.extend(_avec_cache("processus", "", CACHE_TTL_PROCESSUS_S, _lignes_processus))
 
     # Kit agentic installe chez les cibles vs kit publie (finding
     # flotte:write_diagnostic-deploye-refuse-les-categories-pratique, 2026-09-08) :
@@ -1142,26 +1330,17 @@ def main(argv=None):
     # si scripts/scan_projets.py est present (marqueur fiable du hub, deja utilise
     # ailleurs dans ce fichier) ; ailleurs, silence.
     if os.path.isfile(os.path.join(RACINE, "scripts", "scan_projets.py")):
-        try:
-            sys.path.insert(0, os.path.join(
-                os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dispositif"))
-            import kit_installe
-            derives = kit_installe.derives_par_projet()
-            if derives:
-                lignes.append(kit_installe.ligne_point_du_jour(derives))
-                # Seuil bloquant : la derive agee passe EN TETE (SEUIL_DERIVE_BLOQUANTE_JOURS).
-                try:
-                    import carte_generes
-                    bloquante = ligne_derive_bloquante(
-                        derives, kit_installe, carte_generes.construire(),
-                        _chemins_projets(kit_installe))
-                    if bloquante:
-                        lignes.insert(0, bloquante)
-                except Exception as exc:  # fail-open : le point du jour reste affiche
-                    lignes.append(
-                        f"derive bloquante : mesure impossible ({_ascii(str(exc))})")
-        except Exception as exc:
-            lignes.append(f"kit installe : mesure impossible ({_ascii(str(exc))})")
+        # Derive de kit : ~23 s mesurees (2026-10-21), cache 1 h indexe sur le HEAD du hub.
+        for el in _avec_cache("kit", (_head_sha() or "") + "|" + _empreinte_kit(),
+                                           CACHE_TTL_KIT_S,
+                                           _lignes_kit):
+            if not (isinstance(el, (list, tuple)) and len(el) == 2):
+                continue  # forme inattendue (cache forge) : ignoree, jamais d'exception
+            tete, ligne_kit = el
+            if tete:
+                lignes.insert(0, ligne_kit)
+            else:
+                lignes.append(ligne_kit)
 
     ligne_verd = ligne_verdicts()
     if ligne_verd:
@@ -1247,7 +1426,10 @@ def _armer_chien_de_garde():
 
 
 if __name__ == "__main__":
-    _armer_chien_de_garde()
+    # `--sans-cache` = lancement MANUEL (jamais configure en SessionStart) : il recalcule
+    # tout et rechauffe le cache, sans le plafond de 25 s qu'une machine chargee depasse.
+    if "--sans-cache" not in sys.argv[1:]:
+        _armer_chien_de_garde()
     try:
         sys.exit(main())
     except Exception as exc:  # noqa: BLE001 - un hook ne doit jamais bloquer la session

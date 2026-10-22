@@ -4,7 +4,7 @@
 # | garder : la signaler au hub, qui corrige le canon et re-synchronise.
 # | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
 # |  n'est pas déployé, il n'existe pas dans ce dépôt.)
-# | Provenance canon : 21a43bab du 2026-10-13 — permet, au prochain sync, de dire si
+# | Provenance canon : ffb0a22d du 2026-10-22 — permet, au prochain sync, de dire si
 # | une différence vient d'une édition locale ou d'une avance du canon (voir
 # | `determiner_cause` dans sync_dispositif.py au hub).
 # +---------------------------------------------------------------------------
@@ -302,12 +302,15 @@ def solder(argv) -> int:
     positionnels = []
     i = 0
     while i < len(argv):
-        if argv[i] in ("--par", "--artefact", "--demande") and i + 1 < len(argv):
+        if argv[i] in ("--par", "--artefact", "--demande", "--solde-par") and i + 1 < len(argv):
             options[argv[i][2:]] = argv[i + 1]
             i += 2
         elif argv[i] == "--re-solder":
             options["re-solder"] = True
             i += 1
+        elif argv[i] == "--solde-par":
+            print("log_run --solde : --solde-par attend un run_id (valeur absente)")
+            return 1
         elif argv[i] == "--demande":
             print("log_run --solde : --demande attend un fragment de demande (valeur absente)")
             return 1
@@ -341,6 +344,10 @@ def solder(argv) -> int:
     except (OSError, ValueError) as exc:
         print(f"log_run --solde : lecture impossible ({exc})")
         return 1
+    solde_par = options.get("solde-par")
+    if solde_par is not None and not any(r.get("run_id") == solde_par for r in runs):
+        print(f"log_run --solde : --solde-par {solde_par!r} : run_id absent du journal (refuse)")
+        return 1
     if fragment is not None:
         cibles = [r for r in runs
                   if fragment.lower() in str(r.get("demande") or "").lower()]
@@ -356,6 +363,31 @@ def solder(argv) -> int:
             print(f"  - {r.get('ts')} | {str(r.get('demande') or '')[:60]}")
         return 1
     run = cibles[0]
+    if solde_par is not None:
+        if solde_par == run.get("run_id"):
+            print(f"log_run --solde : --solde-par {solde_par!r} est le run a solder lui-meme (refuse)")
+            return 1
+        homonymes = [r for r in runs if r.get("run_id") == solde_par]
+        if len(homonymes) != 1:
+            print(f"log_run --solde : --solde-par {solde_par!r} : run_id non unique dans le journal"
+                  f" ({len(homonymes)} occurrences) (refuse)")
+            return 1
+        solveur = homonymes[0]
+        try:
+            t_solveur = _aware(datetime.datetime.fromisoformat(str(solveur.get("ts"))))
+            t_solde = _aware(datetime.datetime.fromisoformat(str(run.get("ts"))))
+        except ValueError:
+            print(f"log_run --solde : --solde-par {solde_par!r} : ts absent ou illisible"
+                  f" (solveur {solveur.get('ts')!r}, run solde {run.get('ts')!r}) (refuse)")
+            return 1
+        if t_solveur <= t_solde:
+            print(f"log_run --solde : --solde-par {solde_par!r} doit etre posterieur au run solde"
+                  f" ({solveur.get('ts')} <= {run.get('ts')}) (refuse)")
+            return 1
+        if solveur.get("resultat") != "succes":
+            print(f"log_run --solde : --solde-par {solde_par!r} doit etre un run 'succes'"
+                  f" (resultat du solveur : {solveur.get('resultat')!r}) (refuse)")
+            return 1
     # Contrôle AVANT toute mutation : un refus laisse le journal exactement dans
     # l'état où il était (aucune réécriture, aucun `notes` allongé d'un solde qui
     # n'a pas eu lieu).
@@ -430,6 +462,8 @@ def solder(argv) -> int:
         soldes = [{**run["solde"], "re_solder": False}]
     run["soldes"] = soldes + [{**entree, "re_solder": bool(options.get("re-solder"))}]
     run["solde"] = entree
+    if solde_par is not None:
+        run["solde_par"] = solde_par
     # Ecriture atomique (meme convention que .claude/supervision/scan_transcripts.py) : "w" direct sur
     # RUNS_PATH tronque les 94 Ko du journal a mi-parcours si l'ecriture est interrompue
     # (Ctrl-C, coupure, disque plein). Le temporaire vit dans le meme repertoire pour
@@ -1464,6 +1498,9 @@ def main(argv) -> int:
     if len(argv) == 1 and argv[0] in ("--help", "-h"):
         print((__doc__ or "log_run : voir l'en-tete du script").strip())
         return 0
+    if "--solde-par" in argv and not (argv and argv[0] == "--solde"):
+        print("log_run : --solde-par n'a de sens qu'avec --solde (refuse)")
+        return 1
     if argv and argv[0] == "--solde":
         return solder(argv[1:])
     if argv and argv[0] == "--verdict":
@@ -1545,6 +1582,10 @@ def main(argv) -> int:
     if refus_lot:
         print(refus_lot)
         return 1
+    refus_preuve = verifier_preuve_de_verification(run)
+    if refus_preuve:
+        print(refus_preuve)
+        return 1
     refus_revue = verifier_revue_increment(run)
     if refus_revue:
         print(refus_revue)
@@ -1564,6 +1605,91 @@ def main(argv) -> int:
 LIVRABLE_UTILISATEUR = ("deck", "slide", "pptx", "ecran", "écran", "export")
 VALIDATION_UTILISATEUR = ("valide par l'utilisateur", "validé par l'utilisateur",
                           "valide par utilisateur", "ok utilisateur")
+
+
+# --- Succes sans preuve de verification (revue 2026-10-19 F4) ----------------
+# Un `succes` dont les notes ne portent AUCUN marqueur de verification etait
+# accepte sans condition ; seul le scan le comptait apres coup (21 %). Refus a
+# l'append, sauf qualification explicite `verification: "non-verifiee"`.
+# COPIE de `scripts/scan_projets.MARQUEURS_VERIFICATION` (le scan n'est pas
+# deploye avec le canon) : un test egalise les deux listes. Seules les `notes`
+# comptent : un marqueur dans une autre cle ne prouve rien.
+CHAMP_VERIFICATION = "verification"
+VERIFICATION_NON_VERIFIEE = "non-verifiee"
+MARQUEURS_VERIFICATION = (
+    r"pytest",
+    r"py -m",
+    r"mesur",
+    r"rendu regard",
+    r"\bouvert",
+    r"\b(?=[0-9]*[a-f])[0-9a-f]{7,40}\b",
+    r"\bpassed\b",
+    r"--check",
+)
+
+
+def _a_plat(txt) -> str:
+    import unicodedata
+    return unicodedata.normalize("NFKD", str(txt)).encode("ascii", "ignore").decode().lower()
+
+
+# Negation (diagnostic 2026-10-19) : « fait, rien mesure » ou « pytest pas lance »
+# portaient un marqueur sans verification. Un marqueur est NIE si, dans la meme
+# proposition (coupee a , ; . ! ? saut de ligne et « mais »), un negateur le precede
+# de moins de 4 mots (rien, pas, non, sans, jamais, aucun) ou le suit de 2 mots
+# (pas, non, jamais). « ne ... pas » compte pour UNE negation (« ne » seul ignore).
+# Un nombre pair de negateurs du meme cote s'annule (« jamais sans pytest » passe).
+# Limite : « pytest 12 passed sans erreur » reste accepte (« sans » apres), mais
+# « passed pas de regression » est refuse a tort : friction assumee.
+_NEGATEURS_AVANT = frozenset({"rien", "pas", "non", "sans", "jamais", "aucun", "aucune"})
+_NEGATEURS_APRES = frozenset({"pas", "non", "jamais"})
+_COUPURE_PROPOSITION = re.compile(r"[,;.!?\n]|\bmais\b")
+
+
+def _marqueur_affirme(notes: str, motif: str) -> bool:
+    """Vrai si `motif` apparait dans `notes` au moins une fois sans negation proche."""
+    for m in re.finditer(motif, notes):
+        debut = max((c.end() for c in _COUPURE_PROPOSITION.finditer(notes, 0, m.start())), default=0)
+        fin_c = _COUPURE_PROPOSITION.search(notes, m.end())
+        fin = fin_c.start() if fin_c else len(notes)
+        avant = re.findall(r"[a-z0-9]+", notes[debut:m.start()])[-4:]
+        apres = re.findall(r"[a-z0-9]+", notes[m.end():fin])[:2]
+        nb_av = sum(1 for w in avant if w in _NEGATEURS_AVANT)
+        nb_ap = sum(1 for w in apres if w in _NEGATEURS_APRES)
+        if nb_av % 2 == 0 and nb_ap % 2 == 0:
+            return True
+    return False
+
+
+def verifier_preuve_de_verification(run: dict) -> str | None:
+    """Refus si `resultat: succes` sans marqueur de verification dans `notes`.
+
+    Exemptions : tout autre resultat, un run de lot (`lot` : verifie par
+    `verifier_lot`), et la qualification explicite `verification:
+    "non-verifiee"` (le run reste `succes` mais se declare non verifie, donc
+    mesurable). Le `--solde` ne passe pas par ici. Le marqueur se cherche sur les
+    seules `notes`, mises a plat (minuscules, sans accents)."""
+    if run.get("resultat") != "succes" or str(run.get(CHAMP_LOT) or "").strip():
+        return None
+    if _a_plat(run.get(CHAMP_VERIFICATION) or "").strip() == VERIFICATION_NON_VERIFIEE:
+        return None
+    notes = _a_plat(run.get("notes") or "")
+    if any(_marqueur_affirme(notes, m) for m in MARQUEURS_VERIFICATION):
+        return None
+    return (
+        "log_run REFUS : resultat 'succes' sans aucune preuve de verification dans "
+        "'notes'.\n"
+        "  Ajouter dans notes la commande rejouee et son resultat (ex. 'pytest 12 "
+        "passed', 'py -m ... --check'), un sha de commit, ou 'rendu regarde'.\n"
+        f"  Sinon qualifier : '{CHAMP_VERIFICATION}': '{VERIFICATION_NON_VERIFIEE}' "
+        "(le run reste journalise, declare non verifie), ou un resultat "
+        "'partiel' / 'en-attente-validation'.\n"
+        "  Un marqueur nie a proximite (rien, pas, non, sans, jamais, aucun) ne compte pas.\n"
+        "  Cette garde est une FRICTION, pas une preuve : elle cherche un marqueur "
+        "dans les notes et ne verifie pas que la commande a ete lancee. Un sha n'est "
+        "PAS verifie dans le depot courant (un run du hub cite des commits d'AUTRES "
+        "depots) : il peut etre invente."
+    )
 
 
 def verifier_revue_increment(run: dict) -> str | None:

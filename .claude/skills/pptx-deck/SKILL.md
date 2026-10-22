@@ -15,6 +15,20 @@ description: Build quality PowerPoint slides with python-pptx — a reusable hel
 
 # pptx-deck
 
+## Fiche rapide (lire ceci d'abord ; la suite sert au besoin)
+
+| Je dois… | Je fais… |
+| --- | --- |
+| Modifier quelques slides d'un deck existant | `generateur_squelette.py --depuis DECK --sortie OUT --slides "Titre A,3" --remplacer A=B` ; jamais recopier un generateur (`pptx_deck_core.run_delta` : delta par titre/id/rang, refuse d'ecrire si une slide figee change) |
+| Creer un deck depuis zero | `--depuis-zero GABARIT.pptx --sortie OUT` puis `pptx_recettes.recette(slide, nom, data)` |
+| Une slide jolie sans ecrire de geometrie | `py -c "import pptx_recettes as R; print(R.lister())"` (8 recettes, donnees seules, couleurs et police lues dans le theme) ; ne lire le catalogue `deck-design-library` que si aucune recette ne convient |
+| Livrer | `--sortie` lance seul 3 gardes strictes : integrite OPC, poids (alerte 12 Mo ou 200 Ko/slide, blocage 25 Mo), charte (`--charte acn|octo|<client>` ou `--tokens FILE`). Chaque garde est refusee PAR DEFAUT et ne se leve que sur motif ecrit : `--deroger poids=MOTIF` (> 25 Mo), `--deroger charte=MOTIF` (couleur/police hors charte), `--deroger sans-charte=MOTIF` (aucune charte) ; motif de 15 caracteres minimum, trace dans `<deck>.derogations.json` ; **une derogation n'est jamais l'initiative de l'agent** : elle exige `--demande "<mots de l'utilisateur, date>"` (sans elle : refus) ; l'integrite n'est jamais derogeable |
+| Alleger les images | `pptx-verify/scripts/optimiser_medias.py in out --dpi 192` (copie, jamais en place), puis re-regarder le rendu |
+| Avoir une charte | `charte/<nom>/tokens.json` derive du deck de reference : `deriver_tokens_charte.py REF.pptx --charte <nom>` |
+| Verifier | rendu reel des seules slides touchees (pptx-verify) ; la geometrie verte ne dit rien du rendu |
+
+Les chartes de reference du hub : `acn` (Slide Design Pack 1, Vscode8) et `octo` (template-octo.pptx) ; une charte client s'ajoute de la meme facon.
+
 Reusable toolkit to generate **well-designed** slides with `python-pptx` instead
 of dumping monotone bullet lists. The recurring failure mode of hand-built decks
 is shapes positioned for the wrong slide size (content runs off the bottom/right)
@@ -161,3 +175,21 @@ look broken. When you render, hunt specifically for:
 Copy `scripts/pptx_deck.py` next to your generator (so runtime has no dependency on
 this skill's install path) and `import pptx_deck as D`. Keep the project copy and
 this one in sync if you extend the helpers.
+
+## Generator skeleton and deck rework (pptx_deck_core)
+
+Do not copy `Dessin`/`add_rect` into each generator: import `pptx_deck` and
+`pptx_deck_core` (hub canon `.claude/dispositif/canon/pptx_deck_core.py`, python-pptx only).
+- `scripts/generateur_squelette.py --depuis-zero GABARIT.pptx | --depuis DECK.pptx`,
+  `--sortie OUT.pptx`, `--slides 3,12,24` (limits the delta AND the checks),
+  `--remplacer A=B`, `--dry-run` (lists touched slides, writes nothing). Exit 1 on any
+  geometry/text-overflow defect of the targeted slides. Pass `delta(prs, rangs)` to `main()`.
+- Core: `copier_slide` (images/links/notes kept), `remplacer_texte` (runs kept),
+  `renumeroter_slides`, `extract_comments` (classic + modern), `diff_decks(base, retour)`.
+- User feedback on a copy: `--depuis base --retours copie.pptx --slides ...` prints comments
+  and which slides changed (text / geometry / shape added or removed).
+- Addressing: `slides=` accepts ranks, TITLES (strict, error lists candidates), `id:256`
+  (sldId, stable). `resoudre_slides`, `id_slide`, `trouver_forme(slide, nom=, texte=)`,
+  `definir_sections(prs, [(nom, [slides])])` (p14:sectionLst), `supprimer_slide_par_selecteur`.
+- `appliquer_delta(prs, [{slide, op: remplacer_texte|supprimer|copier|renumeroter, ...}],
+  dry_run=False)`: selectors resolved before any change; the skeleton's `--remplacer` uses it.

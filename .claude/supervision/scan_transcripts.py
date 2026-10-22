@@ -4,7 +4,7 @@
 # | garder : la signaler au hub, qui corrige le canon et re-synchronise.
 # | (Depuis le hub : « py .claude/dispositif/sync_dispositif.py » — ce script
 # |  n'est pas déployé, il n'existe pas dans ce dépôt.)
-# | Provenance canon : 21a43bab du 2026-10-13 — permet, au prochain sync, de dire si
+# | Provenance canon : ffb0a22d du 2026-10-22 — permet, au prochain sync, de dire si
 # | une différence vient d'une édition locale ou d'une avance du canon (voir
 # | `determiner_cause` dans sync_dispositif.py au hub).
 # +---------------------------------------------------------------------------
@@ -184,9 +184,12 @@ def read_new_lines(path: str, offset: int):
         offset = 0
     if size == offset:
         return [], offset
-    with open(path, "rb") as fh:
-        fh.seek(offset)
-        chunk = fh.read()
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(offset)
+            chunk = fh.read()
+    except OSError:  # verrou/permission apres getsize : ignorer ce fichier ce tour-ci
+        return [], offset
     end = chunk.rfind(b"\n")
     if end < 0:
         return [], offset
@@ -223,6 +226,7 @@ def reset_si_detecteur_change(state: dict) -> bool:
         return False
     state["files"] = {}
     state["skills"] = {}
+    state["skills_via_sous_agent"] = {}
     state["subagents"] = {}
     state["skills_journal"] = {}
     state["subagents_journal"] = {}
@@ -262,8 +266,11 @@ def scan(state: dict) -> int:
                 obj = json.loads(raw.decode("utf-8", "replace"))
             except ValueError:
                 continue
+            if not isinstance(obj, dict):
+                continue
             ts = obj.get("timestamp") or ""
-            content = (obj.get("message") or {}).get("content")
+            msg = obj.get("message")
+            content = msg.get("content") if isinstance(msg, dict) else None
             # Slash-commands : une skill invoquée en /commande n'émet PAS de
             # tool_use Skill — elle apparaît en <command-name> dans le message
             # utilisateur (constat superviseur VScode5 2026-07-23, propagé).
@@ -287,11 +294,46 @@ def scan(state: dict) -> int:
                 if not (isinstance(blk, dict) and blk.get("type") == "tool_use"):
                     continue
                 tool_input = blk.get("input") or {}
+                if not isinstance(tool_input, dict):
+                    continue
                 if blk.get("name") == "Skill" and tool_input.get("skill"):
                     record(skills, str(tool_input["skill"]), ts)
                     new_events += 1
                 elif blk.get("name") in ("Agent", "Task"):
                     record(subagents, str(tool_input.get("subagent_type") or "(defaut)"), ts)
+                    new_events += 1
+        files_state[name] = {"offset": new_offset}
+    # Sidechains <session>/subagents/agent-*.jsonl : les porteurs (bmad-revue...) y invoquent
+    # les skills bmad-*. Meme cle de comptage `skills` ; sous-compteur `skills_via_sous_agent`.
+    # Seuls les tool_use Skill y sont lus (les /commandes et Agent restent propres aux sessions).
+    via = state.setdefault("skills_via_sous_agent", {})
+    for path in sorted(glob.glob(os.path.join(tdir, "*", "subagents", "agent-*.jsonl"))):
+        name = os.path.relpath(path, tdir).replace(os.sep, "/")
+        offset = files_state.get(name, {}).get("offset", 0)
+        lines, new_offset = read_new_lines(path, offset)
+        for raw in lines:
+            if b'"Skill"' not in raw:
+                continue
+            try:
+                obj = json.loads(raw.decode("utf-8", "replace"))
+            except ValueError:
+                continue
+            if not isinstance(obj, dict):
+                continue
+            msg = obj.get("message")
+            content = msg.get("content") if isinstance(msg, dict) else None
+            if not isinstance(content, list):
+                continue
+            for blk in content:
+                if not (isinstance(blk, dict) and blk.get("type") == "tool_use"):
+                    continue
+                tool_input = blk.get("input") or {}
+                if not isinstance(tool_input, dict):
+                    continue
+                if blk.get("name") == "Skill" and tool_input.get("skill"):
+                    ts = obj.get("timestamp") or ""
+                    record(skills, str(tool_input["skill"]), ts)  # SIDECHAIN-COUNT
+                    record(via, str(tool_input["skill"]), ts)
                     new_events += 1
         files_state[name] = {"offset": new_offset}
     state["last_scan"] = dt.datetime.now().astimezone().isoformat(timespec="seconds")

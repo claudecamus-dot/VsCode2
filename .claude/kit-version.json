@@ -1,21 +1,9 @@
 {
-  "kit_id": "6cae47384aaad50ae4707818e990cfe4e18fcc6b4dff12be462b75cbf59db516",
-  "hub_commit": "bf64b967",
-  "date": "2026-10-13",
-  "fichiers": 105,
+  "kit_id": "4e5dbac3d0fcac0e93e224ced8ba1749d8ec0f506e5e64bf07bf139f6588cde2",
+  "hub_commit": "e514bc48",
+  "date": "2026-10-22",
+  "fichiers": 115,
   "ecarts_connus": [
-    {
-      "fichier": ".claude/agents/veille-agentic.md",
-      "nature": "SPECIALISATION"
-    },
-    {
-      "fichier": ".claude/hooks/_lancement_borne.py",
-      "nature": "SPECIALISATION"
-    },
-    {
-      "fichier": ".claude/hooks/faucher_orphelins.py",
-      "nature": "SPECIALISATION"
-    },
     {
       "fichier": ".claude/orchestration/catalogue.md",
       "nature": "structurellement-local"

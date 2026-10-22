@@ -83,7 +83,7 @@ SEUILS_DEFAUT = {
 # cibles) ; un test verrouille la parite.
 MARQUEURS_VERIFICATION = (
     r"pytest", r"py -m", r"mesur", r"rendu regard", r"\bouvert",
-    r"\b[0-9a-f]{7,40}\b", r"passed", r"--check",
+    r"\b(?=[0-9]*[a-f])[0-9a-f]{7,40}\b", r"\bpassed\b", r"--check",
 )
 
 
