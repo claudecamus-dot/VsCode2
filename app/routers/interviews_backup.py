@@ -30,6 +30,7 @@ from ..models import (
 from ..services import mission_backups
 from ..uploads import (
     UploadTropVolumineux,
+    UploadVide,
     ecrire_audio_borne,
 )
 from .interviews_commun import (
@@ -120,7 +121,8 @@ async def save_record_backup(
         # fichier partiel est supprimé au dépassement, donc un envoi hors norme
         # ne laisse rien derrière lui.
         octets = await asyncio.to_thread(
-            ecrire_audio_borne, file.file, RECORDINGS_DIR / filename
+            ecrire_audio_borne, file.file, RECORDINGS_DIR / filename,
+            refuser_vide=True,
         )
         # Trace POSITIVE dans le journal serveur (incident du 2026-09-08 : zéro
         # tranche audio sur 2h d'entretien, et rien pour dire si le client n'a
@@ -130,20 +132,20 @@ async def save_record_backup(
             "Sauvegarde audio de secours écrite : %s (%d octets, mission %s)",
             filename, octets, mission_id,
         )
-        if not octets:
-            # Un fichier vide n'est PAS une sauvegarde (incident du 2026-09-08 :
-            # zéro octet d'audio sur 2h). L'accepter ferait de ce fichier la
-            # référence de l'entretien, et le client, croyant la copie écrite,
-            # pourrait lâcher la sienne : perte silencieuse. On supprime le
-            # fichier vide et on REFUSE (422) ; le client traite tout non-2xx
-            # comme un échec et GARDE son blob (retryOrGiveUp).
-            (RECORDINGS_DIR / filename).unlink(missing_ok=True)
-            logger.warning("Sauvegarde audio de secours VIDE refusée : %s (mission %s)", filename, mission_id)
-            return JSONResponse(
-                {"error": "Fichier audio vide : aucune sauvegarde n'a été écrite. "
-                          "Conserve ton enregistrement et réessaie."},
-                status_code=422,
-            )
+    except UploadVide:
+        # Un fichier vide n'est PAS une sauvegarde (incident du 2026-09-08 :
+        # zéro octet d'audio sur 2h). L'accepter ferait de ce fichier la
+        # référence de l'entretien, et le client, croyant la copie écrite,
+        # pourrait lâcher la sienne : perte silencieuse. `ecrire_audio_borne`
+        # a retiré le fichier vide qu'il venait de créer (aucun `unlink` ici :
+        # l'audio ne se supprime que par une action de l'utilisateur) ; on
+        # REFUSE (422) et le client GARDE son blob (retryOrGiveUp).
+        logger.warning("Sauvegarde audio de secours VIDE refusée : %s (mission %s)", filename, mission_id)
+        return JSONResponse(
+            {"error": "Fichier audio vide : aucune sauvegarde n'a été écrite. "
+                      "Conserve ton enregistrement et réessaie."},
+            status_code=422,
+        )
     except UploadTropVolumineux as exc:
         # 413, pas 500 — jumeau exact du correctif posé sur `transcribe_file`
         # (audit-technique sécurité du 2026-09-13). Le dépassement de plafond

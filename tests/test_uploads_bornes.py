@@ -473,6 +473,72 @@ def test_sauvegarde_de_secours_vide_est_refusee_et_ne_laisse_aucun_fichier(
     assert (dossier / chemin).stat().st_size > 0
 
 
+def test_sauvegarde_de_secours_vide_repond_422_meme_si_unlink_echoue(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fichier vide + unlink verrouillé (PermissionError) : 422 JSON avec `error`,
+    pas de `path`, aucun texte d'exception dans le corps (pas un 500)."""
+    dossier = tmp_path / "rec"
+    dossier.mkdir()
+    monkeypatch.setattr("app.routers.interviews_backup.RECORDINGS_DIR", dossier)
+    mission_id = _creer_mission(client, "Mission backup vide verrouille")
+
+    def _verrouille(chemin, *args, **kwargs):
+        raise PermissionError("SECRET-VERROU-C:\\chemin\\absolu")
+
+    # `ecrire_audio_borne` retire lui-même le fichier vide qu'il vient de créer
+    # (os.unlink) : c'est CE geste qui échoue quand Windows verrouille le fichier.
+    monkeypatch.setattr("app.uploads.os.unlink", _verrouille)
+
+    rep = client.post(
+        f"/missions/{mission_id}/interviews/record/backup",
+        files={"file": ("secours.webm", b"", "audio/webm")},
+    )
+    assert rep.status_code == 422, rep.text
+    corps = rep.json()
+    assert corps["error"]
+    assert "path" not in corps
+    assert "SECRET-VERROU" not in rep.text
+    assert "PermissionError" not in rep.text
+
+
+def test_ecrire_audio_borne_refuser_vide_refuse_0_octet_et_accepte_1_octet(
+    tmp_path: Path,
+) -> None:
+    cible = tmp_path / "vide.webm"
+    with pytest.raises(uploads.UploadVide):
+        uploads.ecrire_audio_borne(io.BytesIO(b""), cible, refuser_vide=True)
+    assert not cible.exists()
+    assert not issubclass(uploads.UploadVide, uploads.UploadTropVolumineux)
+
+    plein = tmp_path / "plein.webm"
+    assert uploads.ecrire_audio_borne(io.BytesIO(b"x"), plein, refuser_vide=True) == 1
+    assert plein.read_bytes() == b"x"
+
+
+def test_ecrire_audio_borne_par_defaut_garde_le_comportement_sur_0_octet(
+    tmp_path: Path,
+) -> None:
+    """Défaut inchangé (celui de `transcribe_file`) : 0 octet -> 0, fichier gardé."""
+    cible = tmp_path / "vide.audio"
+    assert uploads.ecrire_audio_borne(io.BytesIO(b""), cible) == 0
+    assert cible.exists() and cible.stat().st_size == 0
+
+
+def test_transcribe_file_n_a_pas_change_sur_0_octet(
+    client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`/audio/transcribe-file` ne passe pas `refuser_vide` : ni 422 ni 500."""
+    monkeypatch.setattr("app.routers.interviews_audio.RECORDINGS_DIR", tmp_path)
+    mission_id = _creer_mission(client, "Mission import vide")
+    rep = client.post(
+        "/audio/transcribe-file",
+        files={"file": ("vide.weba", b"", "audio/webm")},
+        data={"session_token": "sess-vide", "mission_id": str(mission_id)},
+    )
+    assert rep.status_code not in (413, 422, 500), rep.text
+
+
 def test_le_plafond_audio_par_defaut_laisse_passer_un_enregistrement_reel() -> None:
     """Garde-fou sur la garde. Mesuré le 2026-09-09 sur les enregistrements du
     poste : MediaRecorder produit 15,72 Ko/s (18,43 Mio pour 1200,0 s,
