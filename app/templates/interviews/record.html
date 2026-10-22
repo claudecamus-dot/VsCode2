@@ -1542,8 +1542,14 @@
     // tentative en cours.
     if (!attempt) { pendingBackups++; updateSubmitState(); }
 
+    // Règlement idempotent (EH-5, même patron que uploadSegment) : si
+    // updateSubmitState lève après le décrément, le .catch ne doit ni
+    // re-décrémenter ni re-POSTer une sauvegarde déjà acceptée.
+    var settled = false;
     function settle() {
-      pendingBackups--;
+      if (settled) return;
+      settled = true;
+      pendingBackups = Math.max(0, pendingBackups - 1);
       updateSubmitState();
     }
 
@@ -1615,6 +1621,9 @@
         }
       })
       .catch(function (err) {
+        // Déjà réglée (settle a levé après le décrément) : relancer
+        // re-posterait une sauvegarde acceptée (EH-5).
+        if (settled) { console.error('sauvegarde audio: erreur après règlement', err); return; }
         // `recTimeout` : délai maximal atteint (rec_fetch.js) — pas de relance
         // automatique des mêmes octets (R3-M5/M6).
         retryOrGiveUp(err.message, !!(err && err.recTimeout));

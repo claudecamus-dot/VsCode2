@@ -80,3 +80,67 @@ def test_settle_qui_leve_ne_double_decremente_pas_pendingsegments():
 def test_settle_nominal_inchange():
     out = _lancer(boom=0)
     assert out == {"pendant": 1, "pending": 0, "onSettle": 1, "textes": 1}
+
+
+_SCRIPT_BACKUP = r"""
+const timers = []; const pend = []; const posts = []; const window = {};
+function FormData() {} FormData.prototype.append = function () {};
+function File() {}
+function setTimeout(fn, d) { timers.push({ fn: fn, delai: d }); return timers.length; }
+async function tick() { for (let i = 0; i < 30; i++) await Promise.resolve(); }
+function recFetch() {
+  posts.push(1);
+  return new Promise(function (res) {
+    pend.push(function (r) { res({ ok: r.ok, status: r.status, json: function () { return Promise.resolve(r.data); } }); });
+  });
+}
+let pendingBackups = 0, recGeneration = 1, armed = false, boom = %(boom)s;
+const UPLOAD_TIMEOUT_MS = 10000000;
+const backupStatusEl = { textContent: '' }, backupPathHidden = { value: '' };
+const audioPlayerEl = {}, audioDownloadEl = {}, audioPlaybackEl = {};
+const seen = [];
+function signalerMissionAbsente() {} function oublierBackupLocal() {} function brancherRepliOrphelin() {}
+function urlAudio(p) { return p; } function offrirBackupEnLocal() { return true; }
+function updateSubmitState() {
+  seen.push(pendingBackups);
+  if (armed && boom > 0) { boom--; throw new Error('boom'); }
+}
+%(rec_retry)s
+const RETRY_PLAN = window.recRetryPlan;
+%(fonction)s
+"""
+
+_SCENARIO_BACKUP = r"""
+(async () => {
+  uploadBackup({ type: 'audio/webm' }, 0, undefined);
+  await tick();
+  const pendant = pendingBackups;
+  armed = true;
+  pend[0]({ ok: true, status: 200, data: { path: 'a.webm' } }); await tick();
+  for (let k = 0; k < 5 && timers.length > k; k++) { timers[k].fn(); await tick(); if (pend[k + 1]) { pend[k + 1]({ ok: true, status: 200, data: { path: 'a.webm' } }); await tick(); } }
+  console.log(JSON.stringify({ pendant: pendant, pending: pendingBackups, posts: posts.length, min: Math.min.apply(null, seen) }));
+})();
+"""
+
+
+def _lancer_backup(boom: int) -> dict:
+    src = _sans_commentaires(RECORD.read_text(encoding="utf-8"))
+    script = _SCRIPT_BACKUP % {
+        "boom": boom,
+        "rec_retry": (_ROOT / "app" / "static" / "rec_retry.js").read_text(encoding="utf-8"),
+        "fonction": _fonction(src, "uploadBackup"),
+    } + _SCENARIO_BACKUP
+    return _node(script)
+
+
+def test_backup_settle_qui_leve_ne_double_decremente_pas_pendingbackups():
+    out = _lancer_backup(boom=1)  # updateSubmitState leve au 1er appel apres reglement
+    assert out["pendant"] == 1
+    assert out["pending"] == 0, out   # jamais -1 : le gate (> 0) ne s'ouvre pas trop tot
+    assert out["min"] >= 0, out
+    assert out["posts"] == 1, out     # pas de re-POST d'une sauvegarde deja acceptee
+
+
+def test_backup_settle_nominal_inchange():
+    out = _lancer_backup(boom=0)
+    assert out == {"pendant": 1, "pending": 0, "posts": 1, "min": 0}
