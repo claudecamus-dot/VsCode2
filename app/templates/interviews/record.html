@@ -1158,11 +1158,19 @@
     // pas re-compter un segment déjà en vol) d'un premier appel.
     if (!attempt && !busyUntilArg) { pendingSegments++; updateSubmitState(); }
 
+    // Idempotent (EH-5, comme record_libre.html) : un seul décrément par segment, même si
+    // updateSubmitState/maybeSubmitFinalJob lève et que le .catch rappelle settle().
+    var settled = false;
     function settle() {
-      pendingSegments--;
-      updateSubmitState();
-      maybeSubmitFinalJob();  // transcription stabilisée -> job final si un reliquat reste
-      if (onSettle) onSettle();  // relance séquentielle : le segment perdu suivant
+      if (settled) return;
+      settled = true;
+      pendingSegments = Math.max(0, pendingSegments - 1);
+      try {
+        updateSubmitState();
+        maybeSubmitFinalJob();  // transcription stabilisée -> job final si un reliquat reste
+      } finally {
+        if (onSettle) onSettle();  // relance séquentielle : le segment perdu suivant
+      }
     }
 
     // Échec transitoire (« Failed to fetch » : serveur redémarré, Wi-Fi coupé,
@@ -1326,6 +1334,9 @@
       .catch(function (err) {
         // `recTimeout` : délai maximal atteint (rec_fetch.js) — pas de relance
         // automatique des mêmes octets (R3-M5/M6).
+        // Déjà réglé : l'erreur vient de settle() (callback), pas du réseau — relancer
+        // re-POSTerait un segment accepté et décrémenterait une 2e fois.
+        if (settled) { console.error('erreur après règlement du segment', err); return; }
         retryOrGiveUp(err.message, !!(err && err.recTimeout));
       });
   }
