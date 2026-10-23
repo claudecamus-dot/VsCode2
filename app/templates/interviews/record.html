@@ -183,7 +183,7 @@
   <div class="notice rec-lost-banner" id="rec-file-retry-banner" hidden>
     <span id="rec-file-retry-text"></span>
     <button class="btn btn-sm" type="button" id="rec-file-retry"
-            title="Reprend la transcription au bloc qui a échoué, sans refaire les blocs déjà transcrits">↻ Relancer la transcription</button>
+            title="Reprend la transcription au passage qui a échoué, sans refaire les passages déjà transcrits">↻ Relancer la transcription</button>
   </div>
 
   <!-- Alerte source audio : plusieurs segments consécutifs sans parole détectée
@@ -309,7 +309,7 @@
   var STATUT_ECHEC_MOTIFS = [
     'non supporté par ce navigateur', 'Relance impossible :',
     'Échec de la transcription', 'Rattachement impossible', 'Micro inaccessible',
-    'Transcription interrompue au bloc'
+    'Transcription interrompue au passage'
   ];
   function statutEstEchec(texte) {
     return STATUT_ECHEC_MOTIFS.some(function (motif) { return texte.indexOf(motif) !== -1; });
@@ -361,8 +361,7 @@
   function refreshReplayStatus() {
     replayStatusEl.hidden = segmentsRejoues === 0;
     replayStatusEl.textContent = segmentsRejoues === 0 ? '' :
-      segmentsRejoues + ' segment' + (segmentsRejoues > 1 ? 's' : '') + ' rejoué'
-      + (segmentsRejoues > 1 ? 's' : '') + ' automatiquement';
+      segmentsRejoues + ' segment' + (segmentsRejoues > 1 ? 's' : '') + ' repris automatiquement';
   }
   // Alerte de COMPLÉTUDE d'un import de fichier (job `done` ET statut
   // `incomplet` seulement) : un bandeau persistant, séparé de `statusEl` —
@@ -869,7 +868,7 @@
           ? 'Ne ferme pas cet onglet avant : l’audio de ' + (bloquants > 1 ? 'ces ' + bloquants + ' segments' : 'ce segment')
             + ' n’existe qu’ici.'
           : 'Ces segments ont bien atteint le serveur, qui n’y a pas détecté de parole : '
-            + 'les rejouer rendra le même résultat tant que la transcription n’est pas '
+            + 'les relancer rendra le même résultat tant que la transcription n’est pas '
             + 'reconfigurée. Leur audio reste gardé ici au cas où.');
     // Liste PLAFONNÉE (cf. record_libre.html) : jusqu'à un segment non abouti
     // par minute sur un entretien à distance, la liste entière chassait le reste
@@ -1693,12 +1692,12 @@
 
   function showFileRetry(message, consumed) {
     failedFileImport = null;  // renseigné par l'appelant, qui connaît le jobId
-    fileRetryTextEl.textContent = 'Bloc ' + (consumed + 1) + ' non transcrit : '
+    fileRetryTextEl.textContent = 'Passage ' + (consumed + 1) + ' non transcrit : '
       + (message || 'échec de la transcription') + '. '
       + (consumed > 0
-          ? 'Les ' + consumed + ' bloc' + (consumed > 1 ? 's' : '') + ' déjà transcrit'
+          ? 'Les ' + consumed + ' passage' + (consumed > 1 ? 's' : '') + ' déjà transcrit'
             + (consumed > 1 ? 's sont conservés' : ' est conservé') + ' — la reprise repart de là.'
-          : 'La reprise recommencera au premier bloc.');
+          : 'La reprise recommencera au premier passage.');
     fileRetryBannerEl.hidden = false;
     fileRetryBtn.disabled = false;
   }
@@ -1721,7 +1720,7 @@
     var gen = recGeneration;
     fileRetryInFlight = true;
     fileRetryBtn.disabled = true;
-    statusEl.textContent = 'Reprise de la transcription au bloc ' + (info.consumed + 1) + '…';
+    statusEl.textContent = 'Reprise de la transcription au passage ' + (info.consumed + 1) + '…';
     var formData = new FormData();
     formData.append('job_id', info.jobId);
     formData.append('session_token', sessionToken);
@@ -1742,7 +1741,7 @@
         pendingSegments++;
         fileUploadBtn.disabled = true;
         updateSubmitState();
-        statusEl.textContent = 'Reprise de la transcription au bloc ' + (info.consumed + 1) + '…';
+        statusEl.textContent = 'Reprise de la transcription au passage ' + (info.consumed + 1) + '…';
         pollFileImport(info.jobId, gen, info.consumed, 0);
       })
       .catch(function (err) {
@@ -1820,7 +1819,7 @@
             if (gen === recGeneration) {
               showFileRetry(data.error, consumed);
               failedFileImport = { jobId: jobId, consumed: consumed };
-              statusEl.textContent = 'Transcription interrompue au bloc ' + (consumed + 1) + '.';
+              statusEl.textContent = 'Transcription interrompue au passage ' + (consumed + 1) + '.';
             }
             return;
           }
@@ -1846,7 +1845,7 @@
             return;
           }
           statusEl.textContent = 'Transcription du fichier en cours — ' + consumed
-            + (data.total ? '/' + data.total : '') + ' bloc(s) transcrit(s)…';
+            + (data.total ? '/' + data.total : '') + ' passage(s) transcrit(s)…';
           pollFileImport(jobId, gen, consumed, 0);
         })
         .catch(function (err) {
@@ -2027,7 +2026,7 @@
         if (!result.ok || !result.data.job_id) {
           throw new Error(result.data.error || result.data.detail || 'import refusé');
         }
-        statusEl.textContent = 'Transcription du fichier en cours (par blocs)…';
+        statusEl.textContent = 'Transcription du fichier en cours (par passages)…';
         pollFileImport(result.data.job_id, gen, 0, 0);
       })
       .catch(function (err) {

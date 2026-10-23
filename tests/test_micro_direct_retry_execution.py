@@ -152,14 +152,14 @@ def test_alerte_ignore_les_valeurs_inexploitables_du_serveur(plan: dict) -> None
     texte = plan["msg"]["valeurs_invalides"]
     for parasite in ("NaN", "Infinity", "[object", "null", "undefined"):
         assert parasite not in texte, parasite
-    assert "blocs sans texte : 4, 5" in texte, "3 et 4 (0-based) -> 4 et 5 ; null/'x'/'' écartés"
-    assert "tranche audio ignorée : 2" in texte
+    assert "passages sans texte : 4, 5" in texte, "3 et 4 (0-based) -> 4 et 5 ; null/'x'/'' écartés"
+    assert "partie audio ignorée : 2" in texte
     assert "il manque" not in texte
 
 
 def test_la_liste_des_tranches_ignorees_est_plafonnee(plan: dict) -> None:
     texte = plan["msg"]["beaucoup_de_tranches"]
-    assert "tranches audio ignorées : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10…" in texte
+    assert "parties audio ignorées : 1, 2, 3, 4, 5, 6, 7, 8, 9, 10…" in texte
 
 
 def test_un_delai_maximal_n_est_jamais_rejoue(plan: dict) -> None:
@@ -193,7 +193,7 @@ def test_alerte_n_affirme_un_manque_d_audio_que_hors_tolerance(plan: dict) -> No
     dans la tolérance (max(2 s, 2 %), comme `bilan_completude`) : dire alors « il
     manque environ 6 s d'audio » serait faux."""
     m = plan["msg"]
-    assert "bloc sans texte : 60" in m["ecart_dans_la_tolerance"]
+    assert "passage sans texte : 60" in m["ecart_dans_la_tolerance"]
     assert "il manque" not in m["ecart_dans_la_tolerance"]
     assert "il manque" not in m["ecart_sur_la_borne"], "12 s sur 600 s = 2 % : pas > tolérance"
     assert "il manque" not in m["plancher_de_2_s"], "plancher de 2 s : 2 s n'est pas > 2 s"
@@ -202,8 +202,8 @@ def test_alerte_n_affirme_un_manque_d_audio_que_hors_tolerance(plan: dict) -> No
 
 def test_alerte_de_completude_positions_1_based_et_sans_jargon(plan: dict) -> None:
     texte = plan["msg"]["incomplet"]
-    assert "blocs sans texte : 1, 5" in texte, "blocs_vides [0, 4] affichés en 1-based"
-    assert "tranche audio ignorée : 2" in texte, "rangs de tranches déjà 1-based, non décalés"
+    assert "passages sans texte : 1, 5" in texte, "blocs_vides [0, 4] affichés en 1-based"
+    assert "partie audio ignorée : 2" in texte, "rangs de parties déjà 1-based, non décalés"
     assert "1 min 50 s" in texte and "1 h" not in texte
     for jargon in ("blocs_vides", "null", "undefined", "NaN", "[object"):
         assert jargon not in texte

@@ -12,8 +12,8 @@
 <section class="card">
   <p class="muted">
     La transcription est relancée depuis {% if nb_tranches > 1 %}les {{ nb_tranches }}
-    tranches audio enregistrées{% else %}l'enregistrement audio{% endif %} de cet
-    entretien, bloc par bloc — puis les tours de parole sont ré-extraits tranche
+    parties audio enregistrées{% else %}l'enregistrement audio{% endif %} de cet
+    entretien, passage par passage — puis les tours de parole sont ré-extraits tranche
     par tranche. Le traitement se poursuit côté serveur : tu peux quitter cette
     page et y revenir depuis l'entretien, rien n'est perdu.
   </p>
@@ -26,7 +26,7 @@
      moment de la revue. #}
   {% if tranches_absentes %}
   <p class="ai-error">
-    ⚠ {{ tranches_absentes }} tranche(s) audio de cet entretien sont introuvables
+    ⚠ {{ tranches_absentes }} partie(s) audio de cet entretien sont introuvables
     sur le disque : la transcription relancée sera incomplète.
   </p>
   {% endif %}
@@ -52,7 +52,7 @@
     <form method="post" action="/interviews/{{ interview.id }}/retranscrire"
           id="retr-relancer-form" data-busy-label="Relance en cours…" hidden>
       <button class="btn" type="submit"
-              title="Reprend la transcription là où elle s'est arrêtée, sans refaire les blocs déjà transcrits">↻ Relancer la retranscription</button>
+              title="Reprend la transcription là où elle s'est arrêtée, sans refaire les passages déjà transcrits">↻ Relancer la retranscription</button>
     </form>
     <form method="post" action="/interviews/{{ interview.id }}/retranscrire/appliquer"
           id="retr-suite-form" data-busy-label="Assemblage du résultat en cours…" hidden>
@@ -130,7 +130,7 @@
           termine = true;
           progressEl.classList.add('error');
           progressEl.textContent = '⚠ ' + (s.error || 'La retranscription a échoué.')
-            + ' Les blocs déjà transcrits sont conservés : la relance repart du bloc interrompu.';
+            + ' Les passages déjà transcrits sont conservés : la relance repart du passage interrompu.';
           relancerForm.hidden = false;
           // Une transcription partielle reste exploitable — MAIS seulement si
           // l'extraction a produit au moins une tranche : les tours de parole
@@ -145,7 +145,7 @@
         }
         if (s.status === 'done') {
           termine = true;
-          progressEl.textContent = 'Terminé — ' + s.blocs + ' bloc(s) transcrit(s), '
+          progressEl.textContent = 'Terminé — ' + s.blocs + ' passage(s) transcrit(s), '
             + s.ia_faites + '/' + s.ia_total + ' tranche(s) structurée(s).'
             + (s.ia_total > s.ia_faites
                 ? ' ⚠ Certaines tranches n’ont pas abouti : relance pour les rattraper '
@@ -171,7 +171,7 @@
           barEl.max = s.blocs_total || 1;
           barEl.value = s.blocs;
           progressEl.textContent = 'Transcription de l’audio… ' + s.blocs
-            + (s.blocs_total ? '/' + s.blocs_total : '') + ' bloc(s)'
+            + (s.blocs_total ? '/' + s.blocs_total : '') + ' passage(s)'
             + (s.tranches_total > 1
                 ? ' — tranche ' + Math.min(s.tranches_faites + 1, s.tranches_total)
                   + '/' + s.tranches_total

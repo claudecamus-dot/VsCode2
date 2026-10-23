@@ -120,8 +120,8 @@
       // ne rend pas la transcription incomplète, il doit pourtant se voir.
       var relances = entiers(c.blocs_rejoues).length;
       return relances
-        ? relances + ' bloc' + (relances > 1 ? 's' : '') + ' audio relancé'
-          + (relances > 1 ? 's' : '') + ' automatiquement, puis réussi'
+        ? relances + ' passage' + (relances > 1 ? 's' : '') + ' audio repris'
+          + ' automatiquement, puis réussi'
           + (relances > 1 ? 's' : '') + '.'
         : '';
     }
@@ -129,12 +129,12 @@
     var morceaux = [];
     var vides = entiers(c.blocs_vides);
     if (vides.length) {
-      morceaux.push('bloc' + (vides.length > 1 ? 's' : '') + ' sans texte : '
+      morceaux.push('passage' + (vides.length > 1 ? 's' : '') + ' sans texte : '
         + liste(vides.map(function (i) { return Number(i) + 1; })));
     }
     var ignorees = entiers(c.tranches_ignorees);
     if (ignorees.length) {
-      morceaux.push('tranche' + (ignorees.length > 1 ? 's' : '') + ' audio ignorée'
+      morceaux.push('partie' + (ignorees.length > 1 ? 's' : '') + ' audio ignorée'
         + (ignorees.length > 1 ? 's' : '') + ' : ' + liste(ignorees));
     }
     // Même seuil que `audio_transcribe.bilan_completude` (max(2 s, 2 %)) : un écart

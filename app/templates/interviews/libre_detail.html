@@ -54,9 +54,9 @@
 <p class="{{ 'ai-error' if bilan_alerte else 'muted' }}" id="bilan-audio" role="status">
   {% if bilan_audio.etat == 'echec' %}⚠ Dernière transcription de l'audio échouée : relance-la.
   {%- elif bilan_audio.etat == 'en_cours' %}Transcription de l'audio en cours.
-  {%- elif bilan_audio.statut == 'incomplet' %}⚠ Transcription incomplète{% if bilan_audio.blocs_vides %} : {{ bilan_audio.blocs_vides }} bloc{{ 's' if bilan_audio.blocs_vides > 1 else '' }} sans texte{% endif %}.
+  {%- elif bilan_audio.statut == 'incomplet' %}⚠ Transcription incomplète{% if bilan_audio.blocs_vides %} : {{ bilan_audio.blocs_vides }} passage{{ 's' if bilan_audio.blocs_vides > 1 else '' }} sans texte{% endif %}.
   {%- elif bilan_audio.statut == 'complet' %}Transcription complète.{% endif %}
-  {% if bilan_audio.blocs_rejoues %}{{ bilan_audio.blocs_rejoues }} bloc{{ 's' if bilan_audio.blocs_rejoues > 1 else '' }} audio relancé{{ 's' if bilan_audio.blocs_rejoues > 1 else '' }} automatiquement, puis réussi{{ 's' if bilan_audio.blocs_rejoues > 1 else '' }}.{% endif %}
+  {% if bilan_audio.blocs_rejoues %}{{ bilan_audio.blocs_rejoues }} passage{{ 's' if bilan_audio.blocs_rejoues > 1 else '' }} audio repris automatiquement, puis réussi{{ 's' if bilan_audio.blocs_rejoues > 1 else '' }}.{% endif %}
 </p>
 {% endif %}
 {% if tranches_manquantes %}
@@ -78,17 +78,17 @@
 {% set segs = interview.audio_segments | sort(attribute='position') %}
 <div class="card">
   {% if segs | length > 1 %}
-  <h3>Enregistrement audio (par tranche de 20 min)</h3>
-  <p class="muted">Enregistrement de plus de 20 min, sauvegardé en tranches successives pour ne rien perdre en cas d'incident — chaque tranche est écoutable et téléchargeable ci-dessous.</p>
+  <h3>Enregistrement audio (par partie de 20 min)</h3>
+  <p class="muted">Enregistrement de plus de 20 min, sauvegardé en parties successives pour ne rien perdre en cas d'incident — chaque partie est écoutable et téléchargeable ci-dessous.</p>
   {% else %}
   <h3>Enregistrement audio</h3>
   {% endif %}
   {% for seg in segs %}
   <div class="audio-segment">
-    {% if segs | length > 1 %}<span class="muted">Tranche {{ seg.position + 1 }}</span>{% endif %}
+    {% if segs | length > 1 %}<span class="muted">Partie {{ seg.position + 1 }}</span>{% endif %}
     <audio controls class="record-audio-player"
       src="/missions/{{ mission.id }}/interviews/record/backup/{{ seg.filename }}"></audio>
-    <a class="btn-link" href="/missions/{{ mission.id }}/interviews/record/backup/{{ seg.filename }}" download>Télécharger{% if segs | length > 1 %} la tranche {{ seg.position + 1 }}{% endif %}</a>
+    <a class="btn-link" href="/missions/{{ mission.id }}/interviews/record/backup/{{ seg.filename }}" download>Télécharger{% if segs | length > 1 %} la partie {{ seg.position + 1 }}{% endif %}</a>
   </div>
   {% endfor %}
 </div>
@@ -175,6 +175,10 @@
           Transcription structurée par IA depuis un entretien libre — pas un
           verbatim mot à mot. L'aperçu reflète l'état <strong>enregistré</strong>
           de l'entretien.
+          {% if transcript %}
+          <br>Le texte brut : <a class="btn-link" id="apercu-transcription-pdf"
+             href="/interviews/{{ interview.id }}/export/transcription/pdf">Télécharger la transcription (PDF)</a>
+          {% endif %}
         </p>
       </header>
       {% if not sections %}

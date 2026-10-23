@@ -71,20 +71,20 @@ def test_fiche_montre_les_blocs_relances(client: TestClient) -> None:
                                            "blocs_vides": []}))
     assert 'id="bilan-audio"' in html
     assert "Transcription complète." in html
-    assert "2 blocs audio relancés automatiquement, puis réussis." in html
+    assert "2 passages audio repris automatiquement, puis réussis." in html
 
 
 def test_fiche_incomplete_dit_les_blocs_sans_texte(client: TestClient) -> None:
     html = _get(client, _fiche(completude={"statut": "incomplet", "blocs_vides": [0, 4],
                                            "blocs_rejoues": []}))
-    assert "Transcription incomplète : 2 blocs sans texte." in html
+    assert "Transcription incomplète : 2 passages sans texte." in html
     assert "relancé" not in html.split('id="bilan-audio"')[1].split("</p>")[0]
 
 
 def test_import_classique_non_rattache_est_retrouve_par_le_fichier(client: TestClient) -> None:
     html = _get(client, _fiche(completude={"statut": "complet", "blocs_rejoues": [2]},
                                lier=False, backup="imp-classique.webm"))
-    assert "1 bloc audio relancé automatiquement, puis réussi." in html
+    assert "1 passage audio repris automatiquement, puis réussi." in html
 
 
 @pytest.mark.parametrize("kw", [
@@ -115,7 +115,7 @@ def test_dernier_job_reussi_apres_un_echec_montre_son_bilan(client: TestClient) 
     iid = _fiche(completude=None, status="failed",
                  apres=[("done", {"statut": "complet", "blocs_rejoues": [1]})])
     bloc = _bloc(_get(client, iid))
-    assert "Transcription complète." in bloc and "1 bloc audio relancé" in bloc
+    assert "Transcription complète." in bloc and "1 passage audio repris" in bloc
 
 
 def test_le_repli_par_fichier_ignore_les_jobs_d_un_autre_entretien(client: TestClient) -> None:
