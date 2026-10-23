@@ -142,6 +142,8 @@ has real content to render.
 
 ## 3. Screenshot a page (visual verification)
 
+**Toute capture/session Edge ad hoc passe par `scripts/capture_edge.py`** (profil neuf, port CDP 0, timeout, arbre tue en `finally`) : `.venv/Scripts/python.exe scripts/capture_edge.py URL out.png [largeur hauteur delai_s]`. Le lancement `msedge.exe` direct ci-dessous n'est qu'une reference des flags.
+
 No Playwright/Selenium in this project's venv. Headless Edge (bundled with
 Windows) works, but needs `--no-sandbox --disable-dev-shm-usage` — without
 them it fails with `LoadEnclaveImageW failed, error code 577` in this
