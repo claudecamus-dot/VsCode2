@@ -46,3 +46,4 @@ tests/exemple/
 # usage reel de uv n'existe dans ce depot.
 uv.lock
 .claude/settings.json.avant-migration
+.mypy_cache/
