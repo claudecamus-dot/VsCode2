@@ -145,7 +145,7 @@ def test_relancer_une_tranche_puis_toutes_au_clic(
         # (1) liste des tranches en échec visible, avec ses boutons
         texte = nav.texte()
         assert "2 passages en échec" in texte, texte[:600]
-        assert "Tranche 2" in texte and "Tranche 3" in texte
+        assert "Passage 2" in texte and "Passage 3" in texte
         assert _nb(nav, f"form[action$='/tranches/{j1}/relancer'] button") == 1
         assert _nb(nav, f"form[action$='/tranches/{j2}/relancer'] button") == 1
         assert _nb(nav, f"form[action$='/tranches/{j0}/relancer']") == 0, \
