@@ -50,7 +50,7 @@ cible, une cible à la fois. Mémoire du hub
       "modele": "(session)",
       "contrat": {
         "type": "deterministe",
-        "critere": "état RÉEL de chaque cible lu AVANT d'écrire : fichiers concernés ouverts (playbook/catalogue/settings/skills), git status du dépôt cible relevé (churn préexistant identifié et exclu du périmètre), canal/conventions propres au projet identifiés. Le wiki de supervision éclaire, la lecture directe tranche — une demande peut être déjà (partiellement) satisfaite : la correction minimale prime sur le re-câblage. Dépôt AU REPOS avant tout dispatch de sous-agent (lecture ou écriture) : deux relevés `git status --porcelain` espacés de quelques secondes qui diffèrent signalent une session tierce active — reporter le dispatch ou élargir explicitement le budget de patience attendu avant de qualifier un run non convergent (veille adoptée 2026-09-03, garde-fou maison, pas une pratique documentée par un provider). Au repos côté git n'est pas inutilisé : relever aussi les processus dont la ligne de commande cite le dépôt cible et leurs ports en écoute (Get-CimInstance Win32_Process + Get-NetTCPConnection -State Listen) — un port actif interdit toute étape qui lance, redémarre ou purge un service, et le brief du sous-agent porte la clause « n'utiliser qu'un serveur déjà en écoute qu'on n'a pas démarré, sinon écrire non vérifié au rendu » (finding flotte:depot-au-repos-ne-voit-pas-un-serveur-en-cours, 2026-09-08 : contrôle git passé, serveur utilisateur tué en pleine session)."
+        "critere": "état RÉEL de chaque cible lu AVANT d'écrire : `py .claude/supervision/releve_cible.py <projet>` donne le relevé au repos en 40 lignes ; fichiers concernés ouverts (playbook/catalogue/settings/skills), git status du dépôt cible relevé (churn préexistant identifié et exclu du périmètre), canal/conventions propres au projet identifiés. Le wiki de supervision éclaire, la lecture directe tranche — une demande peut être déjà (partiellement) satisfaite : la correction minimale prime sur le re-câblage. Dépôt AU REPOS avant tout dispatch de sous-agent (lecture ou écriture) : deux relevés `git status --porcelain` espacés de quelques secondes qui diffèrent signalent une session tierce active — reporter le dispatch ou élargir explicitement le budget de patience attendu avant de qualifier un run non convergent (veille adoptée 2026-09-03, garde-fou maison, pas une pratique documentée par un provider). Au repos côté git n'est pas inutilisé : relever aussi les processus dont la ligne de commande cite le dépôt cible et leurs ports en écoute (Get-CimInstance Win32_Process + Get-NetTCPConnection -State Listen) — un port actif interdit toute étape qui lance, redémarre ou purge un service, et le brief du sous-agent porte la clause « n'utiliser qu'un serveur déjà en écoute qu'on n'a pas démarré, sinon écrire non vérifié au rendu » (finding flotte:depot-au-repos-ne-voit-pas-un-serveur-en-cours, 2026-09-08 : contrôle git passé, serveur utilisateur tué en pleine session)."
       },
       "checkpoint": false
     },
@@ -136,7 +136,7 @@ cible, une cible à la fois. Mémoire du hub
 }
 ```
 
-<!-- SOCLE-PROVENANCE: socle : e305975b du 2026-10-13 -->
-> **Socle généré** — tout ce qui PRÉCÈDE ce bandeau vient du hub de supervision (`e305975b`, 2026-10-13) et sera **réécrit** à la prochaine propagation.
+<!-- SOCLE-PROVENANCE: socle : 047d528c du 2026-10-23 -->
+> **Socle généré** — tout ce qui PRÉCÈDE ce bandeau vient du hub de supervision (`047d528c`, 2026-10-23) et sera **réécrit** à la prochaine propagation.
 > Le chapitre « Portée sur ce projet » placé après ce bandeau, lui, n'est jamais réécrit : c'est le travail local.
 
