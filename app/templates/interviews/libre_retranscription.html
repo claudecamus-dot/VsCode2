@@ -146,9 +146,9 @@
         if (s.status === 'done') {
           termine = true;
           progressEl.textContent = 'Terminé — ' + s.blocs + ' passage(s) transcrit(s), '
-            + s.ia_faites + '/' + s.ia_total + ' tranche(s) structurée(s).'
+            + s.ia_faites + '/' + s.ia_total + ' passage(s) structuré(s).'
             + (s.ia_total > s.ia_faites
-                ? ' ⚠ Certaines tranches n’ont pas abouti : relance pour les rattraper '
+                ? ' ⚠ Certains passages n’ont pas abouti : relance pour les rattraper '
                   + 'avant de remplacer le tour de table.'
                 : '');
           barEl.max = 1;
@@ -166,7 +166,7 @@
           barEl.max = s.ia_total;
           barEl.value = s.ia_faites;
           progressEl.textContent = 'Extraction des tours de parole… '
-            + s.ia_faites + '/' + s.ia_total + ' tranche(s).';
+            + s.ia_faites + '/' + s.ia_total + ' passage(s).';
         } else {
           barEl.max = s.blocs_total || 1;
           barEl.value = s.blocs;

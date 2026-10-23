@@ -1,4 +1,4 @@
-"""P5 : clics « Relancer cette tranche » et « Relancer toutes les tranches en échec »
+"""P5 : clics « Relancer ce passage » et « Relancer tous les passages en échec »
 dans un vrai navigateur (uvicorn réel, Edge/Chrome headless, `confirm()` accepté par
 le pilote). Ollama injoignable (`OLLAMA_HOST` -> port fermé) : une tranche relancée ne
 peut pas réussir ; on n'affirme donc que des faits stables (fiche lisible, pas
@@ -144,7 +144,7 @@ def test_relancer_une_tranche_puis_toutes_au_clic(
 
         # (1) liste des tranches en échec visible, avec ses boutons
         texte = nav.texte()
-        assert "2 tranches en échec" in texte, texte[:600]
+        assert "2 passages en échec" in texte, texte[:600]
         assert "Tranche 2" in texte and "Tranche 3" in texte
         assert _nb(nav, f"form[action$='/tranches/{j1}/relancer'] button") == 1
         assert _nb(nav, f"form[action$='/tranches/{j2}/relancer'] button") == 1
@@ -152,7 +152,7 @@ def test_relancer_une_tranche_puis_toutes_au_clic(
             "une tranche réussie ne doit pas offrir de relance"
         assert _nb(nav, f"form[action$='/interviews/{iid}/tranches/relancer'] button") == 1
 
-        # (2) « Relancer cette tranche » sur la tranche 2 (job j1) seulement
+        # (2) « Relancer ce passage » sur la tranche 2 (job j1) seulement
         nav.cliquer_et_attendre(f"form[action$='/tranches/{j1}/relancer'] button")
         _sur_la_fiche(nav, iid)
         apres = _stabilise(base_db, [j1])
@@ -167,9 +167,9 @@ def test_relancer_une_tranche_puis_toutes_au_clic(
         # la fiche rechargée montre à nouveau la tranche relançable, sans page d'erreur
         nav.naviguer(fiche)
         _sur_la_fiche(nav, iid)
-        assert "Relancer cette tranche" in nav.texte()
+        assert "Relancer ce passage" in nav.texte()
 
-        # (3) « Relancer toutes les tranches en échec »
+        # (3) « Relancer tous les passages en échec »
         avant2 = _etat(base_db)
         nav.cliquer_et_attendre(f"form[action$='/interviews/{iid}/tranches/relancer'] button")
         _sur_la_fiche(nav, iid)
@@ -182,4 +182,4 @@ def test_relancer_une_tranche_puis_toutes_au_clic(
             assert apres2[jid] == avant[jid], (jid, avant[jid], apres2[jid])
         nav.naviguer(fiche)
         _sur_la_fiche(nav, iid)
-        assert "Relancer toutes les tranches en échec" in nav.texte()
+        assert "Relancer tous les passages en échec" in nav.texte()

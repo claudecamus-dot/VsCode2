@@ -25,16 +25,16 @@
     <span class="badge badge-structuration badge-{{ st }}">{{ libelles.get(st, st) }}</span>
     {% if st == 'a_traiter' %}<span class="muted">— l'entretien est enregistré ; la structuration par l'IA démarre en tâche de fond.</span>
     {% elif st == 'en_cours' %}<span class="muted">— l'IA structure la transcription ; tu peux quitter cette page.</span>
-    {% elif sans_texte %}<span class="muted">— {% if interview.tranches_manquantes %}⚠ Audio incomplet : {{ interview.tranches_manquantes }} tranche{{ 's' if interview.tranches_manquantes > 1 else '' }} de sauvegarde n'{{ 'ont' if interview.tranches_manquantes > 1 else 'a' }} pas atteint le serveur. {% endif %}Transcription incomplète — relance-la depuis l'audio : ouvre l'onglet Transcription et lance « ↻ Relancer la transcription (audio) ».</span>
+    {% elif sans_texte %}<span class="muted">— {% if interview.tranches_manquantes %}⚠ Audio incomplet : {{ interview.tranches_manquantes }} partie{{ 's' if interview.tranches_manquantes > 1 else '' }} de sauvegarde n'{{ 'ont' if interview.tranches_manquantes > 1 else 'a' }} pas atteint le serveur. {% endif %}Transcription incomplète — relance-la depuis l'audio : ouvre l'onglet Transcription et lance « ↻ Relancer la transcription (audio) ».</span>
     {% elif st == 'fait' and not interview.turns %}<span class="muted">— l'entretien est enregistré mais son aperçu est vide : génère-le.</span>
-    {% elif st == 'fait' and interview.tranches_manquantes %}<span class="muted">— {{ interview.tranches_manquantes }} tranche{{ 's' if interview.tranches_manquantes > 1 else '' }} en échec : leur texte est dans la transcription, pas dans l'aperçu.
-      {%- if structuration_relancable %} La relance reprend ces tranches seules.
+    {% elif st == 'fait' and interview.tranches_manquantes %}<span class="muted">— {{ interview.tranches_manquantes }} passage{{ 's' if interview.tranches_manquantes > 1 else '' }} en échec : leur texte est dans la transcription, pas dans l'aperçu.
+      {%- if structuration_relancable %} La relance reprend ces passages seuls.
       {%- else %} Plus rien à relancer ici : « ↻ Relancer la transcription (audio) » les rattrape.{% endif %}</span>
     {% elif st == 'echec' %}<span class="muted">— la structuration n'a pas abouti. La transcription est intacte : relance quand l'IA est disponible.</span>
     {% endif %}
   </p>
   {% if tranche_indisponible %}
-  <p class="muted" role="status">Cette tranche n'existe plus ou est déjà en cours de traitement.</p>
+  <p class="muted" role="status">Ce passage n'existe plus ou est déjà en cours de traitement.</p>
   {% endif %}
   {% if structuration_refusee %}
   <p class="muted" role="status">Relance non prise en compte : une structuration est déjà en file ou en cours, ou l'entretien est déjà structuré.</p>
@@ -45,10 +45,10 @@
        reprises telles quelles, mais les corrections faites à la main sur les tours
        sont remplacées — d'où le confirm(). #}
     <button class="btn btn-sm" type="submit"
-            {% if interview.turns %}onclick="return confirm('Relancer les tranches en échec ?\n\nL’aperçu sera réécrit à partir des tranches.');"{% endif %}>
+            {% if interview.turns %}onclick="return confirm('Relancer les passages en échec ?\n\nL’aperçu sera réécrit à partir des passages.');"{% endif %}>
       {%- if st in ('echec', 'en_cours') %}Relancer
       {%- elif st == 'fait' and not interview.turns %}Générer l'aperçu
-      {%- elif st == 'fait' %}Relancer les tranches en échec
+      {%- elif st == 'fait' %}Relancer les passages en échec
       {%- else %}Structurer maintenant{% endif -%}
     </button>
   </form>
@@ -62,19 +62,19 @@
   {% set en_vol = st == 'en_cours' and not structuration_relancable %}
   {% if (n_echec or sans_texte) and not en_vol %}
   <div class="tranches-echec" data-tranches-echec="{{ n_echec }}">
-    {% if n_echec %}<p class="ai-error">⚠ {{ n_echec }} tranche{{ 's' if n_echec > 1 else '' }} en échec —
-      {% if echecs %}Relancer toutes / Relancer cette tranche{% else %}relance depuis l'audio{% endif %}</p>{% endif %}
+    {% if n_echec %}<p class="ai-error">⚠ {{ n_echec }} passage{{ 's' if n_echec > 1 else '' }} en échec —
+      {% if echecs %}Relancer toutes / Relancer ce passage{% else %}relance depuis l'audio{% endif %}</p>{% endif %}
     {% if echecs %}
     <form method="post" action="/interviews/{{ interview.id }}/tranches/relancer">
       <button class="btn btn-sm" type="submit"
-              {% if interview.turns %}onclick="return confirm('Relancer toutes les tranches en échec ?\n\nL’aperçu sera réécrit à partir des tranches.');"{% endif %}>Relancer toutes les tranches en échec</button>
+              {% if interview.turns %}onclick="return confirm('Relancer tous les passages en échec ?\n\nL’aperçu sera réécrit à partir des passages.');"{% endif %}>Relancer tous les passages en échec</button>
     </form>
     <ul>
       {% for t in echecs %}
-      <li>Tranche {{ t.position + 1 }}{% if t.error %} <span class="muted">({{ t.error }})</span>{% endif %}
+      <li>Passage {{ t.position + 1 }}{% if t.error %} <span class="muted">({{ t.error }})</span>{% endif %}
         <form method="post" action="/interviews/{{ interview.id }}/tranches/{{ t.id }}/relancer" style="display:inline">
           <button class="btn btn-sm" type="submit"
-                  {% if interview.turns %}onclick="return confirm('Relancer cette tranche ?\n\nQuand plus aucune tranche ne restera en échec, l’aperçu sera réécrit à partir des tranches.');"{% endif %}>Relancer cette tranche</button>
+                  {% if interview.turns %}onclick="return confirm('Relancer ce passage ?\n\nQuand plus aucun passage ne restera en échec, l’aperçu sera réécrit à partir des passages.');"{% endif %}>Relancer ce passage</button>
         </form>
       </li>
       {% endfor %}

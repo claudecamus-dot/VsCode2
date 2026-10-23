@@ -77,10 +77,30 @@ def test_fiche_boutons_visibles_tant_quune_tranche_echoue(statut, avec_tour):
     c = TestClient(app)
     iid, jid = _fiche_avec_echec(c, statut, avec_tour)
     html = c.get(f"/interviews/{iid}").text
-    assert "Relancer cette tranche" in html, statut
+    assert "Relancer ce passage" in html, statut
     assert f"/interviews/{iid}/tranches/{jid}/relancer" in html
     assert f"/interviews/{iid}/tranches/relancer" in html
-    assert "1 tranche en échec" in html
+    assert "1 passage en échec" in html
+
+
+@pytest.mark.parametrize("avec_tour", [True, False])
+def test_fiche_texte_visible_dit_passage_jamais_tranche(avec_tour):
+    """Glossaire adopté : « passage » pour les morceaux d'extraction IA, « tranche »
+    reste un identifiant interne (URL, classe, data-*) et ne doit pas s'afficher."""
+    import html as _html
+    import re
+    c = TestClient(app)
+    iid, _ = _fiche_avec_echec(c, "fait", avec_tour)
+    page = c.get(f"/interviews/{iid}").text
+    # Périmètre : le bloc de relance de _structuration_statut (les bandeaux
+    # voisins de libre_detail.html / finaliser.html ont leur propre lot).
+    debut = page.index(">", page.index('class="tranches-echec"')) + 1
+    bloc = page[debut:page.index("</ul>", debut)]
+    visible = _html.unescape(re.sub(r"<[^>]+>", " ", bloc))
+    # les confirm() vivent dans un attribut onclick : texte affiché au clic
+    visible += " ".join(re.findall(r"confirm\('([^']*)'", _html.unescape(bloc)))
+    assert "1 passage en échec" in visible
+    assert "tranche" not in visible.lower(), re.findall(r".{30}tranche.{30}", visible, re.I)
 
 
 def test_fiche_sans_tranche_en_echec_pas_de_boutons():
@@ -89,7 +109,7 @@ def test_fiche_sans_tranche_en_echec_pas_de_boutons():
     with SessionLocal() as db:
         iid = _libre(db, mid, raw_transcript="t", structuration_status="fait")
     html = c.get(f"/interviews/{iid}").text
-    assert "Relancer cette tranche" not in html and "tranches-echec" not in html
+    assert "Relancer ce passage" not in html and "tranches-echec" not in html
 
 
 def test_route_individuelle_decompte_et_reprogramme_la_fusion(monkeypatch):
@@ -110,7 +130,7 @@ def test_route_individuelle_decompte_et_reprogramme_la_fusion(monkeypatch):
         assert iv.tranches_manquantes == 0
         assert iv.structuration_status == "a_traiter"
     assert planifies == [iid]
-    assert "Relancer cette tranche" not in c.get(f"/interviews/{iid}").text
+    assert "Relancer ce passage" not in c.get(f"/interviews/{iid}").text
 
 
 def test_route_individuelle_refuse_une_tranche_inconnue(monkeypatch):
