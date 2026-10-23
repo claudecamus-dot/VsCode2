@@ -1796,7 +1796,7 @@
         link.href = perdue.url;
         // Nom explicite : ce fichier va vivre sur le disque de l'utilisateur,
         // hors de toute mission — « entretien.webm » n'y serait pas retrouvable.
-        link.setAttribute('download', 'entretien-{{ mission.id }}-tranche-' + (perdue.position + 1) + '.webm');
+        link.setAttribute('download', 'entretien-{{ mission.id }}-partie-' + (perdue.position + 1) + '.webm');
         link.textContent = 'Télécharger cette partie';
         row.appendChild(label);
         row.appendChild(audio);

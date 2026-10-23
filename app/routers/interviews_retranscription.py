@@ -11,6 +11,7 @@ import logging
 import secrets
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 
 from fastapi import (
     APIRouter,
@@ -63,15 +64,26 @@ router = APIRouter(tags=["interviews"])
 logger = logging.getLogger(__name__)
 
 
+class ArchivageImpossible(Exception):
+    """L'ancien contenu (non vide) n'a pas pu être archivé : la confirmation
+    doit être refusée, rien ne doit être supprimé."""
+
+    def __init__(self, cause: str):
+        super().__init__(cause)
+        self.cause = cause
+
+
 def _archiver_ancien_contenu(
     interview: Interview, nouveau_texte: str, nouveaux_tours: list[dict]
-) -> None:
+) -> Path | None:
     """Copie l'ancien texte et les anciens tours dans un fichier JSON hors base
     (`DATA_DIR/archives_transcription`) avant qu'une confirmation ne les écrase.
 
-    Rien si l'ancien contenu est vide ou identique au nouveau. Un échec est
-    journalisé (numéro d'entretien seulement, jamais le contenu) et NE bloque
-    PAS la confirmation. Création exclusive (`open(..., "x")`) : pas de
+    Rien (None) si l'ancien contenu est vide ou identique au nouveau. Renvoie
+    le chemin de l'archive créée. Un échec est journalisé (numéro d'entretien
+    et type d'exception, jamais le contenu) puis lève `ArchivageImpossible` :
+    la confirmation est REFUSÉE et l'ancien contenu reste intact (on ne
+    supprime pas ce qu'on n'a pas pu sauvegarder). Création exclusive (`open(..., "x")`) : pas de
     `os.replace`, interdit dans `app/` par test_audio_jamais_supprime."""
     try:
         anciens = [
@@ -86,7 +98,7 @@ def _archiver_ancien_contenu(
         ]
         ancien_texte = interview.raw_transcript or ""
         if not ancien_texte.strip() and not anciens:
-            return
+            return None
         nouveaux = [
             (t["interlocuteur"], t["question"], t["remarque"], t["section_title"])
             for t in nouveaux_tours
@@ -95,7 +107,7 @@ def _archiver_ancien_contenu(
             (a["interlocuteur"], a["question"], a["remarque"], a["section"])
             for a in anciens
         ]:
-            return
+            return None
         maintenant = datetime.now(UTC)
         dossier = DATA_DIR / "archives_transcription"
         dossier.mkdir(parents=True, exist_ok=True)
@@ -115,16 +127,18 @@ def _archiver_ancien_contenu(
             try:
                 with open(dossier / nom, "x", encoding="utf-8") as f:
                     f.write(contenu)
-                return
+                return dossier / nom
             except FileExistsError:
                 nom = f"{base}_{secrets.token_hex(3)}.json"
         raise OSError("collision de nom d'archive")
-    except Exception:
+    except Exception as exc:
         logger.warning(
-            "archivage de l'ancienne transcription impossible (entretien %s)",
+            "archivage de l'ancienne transcription impossible (entretien %s) : %s",
             getattr(interview, "id", "?"),
+            type(exc).__name__,
             exc_info=False,
         )
+        raise ArchivageImpossible(type(exc).__name__) from exc
 
 
 # --------------------------------------------------------------------------- #
@@ -601,45 +615,70 @@ def retranscrire_confirmer(
             status_code=400, detail="Transcription absente : rien n'a été remplacé."
         )
 
-    _archiver_ancien_contenu(interview, transcript, turns)
-    for turn in list(interview.turns):
-        db.delete(turn)
-    db.flush()
-    for position, turn in enumerate(turns):
-        db.add(
-            InterviewTurn(
-                interview_id=interview.id,
-                position=position,
-                interlocuteur=turn["interlocuteur"],
-                question=turn["question"],
-                remarque=turn["remarque"],
-                section_title=turn["section_title"],
+    try:
+        archive = _archiver_ancien_contenu(interview, transcript, turns)
+    except ArchivageImpossible as exc:
+        # Ancien contenu non vide impossible à sauvegarder : on REFUSE, rien n'est
+        # supprimé (tours et raw_transcript restent tels quels).
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Impossible d'archiver l'ancienne transcription (cause : "
+                f"{exc.cause}) : rien n'a été remplacé. Réessayez ou contactez "
+                "l'administrateur."
+            ),
+        ) from exc
+    try:
+        for turn in list(interview.turns):
+            db.delete(turn)
+        db.flush()
+        for position, turn in enumerate(turns):
+            db.add(
+                InterviewTurn(
+                    interview_id=interview.id,
+                    position=position,
+                    interlocuteur=turn["interlocuteur"],
+                    question=turn["question"],
+                    remarque=turn["remarque"],
+                    section_title=turn["section_title"],
+                )
             )
+        if transcript.strip():
+            interview.raw_transcript = transcript.strip()
+        # Un job ORPHELIN hérité par recyclage d'identifiant SQLite est étranger :
+        # traité comme absent (cf. `_job_retranscription_de_cet_entretien`).
+        job = _job_retranscription_de_cet_entretien(db, interview)
+        # Tours validés par l'utilisateur : la structuration en attente (a_transcrire,
+        # a_traiter, echec) est faite. `en_cours` reste tel quel (un worker le porte).
+        # (Le cas « texte sans tour » est déjà refusé en 400 plus haut : rien à planifier.)
+        if interview.structuration_status in ("a_transcrire", "a_traiter", "echec"):
+            interview.structuration_status = "fait"
+        # Retranscription COMPLÈTE (ni erreur de job, ni tranche audio introuvable) :
+        # plus de tranche manquante, et les jobs de tranche d'origine sont supprimés
+        # pour qu'une relance ne réécrive pas les tours qui viennent d'être validés.
+        _, absentes = _tranches_audio(interview)
+        # Job expiré/absent (None) : rien ne prouve que la retranscription est allée à
+        # son terme -> pas « complète » (on ne supprime pas les jobs de tranche).
+        complete = (
+            job is not None and not job.error and not absentes
+            and not _trou_de_positions(interview)
         )
-    if transcript.strip():
-        interview.raw_transcript = transcript.strip()
-    # Un job ORPHELIN hérité par recyclage d'identifiant SQLite est étranger :
-    # traité comme absent (cf. `_job_retranscription_de_cet_entretien`).
-    job = _job_retranscription_de_cet_entretien(db, interview)
-    # Tours validés par l'utilisateur : la structuration en attente (a_transcrire,
-    # a_traiter, echec) est faite. `en_cours` reste tel quel (un worker le porte).
-    # (Le cas « texte sans tour » est déjà refusé en 400 plus haut : rien à planifier.)
-    if interview.structuration_status in ("a_transcrire", "a_traiter", "echec"):
-        interview.structuration_status = "fait"
-    # Retranscription COMPLÈTE (ni erreur de job, ni tranche audio introuvable) :
-    # plus de tranche manquante, et les jobs de tranche d'origine sont supprimés
-    # pour qu'une relance ne réécrive pas les tours qui viennent d'être validés.
-    _, absentes = _tranches_audio(interview)
-    # Job expiré/absent (None) : rien ne prouve que la retranscription est allée à
-    # son terme -> pas « complète » (on ne supprime pas les jobs de tranche).
-    complete = (
-        job is not None and not job.error and not absentes
-        and not _trou_de_positions(interview)
-    )
-    jeton = interview.segment_token if complete else None
-    if complete:
-        interview.tranches_manquantes = 0
-    db.commit()
+        jeton = interview.segment_token if complete else None
+        if complete:
+            interview.tranches_manquantes = 0
+        db.commit()
+    except Exception:
+        # L'archive vient d'être écrite pour un remplacement qui n'a pas eu lieu :
+        # on retire celle-ci (créée par CETTE requête), pas un autre fichier.
+        db.rollback()
+        if archive is not None:
+            try:
+                archive.unlink()
+            except OSError:
+                logger.warning(
+                    "archive orpheline non supprimée (entretien %s)", interview_id
+                )
+        raise
     if jeton:
         delete_segment_jobs(db, jeton)
 

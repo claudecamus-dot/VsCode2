@@ -13,8 +13,8 @@
   <p class="muted">
     La transcription est relancée depuis {% if nb_tranches > 1 %}les {{ nb_tranches }}
     parties audio enregistrées{% else %}l'enregistrement audio{% endif %} de cet
-    entretien, passage par passage — puis les tours de parole sont ré-extraits tranche
-    par tranche. Le traitement se poursuit côté serveur : tu peux quitter cette
+    entretien, passage par passage — puis les tours de parole sont ré-extraits partie
+    par partie. Le traitement se poursuit côté serveur : tu peux quitter cette
     page et y revenir depuis l'entretien, rien n'est perdu.
   </p>
   <p class="muted">
@@ -173,7 +173,7 @@
           progressEl.textContent = 'Transcription de l’audio… ' + s.blocs
             + (s.blocs_total ? '/' + s.blocs_total : '') + ' passage(s)'
             + (s.tranches_total > 1
-                ? ' — tranche ' + Math.min(s.tranches_faites + 1, s.tranches_total)
+                ? ' — partie ' + Math.min(s.tranches_faites + 1, s.tranches_total)
                   + '/' + s.tranches_total
                 : '') + '.';
         }

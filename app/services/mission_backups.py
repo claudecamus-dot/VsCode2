@@ -464,7 +464,14 @@ def fichiers_de_mission(mission, recordings_dir: Path) -> list[Path]:
         for chemin in recordings_dir.glob(f"{mission.id}_*"):
             if chemin.is_file() and not _anterieur_a_la_mission(chemin, mission):
                 noms.add(chemin.name)
-    base = recordings_dir.resolve()
+    try:
+        base = recordings_dir.resolve()
+    except OSError:
+        logger.warning(
+            "Mission %s : dossier d'enregistrements non résolu, rien n'est supprimé",
+            mission.id,
+        )
+        return []
     fichiers: list[Path] = []
     for nom in sorted(n for n in noms if isinstance(n, str)):
         if not nom_fichier_sur(nom):
@@ -475,8 +482,16 @@ def fichiers_de_mission(mission, recordings_dir: Path) -> list[Path]:
             continue
         chemin = recordings_dir / nom
         # Dernier filet : même un nom « sûr » ne doit pas sortir du dossier.
-        if chemin.is_file() and chemin.resolve().is_relative_to(base):
-            fichiers.append(chemin)
+        try:
+            if chemin.is_file() and chemin.resolve().is_relative_to(base):
+                fichiers.append(chemin)
+        except OSError:
+            # Jonction cassée, chemin trop long… : dans le doute on ne supprime
+            # pas ce fichier, la suppression de la mission continue.
+            logger.warning(
+                "Mission %s : fichier audio non résolu (%r), non supprimé",
+                mission.id, nom[:80],
+            )
     return fichiers
 
 

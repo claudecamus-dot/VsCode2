@@ -165,7 +165,7 @@ def create_segment_job(
         # 2026-09-10, 3e passe, M3).
         existant.status = "pending"
         existant.error = None
-        # `created_at` remis à neuf : sinon `_is_stale` re-compte
+        # `created_at` remis à neuf : sinon `is_stale` re-compte
         # immédiatement comme périmée une tranche qu'on vient de relancer, et
         # l'écran d'attente sort en erreur (2e passe, N14).
         existant.created_at = utc_naif()
@@ -176,7 +176,7 @@ def create_segment_job(
         # tâche basculait la ligne en `running` entre le SELECT et ce commit,
         # `ancien_statut` valait encore `pending`, rien n'était programmé, et
         # cette tâche jetait ensuite son résultat (à raison, le texte ayant
-        # changé) — la ligne restait `running` 45 min avant que `_is_stale` ne
+        # changé) — la ligne restait `running` 45 min avant que `is_stale` ne
         # la libère, écran d'attente tournant à vide. Le doublon d'extraction
         # que la condition évitait est INOFFENSIF depuis que
         # `_ecrire_si_texte_inchange` filtre les écritures périmées : au pire un

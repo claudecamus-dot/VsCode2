@@ -1464,7 +1464,9 @@ def test_confirmer_un_contenu_identique_n_archive_rien(client, dossier_archives)
     assert not dossier_archives.exists() or not list(dossier_archives.glob("*.json"))
 
 
-def test_confirmer_reussit_meme_si_l_archivage_echoue(client, tmp_path, monkeypatch, caplog):
+def test_confirmer_est_refuse_et_ne_supprime_rien_si_l_archivage_echoue(
+    client, tmp_path, monkeypatch, caplog
+):
     from app.routers import interviews_retranscription
 
     # DATA_DIR pointe sur un FICHIER : mkdir/ouverture de l'archive lèvent OSError.
@@ -1474,15 +1476,45 @@ def test_confirmer_reussit_meme_si_l_archivage_echoue(client, tmp_path, monkeypa
     ctx = _entretien_avec_tranches(nb_tranches=1)
     with caplog.at_level("WARNING"):
         reponse = _confirmer_texte(client, ctx["interview_id"], "Nouveau texte.", "Nouveau.")
-    assert reponse.status_code == 303
+    assert reponse.status_code == 409
+    assert "Impossible d'archiver" in reponse.json()["detail"]
+    assert "FileExistsError" in reponse.json()["detail"]
+    assert "Traceback" not in reponse.text
     db = SessionLocal()
     try:
-        assert db.get(Interview, ctx["interview_id"]).raw_transcript == "Nouveau texte."
+        interview = db.get(Interview, ctx["interview_id"])
+        assert interview.raw_transcript == "Ancienne transcription."
+        assert [t.remarque for t in interview.turns] == ["Ancien propos."]
     finally:
         db.close()
     alertes = [r for r in caplog.records if r.levelname == "WARNING" and "archivage" in r.getMessage()]
     assert alertes
+    assert "FileExistsError" in alertes[0].getMessage()
     assert "Ancienne transcription." not in caplog.text
+
+
+def test_confirmer_retire_l_archive_si_le_commit_echoue(client, dossier_archives, monkeypatch):
+    from sqlalchemy.orm import Session
+
+    ctx = _entretien_avec_tranches(nb_tranches=1)
+    # Une archive d'une requête précédente, qui ne doit pas être touchée.
+    dossier_archives.mkdir(parents=True)
+    ancienne = dossier_archives / "entretien_0_20200101T000000.json"
+    ancienne.write_text("{}", encoding="utf-8")
+
+    def commit_qui_leve(self):
+        raise RuntimeError("commit KO")
+
+    monkeypatch.setattr(Session, "commit", commit_qui_leve)
+    with pytest.raises(RuntimeError, match="commit KO"):
+        _confirmer_texte(client, ctx["interview_id"], "Nouveau texte.", "Nouveau.")
+    monkeypatch.undo()
+    assert [p.name for p in dossier_archives.glob("*.json")] == [ancienne.name]
+    db = SessionLocal()
+    try:
+        assert db.get(Interview, ctx["interview_id"]).raw_transcript == "Ancienne transcription."
+    finally:
+        db.close()
 
 
 def test_nom_d_archive_ne_contient_que_des_caracteres_surs(client, dossier_archives):

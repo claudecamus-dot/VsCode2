@@ -1504,3 +1504,24 @@ def test_nom_fichier_sur_rejette_les_noms_non_sains(nom):
 @pytest.mark.parametrize("nom", ["12_abc.webm", "import_1700000000.webm", "7_r_1.mp4"])
 def test_nom_fichier_sur_accepte_les_noms_legitimes(nom):
     assert mission_backups.nom_fichier_sur(nom) is True
+
+
+def test_fichiers_de_mission_saute_un_fichier_dont_resolve_leve(tmp_path, monkeypatch, caplog):
+    from types import SimpleNamespace
+
+    (tmp_path / "a.webm").write_bytes(b"a")
+    (tmp_path / "b.webm").write_bytes(b"b")
+    monkeypatch.setattr(mission_backups, "fichiers_references", lambda m: ["a.webm", "b.webm"])
+    vrai_resolve = Path.resolve
+
+    def resolve_piege(self, *args, **kwargs):
+        if self.name == "a.webm":
+            raise OSError("jonction cassée")
+        return vrai_resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", resolve_piege)
+    with caplog.at_level("WARNING"):
+        fichiers = mission_backups.fichiers_de_mission(SimpleNamespace(id=7), tmp_path)
+    assert [p.name for p in fichiers] == ["b.webm"]
+    assert (tmp_path / "a.webm").exists()
+    assert any("non supprimé" in r.getMessage() for r in caplog.records)
