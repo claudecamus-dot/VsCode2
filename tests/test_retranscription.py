@@ -1517,6 +1517,47 @@ def test_confirmer_retire_l_archive_si_le_commit_echoue(client, dossier_archives
         db.close()
 
 
+def test_confirmer_garde_l_archive_si_le_commit_aboutit_puis_leve(
+    client, dossier_archives, monkeypatch
+):
+    from sqlalchemy.orm import Session
+
+    ctx = _entretien_avec_tranches(nb_tranches=1)
+    vrai_commit = Session.commit
+
+    def commit_puis_leve(self):
+        vrai_commit(self)
+        raise RuntimeError("commit tardif KO")
+
+    monkeypatch.setattr(Session, "commit", commit_puis_leve)
+    with pytest.raises(RuntimeError, match="commit tardif"):
+        _confirmer_texte(client, ctx["interview_id"], "Nouveau texte.", "Nouveau.")
+    monkeypatch.undo()
+    assert len(list(dossier_archives.glob("*.json"))) == 1
+    db = SessionLocal()
+    try:
+        assert db.get(Interview, ctx["interview_id"]).raw_transcript == "Nouveau texte."
+    finally:
+        db.close()
+
+
+def test_retirer_archive_orpheline_refuse_hors_dossier_et_non_json(dossier_archives, tmp_path):
+    from app.routers.interviews_retranscription import _retirer_archive_orpheline
+
+    dossier_archives.mkdir(parents=True)
+    bon = dossier_archives / "entretien_1_x.json"
+    bon.write_text("{}", encoding="utf-8")
+    autre_ext = dossier_archives / "entretien_1_x.webm"
+    autre_ext.write_bytes(b"a")
+    dehors = tmp_path / "ailleurs.json"
+    dehors.write_text("{}", encoding="utf-8")
+    _retirer_archive_orpheline(autre_ext)
+    _retirer_archive_orpheline(dehors)
+    assert autre_ext.exists() and dehors.exists()
+    _retirer_archive_orpheline(bon)
+    assert not bon.exists()
+
+
 def test_nom_d_archive_ne_contient_que_des_caracteres_surs(client, dossier_archives):
     import re
 

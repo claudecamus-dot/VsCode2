@@ -244,10 +244,10 @@ _EXCEPTIONS = {
         "SQLite réattribuant l'identifiant libéré, la mission suivante "
         "hériterait de l'audio de la précédente"
     ),
-    ("app/routers/interviews_retranscription.py", "retranscrire_confirmer"): (
-        "retire UNIQUEMENT le JSON d'archive de transcription que CETTE requête "
-        "vient de créer, quand le commit échoue : ce n'est pas de l'audio, et le "
-        "chemin vient de `_archiver_ancien_contenu`, jamais d'un nom de formulaire"
+    ("app/routers/interviews_retranscription.py", "_retirer_archive_orpheline"): (
+        "retire UNIQUEMENT un JSON d'archive de transcription situé dans "
+        "DATA_DIR/archives_transcription (garde de chemin et d'extension) : "
+        "ce n'est pas de l'audio"
     ),
     ("app/routers/missions.py", "delete_audio_orphelin"): (
         "écran « audio sans mission » : la seule façon d'atteindre un fichier "

@@ -25,7 +25,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from ..db import DATA_DIR, RECORDINGS_DIR, get_session
+from ..db import DATA_DIR, RECORDINGS_DIR, SessionLocal, get_session
 from ..models import (
     AudioFileJob,
     Interview,
@@ -71,6 +71,33 @@ class ArchivageImpossible(Exception):
     def __init__(self, cause: str):
         super().__init__(cause)
         self.cause = cause
+
+
+def _signature_contenu(interview: Interview) -> tuple:
+    """Empreinte (texte brut, tours) servant à savoir si un remplacement a eu lieu."""
+    return (
+        interview.raw_transcript or "",
+        tuple(
+            (t.interlocuteur, t.question, t.remarque, t.section_title)
+            for t in sorted(interview.turns, key=lambda t: (t.position or 0, t.id or 0))
+        ),
+    )
+
+
+def _retirer_archive_orpheline(archive: Path) -> None:
+    """Supprime une archive de transcription créée par la requête en cours.
+
+    Garde : uniquement un `.json` situé dans `DATA_DIR/archives_transcription`,
+    sinon ne fait RIEN (journalisé). Ce n'est jamais de l'audio."""
+    try:
+        dossier = (DATA_DIR / "archives_transcription").resolve()
+        cible = archive.resolve()
+        if cible.parent != dossier or cible.suffix != ".json":
+            logger.warning("archive orpheline hors du dossier d'archives : non supprimée")
+            return
+        cible.unlink()
+    except OSError as exc:
+        logger.warning("archive orpheline non supprimée : %s", type(exc).__name__)
 
 
 def _archiver_ancien_contenu(
@@ -628,6 +655,7 @@ def retranscrire_confirmer(
                 "l'administrateur."
             ),
         ) from exc
+    avant = _signature_contenu(interview)
     try:
         for turn in list(interview.turns):
             db.delete(turn)
@@ -672,11 +700,23 @@ def retranscrire_confirmer(
         # on retire celle-ci (créée par CETTE requête), pas un autre fichier.
         db.rollback()
         if archive is not None:
+            # Le commit a pu aboutir puis lever : on ne retire l'archive que si
+            # la base porte encore l'ANCIEN contenu (relecture en session propre).
+            intact = False
             try:
-                archive.unlink()
-            except OSError:
+                with SessionLocal() as propre:
+                    relu = propre.get(Interview, interview_id)
+                    intact = relu is not None and _signature_contenu(relu) == avant
+            except Exception as exc_relecture:
                 logger.warning(
-                    "archive orpheline non supprimée (entretien %s)", interview_id
+                    "relecture impossible (%s)", type(exc_relecture).__name__
+                )
+            if intact:
+                _retirer_archive_orpheline(archive)
+            else:
+                logger.warning(
+                    "archive conservée : remplacement peut-être effectif (entretien %s)",
+                    interview_id,
                 )
         raise
     if jeton:
