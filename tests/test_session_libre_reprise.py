@@ -35,6 +35,15 @@ from pathlib import Path
 
 import pytest
 
+try:  # `tests/` sur sys.path (mode d'import par défaut de pytest)
+    from _harnais_ordre_js import jouer_ecran
+    from test_repartition_live import _fonction, _sans_commentaires
+    from test_tranches_et_reprise_execution import _bac, _bloc_reprise, _js
+except ImportError:  # `tests` importable comme paquet
+    from tests._harnais_ordre_js import jouer_ecran
+    from tests.test_repartition_live import _fonction, _sans_commentaires
+    from tests.test_tranches_et_reprise_execution import _bac, _bloc_reprise, _js
+
 RACINE = Path(__file__).resolve().parent.parent
 REC_DRAFT = RACINE / "app" / "static" / "rec_draft.js"
 BASE_HTML = RACINE / "app" / "templates" / "base.html"
@@ -193,19 +202,69 @@ def test_record_libre_propose_la_reprise_et_marque_l_envoi() -> None:
     # un clic, pas au chargement.
     reprise = html[html.index("function proposerReprise"):]
     assert "'rec-draft-restore').addEventListener('click'" in reprise
-    # Le jeton restauré doit aussi partir dans le FORMULAIRE (`<input
-    # name="session_token">`), pas seulement vivre dans la variable JS : c'est
-    # lui qui, côté serveur, retrouve les tranches déjà structurées. Constaté
-    # vide au premier passage en Edge headless le 2026-09-08.
-    assert "sessionTokenHidden.value = sessionToken;" in reprise[:reprise.index("refreshSegmentTail();")]
-    # DANS la fermeture principale du script (celle qui se referme par le
-    # dernier `})();` en colonne 0) : posé après elle, le bloc s'exécutait dans
-    # la portée globale où ni `transcriptSoFar` ni `MISSION_ID` n'existent —
-    # ReferenceError, aucun bandeau, aucun mot (constaté en Edge headless le
-    # 2026-09-08 avant correction).
-    fin_fermeture = html.rindex("\n})();")
-    assert html.index("function proposerReprise") < fin_fermeture
-    assert html.index("recDraft.marquerEnvoye(MISSION_ID, undefined, sessionToken)") < fin_fermeture
+    # L'ORDRE « jeton posé dans le formulaire AVANT refreshSegmentTail() » et la
+    # portée « dans la fermeture principale » ne se prouvent plus sur le texte :
+    # voir les tests d'EXÉCUTION plus bas (CR-26).
+    assert "sessionTokenHidden.value = sessionToken;" in reprise
+
+
+def _scenario_reprise_jeton_avant_queue() -> str:
+    rec_draft = REC_DRAFT.read_text(encoding="utf-8")
+    bloc = _bloc_reprise()
+    return _js(rec_draft) + r"""
+const journal = [];
+Object.assign(bac, {
+  MISSION_ID: 19, transcriptSoFar: '', sessionToken: '', coveredLen: 0, segmentJobPosition: 0,
+  backupSegments: [], nextBackupPosition: 0,
+  transcriptEl: el('t'), transcriptHidden: el('th'), sessionTokenHidden: el('st'),
+  audioSegmentsHidden: el('as'), backupPathHidden: el('bp'), statusEl: el('status'),
+  updateSubmitState: function () {},
+  refreshSegmentTail: function () { journal.push('queue:' + el('st').value); },
+  refreshBackupStatus: function () {}, refreshBackupList: function () {},
+  confirm: function () { return true; }
+});
+el('rec-draft-banner'); el('rec-draft-text'); el('rec-draft-restore'); el('rec-draft-discard');
+jouer("recDraft.sauver(19, {transcript: 'texte', sessionToken: 'tok-x', coveredLen: 2})");
+jouer(%(bloc)s);
+el('rec-draft-restore')._on.click();
+console.log(JSON.stringify({journal: journal}));
+""" % {"bloc": json.dumps(bloc)}
+
+
+def test_la_reprise_pose_le_jeton_dans_le_formulaire_avant_de_recalculer_la_queue() -> None:
+    """Ce que l'ordre PROTEGE : au moment où `refreshSegmentTail()` calcule la
+    queue à envoyer, le champ caché `session_token` du FORMULAIRE porte déjà le
+    jeton restauré — c'est lui qui, côté serveur, retrouve les tranches déjà
+    structurées (constaté vide en Edge headless le 2026-09-08). Mesuré par
+    exécution : la valeur du champ AU MOMENT de l'appel, pas la position du
+    texte (CR-26)."""
+    sortie = _bac(_scenario_reprise_jeton_avant_queue())
+    assert sortie["journal"] == ["queue:tok-x"]
+
+
+def test_le_bloc_de_reprise_et_l_envoi_vivent_dans_la_fermeture_principale() -> None:
+    """Ce que la portée PROTEGE : posés après le `})();` final, le bandeau de
+    reprise et le `marquerEnvoye` du submit tournaient en portée globale, où
+    `transcriptSoFar`/`MISSION_ID` n'existent pas -> ReferenceError sans rien à
+    l'écran (Edge headless, 2026-09-08). Le script ENTIER est exécuté dans un
+    bac dont le global ne résout que les noms d'hôte : un bloc hors fermeture
+    lève (`erreur`), pas de bandeau, brouillon jamais marqué envoyé."""
+    sortie = jouer_ecran(
+        RECORD_LIBRE,
+        avant="jouer(\"recDraft.sauver(19, {transcript: 'abc', sessionToken: 'tk'})\");",
+        apres="""
+const out = {erreur: erreur, bandeau: !el('rec-draft-banner').hidden, soumis: null};
+try { el('record-form')._on.submit({target: el('record-form'), preventDefault: function () {}}); }
+catch (e) { out.soumis = e.name + ': ' + e.message; }
+const etat = JSON.parse(store['i2d:brouillon-libre:19']);
+out.envoye = !!etat.envoyeLe;
+console.log(JSON.stringify(out));
+""",
+    )
+    assert sortie["erreur"] is None, sortie["erreur"]
+    assert sortie["bandeau"] is True, "proposerReprise ne s'est pas exécuté dans la fermeture"
+    assert sortie["soumis"] is None, sortie["soumis"]
+    assert sortie["envoye"] is True, "marquerEnvoye n'est pas atteint par le submit"
 
 
 def test_le_brouillon_est_sauve_partout_ou_le_texte_change() -> None:
@@ -229,18 +288,64 @@ def test_le_brouillon_est_sauve_partout_ou_le_texte_change() -> None:
     assert remplace, "fonction replaceLostMarker introuvable"
     corps = remplace.group(1)
     assert "persistDraft();" in corps
-    assert corps.index("persistDraft();") > corps.index("coveredLen += delta"), (
-        "persistDraft() est appele AVANT que coveredLen bouge : le brouillon "
-        "garde un curseur perime, et la reprise ecrase le fragment recupere"
-    )
-    assert corps.index("persistDraft();") > corps.index("postRecoveredJob(text)"), (
-        "persistDraft() est appele avant postRecoveredJob, qui incremente "
-        "segmentJobPosition sans le persister lui-meme"
-    )
+    # L'ORDRE (persistDraft après coveredLen/segmentJobPosition) est prouvé par
+    # EXÉCUTION : test_replace_lost_marker_persiste_apres_les_mutations (CR-26).
     bloc_fichier = html.index("// Même recalage que `replaceLostMarker` — sans lui")
     assert "persistDraft();" in html[bloc_fichier:bloc_fichier + 400]
     succes_job = html[html.index("recuperesEnAttente.forEach(postRecoveredJob);"):]
     assert "persistDraft();" in succes_job[:400]
+
+
+def _scenario_replace_lost_marker() -> str:
+    src = _sans_commentaires(RECORD_LIBRE.read_text(encoding="utf-8"))
+    return _js(
+        "function lostMarker(id) { return '[perdu ' + id + ']'; }\n"
+        + _fonction(src, "replaceLostMarker")
+    ) + r"""
+function etat(transcript, couvert, finTranche) {
+  const journal = [];
+  Object.assign(bac, {
+    transcriptSoFar: transcript, coveredLen: couvert, flightSliceEnd: finTranche,
+    segmentJobPosition: 4, recuperesEnAttente: [],
+    transcriptEl: el('t'), transcriptHidden: el('th'),
+    persistDraft: function () {
+      journal.push({ev: 'persist', coveredLen: bac.coveredLen, position: bac.segmentJobPosition,
+                    finTranche: bac.flightSliceEnd, attente: bac.recuperesEnAttente.length});
+    },
+    postRecoveredJob: function () { journal.push({ev: 'post'}); bac.segmentJobPosition++; },
+    refreshSegmentTail: function () { journal.push({ev: 'queue'}); }
+  });
+  return journal;
+}
+const out = {};
+// a. trou DANS la zone déjà couverte : curseur décalé du delta (+2) ET job dédié
+let j = etat('AA[perdu 3]BB', 10, -1);
+jouer("replaceLostMarker(3, 'hello world')");
+out.deja_couvert = j;
+// b. trou DANS la tranche en vol : mise en attente + frontière décalée
+j = etat('AA[perdu 3]BB', 0, 10);
+jouer("replaceLostMarker(3, 'hello world')");
+out.en_vol = j;
+console.log(JSON.stringify(out));
+"""
+
+
+def test_replace_lost_marker_persiste_apres_les_mutations() -> None:
+    """Ce que l'ordre PROTEGE (revue adversariale 2026-09-10, M2) : le brouillon
+    sauvé décrit l'état APRÈS la récupération — curseur décalé et position de
+    tranche consommée par `postRecoveredJob`. Sauvé avant, une reprise remettait
+    une position déjà prise et la rotation suivante écrasait le fragment de
+    parole rescapée. On observe l'état AU MOMENT de `persistDraft()` (CR-26)."""
+    sortie = _bac(_scenario_replace_lost_marker())
+    assert sortie["deja_couvert"] == [
+        {"ev": "post"},
+        {"ev": "persist", "coveredLen": 12, "position": 5, "finTranche": -1, "attente": 0},
+        {"ev": "queue"},
+    ]
+    assert sortie["en_vol"] == [
+        {"ev": "persist", "coveredLen": 0, "position": 4, "finTranche": 12, "attente": 1},
+        {"ev": "queue"},
+    ]
 
 
 def test_demarrer_n_ecrase_pas_un_brouillon_propose_sans_confirmation() -> None:

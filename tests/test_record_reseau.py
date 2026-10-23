@@ -19,6 +19,7 @@ Aucun accès base : ce module ne touche ni `DB_PATH` ni `SessionLocal`.
 """
 from __future__ import annotations
 
+import json
 import re
 import shutil
 import subprocess
@@ -26,6 +27,13 @@ import time
 from pathlib import Path
 
 import pytest
+
+try:  # `tests/` sur sys.path (mode d'import par défaut de pytest)
+    from test_repartition_live import _corps_du_gestionnaire, _fonction
+    from test_tranches_et_reprise_execution import _bac, _js
+except ImportError:  # `tests` importable comme paquet
+    from tests.test_repartition_live import _corps_du_gestionnaire, _fonction
+    from tests.test_tranches_et_reprise_execution import _bac, _js
 
 RACINE = Path(__file__).resolve().parent.parent
 # TOUS les écrans du parcours d'enregistrement qui font des requêtes JS — pas
@@ -227,11 +235,8 @@ def test_la_parole_recuperee_dans_la_tranche_en_vol_part_en_job(ecran: Path) -> 
         "chemin de SUCCÈS de `submitSegmentJob`. Au succès `coveredLen` passe "
         "par-dessus elles : sans leur job dédié, plus personne ne les extrait"
     )
-    assert succes.index("coveredLen =") < succes.index("recuperesEnAttente.forEach"), (
-        f"{ecran.name} : la file est vidée AVANT l'avancée de `coveredLen` — "
-        "l'ordre importe, le job dédié n'a de sens qu'une fois la parole sortie "
-        "du reliquat"
-    )
+    # L'ORDRE (coveredLen avancé AVANT le vidage de la file) est prouvé par
+    # EXÉCUTION : test_la_file_est_videe_apres_l_avancee_de_coveredLen (CR-26).
     assert re.search(r"recuperesEnAttente\s*=\s*\[\]", envoi.rsplit(".finally", 1)[-1]), (
         f"{ecran.name} : la file n'est pas remise à zéro dans le `.finally` — "
         "une parole en attente survivrait au POST suivant et serait soumise "
@@ -368,12 +373,8 @@ def test_recommencer_demande_confirmation_avant_de_tout_effacer(ecran: Path) -> 
         f"{ecran.name} : le texte déjà visible doit aussi compter, comme pour "
         "la confirmation de « Démarrer »"
     )
-    idx_confirm = corps.index("confirm(")
-    idx_destructif = corps.index("transcriptSoFar = ''")
-    assert idx_confirm < idx_destructif, (
-        f"{ecran.name} : la confirmation doit intervenir AVANT l'effacement "
-        "de `transcriptSoFar`, pas après"
-    )
+    # L'ORDRE (confirm AVANT l'effacement) est prouvé par EXÉCUTION :
+    # test_recommencer_demande_confirmation_avant_d_effacer (CR-26).
 
 
 @pytest.mark.parametrize(
@@ -449,12 +450,8 @@ def test_recommencer_notes_demande_confirmation_si_transcription_en_vol() -> Non
         "prise SUIVANTE après un « Recommencer », alors que le message promet "
         "un abandon"
     )
-    idx_confirm = corps.index("confirm(")
-    idx_destructif = corps.index("preview.hidden = true")
-    assert idx_confirm < idx_destructif, (
-        "capture.html : la confirmation doit intervenir AVANT de masquer "
-        "l'aperçu audio, pas après"
-    )
+    # L'ORDRE (confirm AVANT de masquer l'aperçu) est prouvé par EXÉCUTION :
+    # test_recommencer_notes_confirme_avant_de_masquer_l_apercu (CR-26).
 
 
 def test_rec_fetch_charge_sans_defer() -> None:
@@ -609,3 +606,113 @@ def test_rec_fetch_annule_son_minuteur_quand_le_corps_est_lu() -> None:
         f"le processus a vécu {duree:.1f}s avec un délai de 20s : le minuteur "
         "n'est pas annulé après la lecture du corps"
     )
+
+
+# --------------------------------------------------------------------------- #
+# CR-26 : ordre d'exécution prouvé en JOUANT le code extrait du template
+# --------------------------------------------------------------------------- #
+
+_ECRANS_ENREGISTREMENT = [
+    RACINE / "app" / "templates" / "interviews" / "record_libre.html",
+    RACINE / "app" / "templates" / "interviews" / "record.html",
+]
+
+
+def _scenario_ordre_succes(ecran: Path) -> str:
+    src = _sans_commentaires(ecran.read_text(encoding="utf-8"))
+    return _js(_fonction(src, "submitSegmentJob")) + r"""
+(async () => {
+  const journal = [];
+  Object.assign(bac, {
+    transcriptSoFar: 'un deux trois', coveredLen: 0, pendingSegmentJobSubmits: 0,
+    segmentJobPosition: 0, flightSliceEnd: -1, recuperesEnAttente: ['parole rescapee'],
+    recordingActive: true, jobEchecsConsecutifs: 0, backupGeneration: 0, recGeneration: 0,
+    JOB_RETRY_DELAYS_MS: [1], NET_TIMEOUT_MS: 1000, sessionToken: 'tok',
+    jobStatusEl: el('rec-job-status'),
+    updateSubmitState: function () {}, refreshSegmentTail: function () {},
+    persistDraft: function () {}, noterEvenement: function () {},
+    postRecoveredJob: function (t) { journal.push({texte: t, coveredLen: bac.coveredLen}); }
+  });
+  fetchMode = 'ok';
+  jouer('submitSegmentJob();'); await tick();
+  console.log(JSON.stringify({journal: journal}));
+})();
+"""
+
+
+@pytest.mark.parametrize("ecran", _ECRANS_ENREGISTREMENT, ids=lambda p: p.name)
+def test_la_file_est_videe_apres_l_avancee_de_coveredLen(ecran: Path) -> None:
+    """Ce que l'ordre PROTEGE : le job dédié d'une parole récupérée pendant le
+    vol n'a de sens qu'une fois `coveredLen` passé par-dessus elle (elle sort
+    alors du reliquat). Observé à l'exécution : la valeur de `coveredLen` AU
+    MOMENT où `postRecoveredJob` est appelé."""
+    sortie = _bac(_scenario_ordre_succes(ecran))
+    assert sortie["journal"] == [{"texte": "parole rescapee", "coveredLen": len("un deux trois")}]
+
+
+def _scenario_recommencer(ecran: Path) -> str:
+    src = _sans_commentaires(ecran.read_text(encoding="utf-8"))
+    gest = _corps_du_gestionnaire(src, "resetBtn.addEventListener")
+    return r"""
+const out = {};
+function preparer(reponse, journal) {
+  Object.assign(bac, {
+    transcriptSoFar: 'du texte a ne pas perdre', recordingActive: false, pendingBackups: 0,
+    pendingSegments: 0, backupPerdusLocaux: [], backupLocalAcquitte: true, lostSegments: [],
+    lostRetryBlocking: false, transcriptEl: el('t'), transcriptHidden: el('th'),
+    jobStatusEl: el('js'), segmentTailHidden: el('st'), backupPathHidden: el('bp'),
+    sessionTokenHidden: el('tk'), audioSegmentsHidden: el('as'), backupStatusEl: el('bs'),
+    backupGeneration: 0, recGeneration: 0,
+    confirm: function () { journal.push({texteAuConfirm: bac.transcriptSoFar}); return reponse; }
+  });
+}
+let j = []; preparer(false, j);
+jouer(%(g)s);
+out.refus = {journal: j, texte_apres: bac.transcriptSoFar};
+j = []; preparer(true, j);
+jouer(%(g)s);
+out.accord = {journal: j, texte_apres: bac.transcriptSoFar};
+console.log(JSON.stringify(out));
+""" % {"g": json.dumps(gest)}
+
+
+@pytest.mark.parametrize("ecran", _ECRANS_ENREGISTREMENT, ids=lambda p: p.name)
+def test_recommencer_demande_confirmation_avant_d_effacer(ecran: Path) -> None:
+    """Ce que l'ordre PROTEGE : « Recommencer » efface transcription ET
+    sauvegarde audio sans filet ; la confirmation doit voir le texte encore
+    intact, et un refus ne doit rien effacer. Observé à l'exécution (handler
+    joué avec `confirm` espion)."""
+    sortie = _bac(_scenario_recommencer(ecran))
+    assert sortie["refus"]["journal"] == [{"texteAuConfirm": "du texte a ne pas perdre"}]
+    assert sortie["refus"]["texte_apres"] == "du texte a ne pas perdre", "un refus ne doit rien effacer"
+    assert sortie["accord"]["journal"] == [{"texteAuConfirm": "du texte a ne pas perdre"}]
+    assert sortie["accord"]["texte_apres"] == ""
+
+
+def test_recommencer_notes_confirme_avant_de_masquer_l_apercu() -> None:
+    """Ce que l'ordre PROTEGE (capture.html) : l'aperçu audio ne doit pas être
+    masqué avant que l'utilisateur ait confirmé ; un refus le laisse visible."""
+    ecran = RACINE / "app" / "templates" / "interviews" / "capture.html"
+    src = _sans_commentaires(ecran.read_text(encoding="utf-8"))
+    gest = _corps_du_gestionnaire(src, "resetBtn.addEventListener")
+    scenario = r"""
+const out = {};
+function preparer(reponse, journal) {
+  el('p').hidden = false; el('p').removeAttribute = function () {};
+  Object.assign(bac, {
+    notesTranscriptionEnVol: true, notesGeneration: 0, preview: el('p'),
+    resetBtn: el('r'), statusEl: el('s'), timerEl: el('ti'),
+    confirm: function () { journal.push({apercuMasqueAuConfirm: el('p').hidden}); return reponse; }
+  });
+}
+let j = []; preparer(false, j);
+jouer(%(g)s);
+out.refus = {journal: j, masque_apres: el('p').hidden};
+j = []; preparer(true, j);
+jouer(%(g)s);
+out.accord = {journal: j, masque_apres: el('p').hidden};
+console.log(JSON.stringify(out));
+""" % {"g": json.dumps(gest)}
+    sortie = _bac(scenario)
+    assert sortie["refus"] == {"journal": [{"apercuMasqueAuConfirm": False}], "masque_apres": False}
+    assert sortie["accord"] == {"journal": [{"apercuMasqueAuConfirm": False}], "masque_apres": True}
