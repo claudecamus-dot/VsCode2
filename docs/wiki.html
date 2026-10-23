@@ -834,12 +834,12 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-10-22T19:59:48+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-10-23T08:53:55+02:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>28 sessions</strong> couvertes · <strong>346</strong> invocations de skills · <strong>673</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>484 sessions</strong> couvertes · <strong>360</strong> invocations de skills · <strong>683</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-10-22 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
+        <div class="tag-source">scan_transcripts.py · 2026-10-23 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
 
       <h3>Skills — usage réel</h3>
@@ -850,10 +850,10 @@ pytest -k "pptx or export"                                                     #
             <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>96</td><td>2026-07-20</td><td>2026-10-22</td></tr>
             <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>61</td><td>2026-07-17</td><td>2026-10-22</td></tr>
             <tr><td><code>run-dev-server</code></td><td>projet</td><td>41</td><td>2026-07-17</td><td>2026-10-08</td></tr>
+            <tr><td><code>bmad-party-mode</code></td><td>BMAD</td><td>29</td><td>2026-09-15</td><td>2026-10-22</td></tr>
             <tr><td><code>bmad-review-edge-case-hunter</code></td><td>BMAD</td><td>26</td><td>2026-07-20</td><td>2026-09-07</td></tr>
-            <tr><td><code>bmad-party-mode</code></td><td>BMAD</td><td>21</td><td>2026-09-15</td><td>2026-10-22</td></tr>
+            <tr><td><code>bmad-review</code></td><td>BMAD</td><td>23</td><td>2026-09-15</td><td>2026-10-21</td></tr>
             <tr><td><code>bmad-review-adversarial-general</code></td><td>BMAD</td><td>19</td><td>2026-07-20</td><td>2026-09-07</td></tr>
-            <tr><td><code>bmad-review</code></td><td>BMAD</td><td>17</td><td>2026-09-15</td><td>2026-10-21</td></tr>
             <tr><td><code>revue-increment</code></td><td>projet</td><td>17</td><td>2026-07-18</td><td>2026-10-07</td></tr>
             <tr><td><code>agent-supervisor</code></td><td>projet</td><td>14</td><td>2026-07-18</td><td>2026-09-29</td></tr>
             <tr><td><code>pptx-verify</code></td><td>projet</td><td>12</td><td>2026-07-18</td><td>2026-09-29</td></tr>
@@ -880,7 +880,7 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Sous-agent</th><th>Lancements</th><th>Premier</th><th>Dernier</th></tr></thead>
           <tbody>
-            <tr><td><code>general-purpose</code></td><td>444</td><td>2026-07-20</td><td>2026-10-22</td></tr>
+            <tr><td><code>general-purpose</code></td><td>454</td><td>2026-07-20</td><td>2026-10-22</td></tr>
             <tr><td><code>bmad-revue</code></td><td>93</td><td>2026-08-31</td><td>2026-10-21</td></tr>
             <tr><td><code>Explore</code></td><td>79</td><td>2026-07-18</td><td>2026-10-21</td></tr>
             <tr><td><code>(defaut)</code></td><td>46</td><td>2026-07-21</td><td>2026-10-19</td></tr>
@@ -902,21 +902,21 @@ pytest -k "pptx or export"                                                     #
       <p><strong>bibliothèque / référence</strong> — usage via scripts/sous-agent, non capté par le compteur (n=0 ≠ mort, constat #2) : <code>pdf-quality</code>, <code>pptx-deck</code>, <code>pptx-framed-image</code>, <code>roadmap-keeper</code></p>
 
       <h3>TODO agents — chantiers à lancer (constats automatiques)</h3>
-      <p class="avertissement"><em>⚠️ <strong>Mesure incomplète</strong> — 6 transcript(s) sur 28 absent(s) du disque. Un <code>n=0</code> ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.</em></p>
+      <p class="avertissement"><em>⚠️ <strong>Mesure incomplète</strong> — 6 transcript(s) sur 484 absent(s) du disque. Un <code>n=0</code> ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.</em></p>
       <div class="critical">
         <p><strong>Désinstaller les shims BMAD dépréciés</strong> (21) : <code>bmad-checkpoint-preview</code>, <code>bmad-create-architecture</code>, <code>bmad-create-prd</code>, <code>bmad-create-story</code>, <code>bmad-dev-auto</code>, <code>bmad-dev-story</code>, <code>bmad-document-project</code>, <code>bmad-domain-research</code>, <code>bmad-edit-prd</code>, <code>bmad-editorial-review</code>, <code>bmad-editorial-review-prose</code>, <code>bmad-editorial-review-structure</code>, <code>bmad-generate-project-context</code>, <code>bmad-market-research</code>, <code>bmad-quick-dev</code>, <code>bmad-review-adversarial-general</code>, <code>bmad-review-edge-case-hunter</code>, <code>bmad-review-verification-gap</code>, <code>bmad-sprint-status</code>, <code>bmad-technical-research</code>, <code>bmad-validate-prd</code> — dépréciés par BMAD dans leur propre <code>description</code>, chacun avec son remplaçant ; le seul élagage qui ne repose pas sur notre mesure d'usage.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-10-22 · transcripts de session</div>
+        <div class="tag-source">scan_transcripts.py · 2026-10-23 · transcripts de session</div>
       </div>
       <div class="critical">
         <p><strong>Skills projet sans usage</strong> : <code>agent-securite</code> — vérifier pertinence et déclencheurs.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-10-22 · transcripts de session</div>
+        <div class="tag-source">scan_transcripts.py · 2026-10-23 · transcripts de session</div>
       </div>
       <div class="critical">
         <p><strong>Skills en sommeil (&gt;30 j sans usage)</strong> : <code>a11y-auditor</code>, <code>bmad-advanced-elicitation</code>, <code>bmad-brainstorming</code>, <code>bmad-review-adversarial-general</code>, <code>bmad-review-edge-case-hunter</code>, <code>bmad-walkthrough</code>, <code>deck-design-review</code>, <code>design-reviewer</code>, <code>priority-matrix</code>, <code>restitution-deck-design</code>, <code>revue-ui-web</code>, <code>slide-text-polish</code>, <code>swot-matrix</code>.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-10-22 · transcripts de session</div>
+        <div class="tag-source">scan_transcripts.py · 2026-10-23 · transcripts de session</div>
       </div>
 
       <h3>Arbitrages enregistrés</h3>
