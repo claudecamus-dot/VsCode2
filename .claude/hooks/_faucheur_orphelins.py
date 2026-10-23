@@ -15,6 +15,18 @@ Candidates (all conditions required):
 - not a known detached launcher (``WHITELIST_CMD`` in the command line, or a PID
   declared in ``.claude/supervision/popen_detaches.jsonl``): those live up to
   14 min without a parent ON PURPOSE.
+Two more families (2026-10-22, test debris that saturated the workstation):
+- ``navigateur-test``: ``msedge.exe``/``chrome.exe`` ROOT (no ``--type=``) whose command line
+  has ``--headless`` AND (``--screenshot`` OR ``--remote-debugging-port``) AND a
+  ``--user-data-dir=``/``--screenshot=`` path under ``c:/tmp/`` or a scratchpad
+  ``.../Temp/claude/`` folder; older than ``SEUIL_NAVIGATEUR_MIN`` (10 min); the parent may
+  still exist (a headless test browser is never the user's browser);
+- ``python-adhoc``: ``python.exe`` whose command line is exactly ``-`` (stdin) or starts with
+  ``-c``, orphan (same rule), older than ``seuil_min``.
+Guards for both: never a process with a live ancestor whose command line contains
+``pytest``, never anything whose own or ancestor command line cites the 8020 site
+(``--port 8020`` / ``serveur-dev`` / ``8020``). If ``taskkill`` fails on a single-thread
+process the journal says ``bloque-noyau`` (one attempt, no retry loop).
 Never by name alone. Before every stop the candidate is revalidated on a fresh
 snapshot (same pid, same creation time, same name, still orphan). Stop =
 ``taskkill /F /T /PID`` through ``_lancement_borne.lancer_borne`` (never pipes).
@@ -23,7 +35,7 @@ resultat -- NEVER the command line), rotated to ``.1`` past 1 MB.
 
 Stdlib only (``ctypes``); outside Windows every function returns "nothing".
 Listing: Toolhelp32 snapshot + GetProcessTimes (~0.05 s for 1 000 processes, CIM
-takes 5-7 s). The command line is read for Python candidates only, through
+takes 5-7 s). The command line is read for Python, git and browser candidates only (name filter first), through
 ``NtQueryInformationProcess(ProcessCommandLineInformation)``.
 """
 from __future__ import annotations
@@ -44,6 +56,14 @@ NOMS_GIT = frozenset({"git.exe"})
 # editor launches, so 246 orphans escaped the reaper (2026-10-12).
 GIT_DAEMONS_LEGITIMES = re.compile(r"fsmonitor--daemon|(?:^|\s)(?:gc|maintenance)(?:\s|$)")
 NOMS_PYTHON = frozenset({"python.exe", "py.exe", "pythonw.exe"})
+NOMS_NAVIGATEUR = frozenset({"msedge.exe", "chrome.exe"})
+SEUIL_NAVIGATEUR_MIN = 10
+# Never touch a tree with such a live ancestor (full test run / the 8020 dev site).
+MARQUEURS_PROTEGES = ("pytest", "--port 8020", "serveur-dev", "8020")
+NOMS_ANCETRES_LUS = NOMS_PYTHON | {"pytest.exe", "powershell.exe", "pwsh.exe", "cmd.exe",
+                                   "uvicorn.exe"}
+_CHEMIN_NAV = re.compile(r'--(?:user-data-dir|screenshot)=(?:"([^"]*)"|(\S+))')
+_ADHOC = re.compile(r"^-(?:c(?:\s|$)|$)")
 CIBLES_CMD = ("/.claude/hooks/", "/.claude/supervision/")
 # Detached launchers that live without a parent on purpose (refresh_wiki_apres_action
 # -> _refresh_wiki_lanceur, max 840 s). Matched on the normalised command line.
@@ -51,7 +71,8 @@ WHITELIST_CMD = ("refresh_wiki_apres_action", "_refresh_wiki_lanceur")
 CAP_JOURNAL = 1_000_000
 DELAI_TASKKILL_S = 10.0
 
-Proc = namedtuple("Proc", "pid ppid nom debut")  # debut: creation, epoch seconds or None
+# debut: creation, epoch seconds or None; threads: thread count or None (unknown)
+Proc = namedtuple("Proc", "pid ppid nom debut threads", defaults=(None,))
 
 _ICI = os.path.dirname(os.path.abspath(__file__))
 _SUPERVISION = os.path.join(_ICI, "..", "supervision")
@@ -95,18 +116,19 @@ def _lister_nt():
         e.dwSize = ctypes.sizeof(PROCESSENTRY32W)
         ok = k32.Process32FirstW(snap, ctypes.byref(e))
         while ok:
-            brut.append((int(e.th32ProcessID), int(e.th32ParentProcessID), e.szExeFile.lower()))
+            brut.append((int(e.th32ProcessID), int(e.th32ParentProcessID), e.szExeFile.lower(),
+                         int(e.cntThreads)))
             ok = k32.Process32NextW(snap, ctypes.byref(e))
     finally:
         k32.CloseHandle(snap)
     # Creation times are read only where a criterion needs them (watched names and
     # their parents): one OpenProcess per process would cost seconds under load.
     utiles = set()
-    for pid, ppid, nom in brut:
-        if nom in NOMS_GIT or nom in NOMS_PYTHON:
+    for pid, ppid, nom, _t in brut:
+        if nom in NOMS_GIT or nom in NOMS_PYTHON or nom in NOMS_NAVIGATEUR:
             utiles.update((pid, ppid))
-    return {pid: Proc(pid, ppid, nom, debut_processus(pid) if pid in utiles else None)
-            for pid, ppid, nom in brut}
+    return {pid: Proc(pid, ppid, nom, debut_processus(pid) if pid in utiles else None, thr)
+            for pid, ppid, nom, thr in brut}
 
 
 def debut_processus(pid):
@@ -196,6 +218,62 @@ def vise_hooks(cmd):
     return any(m in c for m in CIBLES_CMD)
 
 
+def _norm(cmd):
+    return (cmd or "").replace("\\", "/").lower()
+
+
+def est_navigateur_test(cmd):
+    """Headless test browser ROOT: --headless AND (--screenshot OR --remote-debugging-port)
+    AND a --user-data-dir=/--screenshot= path under c:/tmp/ or a scratchpad Temp/claude/."""
+    c = _norm(cmd)
+    if not c or "--type=" in c or "--headless" not in c:
+        return False
+    if not (re.search(r"--screenshot(?:=|\s|$)", c) or "--remote-debugging-port" in c):
+        return False
+    temp = _norm(os.environ.get("TEMP") or os.environ.get("TMP") or "").rstrip("/")
+    for m in _CHEMIN_NAV.finditer(c):
+        chemin = (m.group(1) or m.group(2) or "").strip()
+        if (chemin.startswith("c:/tmp/") or "/temp/claude/" in chemin
+                or (temp and chemin.startswith(temp + "/claude/"))):
+            return True
+    return False
+
+
+def est_python_adhoc(cmd):
+    """``python.exe -`` (stdin) or ``python.exe -c ...``: the argument after the executable."""
+    c = (cmd or "").strip()
+    if c.startswith('"'):
+        fin = c.find('"', 1)
+        reste = c[fin + 1:].strip() if fin > 0 else ""
+    else:
+        morceaux = c.split(None, 1)
+        reste = morceaux[1].strip() if len(morceaux) == 2 else ("-" if c == "-" else "")
+    return bool(_ADHOC.match(reste))
+
+
+def cite_protege(cmd):
+    c = _norm(cmd)
+    return any(m in c for m in MARQUEURS_PROTEGES)
+
+
+def protege(p, procs, lire_cmd, cmd=None):
+    """True when ``p``'s own line or a LIVE ancestor's line cites pytest / the 8020 site."""
+    if cite_protege(lire_cmd(p.pid) if cmd is None else cmd):
+        return True
+    vus, cur = {p.pid}, p
+    for _ in range(64):
+        a = procs.get(cur.ppid)
+        if a is None or a.pid in vus:
+            return False
+        if a.debut is not None and cur.debut is not None and a.debut > cur.debut:
+            return False  # PID reused: not a real ancestor
+        vus.add(a.pid)
+        if (a.nom in NOMS_ANCETRES_LUS or "pytest" in a.nom) and cite_protege(lire_cmd(a.pid)):
+            return True
+        cur = a
+    return False
+
+
 def en_liste_blanche(p, cmd, pids_detaches):
     c = (cmd or "").replace("\\", "/").lower()
     return p.pid in pids_detaches or any(w in c for w in WHITELIST_CMD)
@@ -233,16 +311,32 @@ def candidats(procs=None, *, maintenant=None, seuil_min=SEUIL_MIN, lire_cmd=lign
     moi = os.getpid()
     out = []
     for p in procs.values():
-        if p.pid == moi or (p.nom not in NOMS_GIT and p.nom not in NOMS_PYTHON):
+        if p.pid == moi or (p.nom not in NOMS_GIT and p.nom not in NOMS_PYTHON
+                            and p.nom not in NOMS_NAVIGATEUR):
             continue
         age = age_min(p, maintenant)
-        if age is None or age < seuil_min or not est_orphelin(p, procs):
+        if age is None:
             continue
-        if p.nom in NOMS_PYTHON:
-            cmd = lire_cmd(p.pid)
-            if not vise_hooks(cmd) or en_liste_blanche(p, cmd, detaches):
+        if p.nom in NOMS_NAVIGATEUR:
+            # Root of a headless test browser: the parent may be alive, no orphan rule.
+            if age < SEUIL_NAVIGATEUR_MIN:
                 continue
-            famille = "hook"
+            cmd = lire_cmd(p.pid)
+            if not est_navigateur_test(cmd) or protege(p, procs, lire_cmd, cmd):
+                continue
+            famille = "navigateur-test"
+        elif age < seuil_min or not est_orphelin(p, procs):
+            continue
+        elif p.nom in NOMS_PYTHON:
+            cmd = lire_cmd(p.pid)
+            if en_liste_blanche(p, cmd, detaches):
+                continue
+            if vise_hooks(cmd):
+                famille = "hook"
+            elif est_python_adhoc(cmd) and not protege(p, procs, lire_cmd, cmd):
+                famille = "python-adhoc"
+            else:
+                continue
         else:
             cmd = lire_cmd(p.pid)
             if GIT_DAEMONS_LEGITIMES.search((cmd or "").lower()):
@@ -253,11 +347,19 @@ def candidats(procs=None, *, maintenant=None, seuil_min=SEUIL_MIN, lire_cmd=lign
     return out
 
 
-def revalider(c, procs):
-    """Same pid, same creation time, same name, still orphan on a FRESH snapshot."""
+def revalider(c, procs, lire_cmd=None):
+    """Same pid, same creation time, same name, still orphan on a FRESH snapshot.
+
+    ``navigateur-test`` has no orphan rule; both new families are also re-checked against the
+    pytest / 8020 guards on the fresh snapshot when ``lire_cmd`` is given."""
     p = (procs or {}).get(c["pid"])
-    return (p is not None and p.debut is not None and p.debut == c["debut"]
-            and p.nom == c["nom"] and est_orphelin(p, procs))
+    if not (p is not None and p.debut is not None and p.debut == c["debut"]
+            and p.nom == c["nom"]):
+        return False
+    if c.get("famille") != "navigateur-test" and not est_orphelin(p, procs):
+        return False
+    nouvelle = c.get("famille") in ("navigateur-test", "python-adhoc")
+    return not (nouvelle and lire_cmd is not None and protege(p, procs, lire_cmd))
 
 
 # --------------------------------------------------------------------- stop + journal
@@ -304,17 +406,24 @@ def journaliser(c, resultat, chemin=None, cap=CAP_JOURNAL):
         pass
 
 
-def arreter(liste, *, relister=lister_processus, tuer=tuer_arbre, chemin=None):
+def arreter(liste, *, relister=lister_processus, tuer=tuer_arbre, chemin=None,
+            lire_cmd=ligne_commande):
     """Stop each candidate after revalidation. Returns the stopped candidates."""
     if not liste:
         return []
     frais = relister()
     arretes = []
     for c in liste:
-        if not revalider(c, frais):
-            continue  # gone, PID reused, or parent back: never stop
+        if not revalider(c, frais, lire_cmd):
+            continue  # gone, PID reused, parent back, or protected: never stop
         ok = tuer(c["pid"])
-        journaliser(c, "arrete" if ok else "echec", chemin)
+        if ok:
+            resultat = "arrete"
+        elif frais[c["pid"]].threads == 1:
+            resultat = "bloque-noyau"  # single thread stuck in the kernel; ONE attempt, no retry
+        else:
+            resultat = "echec"
+        journaliser(c, resultat, chemin)
         if ok:
             arretes.append(c)
     return arretes
@@ -324,8 +433,13 @@ def resume(arretes):
     """``"N orphelins arretes : X git.exe, Y hooks"`` or "" when nothing was stopped."""
     if not arretes:
         return ""
-    g = sum(1 for c in arretes if c["famille"] == "git")
-    return f"{len(arretes)} orphelins arretes : {g} git.exe, {len(arretes) - g} hooks"
+    n = {fam: sum(1 for c in arretes if c["famille"] == fam)
+         for fam in ("git", "navigateur-test", "python-adhoc")}
+    h = len(arretes) - sum(n.values())
+    extra = "".join(f", {n[fam]} {lib}" for fam, lib in
+                    (("navigateur-test", "navigateurs-test"), ("python-adhoc", "python ad hoc"))
+                    if n[fam])
+    return f"{len(arretes)} orphelins arretes : {n['git']} git.exe, {h} hooks{extra}"
 
 
 def faucher(seuil_min=SEUIL_MIN):

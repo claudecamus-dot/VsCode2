@@ -3,9 +3,9 @@
     "source": "hub de supervision VScode5, .claude/veille/veille.json",
     "projection": "entrees dont projets_concernes nomme VSCode2",
     "ne_pas_editer": "Fichier GENERE, en lecture seule : une correction faite ici sera ecrasee a la prochaine propagation. La veille s'ecrit AU HUB, ou elle est lue (section 3 du wiki) et arbitree. Une veille lancee depuis ce depot doit y etre remontee.",
-    "date": "2026-10-22"
+    "date": "2026-10-23"
   },
-  "derniere_veille": "2026-10-19T11:10:41+02:00",
+  "derniere_veille": "2026-10-23T17:53:55+02:00",
   "entrees": [
     {
       "titre": "microsoft/hve-core — skill PowerPoint python-pptx pilotée par YAML",
