@@ -139,8 +139,8 @@ def test_t5_message_dedie_pour_une_tranche_indisponible():
     r = c.post(f"/interviews/{iid}/tranches/999999/relancer", follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"].endswith("?tranche=indisponible")
     html = c.get(r.headers["location"]).text
-    assert "Cette tranche n'existe plus ou est déjà en cours de traitement." in html
-    assert "déjà en file" not in html.split("Cette tranche")[0].split("role=\"status\"")[-1]
+    assert "Ce passage n'existe plus ou est déjà en cours de traitement." in html
+    assert "déjà en file" not in html.split("Ce passage")[0].split("role=\"status\"")[-1]
 
 
 def test_t6_purge_garde_le_job_dun_entretien_a_transcrire():
