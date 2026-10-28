@@ -476,7 +476,7 @@ def test_deux_relances_concurrentes_ne_lancent_qu_une_seule_tache(client, monkey
 
     Depuis la factorisation du comparer-et-échanger dans
     `audio_file_jobs.reprendre_job_echoue_ou_perime` (2026-09-16), ce
-    `datetime.now()` vit dans `audio_file_jobs`, plus dans `interviews_audio` —
+    `utc_naif()` est appelé depuis `audio_file_jobs`, plus dans `interviews_audio` —
     c'est CE module qu'il faut patcher pour forcer l'entrelacement.
 
     Rouge sur le code d'avant : DEUX `run_audio_file_job` programmés.
@@ -493,20 +493,18 @@ def test_deux_relances_concurrentes_ne_lancent_qu_une_seule_tache(client, monkey
         interviews_audio, "run_audio_file_job", lambda jid: lancements.append(jid)
     )
 
-    vrai_datetime = audio_file_jobs.datetime
+    vrai_utc_naif = audio_file_jobs.utc_naif
     imbriquee: list[object] = []
     secondes: list[int] = []
 
-    class _DatetimeQuiEntrelace:
-        @staticmethod
-        def now(tz=None):
-            if not imbriquee:
-                imbriquee.append(True)
-                # Requête 2 : complète, session distincte — elle gagne la course.
-                secondes.append(_retry(client, job_id).status_code)
-            return vrai_datetime.now(tz)
+    def _utc_naif_qui_entrelace():
+        if not imbriquee:
+            imbriquee.append(True)
+            # Requête 2 : complète, session distincte — elle gagne la course.
+            secondes.append(_retry(client, job_id).status_code)
+        return vrai_utc_naif()
 
-    monkeypatch.setattr(audio_file_jobs, "datetime", _DatetimeQuiEntrelace)
+    monkeypatch.setattr(audio_file_jobs, "utc_naif", _utc_naif_qui_entrelace)
 
     premiere = _retry(client, job_id)
     assert imbriquee, "l'entrelacement n'a pas eu lieu : le test ne prouve rien"

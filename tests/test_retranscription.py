@@ -464,25 +464,23 @@ def test_deux_relances_de_retranscription_concurrentes_ne_lancent_qu_une_tache(
         interviews, "run_audio_file_job", lambda jid: lancements.append(jid)
     )
 
-    vrai_datetime = audio_file_jobs.datetime
+    vrai_utc_naif = audio_file_jobs.utc_naif
     imbriquee: list[object] = []
     statuts: list[int] = []
 
-    class _DatetimeQuiEntrelace:
-        @staticmethod
-        def now(tz=None):
-            if not imbriquee:
-                imbriquee.append(True)
-                # Requête 2 : complète, session distincte — elle gagne la course.
-                statuts.append(
-                    client.post(
-                        f"/interviews/{ctx['interview_id']}/retranscrire",
-                        follow_redirects=False,
-                    ).status_code
-                )
-            return vrai_datetime.now(tz)
+    def _utc_naif_qui_entrelace():
+        if not imbriquee:
+            imbriquee.append(True)
+            # Requête 2 : complète, session distincte — elle gagne la course.
+            statuts.append(
+                client.post(
+                    f"/interviews/{ctx['interview_id']}/retranscrire",
+                    follow_redirects=False,
+                ).status_code
+            )
+        return vrai_utc_naif()
 
-    monkeypatch.setattr(audio_file_jobs, "datetime", _DatetimeQuiEntrelace)
+    monkeypatch.setattr(audio_file_jobs, "utc_naif", _utc_naif_qui_entrelace)
 
     premiere = client.post(
         f"/interviews/{ctx['interview_id']}/retranscrire", follow_redirects=False
