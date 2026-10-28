@@ -371,11 +371,21 @@ def is_available() -> bool:
     return _faster_whisper() is not None
 
 
+_MODEL_LOAD_LOCK = threading.Lock()  # chargement seul ; `_MODEL_LOCK` sérialise l'inférence
+
+
 def _get_model():
+    """Charge le modèle une seule fois, même si le warm-up (démarrage ou
+    `POST /audio/warm-up`) et une transcription le demandent en même temps :
+    `medium` pèse ~1,5 Go, deux chargements concurrents doublent la mémoire."""
     global _model
     if _model is None:
-        faster_whisper = _faster_whisper()
-        _model = faster_whisper.WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8")
+        with _MODEL_LOAD_LOCK:
+            if _model is None:
+                faster_whisper = _faster_whisper()
+                _model = faster_whisper.WhisperModel(
+                    MODEL_SIZE, device="cpu", compute_type="int8"
+                )
     return _model
 
 

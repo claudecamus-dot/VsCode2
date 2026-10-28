@@ -177,6 +177,10 @@
   ],
   [
     "POST",
+    "/audio/warm-up"
+  ],
+  [
+    "POST",
     "/connexion"
   ],
   [
