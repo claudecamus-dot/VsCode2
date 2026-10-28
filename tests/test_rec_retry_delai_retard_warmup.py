@@ -52,6 +52,9 @@ out.raisons = {
   timeout: P.raisonMarqueur('pas de réponse après 900 s', { timeout: true }),
   statut: P.raisonMarqueur('Erreur interne', { statut: 500 }),
   reseau: P.raisonMarqueur('Failed to fetch', { timeout: false }),
+  occupe: P.raisonMarqueur('Transcription occupée, réessayez', { statut: 503, busy: true }),
+  r413: P.raisonMarqueur('Fichier trop gros : limite 25 Mo dépassée pour ce segment audio', { statut: 413 }),
+  muet: P.raisonMarqueur('Aucune parole détectée dans cet extrait', { statut: 422, code: 'no_speech' }),
   brut: P.raisonMarqueur('a]b[c\nd', null),
   vide: P.raisonMarqueur('', null),
   long: P.raisonMarqueur('x'.repeat(200), null),
@@ -76,6 +79,9 @@ def test_raison_du_marqueur(pur: dict) -> None:
     assert r["timeout"] == "délai dépassé"
     assert r["statut"] == "refus serveur 500"
     assert r["reseau"] == "réseau"
+    assert r["occupe"] == "serveur occupé"
+    assert r["r413"] == "refus serveur 413"
+    assert r["muet"] == "aucune parole détectée"
     assert "[" not in r["brut"] and "]" not in r["brut"] and "\n" not in r["brut"]
     assert r["vide"] == "erreur inconnue"
     assert len(r["long"]) <= 60
@@ -93,8 +99,10 @@ def test_decision_delai_depasse_avec_et_sans_copie_acquittee(pur: dict) -> None:
     assert d["copie"] == {"action": "attente"}
     assert d["copie_relance_attente"] == {"action": "attente"}
     assert d["copie_relance_perdu"]["action"] == "relance", "relance manuelle d'un vrai perdu : pas d'attente"
-    assert d["sans_copie_0"] == {"action": "relance", "delai": 2000, "numero": 2, "total": 3}
-    assert d["sans_copie_1"]["delai"] == 6000
+    # Revue du 2026-10-28 : UNE seule relance, précédée d'un préchauffage.
+    assert d["sans_copie_0"] == {"action": "relance", "delai": 2000, "numero": 1, "total": 1,
+                                 "prechauffer": True}
+    assert d["sans_copie_1"] == {"action": "perdu"}
     assert d["sans_copie_2"] == {"action": "perdu"}
 
 
@@ -125,6 +133,11 @@ _SCENARIO = r"""
   out.transcript = appels.appendTranscript;
   out.pending = pendingSegments;
   out.onSettle = appels.onSettle;
+  out.warm = appels.warm;
+  out.fetchs = fetchs.length;
+  out.marqueurs = marqueurs;
+  out.minuteurs = timers.length;
+  out.delais_fetch = fetchs.map(function (f) { return f.delai; });
   console.log(JSON.stringify(out));
 })();
 """
@@ -140,7 +153,25 @@ def _upload(copie: bool, reponses: list[dict]) -> dict:
         "function keepLostSegment(blob, reason, lostId, blocking, segId, attente, cause) {\n"
         "  appels.keepLostSegment.push({ reason: reason, blocking: blocking, attente: !!attente, cause: cause || null });",
     )
+    script = script.replace(
+        "function keepLostSegment(",
+        "const marqueurs = [];\n"
+        "function keepLostSegmentMarqueur(reason, cause) {"
+        " marqueurs.push(RETRY_PLAN.marqueurPerdu(1, RETRY_PLAN.raisonMarqueur(reason, cause))); }\n"
+        "function keepLostSegment(", 1,
+    ).replace(
+        "appels.keepLostSegment.push({ reason: reason, blocking: blocking, attente: !!attente, cause: cause || null });",
+        "appels.keepLostSegment.push({ reason: reason, blocking: blocking, attente: !!attente, cause: cause || null });"
+        " keepLostSegmentMarqueur(reason, cause);",
+    )
     assert "return %s; }" % ("true" if copie else "false") in script
+    assert "keepLostSegmentMarqueur(reason, cause);" in script
+    # Un délai dépassé CONSOMME la fenêtre (comme dans le navigateur) : l'horloge
+    # avance du délai réellement passé à recFetch avant le rejet.
+    script = script.replace(
+        "    if (r.recTimeout) err.recTimeout = true;",
+        "    if (r.recTimeout) { err.recTimeout = true; clock += delai; }", 1)
+    assert "clock += delai; }" in script
     assert "attente: !!attente" in script, "le stub keepLostSegment du harnais a changé de forme"
     contenu = _sans_commentaires(LIBRE.read_text(encoding="utf-8"))
     return _node(script % {
@@ -164,18 +195,65 @@ def test_delai_depasse_avec_copie_acquittee_passe_en_attente_pas_perdu() -> None
     assert r["pending"] == 0 and r["onSettle"] == 1
 
 
-def test_delai_depasse_sans_copie_suit_le_plan_de_relance() -> None:
+def test_delai_depasse_sans_copie_prechauffe_puis_une_relance() -> None:
     r = _upload(False, [_TO, _OK])
-    assert r["delais"] == [2000], "1re relance au 1er palier RETRY_PLAN"
+    assert r["delais"] == [2000], "une relance, 2 s après le délai dépassé"
+    # Préchauffage FORCÉ, appelé après le 1er fetch et AVANT la relance programmée.
+    assert r["warm"] == [{"force": True, "fetchs": 1, "timers": 0}]
     assert r["transcript"] == ["bonjour"] and r["perdus"] == []
     assert r["pending"] == 0 and r["onSettle"] == 1
 
 
-def test_delai_depasse_sans_copie_budget_epuise_reste_perdu_bloquant() -> None:
+def test_la_relance_apres_delai_depasse_a_une_fenetre_neuve() -> None:
+    # Revue du 2026-10-28 : la fenêtre héritée (900 s) est épuisée ; sans
+    # fenêtre neuve la relance n'aurait que le plancher de 120 s.
+    r = _upload(False, [_TO, _OK])
+    assert r["delais_fetch"] == [900000, 900000], r["delais_fetch"]
+
+
+def test_delai_depasse_deux_fois_sans_copie_perdu_bloquant_sans_3e_fetch() -> None:
+    # Revue du 2026-10-28 : UNE seule relance ; un 2e délai dépassé -> perdu.
     r = _upload(False, [_TO, _TO, _TO])
-    assert r["delais"] == [2000, 6000]
+    assert r["delais"] == [2000]
+    assert r["fetchs"] == 2, "aucun 3e envoi des mêmes octets"
+    assert len(r["warm"]) == 1, "un seul préchauffage par segment"
     assert len(r["perdus"]) == 1 and r["perdus"][0]["blocking"] is True
     assert r["perdus"][0]["attente"] is False
+    assert "(délai dépassé)" in r["marqueurs"][0]
+    assert r["pending"] == 0 and r["onSettle"] == 1
+
+
+def test_delai_depasse_avec_copie_aucun_prechauffage_superflu() -> None:
+    r = _upload(True, [_TO])
+    assert r["warm"] == [] and r["fetchs"] == 1 and r["minuteurs"] == 0
+
+
+_BUSY = {"ok": False, "status": 503, "data": {"code": "busy", "retry_after_s": 1000,
+                                               "error": "Transcription occupée"}}
+
+
+def test_occupe_puis_abandon_marqueur_serveur_occupe() -> None:
+    # Fenêtre de patience épuisée (horloge avancée par les minuteurs) -> giveUpBusy.
+    r = _upload(False, [_BUSY] * 40)
+    assert len(r["perdus"]) == 1 and r["perdus"][0]["blocking"] is True
+    assert "(serveur occupé)" in r["marqueurs"][0], r["marqueurs"]
+    assert "503" not in r["marqueurs"][0]
+    assert r["pending"] == 0 and r["onSettle"] == 1
+
+
+@pytest.mark.parametrize("statut,data,attendu", [
+    (413, {"detail": "Fichier trop gros : limite 25 Mo — détail serveur ]\nX"}, "(refus serveur 413)"),
+    (422, {"error": "Échec de la transcription : worker tué ]"}, "(refus serveur 422)"),
+    (422, {"code": "no_speech", "error": "Aucune parole détectée par Whisper"}, "(aucune parole détectée)"),
+])
+def test_refus_definitif_libelle_fixe_jamais_le_texte_serveur(statut, data, attendu) -> None:
+    r = _upload(False, [{"ok": False, "status": statut, "data": data}])
+    assert len(r["perdus"]) == 1
+    m = r["marqueurs"][0]
+    assert attendu in m, m
+    texte = data.get("detail") or data.get("error")
+    assert texte[:12] not in m, "le message serveur ne doit pas entrer dans le marqueur"
+    assert strip_segment_markers("a\n\n" + m + "\n\nb") == "a\n\nb"
     assert r["pending"] == 0 and r["onSettle"] == 1
 
 
@@ -265,14 +343,22 @@ def test_demarrer_prechauffe_une_seule_fois_et_echoue_en_silence() -> None:
     r = _ecran(r"""
 (async () => {
   const out = { erreur: erreur };
+  // Sentinelle : `acquire` suit IMMÉDIATEMENT l'appel du préchauffage dans le
+  // gestionnaire — 2 passages prouvent que le 2e clic atteint cet appel.
+  let acquis = 0;
+  const espion = function () { acquis++; return new Promise(function () {}); };
+  g.i2dAudioSource = new Proxy({}, { get: function (t, p) { return p === 'acquire' ? espion : doublure[p]; } });
   const btn = el('rec-start');
   try { btn._on.click(); } catch (e) { out.clic1 = e.name + ': ' + e.message; }
   jouer('recordingActive = false;');
   try { btn._on.click(); } catch (e) { out.clic2 = e.name + ': ' + e.message; }
   for (let i = 0; i < 20; i++) await Promise.resolve();
   out.warm = postes.filter(function (p) { return p.url === '/audio/warm-up'; });
+  out.acquis = acquis;
   console.log(JSON.stringify(out));
 })();
 """)
     assert r["erreur"] is None, r["erreur"]
+    assert "clic1" not in r and "clic2" not in r, r
+    assert r["acquis"] == 2, "le 2e clic doit atteindre l'appel du préchauffage"
     assert r["warm"] == [{"url": "/audio/warm-up", "method": "POST"}], r

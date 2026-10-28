@@ -305,7 +305,8 @@ def test_un_segment_refuse_en_422_garde_son_audio_et_son_bouton_de_relance(
 
     # 1. la branche 422 conserve l'audio (et ne fabrique plus un marqueur figé) ;
     # record-libre: 5e argument `segId` (dédup serveur, 2026-10-19) ; même contrat `!muet`.
-    attendu = ("keepLostSegment(blob, detail, lostId, !muet, segId)" if path_suffix == "record-libre"
+    # record-libre (2026-10-28) : + `attente`=false et `cause` (libellé FIXE, jamais `detail`).
+    attendu = ("keepLostSegment(blob, detail, lostId, !muet, segId, false, ctx.cause)" if path_suffix == "record-libre"
                else "keepLostSegment(blob, detail, lostId, !muet)")
     assert attendu in html
     assert "appendTranscript('⚠ [segment perdu : '" not in html
