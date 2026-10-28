@@ -176,11 +176,15 @@
   // pourquoi). `cause` = { timeout: bool, statut: nombre HTTP } quand connue.
   // Nettoyée pour rester lisible par `ai_common._SEGMENT_MARKER_RE`
   // (`⚠ ?\[segment[^\]\n]*\]`) : ni crochet ni saut de ligne, longueur bornée.
+  // Libellés FIXES choisis côté client : jamais le texte d'un refus serveur
+  // (`detail`) dans la transcription — revue du 2026-10-28.
   function raisonMarqueur(reason, cause) {
     cause = cause || {};
     if (cause.timeout) return 'délai dépassé';
+    if (cause.busy) return 'serveur occupé';
+    if (cause.code === 'no_speech') return 'aucune parole détectée';
     var statut = Number(cause.statut);
-    if (isFinite(statut) && statut > 0) return 'refus serveur ' + statut;
+    if (isFinite(statut) && statut > 0) return 'refus serveur ' + Math.floor(statut);
     var brut = String(reason == null ? '' : reason);
     if (/failed to fetch|networkerror|network|load failed|réseau|reseau/i.test(brut)) return 'réseau';
     brut = brut.replace(/[\[\]\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -198,15 +202,18 @@
   // Délai maximal atteint (`err.recTimeout`) sur un segment du direct :
   //   • audio complet déjà acquitté par le serveur (et pas une relance
   //     manuelle d'un vrai perdu) -> 'attente' (même issue que `giveUpBusy`) ;
-  //   • sinon -> plan de relance commun ('retry') tant qu'il reste du budget,
-  //     puis 'perdu' (bloquant : le blob est la seule copie).
-  // Retour : { action: 'attente' } | { action: 'relance', delai, numero, total }
-  //        | { action: 'perdu' }.
-  function decisionDelaiDepasse(copieAcquittee, attempt, relanceManuelle, attente) {
+  //   • sinon UNE SEULE relance, précédée d'un préchauffage du modèle
+  //     (revue du 2026-10-28 : un segment qui a dépassé 900 s une fois les
+  //     dépassera encore — rejouer deux fois coûtait ~45 min et alourdissait
+  //     la file Whisper) ; `relancesApresDelai` = relances de ce type déjà
+  //     faites pour CE blob. Au-delà -> 'perdu' (bloquant : seule copie).
+  // Retour : { action: 'attente' } | { action: 'relance', delai, numero, total,
+  //          prechauffer: true } | { action: 'perdu' }.
+  var DELAI_RELANCE_APRES_DELAI_MS = 2000;
+  function decisionDelaiDepasse(copieAcquittee, relancesApresDelai, relanceManuelle, attente) {
     if (copieAcquittee && (!relanceManuelle || attente)) return { action: 'attente' };
-    var p = prochaineTentative('retry', attempt || 0);
-    if (p === null) return { action: 'perdu' };
-    return { action: 'relance', delai: p.delai, numero: p.numero, total: p.total };
+    if ((Number(relancesApresDelai) || 0) >= 1) return { action: 'perdu' };
+    return { action: 'relance', delai: DELAI_RELANCE_APRES_DELAI_MS, numero: 1, total: 1, prechauffer: true };
   }
 
   // Alerte de RETARD de la transcription en direct : '' sous le seuil.

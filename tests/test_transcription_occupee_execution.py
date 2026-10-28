@@ -73,7 +73,7 @@ def _var_generation(ecran: Path) -> str:
 _SCRIPT = r"""
 const timers = [];              // {fn, delai} passés à setTimeout, JAMAIS auto-exécutés
 const fetchs = [];              // {delai} = 3e argument réellement passé à recFetch
-const appels = { keepLostSegment: [], appendTranscript: [], onSettle: 0 };
+const appels = { keepLostSegment: [], appendTranscript: [], onSettle: 0, warm: [] };
 let clock = 0;
 const reponses = %(reponses)s;  // queue consommée dans l'ordre par recFetch
 function FormData() { this.champs = {}; }
@@ -106,6 +106,8 @@ function keepLostSegment(blob, reason, lostId, blocking) {
 }
 function appendTranscript(t) { appels.appendTranscript.push(t); }
 function replaceLostMarker() {}
+// record_libre.html : préchauffage forcé avant l'unique relance après délai dépassé.
+function prechaufferTranscription(force) { appels.warm.push({ force: !!force, fetchs: fetchs.length, timers: timers.length }); }
 function resetNoSpeech() {}
 function noteNoSpeech() {}
 function recFetch(url, opts, delai) {

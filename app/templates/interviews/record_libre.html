@@ -1551,7 +1551,7 @@
       // sur le serveur. Décision PURE dans rec_retry.js : 'attente' (copie
       // acquittée, comme `giveUpBusy`), sinon le budget 'retry' commun.
       if (timedOut) {
-        var decision = RETRY_PLAN.decisionDelaiDepasse(copieServeurAcquittee(), attempt, !!lostId, !!ctx.attente);
+        var decision = RETRY_PLAN.decisionDelaiDepasse(copieServeurAcquittee(), ctx.relancesApresDelai || 0, !!lostId, !!ctx.attente);
         if (decision.action === 'attente') {
           keepLostSegment(blob, reason, lostId, false, segId, true, ctx.cause);
           settle();
@@ -1562,7 +1562,26 @@
           settle();
           return;
         }
-        // 'relance' : même chemin qu'un échec réseau (budget RETRY_PLAN 'retry').
+        // 'relance' : UNE seule (revue du 2026-10-28), précédée d'un
+        // préchauffage forcé — compté sur `ctx` (partagé par les tentatives du
+        // blob) AVANT le minuteur, pour qu'un 2e délai dépassé tranche 'perdu'.
+        ctx.relancesApresDelai = (ctx.relancesApresDelai || 0) + 1;
+        if (decision.prechauffer) {
+          try { prechaufferTranscription(true); } catch (eW) { console.error('préchauffage', eW); }
+        }
+        statusEl.textContent = 'Segment non transmis (' + reason + ') — nouvelle tentative ('
+          + decision.numero + '/' + decision.total + ')…';
+        setTimeout(function () {
+          if (gen !== backupGeneration) { settle(); return; }
+          if (attempt === 0 && !lostId) {
+            segmentsRejoues++;
+            refreshReplayStatus();
+          }
+          // Fenêtre NEUVE (revue du 2026-10-28) : l'héritée est épuisée, la
+          // relance n'aurait que le plancher de 120 s. Truthy : pas de recompte.
+          uploadSegment(blob, attempt + 1, lostId, gen, onSettle, Date.now() + TRANSCRIBE_TIMEOUT_MS, ctx);
+        }, decision.delai);
+        return;  // pendingSegments reste tenu par la tentative initiale
       }
       if (ctx.low && recordingActive) { cederLaPlace(reason); return; }
       var nat = nature || 'retry';
@@ -1689,6 +1708,7 @@
         // Classification dans rec_retry.js (une seule source, testée sous node).
         var nature = RETRY_PLAN.classer(result.status, result.data);
         if (nature === 'busy') {
+          ctx.cause = { statut: result.status, busy: true };  // marqueur « serveur occupé »
           retryBusyOrGiveUp(detail, result.data.retry_after_s);
           return;
         }
@@ -1722,7 +1742,10 @@
         var muet = nature === 'no_speech';
         if (muet && !lostId) noteNoSpeech();
         console.error('segment de transcription non abouti', result.data);
-        keepLostSegment(blob, detail, lostId, !muet, segId);  // raison = message du serveur
+        // Raison du marqueur = libellé FIXE d'après le statut (rec_retry.js),
+        // jamais le `detail` du serveur dans la transcription.
+        ctx.cause = { statut: result.status, code: muet ? 'no_speech' : undefined };
+        keepLostSegment(blob, detail, lostId, !muet, segId, false, ctx.cause);
         settle();
       }, function (err) {
         // .then(ok, ko) et non .catch: une exception DANS le traitement du résultat
@@ -2613,9 +2636,12 @@
   // Préchauffage de Whisper au clic sur Démarrer (incident du 2026-10-27 : ~5 min
   // à froid sur le 1er segment). Fire-and-forget, UNE fois par chargement de
   // page, échec silencieux ; même `recFetch` (contrôle d'origine) que les autres POST.
+  // `force` : rappel après un délai dépassé (une fois par SEGMENT, borné par
+  // `ctx.relancesApresDelai` dans uploadSegment), non bloqué par le « une fois
+  // par page » du clic Démarrer.
   var warmUpDemande = false;
-  function prechaufferTranscription() {
-    if (warmUpDemande) return;
+  function prechaufferTranscription(force) {
+    if (warmUpDemande && !force) return;
     warmUpDemande = true;
     try {
       recFetch('/audio/warm-up', { method: 'POST' }, NET_TIMEOUT_MS)
