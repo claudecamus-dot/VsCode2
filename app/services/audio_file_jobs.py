@@ -20,7 +20,7 @@ import inspect
 import logging
 import os
 import time
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, timedelta
 
 from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
@@ -29,6 +29,7 @@ from ..db import RECORDINGS_DIR, SessionLocal
 from ..models import AudioFileJob, Interview, InterviewSegmentJob
 from . import audio_transcribe
 from .ai_common import au_fond
+from .horloge import utc_naif
 from .interview_segment_jobs import delete_segment_jobs, run_segment_job
 
 logger = logging.getLogger(__name__)
@@ -107,7 +108,7 @@ def _battement(db, job: AudioFileJob) -> None:
     relance qui doublonne la tâche de fond en cours (revue adversariale
     2026-07-30). L'extraction IA en a autant besoin que la transcription : elle
     peut représenter la MAJEURE partie du temps total (~5 min par tranche)."""
-    job.created_at = datetime.now(UTC).replace(tzinfo=None)
+    job.created_at = utc_naif()
     try:
         db.commit()
     except Exception:
@@ -219,7 +220,7 @@ def reprendre_job_echoue_ou_perime(db: Session, job: AudioFileJob) -> bool:
         )
         .values(
             status="pending", error=None,
-            created_at=datetime.now(UTC).replace(tzinfo=None),
+            created_at=utc_naif(),
         )
     ).rowcount
     db.commit()
@@ -354,7 +355,7 @@ def run_audio_file_job(job_id: int) -> None:
                                 # déclare « ne répond plus » alors qu'il progresse, et
                                 # la relance proposée par l'écran doublonne la tâche de
                                 # fond en cours (deux sessions écrivant `job.blocks`).
-                                job.created_at = datetime.now(UTC).replace(tzinfo=None)
+                                job.created_at = utc_naif()
                                 # Un bloc rejoué est un échec masqué : le persister dès
                                 # qu'il apparaît, pour qu'une coupure ne l'efface pas.
                                 nouveaux = {
@@ -631,7 +632,7 @@ def is_audio_file_job_stale(job: AudioFileJob) -> bool:
     created = job.created_at
     if created.tzinfo is not None:
         created = created.astimezone(UTC).replace(tzinfo=None)
-    now = datetime.now(UTC).replace(tzinfo=None)
+    now = utc_naif()
     return (now - created) > timedelta(seconds=audio_file_job_stale_after_s())
 
 
@@ -641,10 +642,10 @@ def purge_stale_audio_file_jobs(db: Session, max_age_days: int = 7) -> None:
     fichier peut être resté sur disque si le job n'a jamais abouti. Appelé à
     chaque import — auto-entretien, pas de tâche planifiée, comme
     `purge_stale_segment_jobs`."""
-    cutoff = datetime.now(UTC).replace(tzinfo=None) - timedelta(
+    cutoff = utc_naif() - timedelta(
         days=max_age_days
     )
-    cutoff_retrans = datetime.now(UTC).replace(tzinfo=None) - timedelta(
+    cutoff_retrans = utc_naif() - timedelta(
         days=4 * max_age_days
     )
     # Liste matérialisée : `delete_segment_jobs` commite, et commiter pendant
