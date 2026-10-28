@@ -596,3 +596,24 @@ de palette du deck publie deux rampes de teintes, reportées dans `template-octo
 - **Type** : slide-appel à l'action typographique + panneau de légende.
 - **Composition** (p.140, idem p.156) : titre 4.89×3.81in à gauche, 43pt `dk1` sur 4 lignes, rien d'autre. À droite, `ROUND_2_DIAG_RECTANGLE` 3.01×4.34in (contour navy fin au rendu) contenant la légende d'une échelle à 4 niveaux (pastilles vert/jaune/orange/rouge + libellés).
 - **Efficace parce que** : la question en corps d'affiche occupe la moitié de la slide ; l'échelle tricolore isolée se lit instantanément.
+
+## 43. Carte en relief à ombre douce
+
+- **Situation/intention** : faire ressortir UNE famille de cartes sur un fond clair sans bordure lourde.
+- **Type** : carte unique, effet de relief.
+- **Composition** (helper `pptx_deck.add_rect(shadow=True)`) : `ROUNDED_RECTANGLE` adj 0.05, fond `lt1`, sans contour ; `a:outerShdw` noire alpha 18 %, flou 6pt, décalage 2pt vers le bas (dir 90°). Défaut `shadow=False` : aucune ombre (règle dure OCTO). Source : deck de méthode (motif massif) et deck commercial ; géométrie seule.
+- **Efficace parce que** : le relief remplace le filet et laisse respirer ; limité à une famille de cartes par slide, il hiérarchise sans bruit.
+
+## 44. Paire étiquette accent / valeur encadrée
+
+- **Situation/intention** : afficher des couples clé-valeur denses (fiche, tableau de repères) en cellules KPI à 2 pièces.
+- **Type** : cellule en 2 pièces jointives.
+- **Composition** (helper `pptx_deck.add_label_value`) : à gauche `RECTANGLE` plein `accent` (texte blanc gras), à droite `RECTANGLE` fond blanc contour 1pt (texte foncé) ; hauteur 0.25-0.35in, bord commun exact (x + largeur d'étiquette), étiquette ≈ 0.4 de la cellule. Source : playbook de méthode.
+- **Efficace parce que** : la couleur désigne la CLÉ, le cadre contient la VALEUR : lecture en colonne sans tableau.
+
+## 45. Pastille numérotée à contour blanc sur le coin d'une carte
+
+- **Situation/intention** : numéroter des cartes (étapes, principes) sans prendre de place dans la carte.
+- **Type** : badge superposé (variante du chip chevauchant n°10 de la restitution).
+- **Composition** (helper `pptx_deck.add_badge_corner`) : `OVAL` d 0.30-0.36in fond `accent` ou `dk`, contour `lt1` 2.5pt, chiffre blanc gras ; CENTRE exactement sur le coin haut-gauche de la carte ; posée après la carte (z-order au-dessus). Source : decks kick-off et commercial.
+- **Efficace parce que** : le contour blanc découpe la pastille de la carte : elle semble posée dessus, l'ordre se lit d'un coup d'œil.

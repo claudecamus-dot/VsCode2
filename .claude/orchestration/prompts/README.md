@@ -53,7 +53,20 @@ Rules:
   post-conditions appended to the always-present default set (no `# MUTANT:` marker on committed
   code, `git diff --cached --name-only` within the partition, JSON reloaded with original encoding).
   `reaudit.md` carries the closed statut vocabulary check. Locked by `tests/test_prompt_templates.py`.
+- `{{adversarial_cases}}`, `{{decisions_before_code}}`, rendered-output post-condition (executor-lot,
+  e2e plan 2026-10-24, controls 1/6/7): hostile inputs agreed before code (`none: <reason>` to leave
+  empty), spec options settled before the writer starts (`none` allowed), render looked at before
+  the first commit. Indicator: median fix/feat (`scripts/indicateur_iterations.py --depuis 7be6942c`).
+  Locked by `tests/test_prompt_templates.py`.
+- `{{story}}` (executor-lot, story 7.6, FR30, 2026-10-25): the story id of the lot as in `epics.md` (`7.5`, not `07.5`
+  nor `AC7.5.1`), filled by the orchestrator. Empty = the writer starts nothing and writes to `main`
+  (`Information insuffisante`); the commit ends with `Refs: <story id>` before the attribution line.
+  No mechanical check of `Refs:` against `epics.md` yet. Locked by `tests/test_prompt_templates.py`.
 - Improve a template HERE (a commit = a revision) when a run shows a brief gap, instead of
   patching the scratchpad copy. No evaluation set exists yet for these prompts: their
   quality is not measured, only their clauses.
 - Kit source: after editing, `py .claude/dispositif/export_agentic.py` then `--check`.
+- Fixed lines (no new slot) in executor-lot, e2e plan controls 2-5, 2026-10-25: red run kept + `replay.sh`
+  (missing = `partiel`), Windows/Unicode grep checklist (rule 5), git hygiene post-conditions
+  (`git status --porcelain`, `git stash list`, forbidden commands), one bypass attempt per guard
+  (rule 4). Locked by `tests/test_prompt_templates.py`; indicator unchanged (see the synthesis doc).

@@ -187,6 +187,13 @@ def _main(argv, delta):
         print("DEFAUT " + str(p), file=sys.stderr)
     if a.sortie:
         prs.save(a.sortie)
+        try:  # detecteur de formes complexes (dry-run, 1 ligne, ne modifie pas le deck)
+            sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                            "..", "..", "deck-design-library", "scripts"))
+            import detecter_formes
+            print(detecter_formes.resume_ligne(a.sortie), file=sys.stderr)
+        except Exception:
+            pass
         echecs = controles_sortie(a.sortie, a.charte, a.tokens, derog, a.demande)
         for e in echecs:
             print("GARDE " + e, file=sys.stderr)

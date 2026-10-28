@@ -359,3 +359,12 @@ mécanisme maison — c'est une extension du pattern déjà en place ici (revue 
 frais, sous-agent standard isolé, jamais un fork, entrée veille du 2026-08-31), pas un
 besoin nouveau. Reprise possible plutôt que réinvention, à condition que le besoin se
 confirme réellement sur le chantier en cours.
+
+## Compléments déplacés de SKILL.md (story 15.17)
+
+- Implémentation de référence côté produit de la clause `PROVENANCE` : la clôture à jeton
+  aléatoire de `VSCode2/app/services/openhub_agents.py:158-178` (`criteres-pratiques.md` § 7).
+- Toute règle ajoutée à un brief porte son indicateur fixé AVANT, mesuré sur 20 runs
+  avant/après ; sans effet, elle est retirée ou convertie en garde exécutable.
+- Étape de recherche : ni `general-purpose`, ni inline, sauf porteur `bmad-recherche`
+  indisponible.

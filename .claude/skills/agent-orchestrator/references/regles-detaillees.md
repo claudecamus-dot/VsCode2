@@ -251,3 +251,19 @@ l'oscillation ; l'oracle, c'est l'utilisateur sur SON artefact.
 | `export-ppt-iteration` | Retours utilisateur (commentaires, formes, textes) sur UN SOUS-ENSEMBLE de slides d'un deck PPT EXISTANT : rendu `-Slides` des seules slides touchées ; deck neuf → `export-ppt-verifie` | Créé 2026-10-21, jamais joué |
 | `revue-design-parallele` | Revue multi-angles d'un livrable en fan-out puis consolidation | Importé, à confirmer |
 | `cadrage-produit` | Intention produit NEUVE (pas un bug) : durcir l'idée → brief → PRD → architecture → UX, puis relais explicite vers `dev-verifie` à son étape `cadrage-epics` (`bmad-create-epics-and-stories`, critères d'acceptance) — jamais de code avant les stories | Créé 2026-09-21, routé ici le 2026-09-24 (un playbook absent de cette table n'existe pas pour l'orchestrateur) |
+
+## Porte en observation
+
+Une fois le plan composé, écrire la demande
+(`run_id`, `etapes`, `independantes`, `cout_historique`, `qualite_historique`) dans un JSON
+dans le scratchpad et lancer `py .claude/orchestration/neural_gate.py --shadow <demande.json>` :
+il ajoute UNE ligne horodatée à `gravite/trace_porte.jsonl`. Le `run_id` de `demande.json`
+est repris **tel quel** dans `log_run.py` (format `_RE_RUN_ID` :
+`[A-Za-z0-9][A-Za-z0-9_.-]{5,63}`), sinon la mesure ne peut pas apparier. Si la porte
+échoue, continuer sans la relancer. Sa décision est **tracée, jamais suivie** — le plan
+exécuté ne change pas (`requires_user_approval` vaut toujours vrai).
+
+`demande.json` s'écrit dans le scratchpad ; `requires_user_approval` vaut toujours vrai ; la trace
+n'accepte qu'un `trace_porte*.jsonl` sous `gravite/` ou un dossier tmp.
+
+- Mesure du 2026-09-12 (§ 1 bis de SKILL.md) : 10 demandes « reprendre », 20 « traiter les findings » alors que le hook annonçait tout.

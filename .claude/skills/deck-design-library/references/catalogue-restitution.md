@@ -328,3 +328,10 @@ détail nécessaire pour reproduire un pattern en python-pptx.
 - **Densité par le layout, pas par les marges** : même les slides à 50-90 formes
   gardent les marges externes des slides épurées ; la densité est absorbée en
   interne (police plus petite, formes plus fines, moins de blanc intra-carte).
+
+## 23. Colonnes hautes à dégradé de marque et bloc de texte clair
+
+- **Situation/intention** : présenter 3 piliers/offres en grandes colonnes à forte présence.
+- **Type** : trois colonnes-cartes.
+- **Composition** (helper `pptx_deck.add_gradient_column(radius=...)`) : 3 `ROUNDED_RECTANGLE` w ≈ 0.28 de la slide, h ≈ 0.53, rayon faible (adj 0.05, paramètre `radius`), dégradé linéaire 90° 2 stops de `dk2` vers `accent1` écrits en `a:schemeClr` (suit le thème, aucun hex) ; un bloc `lt1` superposé en bas porte le texte. Source : deck de roadmap.
+- **Efficace parce que** : le dégradé donne du volume sans ombre ; le bloc clair garantit le contraste du texte.

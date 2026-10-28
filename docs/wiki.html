@@ -834,12 +834,12 @@ pytest -k "pptx or export"                                                     #
     <section class="doc" id="agents-supervision">
       <p class="eyebrow">Projet</p>
       <h2>Supervision des agents — tableau de bord d'usage</h2>
-      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-10-23T08:53:55+02:00</span></p>
+      <p class="file-meta"><span>docs/wiki/technical/agents-supervision.md</span><span>généré : 2026-10-27T22:13:30+01:00</span></p>
 
       <div class="fact">
-        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>484 sessions</strong> couvertes · <strong>360</strong> invocations de skills · <strong>683</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
+        <p><strong>Bloc généré automatiquement</strong> à chaque session (hook SessionStart → <code>.claude/supervision/scan_transcripts.py</code>, scan incrémental des transcripts, 0 token LLM) — ne pas éditer à la main. <strong>499 sessions</strong> couvertes · <strong>365</strong> invocations de skills · <strong>696</strong> lancements de sous-agents. Diagnostic qualitatif : skill <code>agent-supervisor</code> (étage 2, section diagnostic ci-dessous).</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-10-23 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
+        <div class="tag-source">scan_transcripts.py · 2026-10-27 · ~/.claude/projects/&lt;slug&gt;/*.jsonl</div>
       </div>
 
       <h3>Skills — usage réel</h3>
@@ -847,8 +847,8 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Skill</th><th>Famille</th><th>Invocations</th><th>Première</th><th>Dernière</th></tr></thead>
           <tbody>
-            <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>96</td><td>2026-07-20</td><td>2026-10-22</td></tr>
-            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>61</td><td>2026-07-17</td><td>2026-10-22</td></tr>
+            <tr><td><code>bmad-code-review</code></td><td>BMAD</td><td>99</td><td>2026-07-20</td><td>2026-10-23</td></tr>
+            <tr><td><code>agent-orchestrator</code></td><td>projet</td><td>63</td><td>2026-07-17</td><td>2026-10-27</td></tr>
             <tr><td><code>run-dev-server</code></td><td>projet</td><td>41</td><td>2026-07-17</td><td>2026-10-08</td></tr>
             <tr><td><code>bmad-party-mode</code></td><td>BMAD</td><td>29</td><td>2026-09-15</td><td>2026-10-22</td></tr>
             <tr><td><code>bmad-review-edge-case-hunter</code></td><td>BMAD</td><td>26</td><td>2026-07-20</td><td>2026-09-07</td></tr>
@@ -880,11 +880,11 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Sous-agent</th><th>Lancements</th><th>Premier</th><th>Dernier</th></tr></thead>
           <tbody>
-            <tr><td><code>general-purpose</code></td><td>454</td><td>2026-07-20</td><td>2026-10-22</td></tr>
-            <tr><td><code>bmad-revue</code></td><td>93</td><td>2026-08-31</td><td>2026-10-21</td></tr>
+            <tr><td><code>general-purpose</code></td><td>462</td><td>2026-07-20</td><td>2026-10-23</td></tr>
+            <tr><td><code>bmad-revue</code></td><td>96</td><td>2026-08-31</td><td>2026-10-23</td></tr>
             <tr><td><code>Explore</code></td><td>79</td><td>2026-07-18</td><td>2026-10-21</td></tr>
             <tr><td><code>(defaut)</code></td><td>46</td><td>2026-07-21</td><td>2026-10-19</td></tr>
-            <tr><td><code>agent-supervisor</code></td><td>4</td><td>2026-09-01</td><td>2026-09-29</td></tr>
+            <tr><td><code>agent-supervisor</code></td><td>6</td><td>2026-09-01</td><td>2026-10-23</td></tr>
             <tr><td><code>veille-agentic</code></td><td>3</td><td>2026-09-08</td><td>2026-09-28</td></tr>
             <tr><td><code>Plan</code></td><td>1</td><td>2026-09-25</td><td>2026-09-25</td></tr>
             <tr><td><code>a11y-auditor</code></td><td>1</td><td>2026-09-16</td><td>2026-09-16</td></tr>
@@ -902,21 +902,21 @@ pytest -k "pptx or export"                                                     #
       <p><strong>bibliothèque / référence</strong> — usage via scripts/sous-agent, non capté par le compteur (n=0 ≠ mort, constat #2) : <code>pdf-quality</code>, <code>pptx-deck</code>, <code>pptx-framed-image</code>, <code>roadmap-keeper</code></p>
 
       <h3>TODO agents — chantiers à lancer (constats automatiques)</h3>
-      <p class="avertissement"><em>⚠️ <strong>Mesure incomplète</strong> — 6 transcript(s) sur 484 absent(s) du disque. Un <code>n=0</code> ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.</em></p>
+      <p class="avertissement"><em>⚠️ <strong>Mesure incomplète</strong> — 8 transcript(s) sur 499 absent(s) du disque. Un <code>n=0</code> ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.</em></p>
       <div class="critical">
         <p><strong>Désinstaller les shims BMAD dépréciés</strong> (21) : <code>bmad-checkpoint-preview</code>, <code>bmad-create-architecture</code>, <code>bmad-create-prd</code>, <code>bmad-create-story</code>, <code>bmad-dev-auto</code>, <code>bmad-dev-story</code>, <code>bmad-document-project</code>, <code>bmad-domain-research</code>, <code>bmad-edit-prd</code>, <code>bmad-editorial-review</code>, <code>bmad-editorial-review-prose</code>, <code>bmad-editorial-review-structure</code>, <code>bmad-generate-project-context</code>, <code>bmad-market-research</code>, <code>bmad-quick-dev</code>, <code>bmad-review-adversarial-general</code>, <code>bmad-review-edge-case-hunter</code>, <code>bmad-review-verification-gap</code>, <code>bmad-sprint-status</code>, <code>bmad-technical-research</code>, <code>bmad-validate-prd</code> — dépréciés par BMAD dans leur propre <code>description</code>, chacun avec son remplaçant ; le seul élagage qui ne repose pas sur notre mesure d'usage.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-10-23 · transcripts de session</div>
+        <div class="tag-source">scan_transcripts.py · 2026-10-27 · transcripts de session</div>
       </div>
       <div class="critical">
         <p><strong>Skills projet sans usage</strong> : <code>agent-securite</code> — vérifier pertinence et déclencheurs.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-10-23 · transcripts de session</div>
+        <div class="tag-source">scan_transcripts.py · 2026-10-27 · transcripts de session</div>
       </div>
       <div class="critical">
-        <p><strong>Skills en sommeil (&gt;30 j sans usage)</strong> : <code>a11y-auditor</code>, <code>bmad-advanced-elicitation</code>, <code>bmad-brainstorming</code>, <code>bmad-review-adversarial-general</code>, <code>bmad-review-edge-case-hunter</code>, <code>bmad-walkthrough</code>, <code>deck-design-review</code>, <code>design-reviewer</code>, <code>priority-matrix</code>, <code>restitution-deck-design</code>, <code>revue-ui-web</code>, <code>slide-text-polish</code>, <code>swot-matrix</code>.</p>
+        <p><strong>Skills en sommeil (&gt;30 j sans usage)</strong> : <code>a11y-auditor</code>, <code>bmad-advanced-elicitation</code>, <code>bmad-brainstorming</code>, <code>bmad-review-adversarial-general</code>, <code>bmad-review-edge-case-hunter</code>, <code>bmad-walkthrough</code>, <code>deck-design-review</code>, <code>design-reviewer</code>, <code>priority-matrix</code>, <code>restitution-deck-design</code>, <code>revue-ui-web</code>, <code>slide-text-polish</code>, <code>swot-matrix</code>, <code>utilisateur-produit</code>.</p>
         <span class="tag tag-confirme">CONFIRMÉ</span>
-        <div class="tag-source">scan_transcripts.py · 2026-10-23 · transcripts de session</div>
+        <div class="tag-source">scan_transcripts.py · 2026-10-27 · transcripts de session</div>
       </div>
 
       <h3>Arbitrages enregistrés</h3>
@@ -1035,6 +1035,24 @@ pytest -k "pptx or export"                                                     #
         <table>
           <thead><tr><th>Item</th><th>État</th><th>Contexte / prochaine action</th></tr></thead>
           <tbody id="todo-session-rows">
+            <tr>
+              <td>Session Teams du 2026-10-27 : tous les segments « failed », entretien non enregistrable (mission 29)</td>
+              <td>OUVERT — cause du 503 NON établie ; aucun correctif appliqué</td>
+              <td>
+                <strong>Établi (2026-10-27)</strong> : l'audio est intact (<code>data/recordings/29_1793119001_bb427e68.webm</code>,
+                19 Mo, 20 min) ; Whisper transcrit correctement ses 400 premiers Ko (128 s) ; les 3
+                <code>POST /audio/transcribe-segment</code> de la session ont rendu 503 (journal
+                <code>%TEMP%\uvicorn_dev_8020.log.prev</code>) ; le job <code>libre_turns</code> n°7 d'<code>interview_segment_jobs</code>
+                a échoué sur « uniquement des marqueurs de segments en échec ».
+                <br><strong>Non établi</strong> : « verrou du modèle occupé &gt; 150 s » (<code>TranscriptionBusyError</code>) ou
+                « travail abandonné » (<code>TranscriptionAbandonnee</code>) — les deux rendent 503 sans ligne de log ; un
+                redémarrage du serveur à 17:48 n'est ni confirmé ni écarté.
+                <br><strong>À faire</strong> : (1) arbitrer la récupération de l'entretien depuis le fichier
+                (<code>/interviews/{id}/retranscrire</code> ou <code>/audio/transcribe-file</code>, écriture dans la vraie base) ;
+                (2) loguer le motif des 503 dans <code>app/routers/interviews_audio.py</code> (busy vs abandonnée) pour
+                diagnostiquer le prochain incident ; (3) test de régression P1/P2 une fois la cause prouvée.
+              </td>
+            </tr>
             <tr>
               <td>Correction du bug de transcription par segment qui échoue (RÉGRESSION signalée)</td>
               <td>RÉSOLU (2026-07-30) — diagnostic réel + 3 correctifs livrés</td>

@@ -409,3 +409,17 @@ un contenu « capture d'exemple »).
   labels de pôle en cyan gras aux extrémités.
 - **Efficace parce que** : le fond « surligneur » laisse les mots se chevaucher comme un
   vrai nuage ; l'unique axe horizontal simplifie la lecture sans juger un 2e critère.
+
+## 26. Cylindres « magasins de données » reliés par des flèches
+
+- **Situation/intention** : montrer d'où viennent et où vont les données (sources, DWH, cibles).
+- **Type** : schéma de flux de données.
+- **Composition** (helper `pptx_deck.add_cylinder`) : `CAN` w 0.6-0.9in h 1.0-1.2in adj 0.25, fond `dk` (sources) ou `accent` (cible), libellé 10pt gras SOUS la forme (jamais dedans), `RIGHT_ARROW` `accent` entre cylindres. Source : deck de kick-off (rare, 3 occurrences).
+- **Efficace parce que** : la forme dit « stockage » sans légende ; la couleur distingue sources et cible.
+
+## 27. Grille de tuiles à coin coupé
+
+- **Situation/intention** : lister N notions courtes en identité « étiquette » plutôt qu'en cartes rondes.
+- **Type** : grille de tuiles.
+- **Composition** (helper `pptx_deck.add_snip_tile`) : `SNIP_1_RECTANGLE` ≈ 0.9-1.0×0.8-0.9in, adj 0.17, sans contour ; une seule abscisse par colonne, pas égal en x et en y ; fond `lt2` par défaut, `accent` pour LA tuile mise en avant ; texte `dk` 10-11pt. Source : deck de formation produit (2 grilles).
+- **Efficace parce que** : le coin coupé donne une signature sans contour ; l'alignement strict garde la grille calme.

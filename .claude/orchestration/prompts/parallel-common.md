@@ -14,7 +14,7 @@ GABARIT : parallel-common
   YOUR export/ counterparts.
 - Commands in the foreground with an explicit timeout — never run_in_background nor Monitor
   in a sub-agent, never wait for your own background task.
-- pytest: `--basetemp=C:/tmp/<short dir> -p no:cacheprovider`, no `| tail`, no `2>&1`.
+- pytest: `--basetemp C:/tmp/<lot>/bt -p no:cacheprovider`, no `| tail`, no `2>&1`.
 - Any mutant carries the `# MUTANT:` marker on the modified line and is restored before
   returning; the end guard refuses otherwise.
 - Commit messages in English ending with the attribution line given by the orchestrator.
@@ -43,7 +43,7 @@ your partition, SendMessage `main` BEFORE touching it — asking costs less than
 ## This run — {{title}} ({{date}})
 Repo: `{{repo_path}}` (Windows, `py`, branch {{branch}}). {{n_executors}} executors.
 User mandate (verbatim): « {{mandate_verbatim}} ». {{delegation}} Push EXCLUDED.
-Vérifier `git log --oneline -1` = {{base_sha}} avant tout travail. basetemp : C:/tmp/{{short_dir}}.
+Vérifier `git log --oneline -1` = {{base_sha}} avant tout travail. basetemp : `--basetemp C:/tmp/<lot>/{{short_dir}}` (one folder per lot, see scripts/tmp_lot.py).
 EFFORT ATTENDU : {{effort}} (fait simple : 1 agent, 3-10 appels ; comparaison : 2-4 sous-agents ; recherche complexe : 10+)
 FAITS TRANSMIS (each with its command, or the label « non vérifié »):
 {{facts}}

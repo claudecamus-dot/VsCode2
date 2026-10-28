@@ -8,6 +8,7 @@ Autorise : couleurs du theme du deck, `autorise_hex`, `autorise_polices`, refere
 Tolere (avertissement) : `tolere_*` ; avec `--strict` ce sont des defauts. Autre valeur : defaut.
 Exit 1 si defaut, 0 sinon, 2 si charte introuvable / ambigue / illisible. La charte appliquee est toujours imprimee.
 Usage : py lint_charte.py deck.pptx [--charte NOM | --tokens FILE | --reference REF.pptx] [--strict]
+Sans --charte/--tokens/--reference : charte nommee par `charte/defaut` (un mot), sinon la seule charte presente.
 """
 import argparse
 import collections
@@ -43,6 +44,22 @@ def _dossier_charte(chemin):
         d = p
 
 
+def lire_defaut(base):
+    """Premier mot non commente de `charte/defaut` (un mot par projet : octo, acn...), sinon None."""
+    try:
+        with open(os.path.join(base, "defaut"), encoding="utf-8-sig") as fh:
+            for ligne in fh:
+                ligne = ligne.strip()
+                if ligne and not ligne.startswith("#"):
+                    mot = ligne.split()[0]
+                    if "/" in mot or "\\" in mot or ".." in mot:
+                        raise CharteError(f"charte/defaut : nom de charte invalide {mot!r} (un mot, jamais un chemin)")
+                    return mot
+    except OSError:
+        pass
+    return None
+
+
 def trouver_charte(chemin, nom=None):
     """(nom, chemin tokens.json) ; leve CharteError. Le tokens.json plat est la charte `acn` (legacy)."""
     base = _dossier_charte(chemin)
@@ -60,6 +77,11 @@ def trouver_charte(chemin, nom=None):
         if nom not in dispo:
             raise CharteError(f"charte '{nom}' inconnue ; disponibles : {', '.join(sorted(dispo)) or 'aucune'}")
         return nom, dispo[nom]
+    defaut = lire_defaut(base)
+    if defaut:
+        if defaut not in dispo:
+            raise CharteError(f"charte/defaut nomme '{defaut}', inconnue ; disponibles : {', '.join(sorted(dispo)) or 'aucune'}")
+        return defaut, dispo[defaut]
     if len(dispo) == 1:
         return next(iter(dispo.items()))
     raise CharteError(f"{len(dispo)} chartes disponibles ({', '.join(sorted(dispo)) or 'aucune'}) : preciser --charte")

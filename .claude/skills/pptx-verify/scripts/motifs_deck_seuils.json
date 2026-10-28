@@ -1,0 +1,12 @@
+{
+  "pastille_max_in": 0.8,
+  "filet_epaisseur_max_in": 0.12,
+  "filet_longueur_min_in": 0.3,
+  "bandeau_h_min_in": 0.25,
+  "bandeau_h_max_in": 1.2,
+  "bandeau_largeur_ratio": 0.85,
+  "carte_min_w_in": 0.8,
+  "carte_min_h_in": 0.5,
+  "rayon_defaut_adj": 16667,
+  "meme_gabarit_seuil": 0.6
+}

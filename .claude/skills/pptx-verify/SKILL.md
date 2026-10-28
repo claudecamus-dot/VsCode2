@@ -73,6 +73,22 @@ this check; Step 2 stays mandatory.** Thresholds live in `scripts/forme_check_se
 results and the rule they led to: `docs/redaction/etalonnage-forme-decks.md` (hub-only note).
 Never use `--strict` as a quality gate.
 
+## Step 1quater — Density regression and motif inventory (0 token, information only)
+
+Non-regression ceilings and inventories, not charter norms (thresholds in `scripts/*_deck_seuils.json`).
+
+```bash
+py .claude/skills/pptx-verify/scripts/densite_deck.py deck.pptx --top=10   # densest slides
+py .claude/skills/pptx-verify/scripts/motifs_deck.py deck.pptx --meme-gabarit 3   # motifs, radii, same-layout slides
+```
+
+## Step 1quinquies — Render guard and selective render (0 token)
+
+- `py .claude/skills/pptx-verify/scripts/garde_rendu.py deck.pptx --mini-police 10 [--strict] [--baseline f.json]`: exit 1 on off-slide shape or text overflow; warns on overlap, contrast < 4.5, small font, hidden slides; output capped at 20 lines + total.
+- `py .claude/skills/pptx-verify/scripts/rendu_slide.py deck.pptx 7 13 [--dossier=D] [--dpi=80]`: LibreOffice PNG of the listed slide numbers only (hidden slides keep their number); reading the PNGs is the token cost: read only the touched slides, dpi 80; exit 2 on an unknown rank; one full render stays mandatory before delivery.
+- `py tests/test_garde_livrable_baseline.py --regenerer`: freezes known guard defects in `tests/baselines/*.json` (helper `tests/garde_baseline.py`); the test fails on a NEW defect and on a vanished entry (debt paid: remove it); keys carry no slide number (code, shape, text hash), so inserting a slide does not shift the debt.
+- `forme_check_seuils.json` keeps its provisional thresholds; the hub decks' distribution is recorded in its `observation` block only (not a verdict).
+
 ## Step 1ter — Charter, weight, integrity (strict, 0 token)
 
 ```bash
@@ -80,6 +96,8 @@ py .claude/skills/pptx-verify/scripts/lint_charte.py deck.pptx --charte acn   # 
 py .claude/skills/pptx-verify/scripts/poids_deck.py deck.pptx                 # WARN 12 MB or 200 KB/slide, BLOCK 25 MB
 py .claude/skills/pptx-verify/scripts/integrite_pptx.py deck.pptx             # OPC relations, 0 problem
 ```
+
+Opt-in, never by default: `embarquer_police.py deck.pptx --faces faces.json --dossier-polices DIR --sortie out.pptx` embeds TTF fonts as EOT (dry-run unless `--appliquer`; input never modified; exit 0/1/2). Limits: fsType=4 opens read-only for a recipient without the font; fsType=2 is refused unless `--accepter-licence`; the embedding licence is yours to validate; the result is never opened in real PowerPoint by this tool.
 
 `generateur_squelette.py --sortie` runs all three itself. The charter is the reference deck's
 (`charte/<nom>/tokens.json`, derived by `deriver_tokens_charte.py`), never the deck compared with itself.
@@ -109,6 +127,11 @@ leaves the `.pdf` — read its pages directly.
 
 **No renderer at all:** dump each shape's text + bounds and say honestly the visual was
 not eye-checked. Do not pretend.
+
+## Python-first helpers (no LLM tokens)
+
+- `planche_contact.py --sortie P.png --dossier DIR [--rangs 3,5]` assembles the `sNNN.png` renders of `rendu_slide.py` into ONE contact sheet: read one image, open full size only the doubtful slides.
+- `autocorriger_dense.py DECK --sortie OUT [--max-car 700] [--rapport R.json]` shrinks overflowing text down to 10.5 pt, then splits what stays too dense onto a `(suite)` copy ONLY for text-only slides (a slide with frames, arrows, images, groups or SmartArt is reported `RESTE_DENSE`, manual split); prints and records what changed, never touches the source deck (exit 1 if some slide stays dense).
 
 ## Iteration rule — render only the touched slides
 

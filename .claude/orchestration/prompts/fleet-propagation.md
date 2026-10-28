@@ -13,7 +13,7 @@ OUT of scope: every other repo, and any uncommitted work in the target that is n
    be a real improvement never sent upstream — report it, do not erase it.
 3. Adapt to the target's own channel (its test command, its existing skill) — never paste a hub
    pattern as is. Update = `propager_socle` + `sync_dispositif.py`, never `install_agentic --force`.
-4. Run the target's OWN tests (`--basetemp` on a new short dir). Commands in the foreground with
+4. Run the target's OWN tests (`--basetemp C:/tmp/<lot>/bt`, a new short dir under the lot folder). Commands in the foreground with
    an explicit timeout — never run_in_background nor Monitor.
 5. `git diff --cached --name-only` then one scoped commit via `-F`; never push.
 If a point is not covered here, inspect the real target rather than assume.

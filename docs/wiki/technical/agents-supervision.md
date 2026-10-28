@@ -1,5 +1,5 @@
 ---
-updated: 2026-10-23
+updated: 2026-10-27
 generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, étage 1)
 ---
 
@@ -8,14 +8,14 @@ generated-by: .claude/supervision/scan_transcripts.py (superviseur d'agents, ét
 > ⚠️ **Page générée automatiquement** (hook SessionStart → `.claude/supervision/scan_transcripts.py`).
 > **Ne pas éditer à la main** — toute modification serait écrasée au prochain scan.
 
-Dernier scan : 2026-10-23T08:53:55+02:00 · **484 sessions** (transcripts) · **360** invocations de skills · **683** lancements de sous-agents.
+Dernier scan : 2026-10-27T22:13:30+01:00 · **499 sessions** (transcripts) · **365** invocations de skills · **696** lancements de sous-agents.
 
 ## Skills — usage réel
 
 | Skill | Famille | Invocations | Première | Dernière |
 | --- | --- | --- | --- | --- |
-| `bmad-code-review` | BMAD | 96 | 2026-07-20 | 2026-10-22 |
-| `agent-orchestrator` | projet | 61 | 2026-07-17 | 2026-10-22 |
+| `bmad-code-review` | BMAD | 99 | 2026-07-20 | 2026-10-23 |
+| `agent-orchestrator` | projet | 63 | 2026-07-17 | 2026-10-27 |
 | `run-dev-server` | projet | 41 | 2026-07-17 | 2026-10-08 |
 | `bmad-party-mode` | BMAD | 29 | 2026-09-15 | 2026-10-22 |
 | `bmad-review-edge-case-hunter` | BMAD | 26 | 2026-07-20 | 2026-09-07 |
@@ -43,11 +43,11 @@ Dernier scan : 2026-10-23T08:53:55+02:00 · **484 sessions** (transcripts) · **
 
 | Sous-agent | Lancements | Premier | Dernier |
 | --- | --- | --- | --- |
-| `general-purpose` | 454 | 2026-07-20 | 2026-10-22 |
-| `bmad-revue` | 93 | 2026-08-31 | 2026-10-21 |
+| `general-purpose` | 462 | 2026-07-20 | 2026-10-23 |
+| `bmad-revue` | 96 | 2026-08-31 | 2026-10-23 |
 | `Explore` | 79 | 2026-07-18 | 2026-10-21 |
 | `(defaut)` | 46 | 2026-07-21 | 2026-10-19 |
-| `agent-supervisor` | 4 | 2026-09-01 | 2026-09-29 |
+| `agent-supervisor` | 6 | 2026-09-01 | 2026-10-23 |
 | `veille-agentic` | 3 | 2026-09-08 | 2026-09-28 |
 | `Plan` | 1 | 2026-09-25 | 2026-09-25 |
 | `a11y-auditor` | 1 | 2026-09-16 | 2026-09-16 |
@@ -86,11 +86,11 @@ _Consommés en lisant/exécutant leurs `scripts/`, ou via un sous-agent qui les 
 
 ## TODO agents (constats automatiques)
 
-⚠️ **Mesure incomplète** — 6 transcript(s) sur 484 absent(s) du disque. Un `n=0` ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.
+⚠️ **Mesure incomplète** — 8 transcript(s) sur 499 absent(s) du disque. Un `n=0` ne veut plus dire « jamais invoquée » mais « on ne le voit plus » : les listes ci-dessous sous-estiment l'usage réel. Ne rien désinstaller sur cette base.
 
 1. **Désinstaller les shims BMAD dépréciés** (21) : `bmad-checkpoint-preview`, `bmad-create-architecture`, `bmad-create-prd`, `bmad-create-story`, `bmad-dev-auto`, `bmad-dev-story`, `bmad-document-project`, `bmad-domain-research`, `bmad-edit-prd`, `bmad-editorial-review`, `bmad-editorial-review-prose`, `bmad-editorial-review-structure`, `bmad-generate-project-context`, `bmad-market-research`, `bmad-quick-dev`, `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-review-verification-gap`, `bmad-sprint-status`, `bmad-technical-research`, `bmad-validate-prd` — dépréciés par BMAD dans leur propre `description`, chacun avec son remplaçant ; le seul élagage qui ne repose pas sur notre mesure d'usage.
 2. **Skills projet sans usage** : `agent-securite` — vérifier pertinence et déclencheurs.
-3. **Skills en sommeil (>30 j sans usage)** : `a11y-auditor`, `bmad-advanced-elicitation`, `bmad-brainstorming`, `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-walkthrough`, `deck-design-review`, `design-reviewer`, `priority-matrix`, `restitution-deck-design`, `revue-ui-web`, `slide-text-polish`, `swot-matrix`.
+3. **Skills en sommeil (>30 j sans usage)** : `a11y-auditor`, `bmad-advanced-elicitation`, `bmad-brainstorming`, `bmad-review-adversarial-general`, `bmad-review-edge-case-hunter`, `bmad-walkthrough`, `deck-design-review`, `design-reviewer`, `priority-matrix`, `restitution-deck-design`, `revue-ui-web`, `slide-text-polish`, `swot-matrix`, `utilisateur-produit`.
 
 ## Arbitrages enregistrés
 
@@ -197,7 +197,7 @@ _6 constat(s) de ce diagnostic écarté(s) par un arbitrage — pour en rouvrir 
 
 ## Seuil de qualification — la mesure
 
-Depuis le 2026-09-11 : **1284** demande(s) vue(s) hors commande slash (+ 203 slash), **44** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **3 %** des demandes orchestrées.
+Depuis le 2026-09-11 : **1340** demande(s) vue(s) hors commande slash (+ 214 slash), **44** run(s) orchestré(s) journalisé(s) sur la même fenêtre — soit **3 %** des demandes orchestrées.
 _Ce chiffre ne dit pas ce qui AURAIT dû être orchestré : le hook compte, il ne juge pas. Il donne le dénominateur qui manquait pour arbitrer le seuil sur données plutôt que sur habitude._
 
 ---

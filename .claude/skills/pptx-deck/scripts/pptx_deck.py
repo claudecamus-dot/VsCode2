@@ -103,6 +103,30 @@ def _no_shadow(shape):
         pass
 
 
+def _soft_shadow(shape, alpha=18, blur_pt=6.0, dist_pt=2.0):
+    """Ombre douce de carte « en relief » : `a:outerShdw` noire a `alpha` % (<= 25),
+    flou `blur_pt`, decalage vertical `dist_pt` (dir 90 deg, vers le bas). Remplace le
+    `a:effectLst` vide pose par `_no_shadow`. Option explicite (`add_rect(shadow=True)`) :
+    le defaut reste « pas d'ombre » (regle dure OCTO) — a reserver a UNE famille de
+    cartes par slide, jamais au bandeau ni au texte."""
+    sp_pr = shape._element.spPr
+    for old in sp_pr.findall(qn("a:effectLst")):
+        sp_pr.remove(old)
+    eff = sp_pr.makeelement(qn("a:effectLst"), {})
+    sh = eff.makeelement(qn("a:outerShdw"), {
+        "blurRad": str(int(blur_pt * 12700)), "dist": str(int(dist_pt * 12700)),
+        "dir": "5400000", "algn": "t", "rotWithShape": "0"})
+    clr = sh.makeelement(qn("a:srgbClr"), {"val": "000000"})
+    clr.append(clr.makeelement(qn("a:alpha"), {"val": str(int(alpha * 1000))}))
+    sh.append(clr)
+    eff.append(sh)
+    ln = sp_pr.find(qn("a:ln"))
+    if ln is not None:
+        ln.addnext(eff)
+    else:
+        sp_pr.append(eff)
+
+
 # --- Police effective du deck ---
 # Deux sources possibles pour la police d'un template OCTO :
 #  - police_marque() : la famille dominante sur les PLACEHOLDERS des layouts
@@ -252,7 +276,7 @@ def add_text(slide, l, t, w, h, lignes, anchor=MSO_ANCHOR.TOP, align=PP_ALIGN.LE
 
 
 def add_rect(slide, l, t, w, h, fill=None, line=None, line_w=1.0, rounded=False,
-             radius=0.12):
+             radius=0.12, shadow=False):
     shp = slide.shapes.add_shape(
         MSO_SHAPE.ROUNDED_RECTANGLE if rounded else MSO_SHAPE.RECTANGLE,
         Inches(l), Inches(t), Inches(w), Inches(h))
@@ -273,6 +297,8 @@ def add_rect(slide, l, t, w, h, fill=None, line=None, line_w=1.0, rounded=False,
         shp.line.color.rgb = rgb(line)
         shp.line.width = Pt(line_w)
     shp.text_frame.paragraphs[0].text = ""
+    if shadow:
+        _soft_shadow(shp)
     return shp
 
 
@@ -689,6 +715,176 @@ def add_range_bar(slide, l, t, w, h, mn, mx, scale_max, fill, marker=None,
         mx_x = l + w * fm - 0.015
         add_rect(slide, mx_x, t - 0.05, 0.03, h + 0.10, fill=INK, rounded=True,
                  radius=0.5)
+
+
+# --- Motifs de forme complementaires (comite bibliotheque 2026-10, arbitrage utilisateur) ---
+# Couleurs = parametres (hex d'un jeton de charte OCTO ou role de theme), jamais
+# codees en dur. Defauts : aucun effet sur les helpers existants.
+
+def _couleur_xml(parent, couleur):
+    """Enfant de couleur OOXML : `#rrggbb` -> a:srgbClr ; sinon nom de ROLE de
+    theme (« accent1 », « dk2 », « lt1 »...) -> a:schemeClr (suit le theme)."""
+    if str(couleur).startswith("#"):
+        return parent.makeelement(qn("a:srgbClr"), {"val": couleur.lstrip("#").upper()})
+    return parent.makeelement(qn("a:schemeClr"), {"val": str(couleur)})
+
+
+def add_label_value(slide, x, y, w_label, w_value, h, label, value, color,
+                    line=None, size=None, ink="#000000"):
+    """Cellule KPI en 2 pieces jointives : etiquette pleine `color` (texte blanc
+    gras) a gauche + valeur encadree (fond blanc, contour `line` ou `color`, 1 pt,
+    texte `ink`) a droite. Le bord commun est exact (x + w_label). Pour fiches et
+    tableaux denses. Renvoie (forme_etiquette, forme_valeur)."""
+    size = TYPE["small"] if size is None else size
+    left = add_rect(slide, x, y, w_label, h, fill=color)
+    right = add_rect(slide, x + w_label, y, w_value, h, fill="#ffffff",
+                     line=line or color, line_w=1.0)
+    add_text(slide, x, y, w_label, h,
+             [(label, dict(size=size, bold=True, color="#ffffff", align=PP_ALIGN.CENTER))],
+             anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER)
+    add_text(slide, x + w_label, y, w_value, h,
+             [(value, dict(size=size, bold=False, color=ink, align=PP_ALIGN.CENTER))],
+             anchor=MSO_ANCHOR.MIDDLE, align=PP_ALIGN.CENTER)
+    return left, right
+
+
+def add_badge_corner(slide, card_l, card_t, d, label, color, outline="#ffffff",
+                     line_w=2.5, size=None, text_color="#ffffff"):
+    """Pastille numerotee a CONTOUR BLANC a cheval sur le coin haut-gauche d'une
+    carte : son centre tombe exactement sur le coin (card_l, card_t), le contour
+    blanc la detache visuellement de la carte. A poser APRES la carte (z-order au
+    dessus). Renvoie l'ovale ; texte centre dans la meme forme."""
+    size = TYPE["small"] if size is None else size
+    shp = slide.shapes.add_shape(MSO_SHAPE.OVAL, Inches(card_l - d / 2),
+                                 Inches(card_t - d / 2), Inches(d), Inches(d))
+    _no_shadow(shp)
+    shp.fill.solid()
+    shp.fill.fore_color.rgb = rgb(color)
+    shp.line.color.rgb = rgb(outline)
+    shp.line.width = Pt(line_w)
+    tf = shp.text_frame
+    tf.text = str(label)
+    para = tf.paragraphs[0]
+    para.alignment = PP_ALIGN.CENTER
+    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    for r in para.runs:
+        r.font.size = Pt(size)
+        r.font.bold = True
+        r.font.color.rgb = rgb(text_color)
+    return shp
+
+
+def add_cylinder(slide, l, t, w, h, fill, adj=0.25, label=None, label_size=None,
+                 ink="#000000"):
+    """Cylindre (prstGeom « can ») = magasin de donnees (base, DWH, lac). `adj` =
+    hauteur relative de l'ellipse du dessus (0.25 par defaut). `label` est pose
+    SOUS la forme (largeur w + marge), jamais dedans. Renvoie le cylindre."""
+    label_size = TYPE["small"] if label_size is None else label_size
+    shp = slide.shapes.add_shape(MSO_SHAPE.CAN, Inches(l), Inches(t), Inches(w), Inches(h))
+    _no_shadow(shp)
+    shp.adjustments[0] = adj
+    shp.fill.solid()
+    shp.fill.fore_color.rgb = rgb(fill)
+    shp.line.fill.background()
+    if label:
+        add_text(slide, l - 0.2, t + h + 0.04, w + 0.4, 0.3,
+                 [(label, dict(size=label_size, bold=True, color=ink, align=PP_ALIGN.CENTER))],
+                 align=PP_ALIGN.CENTER)
+    return shp
+
+
+def add_snip_tile(slide, l, t, w, h, fill, label=None, adj=0.17, size=None,
+                  text_color="#000000"):
+    """Tuile a UN coin coupe (« snip1Rect », coin haut-droit), sans contour : identite
+    « etiquette », a poser en grille alignee (une seule abscisse par colonne) plutot
+    que des cartes rondes. `adj` = taille de la coupe. Texte centre dans la forme."""
+    size = TYPE["small"] if size is None else size
+    shp = slide.shapes.add_shape(MSO_SHAPE.SNIP_1_RECTANGLE, Inches(l), Inches(t),
+                                 Inches(w), Inches(h))
+    _no_shadow(shp)
+    shp.adjustments[0] = adj
+    shp.fill.solid()
+    shp.fill.fore_color.rgb = rgb(fill)
+    shp.line.fill.background()
+    if label:
+        tf = shp.text_frame
+        tf.word_wrap = True
+        tf.text = label
+        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        p = tf.paragraphs[0]
+        p.alignment = PP_ALIGN.CENTER
+        for r in p.runs:
+            r.font.size = Pt(size)
+            r.font.color.rgb = rgb(text_color)
+    return shp
+
+
+def add_gradient_column(slide, l, t, w, h, color_from, color_to, radius=0.05,
+                        angle=90):
+    """Colonne-carte haute a degrade lineaire 2 stops (`a:gsLst`), rayon FAIBLE
+    (`radius`, fraction du plus petit cote — different du rayon unique de
+    add_card). `color_from`/`color_to` : hex `#rrggbb` OU role de theme
+    (« dk2 », « accent1 ») ecrit en `a:schemeClr` pour suivre le theme. `angle` en
+    degres (90 = de haut en bas). Poser le texte dans un bloc clair superpose."""
+    shp = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(l), Inches(t),
+                                 Inches(w), Inches(h))
+    _no_shadow(shp)
+    shp.adjustments[0] = radius
+    shp.fill.gradient()
+    gf = shp._element.spPr.find(qn("a:gradFill"))
+    gs_lst = gf.find(qn("a:gsLst"))
+    for g in list(gs_lst):
+        gs_lst.remove(g)
+    for pos, col in ((0, color_from), (100000, color_to)):
+        gs = gs_lst.makeelement(qn("a:gs"), {"pos": str(pos)})
+        gs.append(_couleur_xml(gs, col))
+        gs_lst.append(gs)
+    lin = gf.find(qn("a:lin"))
+    if lin is None:
+        lin = gf.makeelement(qn("a:lin"), {})
+        gf.append(lin)
+    lin.set("ang", str(int(angle * 60000)))
+    lin.set("scaled", "0")
+    shp.line.fill.background()
+    return shp
+
+
+def positions_alternees(n):
+    """Place des libelles de jalons : alterne dessus (True) / dessous (False) en
+    commencant par dessus, pour que deux libelles voisins ne se chevauchent pas."""
+    return [i % 2 == 0 for i in range(n)]
+
+
+def add_milestone(slide, x, y_line, label, color, above=True, label_fill=ENCART_BG,
+                  d=0.2, label_w=1.3, label_h=0.36, gap=0.08, size=None,
+                  ink="#000000"):
+    """Jalon sur frise : LOSANGE `d` centre en (x, y_line) + etiquette PENTAGON
+    (« homePlate ») de `label_w` x `label_h` centree sur x, posee au-dessus
+    (`above`) ou en-dessous du jalon a `gap`. Renvoie (losange, etiquette)."""
+    size = TYPE["tiny"] if size is None else size
+    dia = slide.shapes.add_shape(MSO_SHAPE.DIAMOND, Inches(x - d / 2),
+                                 Inches(y_line - d / 2), Inches(d), Inches(d))
+    _no_shadow(dia)
+    dia.fill.solid()
+    dia.fill.fore_color.rgb = rgb(color)
+    dia.line.fill.background()
+    ty = y_line - d / 2 - gap - label_h if above else y_line + d / 2 + gap
+    pen = slide.shapes.add_shape(MSO_SHAPE.PENTAGON, Inches(x - label_w / 2),
+                                 Inches(ty), Inches(label_w), Inches(label_h))
+    _no_shadow(pen)
+    pen.fill.solid()
+    pen.fill.fore_color.rgb = rgb(label_fill)
+    pen.line.fill.background()
+    tf = pen.text_frame
+    tf.word_wrap = True
+    tf.text = label
+    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    p = tf.paragraphs[0]
+    p.alignment = PP_ALIGN.CENTER
+    for r in p.runs:
+        r.font.size = Pt(size)
+        r.font.color.rgb = rgb(ink)
+    return dia, pen
 
 
 def _compte_lignes(texte, cpl):

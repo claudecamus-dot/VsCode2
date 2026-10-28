@@ -332,3 +332,10 @@ insérés tels quels, non retenus comme patterns catalogue.
   un filet vertical, labels de catégorie en rouge gras alignés à gauche, contenu à
   puces à droite ; photo ronde N&B en bas. Différent de la fiche bio (#11) : ici la
   structure est un CV factuel par catégories, pas un récit biographique.
+
+## 15. Frise de jalons losanges à étiquettes pentagones alternées
+
+- **Situation/intention** : dérouler des jalons datés avec un libellé par jalon.
+- **Type** : frise avec jalons.
+- **Composition** (helper `pptx_deck.add_milestone + positions_alternees`) : `DIAMOND` 0.2in `accent` centré sur la ligne ; étiquette `PENTAGON` (homePlate) 1.3×0.36in fond `lt2`, texte 9-10pt, centrée sur le jalon, posée AU-DESSUS puis EN-DESSOUS en alternance (`positions_alternees`). Complète la frise de points du n°12 de la restitution. Source : playbook de méthode et deck commercial.
+- **Efficace parce que** : l'alternance double la largeur disponible par libellé ; le losange se distingue d'un simple point.
