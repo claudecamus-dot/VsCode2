@@ -26,7 +26,7 @@ from fastapi import (
     Request,
     UploadFile,
 )
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
@@ -109,6 +109,26 @@ async def _transcrire_dedoublonne(request: Request, contenu: bytes):
 async def transcribe_segment(
     request: Request, background_tasks: BackgroundTasks, file: UploadFile = File(...)
 ):
+    """Une ligne de journal par requête (statut, durée, octets, retry_after_s).
+    Jamais le contenu audio ni le texte transcrit : données d'entretien."""
+    debut = time.monotonic()
+    meta: dict = {}
+    statut: object = "exception"
+    try:
+        reponse = await _traiter_segment(request, background_tasks, file, meta)
+        statut = reponse.status_code
+        return reponse
+    finally:
+        logger.info(
+            "transcribe-segment statut=%s duree_s=%.2f octets=%s retry_after_s=%s",
+            statut, time.monotonic() - debut,
+            meta.get("octets", "inconnu"), meta.get("retry_after_s", "-"),
+        )
+
+
+async def _traiter_segment(
+    request: Request, background_tasks: BackgroundTasks, file: UploadFile, meta: dict
+):
     """Transcrit un segment audio autonome (utilisé par la rotation de
     segments de record.html) — endpoint sans état, indépendant de toute
     mission/entretien. Même contrat d'erreur `{"error": ...}` que
@@ -120,6 +140,7 @@ async def transcribe_segment(
         # plusieurs Go faisait tomber le processus. Plafond AUDIO, pas celui des
         # documents (cf. `uploads.MAX_AUDIO_UPLOAD_BYTES`).
         contenu = await lire_upload_audio_borne(file)
+        meta["octets"] = len(contenu)
         # Whisper est CPU-bound : hors de la boucle d'événements (finding perf audit
         # 2026-07-24 — un endpoint async qui transcrit en direct bloquait TOUTES les
         # autres requêtes pendant plusieurs minutes).
@@ -139,6 +160,7 @@ async def transcribe_segment(
         # — un matching sur le message français serait fragile.
         return JSONResponse({"error": str(exc), "code": "no_speech"}, status_code=422)
     except audio_transcribe.TranscriptionAbandonnee:
+        meta["retry_after_s"] = 10
         return JSONResponse(
             {"error": "Transcription abandonnée, réessayez.", "code": "busy", "retry_after_s": 10},
             status_code=503, headers={"Retry-After": "10"},
@@ -152,6 +174,7 @@ async def transcribe_segment(
         # automatiquement) + `Retry-After` pour que le client attende le
         # délai suggéré au lieu de deviner via son propre timeout.
         retry_after = max(1, round(exc.retry_after_s))
+        meta["retry_after_s"] = retry_after
         return JSONResponse(
             {"error": str(exc), "code": "busy", "retry_after_s": retry_after},
             status_code=503,
@@ -182,6 +205,35 @@ async def transcribe_segment(
     # Silencieux, et sans effet si le modèle est déjà en mémoire.
     background_tasks.add_task(ai_common.warm_up_ollama)
     return JSONResponse({"text": text})
+
+
+_warm_up_en_cours = threading.Lock()
+
+
+def _warm_up_en_tache_de_fond() -> None:
+    """Thread daemon : un seul préchargement à la fois ; échec journalisé, jamais levé."""
+    if not _warm_up_en_cours.acquire(blocking=False):
+        return
+    try:
+        audio_transcribe.warm_up()
+    except Exception:
+        logger.exception("Préchauffage Whisper à la demande échoué")
+    finally:
+        _warm_up_en_cours.release()
+
+
+@router.post("/audio/warm-up", status_code=204)
+async def warm_up_whisper() -> Response:
+    """Précharge Whisper en tâche de fond (appelé à l'ouverture de l'écran
+    d'enregistrement). Répond 204 tout de suite ; sans effet si le modèle est
+    déjà chargé ou si `WHISPER_WARM_UP=0`."""
+    try:
+        threading.Thread(
+            target=_warm_up_en_tache_de_fond, daemon=True, name="whisper-warm-up"
+        ).start()
+    except Exception:
+        logger.exception("Préchauffage Whisper : thread non démarré")
+    return Response(status_code=204)
 
 
 @router.post("/audio/transcribe-file")
