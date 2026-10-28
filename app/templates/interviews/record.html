@@ -370,9 +370,7 @@
   var completudeEl = document.getElementById('rec-completude-banner');
   var completudeTextEl = document.getElementById('rec-completude-text');
   function afficherCompletude(c) {
-    var msg = RETRY_PLAN.messageCompletude(c);
-    completudeTextEl.textContent = msg;
-    completudeEl.hidden = !msg;
+    RETRY_PLAN.afficherCompletude(c, completudeEl, completudeTextEl);
   }
   function masquerCompletude() { afficherCompletude(null); }
   // Relances de la CRÉATION d'une tranche d'extraction — même filet que
@@ -1195,10 +1193,11 @@
         return;
       }
       var nat = nature || 'retry';
-      var delai = RETRY_PLAN.delaiPour(nat, attempt);
-      if (delai !== null) {
+      var prochaine = RETRY_PLAN.prochaineTentative(nat, attempt);
+      if (prochaine !== null) {
+        var delai = prochaine.delai;
         statusEl.textContent = 'Segment non transmis (' + reason + ') — nouvelle tentative ('
-          + (attempt + 2) + '/' + RETRY_PLAN.nbEssais(nat) + ')…';
+          + prochaine.numero + '/' + prochaine.total + ')…';
         // Garde de génération RE-TESTÉE au réveil, pas seulement à la
         // programmation (revue adversariale 2026-07-30) : un échec survenu juste
         // avant un « Recommencer » ou un nouveau démarrage envoyait sinon 1 à 2

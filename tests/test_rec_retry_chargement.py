@@ -50,7 +50,7 @@ def test_les_ecrans_d_enregistrement_lisent_le_plan_commun(ecran: Path) -> None:
     # distinct du bandeau rouge des segments perdus.
     assert 'id="rec-replay-status"' in html
     assert 'id="rec-completude-banner"' in html
-    assert "RETRY_PLAN.messageCompletude" in html
+    assert "RETRY_PLAN.afficherCompletude" in html  # CR-27: message built in rec_retry.js
 
 
 def test_la_page_de_suivi_de_retranscription_affiche_la_completude() -> None:

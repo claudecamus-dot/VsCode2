@@ -433,9 +433,7 @@
   var completudeEl = document.getElementById('rec-completude-banner');
   var completudeTextEl = document.getElementById('rec-completude-text');
   function afficherCompletude(c) {
-    var msg = RETRY_PLAN.messageCompletude(c);
-    completudeTextEl.textContent = msg;
-    completudeEl.hidden = !msg;
+    RETRY_PLAN.afficherCompletude(c, completudeEl, completudeTextEl);
   }
   function masquerCompletude() { afficherCompletude(null); }
   // Posé au submit accepté : pas de boîte native « Quitter le site ? » pendant NOTRE envoi
@@ -1539,10 +1537,11 @@
       }
       if (ctx.low && recordingActive) { cederLaPlace(reason); return; }
       var nat = nature || 'retry';
-      var delai = RETRY_PLAN.delaiPour(nat, attempt);
-      if (delai !== null) {
+      var prochaine = RETRY_PLAN.prochaineTentative(nat, attempt);
+      if (prochaine !== null) {
+        var delai = prochaine.delai;
         statusEl.textContent = 'Segment non transmis (' + reason + ') — nouvelle tentative ('
-          + (attempt + 2) + '/' + RETRY_PLAN.nbEssais(nat) + ')…';
+          + prochaine.numero + '/' + prochaine.total + ')…';
         // Délai accepté : pendant cette attente (2 s / 6 s / 15 s au plus, plan
         // RETRY_PLAN), `segInFlight` reste pris, y compris pour une relance basse
         // priorité si un enregistrement démarre entre-temps. Le segment direct
