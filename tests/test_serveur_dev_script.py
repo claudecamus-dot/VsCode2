@@ -291,10 +291,42 @@ def test_retest_avant_kill_sort_si_le_serveur_est_devenu_sain_et_sinon_laisse_tu
         assert "APRES" in sortie and "rien purg" not in sortie, (keep, stop, nb, sortie)
 
 
-def test_la_boucle_de_purge_appelle_le_retest_avant_stop_process() -> None:
+def _journal_boucle_de_purge(tmp_path: Path) -> list[str]:
+    """EXECUTE la vraie boucle de purge du script (extraite du texte, jamais le
+    script entier) avec des doublures : `Stop-Process`, `Invoke-RetestAvantKill`,
+    `Get-ProcessusServeur`, etc. sont des FONCTIONS qui journalisent et ne tuent
+    rien (PID factice). Retourne le journal des appels dans l'ordre d'exécution."""
     texte = SCRIPT.read_text(encoding="utf-8-sig")
-    boucle = texte[texte.index("foreach ($passe in 1..2)"):]
-    assert boucle.index("Invoke-RetestAvantKill") < boucle.index("Stop-Process")
+    boucle = texte[texte.index("foreach ($passe in 1..2) {"):texte.index("# Le port doit avoir VRAIMENT")]
+    prog = tmp_path / "boucle_purge.ps1"
+    prog.write_text(
+        "$global:J = New-Object System.Collections.ArrayList\n"
+        "function Get-ProcessusServeur { param($NumPort) [pscustomobject]@{ProcessId=2147000001} }\n"
+        "function Get-WorkersOrphelinsDuPort { param($NumPort) @() }\n"
+        "function Get-WorkersOrphelinsDuJournal { param($JournalErr) @() }\n"
+        "function Get-NetTCPConnection { @() }\n"
+        "function Test-PortRepond { param($NumPort) $true }\n"
+        "function Start-Sleep { param($Seconds) }\n"
+        "function Invoke-RetestAvantKill { param($KeepIfFreshActif,$StopOnlyActif,$NbIds,$NumPort,$ApresKill)"
+        " [void]$global:J.Add('RETEST') }\n"
+        "function Stop-Process { param($Id,[switch]$Force,$ErrorAction) [void]$global:J.Add('STOP') }\n"
+        "$journauxErr = @(); $KeepIfFresh = [switch]::new($false); $StopOnly = [switch]::new($false); $Port = 8099\n"
+        + boucle + "\n"
+        "'JOURNAL=' + ($global:J -join ',')\n",
+        encoding="utf-8-sig")
+    res = subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(prog)],
+        cwd=RACINE, capture_output=True, timeout=60)
+    sortie = (res.stdout + res.stderr).decode("utf-8", errors="replace")
+    assert res.returncode == 0, sortie
+    ligne = [l for l in sortie.splitlines() if l.startswith("JOURNAL=")][-1]
+    return ligne[len("JOURNAL="):].split(",")
+
+
+def test_la_boucle_de_purge_appelle_le_retest_avant_stop_process(tmp_path: Path) -> None:
+    """Exécuté (doublures, aucun kill réel) : à CHAQUE passe, le re-test précède
+    le Stop-Process. Le port « répond » toujours -> les deux passes tournent."""
+    assert _journal_boucle_de_purge(tmp_path) == ["RETEST", "STOP", "RETEST", "STOP"]
 
 
 def test_serveur_vieux_mais_actif_port_ferme_n_est_pas_purge_via_la_mesure_cpu() -> None:
