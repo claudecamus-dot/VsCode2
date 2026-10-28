@@ -87,6 +87,16 @@
     return delais(nature).length + 1;
   }
 
+  // Prochaine relance d'un segment : { delai, numero, total } ou null si le
+  // budget de cette nature est épuisé / non rejouable. `numero`/`total` sont
+  // ceux du « (2/3) » affiché. Remplace le couple delaiPour + nbEssais que
+  // record.html et record_libre.html recopiaient dans `retryOrGiveUp`.
+  function prochaineTentative(nature, attempt) {
+    var delai = delaiPour(nature, attempt);
+    if (delai === null) return null;
+    return { delai: delai, numero: attempt + 2, total: nbEssais(nature) };
+  }
+
   function duree(s) {
     s = Math.max(0, Math.round(Number(s) || 0));
     var m = Math.floor(s / 60);
@@ -153,6 +163,13 @@
       + 'Certains passages de l’audio peuvent manquer dans le texte.';
   }
 
+  // Pose l'alerte de complétude dans le bandeau persistant d'un écran.
+  function afficherCompletude(c, bandeauEl, texteEl) {
+    var msg = messageCompletude(c);
+    texteEl.textContent = msg;
+    bandeauEl.hidden = !msg;
+  }
+
   window.recRetryPlan = Object.freeze({
     delaisReseau: DELAIS_RESEAU_MS,
     delaisTransient: DELAIS_TRANSIENT_MS,
@@ -161,5 +178,7 @@
     delaiPour: delaiPour,
     nbEssais: nbEssais,
     messageCompletude: messageCompletude,
+    prochaineTentative: prochaineTentative,
+    afficherCompletude: afficherCompletude,
   });
 })();

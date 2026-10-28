@@ -441,3 +441,47 @@ def test_un_recommencer_pendant_l_attente_occupe_n_envoie_pas_de_nouvelle_requet
     assert garde_generation["transcript_ressuscite"] is False, (
         "le texte de la session abandonnée ne doit jamais réapparaître"
     )
+
+
+# --------------------------------------------------------------------------- #
+# 5. Plusieurs refus "occupé" PUIS un échec réel : le budget des échecs réels
+#    est intact (revue 2026-10-28 : le test du compteur `pending` ne prouvait
+#    pas ce point, l'ancien `.index('busy') < .index('retry')` non plus).
+# --------------------------------------------------------------------------- #
+
+_SCENARIO_OCCUPES_PUIS_ECHEC_REEL = r"""
+(async () => {
+  const out = {};
+  uploadSegment({ type: 'audio/webm' }, 0, null, 0, function () { appels.onSettle++; });
+  await tick();
+  for (let i = 0; i < 3; i++) {            // 3 refus occupés = autant que le budget "retry"
+    clock += minuteur(i).delai;
+    minuteur(i).fn(); await tick();
+  }
+  // 4e réponse : échec réel (500 sans code busy). Budget intact => 1re relance.
+  out.minuteur_echec_reel_delai = minuteur(3).delai;
+  out.message = statusEl.textContent;
+  out.abandonne = appels.keepLostSegment.length > 0;
+  out.nb_minuteurs = timers.length;
+  console.log(JSON.stringify(out));
+})();
+"""
+
+
+@pytest.fixture(scope="module", params=LES_DEUX, ids=lambda p: p.name)
+def occupes_puis_echec_reel(request) -> dict:
+    occupe = {"ok": False, "status": 503, "data": {"code": "busy", "retry_after_s": 5}}
+    reponses = [occupe, occupe, occupe, {"ok": False, "status": 500, "data": {}}]
+    return _lancer(request.param, reponses, 900000, _SCENARIO_OCCUPES_PUIS_ECHEC_REEL)
+
+
+def test_des_refus_occupes_ne_consomment_pas_le_budget_des_echecs_reels(
+    occupes_puis_echec_reel: dict,
+) -> None:
+    r = occupes_puis_echec_reel
+    assert r["abandonne"] is False, "3 refus occupés ont épuisé le budget des échecs réels"
+    assert r["minuteur_echec_reel_delai"] == 2000, (
+        "le 1er échec réel doit repartir au 1er palier (2 s), budget intact"
+    )
+    assert "(2/3)" in r["message"], r["message"]
+    assert r["nb_minuteurs"] == 4
