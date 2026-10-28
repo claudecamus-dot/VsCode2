@@ -143,6 +143,72 @@ def test_get_model_concurrent_avec_un_warm_up_ne_charge_qu_une_fois(client, faux
     assert faux_fw.n == 1
 
 
+def test_get_model_borne_son_attente_d_un_chargement_en_cours(faux_fw) -> None:
+    """Un chargement à froid (warm-up) en cours ne rend pas le refus « occupé »
+    inatteignable : l'attente bornée lève un refus rejouable avec retry_after."""
+    sortie: list = []
+
+    def _appel() -> None:
+        try:
+            audio_transcribe._ATTENTE_CHARGEMENT_MAX.set(0.05)  # borne propre à CE fil
+            audio_transcribe._get_model()
+            sortie.append("ok")
+        except audio_transcribe.TranscriptionBusyError as exc:
+            sortie.append(exc)
+
+    audio_transcribe._MODEL_LOAD_LOCK.acquire()
+    try:
+        # Fil + join borné : sans borne, une régression gèlerait le test.
+        t = threading.Thread(target=_appel, daemon=True)
+        t.start()
+        t.join(timeout=5)
+        assert not t.is_alive(), "l'attente du chargement n'est pas bornée"
+    finally:
+        audio_transcribe._MODEL_LOAD_LOCK.release()
+        t.join(timeout=10)
+    assert len(sortie) == 1 and sortie[0] != "ok"
+    assert sortie[0].retry_after_s > 0
+    assert audio_transcribe._get_model() is not None
+    assert faux_fw.n == 1
+
+
+def test_le_chemin_direct_n_attend_pas_indefiniment_un_chargement(faux_fw, monkeypatch) -> None:
+    import io
+    import wave
+
+    monkeypatch.setattr(audio_transcribe, "SEGMENT_LOCK_TIMEOUT_S", 0.1)
+    b = io.BytesIO()
+    with wave.open(b, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(16000)
+        w.writeframes(b"\x00\x00" * 16000)
+    resultat: list = []
+
+    def _appel() -> None:
+        try:
+            audio_transcribe.transcribe_audio(b.getvalue())
+            resultat.append("ok")
+        except audio_transcribe.TranscriptionBusyError:
+            resultat.append("busy")
+        except Exception as exc:  # pragma: no cover - diagnostic
+            resultat.append(repr(exc))
+
+    audio_transcribe._MODEL_LOAD_LOCK.acquire()
+    try:
+        # Dans un fil + join borné : une régression (attente illimitée) donne un
+        # ÉCHEC net, pas un test gelé.
+        t = threading.Thread(target=_appel, daemon=True)
+        t.start()
+        t.join(timeout=5)
+        assert not t.is_alive(), "le chemin direct attend indéfiniment le chargement"
+    finally:
+        audio_transcribe._MODEL_LOAD_LOCK.release()
+        t.join(timeout=10)
+    assert resultat == ["busy"], resultat
+    assert faux_fw.n == 0
+
+
 def test_warm_up_desactive_ne_fait_rien(client, faux_fw, monkeypatch) -> None:
     monkeypatch.setenv("WHISPER_WARM_UP", "0")
     assert _warm(client).status_code == 204

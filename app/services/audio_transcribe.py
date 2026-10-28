@@ -374,18 +374,38 @@ def is_available() -> bool:
 _MODEL_LOAD_LOCK = threading.Lock()  # chargement seul ; `_MODEL_LOCK` sérialise l'inférence
 
 
+# Borne (secondes) de l'attente d'un chargement DÉJÀ en cours chez un autre fil,
+# posée par le chemin direct autour de son appel à `_get_model()` : ce fil tient
+# `_MODEL_LOCK` et ne doit pas rendre le refus « occupé » inatteignable pendant un
+# chargement à froid de plusieurs minutes. `None` = attente illimitée (warm-up,
+# jobs de fond). Un ContextVar, pas un argument : `_get_model()` reste appelable
+# sans paramètre (les doublures de tests le remplacent par un `lambda:`).
+_ATTENTE_CHARGEMENT_MAX: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "attente_chargement_max", default=None
+)
+
+
 def _get_model():
     """Charge le modèle une seule fois, même si le warm-up (démarrage ou
     `POST /audio/warm-up`) et une transcription le demandent en même temps :
-    `medium` pèse ~1,5 Go, deux chargements concurrents doublent la mémoire."""
+    `medium` pèse ~1,5 Go, deux chargements concurrents doublent la mémoire.
+    Si `_ATTENTE_CHARGEMENT_MAX` est posé, l'attente d'un chargement en cours est
+    bornée : au-delà, refus « occupé » rejouable (comme l'attente de `_MODEL_LOCK`)."""
     global _model
     if _model is None:
-        with _MODEL_LOAD_LOCK:
+        borne = _ATTENTE_CHARGEMENT_MAX.get()
+        if not _MODEL_LOAD_LOCK.acquire(timeout=-1 if borne is None else borne):
+            exc = TranscriptionBusyError("Chargement du modèle en cours, réessayez.")
+            exc.retry_after_s = estimer_retry_after()
+            raise exc
+        try:
             if _model is None:
                 faster_whisper = _faster_whisper()
                 _model = faster_whisper.WhisperModel(
                     MODEL_SIZE, device="cpu", compute_type="int8"
                 )
+        finally:
+            _MODEL_LOAD_LOCK.release()
     return _model
 
 
@@ -1080,7 +1100,11 @@ def _transcribe_audio_live(content: bytes, duration_s, abandonne=None) -> str:
                 if abandonne is not None and abandonne():
                     raise TranscriptionAbandonnee()
                 debut = time.monotonic()
-                model = _get_model()
+                jeton = _ATTENTE_CHARGEMENT_MAX.set(SEGMENT_LOCK_TIMEOUT_S)
+                try:
+                    model = _get_model()
+                finally:
+                    _ATTENTE_CHARGEMENT_MAX.reset(jeton)
                 segments, _info = model.transcribe(
                     io.BytesIO(content), language="fr", beam_size=BEAM_SIZE, vad_filter=True
                 )
