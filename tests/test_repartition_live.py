@@ -592,6 +592,33 @@ def test_les_deux_ecrans_gardent_le_jeton_au_retour_du_poll(ecran: Path) -> None
 
 
 @pytest.mark.parametrize("ecran", LES_DEUX, ids=lambda p: p.name)
+@pytest.mark.parametrize("token_change, rendu_attendu", [(True, 0), (False, 1)],
+                         ids=["reponse_tardive_apres_recommencer", "jeton_inchange"])
+def test_pollrepartition_execute_ne_rend_pas_une_reponse_perimee(
+        ecran: Path, token_change: bool, rendu_attendu: int) -> None:
+    """EXECUTE le vrai `pollRepartition` : la reponse arrive APRES que le jeton de
+    session a change (Recommencer) -> `renderRepartition` n'est PAS appele ;
+    jeton inchange -> il l'est. Remplace la lecture d'ordre par `.index()`."""
+    src = _source(ecran)
+    code = (
+        "var sessionToken = 'A'; var repartitionSincePosition = 0; var NET_TIMEOUT_MS = 1;\n"
+        "var rendus = 0; function renderRepartition() { rendus++; }\n"
+        "var resoudre; var recFetch = function () { return new Promise(function (ok) { resoudre = ok; }); };\n"
+        + _fonction(src, "pollRepartition") + "\n"
+    )
+    scenario = (
+        "jouer(%s);\n" % json.dumps(code)
+        + "jouer('pollRepartition();');\n"
+        + ("jouer(\"sessionToken = 'B';\");\n" if token_change else "")
+        + "jouer(\"resoudre({ok: true, json: function () { return Promise.resolve("
+        "{turns: [], answers: [], done: 0, total: 0, next_since: 1}); }});\");\n"
+        + "setTimeout(function () { console.log(JSON.stringify({rendus: "
+        "vm.runInContext('rendus', bac)})); }, 50);\n"
+    )
+    assert _bac(scenario)["rendus"] == rendu_attendu
+
+
+@pytest.mark.parametrize("ecran", LES_DEUX, ids=lambda p: p.name)
 def test_l_apercu_est_rafraichi_toutes_les_cinq_secondes(ecran: Path) -> None:
     """L'aperçu ne vaut que s'il est réellement rafraîchi, et à la bonne
     cadence : la valeur est verrouillée, pas seulement la présence du timer.
