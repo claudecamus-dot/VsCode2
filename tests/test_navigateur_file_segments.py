@@ -59,6 +59,7 @@ let missionAbsente = false, finalizing2 = 0, lostSegments = [], lostRetryBlockin
 const statusEl = { textContent: '' }, submitBtn = { disabled: null }, pdfBtn = { disabled: null };
 let coveredLen = 0; const finals = []; function submitSegmentJob() { finals.push([lostRetryActive, lowQueue.length, textes.length]); }
 function newSessionToken() { return 'n'; } const sessionTokenHidden = {};
+var lostMarkerTexts = {};
 let nextLostSegmentId = 1, lostRetryActive = 0, lowQueue = [], lowEnVol = 0;
 const LOST_LIST_MAX = 8;
 function perdus() { return lostSegments.filter(function (x) { return !x.attente; }); }
@@ -92,7 +93,9 @@ def _lancer(scenario: str, *, timeout: int = 10_000_000, acquitte: bool = False)
         "timeout": timeout,
         "acquitte": 1 if acquitte else 0,
         "backups": json.dumps([{"position": 0}] if acquitte else []),
-        "rec_retry": (LIBRE.parents[2] / "static" / "rec_retry.js").read_text(encoding="utf-8"),
+        # Sans commentaires : le script passe par `node -e` (limite de longueur de
+        # ligne de commande Windows, WinError 206 atteinte le 2026-10-28).
+        "rec_retry": _sans_commentaires((LIBRE.parents[2] / "static" / "rec_retry.js").read_text(encoding="utf-8")),
         "fonctions": "\n".join(_fonction(src, f) for f in _FONCTIONS),
         "scenario": scenario,
     }

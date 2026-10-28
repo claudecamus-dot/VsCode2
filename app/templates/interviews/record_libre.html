@@ -421,10 +421,19 @@
   // sont PAS comptés : ce n'est pas un échec. Remis à zéro avec `lostSegments`.
   var segmentsRejoues = 0;
   var replayStatusEl = document.getElementById('rec-replay-status');
+  // Même ligne de statut (role=status, aria-live=polite, aucun focus pris) pour
+  // l'alerte de RETARD (incident du 2026-10-27) : >= 3 segments en attente de
+  // transcription -> message rassurant ; masqué quand le retard retombe.
   function refreshReplayStatus() {
-    replayStatusEl.hidden = segmentsRejoues === 0;
-    replayStatusEl.textContent = segmentsRejoues === 0 ? '' :
-      segmentsRejoues + ' segment' + (segmentsRejoues > 1 ? 's' : '') + ' repris automatiquement';
+    var morceaux = [];
+    if (segmentsRejoues > 0) {
+      morceaux.push(segmentsRejoues + ' segment' + (segmentsRejoues > 1 ? 's' : '') + ' repris automatiquement');
+    }
+    var retard = RETRY_PLAN.messageRetard(pendingSegments);
+    if (retard) morceaux.push(retard);
+    var texte = morceaux.join(' · ');
+    if (replayStatusEl.textContent !== texte) replayStatusEl.textContent = texte;  // pas de ré-annonce à l'identique
+    replayStatusEl.hidden = !texte;
   }
   // Alerte de COMPLÉTUDE d'un import de fichier (job `done` ET statut
   // `incomplet` seulement) : un bandeau persistant, séparé de `statusEl` —
@@ -718,6 +727,7 @@
   }
 
   function updateSubmitState() {
+    try { refreshReplayStatus(); } catch (eRetard) { console.error('alerte de retard', eRetard); }
     var hasTranscript = !!transcriptSoFar.trim();
     // « Enregistrer sans attendre » (demande du 2026-10-19) : la transcription en
     // vol (`traitement`) ne gèle plus l'enregistrement dès que l'AUDIO COMPLET est
@@ -820,8 +830,11 @@
     segmentRecorder.start();
   }
 
+  // Texte EXACT du marqueur posé pour chaque id (il porte la raison de l'échec
+  // depuis le 2026-10-28) : remplacement et abandon cherchent CE texte-là.
+  var lostMarkerTexts = {};
   function lostMarker(id) {
-    return '⚠ [segment ' + id + ' non transcrit — relance possible]';
+    return lostMarkerTexts[id] || RETRY_PLAN.marqueurPerdu(id, '');
   }
 
   // Segments consécutifs rejetés « aucune parole détectée » (code no_speech du
@@ -1014,7 +1027,7 @@
   // Conserve l'audio d'un segment non abouti pour un rejeu manuel. Appelée par
   // les DEUX natures d'échec (cf. `lostSegments`) : jeter le blob laissait un
   // trou définitif dans la transcription, sans aucune issue que la ressaisie.
-  function keepLostSegment(blob, reason, lostId, blocking, segId, attente) {
+  function keepLostSegment(blob, reason, lostId, blocking, segId, attente, cause) {
     var id = lostId || nextLostSegmentId++;
     // `gen` : génération de l'enregistrement auquel cette parole appartient.
     // Une relance déclenchée APRÈS un « Recommencer » doit être rejetée par la
@@ -1030,7 +1043,10 @@
     if (entree.attente) waitingSegments.push(entree);
     // Marqueur posé une seule fois : sur une relance (lostId) il est déjà dans
     // le texte, à la place exacte où le rejeu réinsérera la parole.
-    if (!lostId) appendTranscript(lostMarker(id));
+    if (!lostId) {
+      lostMarkerTexts[id] = RETRY_PLAN.marqueurPerdu(id, RETRY_PLAN.raisonMarqueur(reason, cause));
+      appendTranscript(lostMarker(id));
+    }
     refreshLostBanner();
   }
 
@@ -1511,7 +1527,7 @@
     // J2: une relance manuelle (basse priorité) PENDANT l'enregistrement ne dort jamais dans
     // l'emplacement unique (backoff / reprise réseau): elle le rend et redevient relançable.
     function cederLaPlace(reason) {
-      keepLostSegment(blob, reason, lostId, !!ctx.blocking, segId, !!ctx.attente);
+      keepLostSegment(blob, reason, lostId, !!ctx.blocking, segId, !!ctx.attente, ctx.cause);
       settle();
     }
 
@@ -1530,10 +1546,23 @@
       // file, et l'abort client n'a PAS annulé le travail serveur en cours).
       // Le blob part directement dans le bandeau : relance MANUELLE possible,
       // abandon possible — un état actionnable au lieu d'un gel de 45 min.
+      // Incident du 2026-10-27 (Whisper medium plus lent que le temps réel) :
+      // l'abandon direct perdait des segments dont l'audio était pourtant déjà
+      // sur le serveur. Décision PURE dans rec_retry.js : 'attente' (copie
+      // acquittée, comme `giveUpBusy`), sinon le budget 'retry' commun.
       if (timedOut) {
-        keepLostSegment(blob, reason, lostId, true, segId);  // bloquant : seule copie de cette parole
-        settle();
-        return;
+        var decision = RETRY_PLAN.decisionDelaiDepasse(copieServeurAcquittee(), attempt, !!lostId, !!ctx.attente);
+        if (decision.action === 'attente') {
+          keepLostSegment(blob, reason, lostId, false, segId, true, ctx.cause);
+          settle();
+          return;
+        }
+        if (decision.action === 'perdu') {
+          keepLostSegment(blob, reason, lostId, true, segId, false, ctx.cause);  // bloquant : seule copie de cette parole
+          settle();
+          return;
+        }
+        // 'relance' : même chemin qu'un échec réseau (budget RETRY_PLAN 'retry').
       }
       if (ctx.low && recordingActive) { cederLaPlace(reason); return; }
       var nat = nature || 'retry';
@@ -1574,7 +1603,7 @@
         }, delai);
         return;  // pendingSegments reste tenu par la tentative initiale
       }
-      keepLostSegment(blob, reason, lostId, true, segId);  // bloquant : seule copie de cette parole
+      keepLostSegment(blob, reason, lostId, true, segId, false, ctx.cause);  // bloquant : seule copie de cette parole
       settle();
     }
 
@@ -1591,9 +1620,9 @@
     // reste dans la liste des perdus.
     function giveUpBusy(reason) {
       if ((!lostId || ctx.attente) && copieServeurAcquittee()) {
-        keepLostSegment(blob, reason, lostId, false, segId, true);  // conserve blob + segId, visible et relançable
+        keepLostSegment(blob, reason, lostId, false, segId, true, ctx.cause);  // conserve blob + segId, visible et relançable
       } else {
-        keepLostSegment(blob, reason, lostId, true, segId);
+        keepLostSegment(blob, reason, lostId, true, segId, false, ctx.cause);
       }
       settle();
     }
@@ -1635,6 +1664,7 @@
       })
       .then(function (result) {
         if (gen !== backupGeneration) { settle(); return; }  // session abandonnée : ne pas ressusciter
+        ctx.cause = { statut: result.status };  // raison portée par le marqueur si le segment est gardé
         if (result.ok && result.data.text) {
           try {
             if (lostId) replaceLostMarker(lostId, result.data.text);
@@ -1692,13 +1722,14 @@
         var muet = nature === 'no_speech';
         if (muet && !lostId) noteNoSpeech();
         console.error('segment de transcription non abouti', result.data);
-        keepLostSegment(blob, detail, lostId, !muet, segId);
+        keepLostSegment(blob, detail, lostId, !muet, segId);  // raison = message du serveur
         settle();
       }, function (err) {
         // .then(ok, ko) et non .catch: une exception DANS le traitement du résultat
         // ne doit pas relancer retryOrGiveUp (double règlement, réémission).
         // `recTimeout` : délai maximal atteint (rec_fetch.js) — pas de relance
         // automatique des mêmes octets (R3-M5/M6).
+        ctx.cause = { timeout: !!(err && err.recTimeout) };
         retryOrGiveUp(err.message, !!(err && err.recTimeout));
       })
       .catch(function (e) {
@@ -2579,6 +2610,19 @@
     statusEl.textContent = 'Transcription précédente conservée suite à une erreur — prêt à réessayer.';
   }
 
+  // Préchauffage de Whisper au clic sur Démarrer (incident du 2026-10-27 : ~5 min
+  // à froid sur le 1er segment). Fire-and-forget, UNE fois par chargement de
+  // page, échec silencieux ; même `recFetch` (contrôle d'origine) que les autres POST.
+  var warmUpDemande = false;
+  function prechaufferTranscription() {
+    if (warmUpDemande) return;
+    warmUpDemande = true;
+    try {
+      recFetch('/audio/warm-up', { method: 'POST' }, NET_TIMEOUT_MS)
+        .then(function () {}, function () {});
+    } catch (eWarm) { /* silencieux : le préchauffage n'est qu'une optimisation */ }
+  }
+
   startBtn.addEventListener('click', function () {
     // Verrou synchrone : sans lui, deux clics rapides (ou clic + Entrée) avant
     // que getUserMedia ne réponde démarrent DEUX jeux de MediaRecorder en
@@ -2623,6 +2667,7 @@
       return;
     }
     startBtn.disabled = true;
+    prechaufferTranscription();
     // Mode à distance : rend le MÉLANGE micro + onglet ; sinon le micro brut,
     // exactement comme avant (le présentiel ne paie rien pour cette nouveauté).
     i2dAudioSource.acquire(remoteModeEl.checked && !remoteBypass).then(function (s) {

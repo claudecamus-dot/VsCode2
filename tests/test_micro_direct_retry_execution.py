@@ -323,6 +323,14 @@ def test_un_echec_reseau_puis_succes_compte_un_rejeu(ecran) -> None:
 
 
 def test_un_delai_maximal_n_est_pas_rejoue_ni_compte(ecran) -> None:
+    if ecran.name == "record_libre.html":
+        # Incident 2026-10-27 : sans copie acquittée, record_libre suit le plan
+        # 'retry' (2 relances) puis garde le segment perdu, bloquant.
+        to = {"reseau_ko": True, "recTimeout": True}
+        r = _jouer(ecran, [to, to, to])
+        assert r["delais_programmes"] == [2000, 6000] and r["rejoues"] == 1
+        assert len(r["perdus"]) == 1 and r["perdus"][0]["blocking"] is True
+        return
     r = _jouer(ecran, [{"reseau_ko": True, "recTimeout": True}])
     assert r["delais_programmes"] == [] and r["rejoues"] == 0
     assert len(r["perdus"]) == 1 and r["perdus"][0]["blocking"] is True

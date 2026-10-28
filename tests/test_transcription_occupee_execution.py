@@ -334,10 +334,19 @@ _SCENARIO_DELAI_RESEAU_MAXIMAL = r"""
 @pytest.fixture(scope="module", params=LES_DEUX, ids=lambda p: p.name)
 def delai_reseau_maximal(request) -> dict:
     reponses = [{"reseau_ko": True, "recTimeout": True}]
-    return _lancer(request.param, reponses, 900000, _SCENARIO_DELAI_RESEAU_MAXIMAL)
+    res = _lancer(request.param, reponses, 900000, _SCENARIO_DELAI_RESEAU_MAXIMAL)
+    res["ecran"] = request.param.name
+    return res
 
 
 def test_le_delai_reseau_maximal_abandonne_sans_relancer_les_memes_octets(delai_reseau_maximal: dict) -> None:
+    # record_libre.html (incident 2026-10-27) : sans copie serveur acquittée, le
+    # délai dépassé suit désormais le plan RETRY_PLAN ('retry', 1re relance à
+    # 2 s) — cf. tests/test_rec_retry_delai_retard_warmup.py. record.html : inchangé.
+    if delai_reseau_maximal["ecran"] == "record_libre.html":
+        assert delai_reseau_maximal["minuteurs_avant_abandon"] == 1
+        assert delai_reseau_maximal["abandonne"] is False
+        return
     # R3-M5/M6 : la fenêtre généreuse (TRANSCRIBE_TIMEOUT_MS) a déjà été
     # attendue en entier côté `recFetch` — relancer les mêmes octets aggrave
     # une éventuelle file côté serveur. Ce chemin n'était exercé par AUCUN des

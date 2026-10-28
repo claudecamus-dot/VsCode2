@@ -21,7 +21,8 @@
 //   • 503 `code: "busy"`            -> HORS budget : file d'attente normale du
 //                                      verrou Whisper, bornée par `busyUntil`
 //                                      (900 s) côté appelant ;
-//   • délai maximal (`recTimeout`)  -> JAMAIS rejoué (rejouer les mêmes octets
+//   • délai maximal (`recTimeout`)  -> record.html : JAMAIS rejoué ; record_libre.html :
+//                                      `decisionDelaiDepasse` (2026-10-28). Avant : (rejouer les mêmes octets
 //                                      aggrave une file déjà noyée) ;
 //   • 422 `no_speech`               -> pas de retry, non bloquant ;
 //   • 413, tout autre 422 (sans code ou code inconnu) -> définitif.
@@ -170,7 +171,59 @@
     bandeauEl.hidden = !msg;
   }
 
+  // Raison COURTE d'un segment non transcrit, portée dans son marqueur
+  // (incident du 2026-10-27 : « [segment N non transcrit] » ne disait pas
+  // pourquoi). `cause` = { timeout: bool, statut: nombre HTTP } quand connue.
+  // Nettoyée pour rester lisible par `ai_common._SEGMENT_MARKER_RE`
+  // (`⚠ ?\[segment[^\]\n]*\]`) : ni crochet ni saut de ligne, longueur bornée.
+  function raisonMarqueur(reason, cause) {
+    cause = cause || {};
+    if (cause.timeout) return 'délai dépassé';
+    var statut = Number(cause.statut);
+    if (isFinite(statut) && statut > 0) return 'refus serveur ' + statut;
+    var brut = String(reason == null ? '' : reason);
+    if (/failed to fetch|networkerror|network|load failed|réseau|reseau/i.test(brut)) return 'réseau';
+    brut = brut.replace(/[\[\]\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (brut.length > 60) brut = brut.slice(0, 59) + '…';
+    return brut || 'erreur inconnue';
+  }
+
+  // Texte EXACT du marqueur posé dans la transcription. L'écran le mémorise par
+  // id : le remplacement (relance aboutie / abandon) cherche ce même texte.
+  function marqueurPerdu(id, raison) {
+    return '⚠ [segment ' + id + ' non transcrit'
+      + (raison ? ' (' + raison + ')' : '') + ' — relance possible]';
+  }
+
+  // Délai maximal atteint (`err.recTimeout`) sur un segment du direct :
+  //   • audio complet déjà acquitté par le serveur (et pas une relance
+  //     manuelle d'un vrai perdu) -> 'attente' (même issue que `giveUpBusy`) ;
+  //   • sinon -> plan de relance commun ('retry') tant qu'il reste du budget,
+  //     puis 'perdu' (bloquant : le blob est la seule copie).
+  // Retour : { action: 'attente' } | { action: 'relance', delai, numero, total }
+  //        | { action: 'perdu' }.
+  function decisionDelaiDepasse(copieAcquittee, attempt, relanceManuelle, attente) {
+    if (copieAcquittee && (!relanceManuelle || attente)) return { action: 'attente' };
+    var p = prochaineTentative('retry', attempt || 0);
+    if (p === null) return { action: 'perdu' };
+    return { action: 'relance', delai: p.delai, numero: p.numero, total: p.total };
+  }
+
+  // Alerte de RETARD de la transcription en direct : '' sous le seuil.
+  var SEUIL_RETARD = 3;
+  function messageRetard(enAttente) {
+    var n = Math.max(0, Math.floor(Number(enAttente) || 0));
+    if (n < SEUIL_RETARD) return '';
+    return 'Transcription en retard de ' + n + ' segments — elle se poursuit, '
+      + 'l’enregistrement n’est pas perdu';
+  }
+
   window.recRetryPlan = Object.freeze({
+    raisonMarqueur: raisonMarqueur,
+    marqueurPerdu: marqueurPerdu,
+    decisionDelaiDepasse: decisionDelaiDepasse,
+    messageRetard: messageRetard,
+    seuilRetard: SEUIL_RETARD,
     delaisReseau: DELAIS_RESEAU_MS,
     delaisTransient: DELAIS_TRANSIENT_MS,
     classer: classer,

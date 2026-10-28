@@ -323,7 +323,8 @@ def test_un_segment_refuse_en_422_garde_son_audio_et_son_bouton_de_relance(
     assert "retryLostSegments([seg.id])" in html
     # 3. seuls les segments bloquants gèlent la soumission et l'alerte de sortie ;
     # record-libre: 5e argument `segId` ; l'abandon reste BLOQUANT (`true`) dans les deux écrans.
-    assert ("keepLostSegment(blob, reason, lostId, true, segId)" if path_suffix == "record-libre"
+    # record-libre (2026-10-28) : + `attente` et `cause` (raison portée par le marqueur).
+    assert ("keepLostSegment(blob, reason, lostId, true, segId, false, ctx.cause)" if path_suffix == "record-libre"
             else "keepLostSegment(blob, reason, lostId, true)") in html
     assert html.count("lostSegments.some(function (s) { return s.blocking; })") >= 2
     # 4. une RELANCE ne compte pas dans la série de segments muets consécutifs
