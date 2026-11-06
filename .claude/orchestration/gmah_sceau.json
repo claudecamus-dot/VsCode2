@@ -1,0 +1,15 @@
+{
+  "avertissement": "Genere par export_agentic.py (story 14.12). Detecte la derive du moteur, n'arrete pas un adversaire qui controle le kit.",
+  "fichiers": {
+    ".claude/orchestration/_gmah_cle.py": "66b838c0facf9109b3a7ba176ac1d858abdf23d703d6d04b1078231df6c1d51f",
+    ".claude/orchestration/coalition_planner.py": "ca921915eb14aafe15cad8a025aaa9b48fdb32dfe3eb174057ceeca9762ede6a",
+    ".claude/orchestration/communication_graph.py": "7a4a537133d4992b540004edee186c8279d67d9236e1aa2e9e61e9cdb2951384",
+    ".claude/orchestration/gravite.py": "892e84d717a831aa06ae81d76aa133d3ef0ee450ece6fd68cd0c71b57a8cf32b",
+    ".claude/orchestration/neural_gate.py": "ae6e3e2571a087d58de68b2030019ed51c8d26696280e1a36f0abb22d23431dc",
+    ".claude/orchestration/neural_policy.py": "573f385fd2647fda50a09ec201126976b005a4a90f8365621dd11fff6c7347bb",
+    ".claude/orchestration/neural_policy.yaml": "d7b0d04a4b8cbaa9326c4918de8d0c3354508aad8326c2468491fcd14a1c6de6",
+    ".claude/orchestration/neural_shadow.py": "c6909659aca233757580c2e17af2d79ecbcc05b7e19f72c1652db507dd8c20e4",
+    "scripts/eval_neural_gate.py": "b5cfd825709f416a90905ff681dcedf2ee6053ba0d59e268e5809c7506d314aa",
+    "scripts/validate_learning_release.py": "03b1f14b13c4561c10269953885e378cb7135e4634f4e9e567d8eb7708658722"
+  }
+}

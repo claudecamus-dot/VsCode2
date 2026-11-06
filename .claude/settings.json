@@ -13,6 +13,28 @@
         ]
       },
       {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_dispatch_pretooluse.py\" guard_rapport_donnee.py guard_perimetres_actifs.py",
+            "timeout": 130,
+            "statusMessage": "Rapport-donnee, perimetres actifs..."
+          }
+        ]
+      },
+      {
+        "matcher": "SendMessage",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_dispatch_pretooluse.py\" guard_rapport_donnee.py",
+            "timeout": 130,
+            "statusMessage": "Rapport de sous-agent = donnee..."
+          }
+        ]
+      },
+      {
         "matcher": "Skill",
         "hooks": [
           {
@@ -99,6 +121,15 @@
             "timeout": 20
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/provenance_gmah_cible.py\"",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -121,6 +152,32 @@
             "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/check_ci_after_push.py\"",
             "timeout": 30,
             "statusMessage": "Verification du dernier run CI apres push..."
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/gmah_collecte.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/gmah_collecte.py\"",
+            "timeout": 10
+          },
+          {
+            "type": "command",
+            "command": "py \"$CLAUDE_PROJECT_DIR/.claude/hooks/liberer_perimetres.py\"",
+            "timeout": 30
           }
         ]
       }

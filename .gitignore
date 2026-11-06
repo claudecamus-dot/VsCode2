@@ -47,3 +47,8 @@ tests/exemple/
 uv.lock
 .claude/settings.json.avant-migration
 .mypy_cache/
+
+# GMAH runtime state (guard_perimetres_actifs / liberer_perimetres, story 14.14; gravite state, as at the hub)
+.claude/orchestration/perimetres_actifs.json*
+.claude/supervision/captures_gardes.jsonl
+.claude/orchestration/gravite/

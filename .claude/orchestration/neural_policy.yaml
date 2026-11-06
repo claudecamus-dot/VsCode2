@@ -1,0 +1,19 @@
+# Neural layer policy (story 14.1). ONE file: non-learnable safety rules + learnable routing.
+# Loaded only through neural_policy.py (strict schema: unknown or duplicate key => refused).
+version: 1
+securite:            # never touched by learning (updates are refused)
+  plafond_bras: 4    # must stay <= PLAFOND_BRAS of gravite.py
+  requires_user_approval: true   # can never be false (R4)
+  on_missing_cost_or_capacity: abstain   # only allowed value
+  quotas_max:
+    agents_actifs: 4
+    messages_par_run: 24
+    tokens_par_run: 240000
+routage:             # learnable section
+  seuils:
+    gain_min: 0.0
+    confiance_min: 0.5
+  poids:
+    cout: 0.3
+    qualite: 0.5
+    delai: 0.2
