@@ -69,7 +69,8 @@ import multiprocessing
 import os
 import threading
 import time
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import Future, ProcessPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from concurrent.futures.process import BrokenProcessPool
 
 from app.services.priority_lock import FOND, LIVE, PriorityLock
@@ -179,6 +180,38 @@ GLOBAL_MAX_PARALLEL_WORKERS = int(
 _GLOBAL_WORKERS_SEMAPHORE = threading.Semaphore(max(1, GLOBAL_MAX_PARALLEL_WORKERS))
 # Sérialise la prise multi-permis d'un job (sinon interblocage partiel, EH-1).
 _ACQUISITION_PERMIS_LOCK = threading.Lock()
+
+# Story 2.2 (2026-11-16, entretien 23, ~105 min) : 8 workers x ~1,58 Go privés
+# (mesuré : `medium`, compute_type int8) sur une machine déjà chargée = mémoire
+# pleine, pagination continue, 0 bloc en 45 min. Les permis ci-dessus ne
+# comptent que des PROCESSUS ; avant de démarrer le pool, `_drain_parallel`
+# réduit donc aussi le nombre de workers à ce que la mémoire DISPONIBLE permet :
+# (disponible - MEMOIRE_MARGE_OCTETS) // estimation par worker.
+# Estimation par taille de modèle (Gio, privé par processus, modèle chargé +
+# inférence d'un bloc de 60 s) : `medium` mesuré, les autres extrapolés du
+# rapport des poids ; un nom inconnu prend l'estimation la plus prudente.
+# `WHISPER_MEMOIRE_PAR_WORKER_MO` l'écrase (machine mesurée autrement).
+_MEMOIRE_PAR_MODELE_GIO = {
+    "tiny": 0.4, "base": 0.5, "small": 0.9, "medium": 1.6,
+    "large-v1": 3.2, "large-v2": 3.2, "large-v3": 3.2, "large": 3.2,
+}
+MEMOIRE_PAR_WORKER_OCTETS = (
+    _entier_env("WHISPER_MEMOIRE_PAR_WORKER_MO", 0) * 1024 * 1024
+    or int(_MEMOIRE_PAR_MODELE_GIO.get(MODEL_SIZE, 3.2) * 1024 ** 3)
+)
+# Laissé libre pour le parent (PCM décodé : ~690 Mo pour 3 h), l'OS et le reste
+# de l'appli : sans marge, le dernier worker admis fait déjà paginer.
+MEMOIRE_MARGE_OCTETS = 1024 ** 3
+
+# Attente max (s) du RÉSULTAT d'un bloc par `_drain_parallel` (avant : aucune,
+# `futures.pop(index).result()` nu, et seule la péremption de 3 h finissait par
+# parler). Un bloc nominal dure 60 s d'audio x RTF ~3,6 par worker bridé = ~216 s
+# au pire (cf. SEGMENT_LOCK_TIMEOUT_S) ; le premier bloc d'un worker paie en plus
+# le chargement du modèle (minutes sur une machine chargée). 900 s = ~4x le pire
+# bloc nominal, chargement compris, et moitié de BACKGROUND_LOCK_TIMEOUT_S (1800 s,
+# l'attente bornée sœur du chemin séquentiel) : au-delà, le bloc ne progresse plus
+# (pagination, worker figé) — l'incident aurait échoué à 15 min au lieu de 3 h.
+BLOC_RESULTAT_TIMEOUT_S = float(_entier_env("WHISPER_BLOC_TIMEOUT_S", 900))
 
 # Temps (secondes) qu'une transcription synchrone (direct : segment de
 # record.html, ou dictée de notes libres) attend `_MODEL_LOCK` avant de
@@ -322,6 +355,34 @@ class TranscriptionFondBusyError(TranscriptionError):
     """Verrou de FOND non obtenu après BACKGROUND_LOCK_TIMEOUT_S (30 min) : NON
     réessayée par `audio_file_jobs._est_reessayable` (`plafond_essais_bloc` x 1800 s
     par bloc sinon)."""
+
+
+class TranscriptionBloqueeError(TranscriptionError):
+    """Aucun résultat d'un bloc en BLOC_RESULTAT_TIMEOUT_S (story 2.2) : les workers
+    sont arrêtés et le job échoue avec un message proposant la relance. NON
+    réessayée par `audio_file_jobs._est_reessayable` (message ≠ ECHEC_TRANSCRIPTION) :
+    relancer aussitôt sur une machine qui pagine reproduirait l'attente."""
+
+
+def message_transcription_bloquee(delai_s: float) -> str:
+    return (
+        f"La transcription n'avance plus : un bloc n'a rendu aucun résultat en "
+        f"{max(1, round(delai_s / 60))} min "
+        "(mémoire de la machine probablement saturée). Relancez la transcription — "
+        "les blocs déjà transcrits sont conservés, la reprise repart de là."
+    )
+
+
+MESSAGE_MEMOIRE_INSUFFISANTE = (
+    "Mémoire insuffisante pour transcrire maintenant : fermez des applications "
+    "puis relancez — rien n'est perdu."
+)
+
+
+class TranscriptionMemoireInsuffisanteError(TranscriptionError):
+    """Pas même un worker ne tient en mémoire ET le modèle du serveur n'est pas
+    chargé (story 2.2) : le charger maintenant ajouterait ~1,6 Gio pile quand la
+    mémoire manque. Échec immédiat, aucun chargement tenté ; NON réessayée."""
 
 
 class TranscriptionAbandonnee(Exception):
@@ -511,17 +572,36 @@ def _decode_to_pcm16k(content: bytes):
     return pcm
 
 
+# Modèle du PROCESSUS WORKER (story 2.2) : chargé une fois par processus du pool,
+# puis réutilisé pour tous ses blocs. Avant, `_transcribe_pcm_chunk` construisait
+# un `WhisperModel` À CHAQUE bloc de 60 s (~105 chargements pour 105 min). Reste
+# `None` dans le processus serveur : le chemin séquentiel a son singleton `_model`.
+_worker_model = None
+
+
+def _modele_worker(threads: int):
+    """Modèle du processus courant, chargé au premier bloc et gardé ensuite —
+    cache de niveau module, donc propre à chaque processus `spawn`. Pas
+    d'`initializer` de pool : les doublures de `ProcessPoolExecutor` des tests
+    n'acceptent pas ce paramètre, et charger au premier bloc revient au même
+    (une fois par processus) sans casser le pool si le chargement échoue — l'échec
+    remonte alors comme celui d'un bloc, avec ses tentatives."""
+    global _worker_model
+    if _worker_model is None:
+        faster_whisper = _faster_whisper()
+        _worker_model = faster_whisper.WhisperModel(
+            MODEL_SIZE, device="cpu", compute_type="int8", cpu_threads=threads
+        )
+    return _worker_model
+
+
 def _transcribe_pcm_chunk(args: tuple) -> str:
     """Transcrit un tronçon PCM déjà décodé — fonction de niveau module
     (requis par `ProcessPoolExecutor` sous Windows, qui doit pouvoir la
-    pickler). Chaque processus charge son propre modèle : aucun partage
-    possible entre processus séparés, contrairement au singleton `_model`
-    du chemin séquentiel."""
+    pickler). Chaque processus a son propre modèle (aucun partage possible
+    entre processus séparés), chargé UNE fois par processus (`_modele_worker`)."""
     pcm, threads = args
-    faster_whisper = _faster_whisper()
-    model = faster_whisper.WhisperModel(
-        MODEL_SIZE, device="cpu", compute_type="int8", cpu_threads=threads
-    )
+    model = _modele_worker(threads)
     segments, _info = model.transcribe(
         pcm, language="fr", beam_size=BEAM_SIZE, vad_filter=True
     )
@@ -702,6 +782,150 @@ def _paliers_workers(n_workers: int) -> list[int]:
     return paliers
 
 
+def memoire_disponible() -> int | None:
+    """Mémoire physique DISPONIBLE (octets), ou `None` si indéterminable (le garde
+    mémoire s'efface alors : comportement d'avant). Sans psutil (pas une dépendance
+    du projet) : `GlobalMemoryStatusEx` sous Windows, `MemAvailable` de
+    /proc/meminfo sous Linux, `os.sysconf` ailleurs. Remplaçable dans les tests."""
+    try:
+        if os.name == "nt":
+            import ctypes
+
+            class _MemoryStatusEx(ctypes.Structure):
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            etat = _MemoryStatusEx()
+            etat.dwLength = ctypes.sizeof(_MemoryStatusEx)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(etat)):
+                return int(etat.ullAvailPhys)
+            return None
+        with open("/proc/meminfo", "r", encoding="ascii") as f:
+            for ligne in f:
+                if ligne.startswith("MemAvailable:"):
+                    return int(ligne.split()[1]) * 1024
+    except Exception:
+        logger.debug("Mesure de la mémoire disponible impossible", exc_info=True)
+    try:
+        return os.sysconf("SC_AVPHYS_PAGES") * os.sysconf("SC_PAGE_SIZE")
+    except (ValueError, OSError, AttributeError):
+        return None
+
+
+def _workers_selon_memoire(demandes: int) -> int:
+    """Workers que la mémoire disponible permet de démarrer (0 = aucun : repli
+    séquentiel borné si le modèle du serveur est chargé, sinon échec immédiat).
+
+    RISQUE RÉSIDUEL assumé : deux pools démarrés au même instant lisent la même
+    mémoire libre avant que l'un ou l'autre ait chargé ses modèles, et peuvent
+    ensemble dépasser. Un compteur de réservations le fermerait mais compterait
+    deux fois un pool déjà chargé (sa mémoire est alors déjà retirée du
+    « disponible ») ; `GLOBAL_MAX_PARALLEL_WORKERS` borne toujours la somme."""
+    dispo = memoire_disponible()
+    if dispo is None:
+        return demandes
+    permis = max(0, int((dispo - MEMOIRE_MARGE_OCTETS) // max(1, MEMOIRE_PAR_WORKER_OCTETS)))
+    retenus = min(demandes, permis)
+    logger.info(
+        "Transcription parallèle : %d worker(s) demandé(s), %d retenu(s) "
+        "(mémoire disponible %.1f Go, ~%.1f Go par worker, marge %.1f Go).",
+        demandes, retenus, dispo / 1024 ** 3, MEMOIRE_PAR_WORKER_OCTETS / 1024 ** 3,
+        MEMOIRE_MARGE_OCTETS / 1024 ** 3,
+    )
+    return retenus
+
+
+# Classe réelle, capturée à l'import : le garde mémoire ne vaut que pour de VRAIS
+# processus qui chargent un modèle. Les doublures de `ProcessPoolExecutor` des tests
+# (qui ne chargent rien) n'en dépendent donc pas de la mémoire libre de la machine.
+_POOL_REEL = ProcessPoolExecutor
+
+
+def _pool_reel() -> bool:
+    return isinstance(ProcessPoolExecutor, type) and issubclass(ProcessPoolExecutor, _POOL_REEL)
+
+
+def _attendre_resultat(future, index: int, total: int) -> str:
+    """Résultat d'un bloc, attendu au plus BLOC_RESULTAT_TIMEOUT_S, avec un battement
+    du job toutes les BATTEMENT_ATTENTE_S tant que l'attente dure (sans lui, un bloc
+    lent mais vivant laissait le job sans signe de vie jusqu'au bloc suivant).
+    Au-delà : `TranscriptionBloqueeError`. Une doublure de test qui n'est pas un
+    `Future` (déjà résolue, sans `timeout`) est lue directement."""
+    if not isinstance(future, Future):
+        return future.result()
+    echeance = time.monotonic() + BLOC_RESULTAT_TIMEOUT_S
+    while True:
+        reste = echeance - time.monotonic()
+        if reste <= 0:
+            if future.done():
+                return future.result()
+            logger.error(
+                "Bloc %d/%d sans résultat après %.0f s : workers arrêtés, transcription en échec.",
+                index + 1, total, BLOC_RESULTAT_TIMEOUT_S,
+            )
+            raise TranscriptionBloqueeError(message_transcription_bloquee(BLOC_RESULTAT_TIMEOUT_S))
+        try:
+            return future.result(timeout=min(reste, BATTEMENT_ATTENTE_S))
+        except FuturesTimeoutError:
+            if future.done():
+                raise      # TimeoutError levée PAR la tâche elle-même, pas par l'attente
+            _signaler_vivant()
+
+
+def _arreter_workers(executor, futures: dict) -> None:
+    """Arrête net les workers d'un pool dont un bloc ne rend plus rien : annule les
+    blocs en file et termine les processus (sinon `shutdown(wait=True)` à la
+    sortie du `with` attendrait le worker figé indéfiniment, et ses processus
+    resteraient orphelins). `terminate_workers` existe depuis Python 3.14."""
+    for f in futures.values():
+        f.cancel()
+    # Instantané AVANT l'arrêt : `shutdown` oublie ses processus, et
+    # `terminate_workers` ne les attend pas — vu au test sur pool réel, le worker
+    # était encore vivant à la sortie du `with`.
+    processus = list((getattr(executor, "_processes", None) or {}).values())
+    terminer = getattr(executor, "terminate_workers", None)
+    if terminer is not None:
+        terminer()
+    else:   # Python < 3.14 (la CI tourne en 3.12)
+        arreter = getattr(executor, "shutdown", None)
+        if arreter is not None:
+            arreter(wait=False, cancel_futures=True)
+        for p in processus:
+            p.terminate()
+    for p in processus:
+        p.join(5)
+        if p.is_alive():
+            p.kill()
+            p.join(5)
+
+
+def _sequentiel_borne(pcm, priority: int, index: int, total: int) -> str:
+    """Un bloc sur le modèle du serveur, dans un fil dédié, attendu comme un bloc du
+    pool (`_attendre_resultat` : borne BLOC_RESULTAT_TIMEOUT_S + battement). Au
+    délai dépassé le fil n'est pas tuable : il finit son bloc, dont le texte est
+    jeté, puis rend `_MODEL_LOCK`."""
+    future: Future = Future()
+
+    def _executer() -> None:
+        try:
+            if priority == FOND:
+                future.set_result(_transcribe_pcm_sequential(pcm))
+            else:
+                future.set_result(_transcribe_pcm_sequential(pcm, priority))
+        except BaseException as exc:   # remonté au demandeur via le Future
+            future.set_exception(exc)
+
+    threading.Thread(target=_executer, name="whisper-repli-borne", daemon=True).start()
+    return _attendre_resultat(future, index, total)
+
+
 def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
                     priority: int = FOND):
     """Génère `(index, texte)` pour les blocs `[start, total)` via un pool de
@@ -729,6 +953,19 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
     acquis = 0
     # Jamais plus de permis que le plafond global : sinon attente éternelle.
     n_workers = max(1, min(n_workers, max(1, GLOBAL_MAX_PARALLEL_WORKERS)))
+    if _pool_reel():
+        # Story 2.2 : garde mémoire AVANT les permis et le pool (cf. MEMOIRE_PAR_WORKER_OCTETS).
+        n_workers = _workers_selon_memoire(n_workers)
+        if n_workers == 0:
+            # Pas même un worker. Modèle du serveur DÉJÀ chargé : repli séquentiel
+            # sur lui (aucune mémoire de plus), borné comme un bloc du pool. Pas
+            # chargé : échec immédiat plutôt que charger ~1,6 Gio maintenant.
+            if _model is None:
+                logger.warning("Mémoire insuffisante pour un worker et modèle non chargé : échec immédiat.")
+                raise TranscriptionMemoireInsuffisanteError(MESSAGE_MEMOIRE_INSUFFISANTE)
+            for index in range(start, total):
+                yield index, _sequentiel_borne(blocks[index], priority, index, total)
+            return
     window = min(window, n_workers * 2)
     try:
         # Tout-ou-rien (EH-1) : un fond ne garde aucun permis en attendant les
@@ -784,11 +1021,22 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
                 _submit(submitted)
                 submitted += 1
             for index in range(start, total):
-                text = futures.pop(index).result()
+                try:
+                    text = _attendre_resultat(futures.pop(index), index, total)
+                except TranscriptionBloqueeError:
+                    _arreter_workers(executor, futures)
+                    raise
                 while submitted < total and len(futures) < _limite():
                     _submit(submitted)
                     submitted += 1
-                yield index, text
+                try:
+                    yield index, text
+                except GeneratorExit:
+                    # Consommateur parti (exécution supplantée, abandon) : personne ne
+                    # lira les blocs en vol — arrêter les workers au lieu d'attendre
+                    # qu'ils finissent dans `shutdown(wait=True)`.
+                    _arreter_workers(executor, futures)
+                    raise
     finally:
         for _ in range(acquis):
             _GLOBAL_WORKERS_SEMAPHORE.release()
