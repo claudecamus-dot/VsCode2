@@ -251,10 +251,14 @@ def _detenteur_actif(detenteur) -> bool:
         return False
     if debut is not None:
         actuel = _debut_processus(pid)
-        if actuel is not None and actuel != debut:
-            # Même PID, processus DIFFÉRENT : le détenteur est mort et son
-            # numéro a été réattribué. Le verrou est à prendre.
-            return False
+        if actuel is not None:
+            # Identity ESTABLISHED (PID + start time). Different start: the PID
+            # was recycled, the lock is free. Same start: the holder is alive,
+            # and its lock holds WHATEVER ITS AGE — a 2 h 35 suite (2026-10-20)
+            # had its lock stolen at 45 min, then WinError 32 (Story 3.1, D-2).
+            return actuel == debut
+    # Identity unknown (old-format lock, start time unreadable): age is the
+    # only remaining safety net against a lock outliving its owner.
     return age < _VERROU_PERIME_S
 
 
@@ -417,6 +421,52 @@ def vider_recordings_de_test() -> None:
 def pytest_sessionstart(session):  # noqa: ARG001
     """Nettoyage au démarrage de la session."""
     vider_recordings_de_test()
+    _ouvrir_fichier_echecs()
+
+
+# --------------------------------------------------------------------------- #
+# Failures written AS THEY HAPPEN (Story 3.1, AC3.1.2 — finding D-3)
+#
+# In `-q`, failing nodeids only appear in the final summary: a run that hangs
+# or is killed after 2 h (2026-10-20: 2 h 35; 2026-10-14: 9 h 59) leaves no
+# name at all. Each failed/errored phase is appended and flushed immediately.
+# Path: `PYTEST_ECHECS_FICHIER`, else next to the test base
+# (`<APP_DB_PATH>.echecs.log`) — same isolation key as the lock above, so two
+# runners on two bases never mix their files, and the lock guarantees one run
+# per base (the file is truncated at session start).
+# --------------------------------------------------------------------------- #
+def chemin_fichier_echecs() -> Path:
+    return Path(os.environ.get("PYTEST_ECHECS_FICHIER") or (_BASE + ".echecs.log"))
+
+
+def _ouvrir_fichier_echecs() -> None:
+    if os.environ.get("PYTEST_XDIST_WORKER"):
+        return  # the master truncated it; workers only append
+    try:
+        chemin = chemin_fichier_echecs()
+        chemin.parent.mkdir(parents=True, exist_ok=True)
+        chemin.write_text(
+            f"# pytest PID {os.getpid()} started {time.strftime('%Y-%m-%dT%H:%M:%S')}\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass  # never fail a suite for its diagnostic file
+
+
+def pytest_report_header(config):  # noqa: ARG001
+    return f"failures written as they happen to: {chemin_fichier_echecs()}"
+
+
+def pytest_runtest_logreport(report):
+    if not report.failed:
+        return
+    nature = "FAILED" if report.when == "call" else f"ERROR({report.when})"
+    try:
+        with open(chemin_fichier_echecs(), "a", encoding="utf-8") as fh:
+            fh.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {nature} {report.nodeid}\n")
+            fh.flush()
+    except OSError:
+        pass
 
 
 @pytest.fixture(autouse=True)

@@ -119,3 +119,31 @@ jobs:
         # faulthandler_timeout (natif pytest) : un test bloque plus de 5 min
         # imprime la pile de tous les threads — le journal nomme le coupable.
         run: python -m pytest --cov=app --cov-report=term-missing -q -o faulthandler_timeout=300
+
+  # Windows job (Story 3.1, AC3.1.6 — finding D-12): the Linux job never
+  # exercised the ctypes test-DB lock (OpenProcess / GetProcessTimes), the
+  # PowerShell 5.1 script serveur-dev.ps1, nor the supervision dispositif on
+  # the platform it runs on. LIMITED on purpose (cheap, no browser, no e2e):
+  # an explicit file list, not the whole suite.
+  test-windows:
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Setup Python 3.14
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.14'
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Tests Windows (dispositif + verrou + serveur-dev, hors e2e)
+        timeout-minutes: 15
+        run: >-
+          python -m pytest -q -o faulthandler_timeout=300
+          tests/test_agent_orchestration.py tests/test_agent_supervision.py
+          tests/test_agent_prompt_injection.py
+          tests/test_conftest_verrou.py tests/test_conftest_verrou_s31.py
+          tests/test_journalisation_s31.py tests/test_serveur_dev_script.py

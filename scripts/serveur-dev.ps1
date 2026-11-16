@@ -100,6 +100,29 @@ $python = Join-Path $racine ".venv\Scripts\python.exe"
 # Interpréteur surchargeable (tests en copie du dépôt, sans .venv) ; usage normal : le venv.
 if ($env:SERVEUR_DEV_PYTHON) { $python = $env:SERVEUR_DEV_PYTHON }
 $journal = Join-Path $env:TEMP ("uvicorn_dev_" + $Port + ".log")
+# (Story 3.1, D-9) Dated history of launches, purges and deaths: the 8020 site
+# died several times with no trace of WHEN nor of what this script did.
+$historique = Join-Path $env:TEMP ("serveur-dev_" + $Port + ".history.log")
+if ($env:SERVEUR_DEV_HISTORIQUE) { $historique = $env:SERVEUR_DEV_HISTORIQUE }
+
+function Get-FinJournalErr {
+    # Last lines of a .err journal, read SHARED (the dead process may still hold it).
+    param([string]$Chemin, [int]$NbLignes = 20)
+    try {
+        $fs = [System.IO.File]::Open($Chemin, 'Open', 'Read', 'ReadWrite')
+        try { $texte = (New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8)).ReadToEnd() } finally { $fs.Dispose() }
+        return ((@($texte -split "`r?`n") | Select-Object -Last $NbLignes) -join "`r`n")
+    } catch { return "<journal illisible : $($_.Exception.Message)>" }
+}
+
+function Write-Historique {
+    # One dated line per event; never fatal (a locked history must not stop the script).
+    param([string]$Message)
+    try {
+        $ligne = (Get-Date -Format "yyyy-MM-ddTHH:mm:ss") + " pid=$PID " + $Message
+        [System.IO.File]::AppendAllText($historique, $ligne + "`r`n", (New-Object System.Text.UTF8Encoding($false)))
+    } catch { }
+}
 
 function Get-DescendantsProcessus {
     # Descendance COMPLÈTE de PID racines, par parenté OS (ParentProcessId) et
@@ -117,7 +140,10 @@ function Get-DescendantsProcessus {
             if ($vus.ContainsKey($id)) { continue }
             $vus[$id] = $true
             foreach ($enfant in @($tous | Where-Object {
-                [int]$_.ParentProcessId -eq $id -or $_.CommandLine -like "*parent_pid=$id*"
+                # Bounded number (Story 3.1, D-6): « *parent_pid=123* » also
+                # matched parent_pid=1234, the worker of ANOTHER server — the
+                # fix of Get-WorkersOrphelinsDuJournal was never ported here.
+                [int]$_.ParentProcessId -eq $id -or $_.CommandLine -match "parent_pid=$id(\D|$)"
             })) {
                 $resultat += $enfant
                 $suivante += [int]$enfant.ProcessId
@@ -288,11 +314,19 @@ function Invoke-PythonBorne {
         } catch { }
         try { $proc.Kill() } catch { }
         Write-Host "python n'a pas rendu en $DelaiS s — abandonné (sous-processus tué)."
+        # (Story 3.1, D-8) A TIMEOUT is not an answer: callers must read
+        # « indéterminé », never « mot de passe absent » nor « périmé ».
+        $script:pythonIndetermine = $true
         return $null
     }
     $proc.WaitForExit()
     $lignes = @(($sortie.Result -split "`r?`n") | Where-Object { $_.Trim() })
-    if ($lignes.Count -eq 0) { return $null }
+    if ($lignes.Count -eq 0) {
+        # Show python's stderr instead of failing silently (D-8).
+        $err = "$($erreur.Result)".Trim()
+        if ($err) { Write-Host ("python (code $($proc.ExitCode)) stderr : " + ((@($err -split "`r?`n") | Select-Object -Last 5) -join " | ")) }
+        return $null
+    }
     return $lignes[-1]
 }
 
@@ -367,6 +401,7 @@ function Resolve-DecisionKeepIfFresh {
     # Mesure l'état ACTUEL puis décide. À rappeler juste avant d'agir : une
     # décision vieille de 2 min a tué un serveur devenu sain (2026-10-15).
     param([int]$NumPort)
+    $script:pythonIndetermine = $false
     $repond = Test-PortRepond -NumPort $NumPort
     $sain = $false
     if ($repond) {
@@ -390,6 +425,10 @@ function Resolve-DecisionKeepIfFresh {
                 -AgeWorkerS (Get-AgeWorkerS -NumPort $NumPort)
         }
     }
+    # (Story 3.1, D-8) The freshness proof could not be computed (python timed
+    # out under load): « périmé » would be a guess, and -KeepIfFresh purged a
+    # healthy loaded server on that guess. Undetermined = nothing purged.
+    if ($decision -eq "purger" -and $script:pythonIndetermine) { return "indetermine" }
     return $decision
 }
 
@@ -423,6 +462,11 @@ function Write-DecisionEtSortir {
                 $cpu = [int]$script:etatServeur.Cpu
             }
             Write-Host "Démarrage ou rechargement en cours depuis $age s (CPU des process serveur : $cpu s), rien purgé. Un démarrage peut durer plusieurs minutes (préchauffage Whisper). La prochaine instance retestera."
+            exit 0
+        }
+        "indetermine" {
+            Write-Historique "keepiffresh port=$NumPort decision=indetermine (python borne hors delai)"
+            Write-Host "État indéterminé : la preuve de fraîcheur python n'a pas rendu dans le délai (machine chargée ?), rien purgé. La prochaine instance retestera."
             exit 0
         }
         "stabilite" { Write-Host "Serveur périmé mais app/ modifié il y a moins de $StabiliteS s : le --reload va rattraper, rien purgé. La prochaine instance retestera."; exit 0 }
@@ -502,7 +546,14 @@ if ($env:SERVEUR_DEV_FONCTIONS_SEULES -eq "1") { return }
 # relancer un qui rendrait 503 partout. ----
 $script:motDePasse = $null
 if (-not $StopOnly) {
+    $script:pythonIndetermine = $false
     $script:motDePasse = Get-MotDePasseApp
+    if (-not $script:motDePasse -and $script:pythonIndetermine) {
+        # (Story 3.1, D-8) Timeout is not « absent »: say so, purge nothing.
+        Write-Historique "refus port=$Port mot de passe indetermine (python borne hors delai)"
+        $host.UI.WriteErrorLine("Mot de passe de l'app INDÉTERMINÉ : python n'a pas rendu dans le délai (machine chargée ?). Rien n'a été arrêté ; réessayer.")
+        exit 4
+    }
     if (-not $script:motDePasse) {
         # Pas Write-Error : sous EAP Stop il TERMINE le script en code 1, avant
         # le `exit 2` qui distingue ce refus d'une panne.
@@ -613,6 +664,7 @@ foreach ($passe in 1..2) {
     Invoke-RetestAvantKill -KeepIfFreshActif $KeepIfFresh.IsPresent -StopOnlyActif $StopOnly.IsPresent -NbIds $ids.Count -NumPort $Port -ApresKill ($passe -gt 1)
     if ($ids.Count -gt 0) {
         Write-Host "Purge (passe $passe) de $($ids.Count) processus serveur (uvicorn + descendance) : $($ids -join ', ')"
+        Write-Historique "purge port=$Port passe=$passe ids=$($ids -join ',')"
         foreach ($id in $ids) { Stop-Process -Id $id -Force -ErrorAction SilentlyContinue }
         Start-Sleep -Seconds 2
     }
@@ -669,6 +721,7 @@ $proc = Start-Process -FilePath $python `
     -WorkingDirectory $racine -WindowStyle Hidden -PassThru `
     -RedirectStandardOutput $journal -RedirectStandardError ($journal + ".err")
 Write-Host "uvicorn lancé (PID $($proc.Id)), journal : $journal"
+Write-Historique "lancement port=$Port uvicorn_pid=$($proc.Id) journal=$journal"
 
 # ---- 4. Health-check ----
 $pret = $false
@@ -678,8 +731,17 @@ foreach ($i in 1..$AttenteDemarrageS) {
     if (Test-PortRepond -NumPort $Port) { $pret = $true; break }
     if ($proc.HasExited) { break }
 }
+if (-not $pret -and $proc.HasExited) {
+    # (Story 3.1, D-9) Already DEAD (e.g. SchemaEnRetard): it did not « start
+    # slowly ». Say it, with its exit code and the end of its .err.
+    $finErr = Get-FinJournalErr -Chemin ($journal + ".err")
+    Write-Historique "mort port=$Port uvicorn_pid=$($proc.Id) code=$($proc.ExitCode)"
+    $host.UI.WriteErrorLine("Le serveur est MORT au démarrage (PID $($proc.Id), code $($proc.ExitCode)). Fin de $journal.err :`r`n$finErr")
+    exit 1
+}
 if (-not $pret) {
     # PAS de Stop-Process ici : le processus lancé continue de démarrer.
+    Write-Historique "demarrage_lent port=$Port uvicorn_pid=$($proc.Id) attente=$AttenteDemarrageS"
     Write-Error ("Le serveur n'a pas répondu en $AttenteDemarrageS s — il a PEUT-ÊTRE simplement démarré lentement " +
                  "(préchauffage Whisper sous charge : ce n'est pas forcément un échec). Il N'A PAS été tué (PID $($proc.Id)) : " +
                  "revérifier avec -CheckOnly avant de le relancer. Journaux : $journal et $journal.err")

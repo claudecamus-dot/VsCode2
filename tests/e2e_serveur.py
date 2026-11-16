@@ -23,7 +23,19 @@ from pathlib import Path
 from navigateur_cdp import port_libre
 
 _RACINE = Path(__file__).resolve().parents[1]
-_DELAI_DEMARRAGE_S = 60.0
+# Tunable (Story 3.1, D-4): a loaded machine can exceed 60 s; the default stays.
+_DELAI_DEMARRAGE_S = float(os.environ.get("E2E_DELAI_DEMARRAGE_S", "60"))
+# Lines of the server log attached to a red e2e test (D-4).
+_LIGNES_JOURNAL = 80
+
+
+def fin_du_journal(chemin: Path, nb_lignes: int = _LIGNES_JOURNAL) -> str:
+    """Last `nb_lignes` of the uvicorn log, or a placeholder if unreadable."""
+    try:
+        lignes = chemin.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as exc:
+        return f"<journal illisible : {exc}>"
+    return "\n".join(lignes[-nb_lignes:])
 
 
 def _arreter(proc: subprocess.Popen) -> None:
@@ -43,11 +55,22 @@ def serveur_uvicorn(dossier: Path, **env_supplementaire: str):
         WHISPER_WARM_UP="0", OLLAMA_WARM_UP="0",
     )
     env.update(env_supplementaire)
+    # Password read from the env PASSED TO THE SERVER, before spawning it
+    # (Story 3.1, D-5): reading `os.environ[...]` inside the probe's mute
+    # `except` turned a missing variable into 60 s of retries then a false
+    # "uvicorn did not answer" diagnosis.
+    mot_de_passe = env.get("APP_AUTH_PASSWORD")
+    if not mot_de_passe:
+        raise RuntimeError(
+            "APP_AUTH_PASSWORD absent de l'environnement du serveur e2e : "
+            "toute route protegee rendrait 503 (tests/conftest.py le pose "
+            "normalement ; ne pas le retirer avant serveur_uvicorn)."
+        )
     chemin_journal = dossier / "uvicorn.log"
     journal = open(chemin_journal, "w", encoding="utf-8")
     proc = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1",
-         "--port", str(port), "--log-level", "warning"],
+         "--port", str(port), "--log-level", "info"],
         cwd=_RACINE, env=env, stdout=journal, stderr=subprocess.STDOUT,
     )
     base = f"http://127.0.0.1:{port}"
@@ -65,7 +88,7 @@ def serveur_uvicorn(dossier: Path, **env_supplementaire: str):
                 requete = urllib.request.Request(
                     base + "/missions",
                     headers={
-                        "Authorization": "Bearer " + os.environ["APP_AUTH_PASSWORD"]
+                        "Authorization": "Bearer " + mot_de_passe
                     },
                 )
                 with urllib.request.urlopen(requete, timeout=2) as r:
@@ -89,7 +112,20 @@ def serveur_uvicorn(dossier: Path, **env_supplementaire: str):
             raise RuntimeError(
                 cause + " :\n" + chemin_journal.read_text(encoding="utf-8", errors="replace")
             )
-        yield base
+        try:
+            yield base
+        except GeneratorExit:
+            raise
+        except BaseException as exc:
+            # A red e2e test carries the END of the server log (D-4): before,
+            # the log was read only when STARTUP failed, never when a test
+            # failed against a running server. BaseException: `pytest.fail`
+            # raises `Failed`, which is not an `Exception`.
+            exc.add_note(
+                f"--- fin du journal uvicorn ({chemin_journal}) ---\n"
+                + fin_du_journal(chemin_journal)
+            )
+            raise
     finally:
         _arreter(proc)
         journal.close()
