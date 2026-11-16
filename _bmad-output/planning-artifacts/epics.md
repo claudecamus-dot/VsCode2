@@ -44,3 +44,22 @@ afin de disposer d'une base fiable avant de livrer un incrément.
 
 - AC1.3.1 — **Given** l'état final de l'arbre, **When** on rejoue la suite complète avec chronométrage, **Then** durée, nombre de tests passés, échecs, erreurs et skips sont consignés dans `CLAUDE.md` avec la date. Non exécuté.
 - AC1.3.2 — **Given** les 8 échecs et 3 erreurs signalés au 2026-10-20, **When** la suite est rejouée, **Then** chacun est corrigé, ou documenté comme connu avec sa cause. Non exécuté.
+
+## Epic 2 : Fiabilité de l'enregistrement libre
+
+### Story 2.1: Rendre impossible à manquer l'alerte « aucune parole détectée »
+
+En tant que consultant qui enregistre un entretien libre (souvent à distance, sur Meet ou Teams),
+je veux être alerté de façon impossible à manquer quand le micro ne capte plus de parole,
+afin de corriger la source audio pendant l'entretien au lieu de découvrir après coup que l'essentiel est muet.
+
+**Origine :** mission 31 « atelier kiro », 2026-11-06 : 10 min de parole captées sur ~104 min enregistrées (diagnostic du 2026-11-16 : le micro n'entendait pas le casque). Le bandeau existant (`record_libre.html`, `noteNoSpeech`) était informatif et seulement visible sur la page. Validée par l'utilisateur le 2026-11-16, **sans signal sonore** (un bip pourrait être entendu en visio et capté par le micro).
+
+**Statut : à faire.**
+
+**Acceptance Criteria [4 critères]:**
+
+- AC2.1.1 — **Given** un enregistrement libre en cours, **When** le serveur rejette `no_speech` le 2e segment consécutif (seuil actuel `NOSPEECH_ALERT_AFTER`), **Then** un bandeau d'alerte rouge, distinct des bandeaux informatifs, s'affiche épinglé en haut de l'écran d'enregistrement (visible sans défiler), annoncé aux lecteurs d'écran (`role="alert"`), avec la durée muette et l'action corrective (bouton de partage de l'onglet en mode distance, comme aujourd'hui).
+- AC2.1.2 — **Given** l'alerte affichée, **When** de nouveaux segments restent muets, **Then** la durée affichée se met à jour à chaque segment ; **And** le bandeau ne disparaît que lorsqu'un segment porte de nouveau de la parole.
+- AC2.1.3 — **Given** l'alerte affichée et l'onglet de l'app en arrière-plan, **Then** le titre de l'onglet est préfixé par « ⚠ Micro muet — » ; **And** le titre d'origine est restauré au retour de la parole ou à l'arrêt de l'enregistrement.
+- AC2.1.4 — **Given** des réponses `no_speech` simulées, **When** on rejoue le parcours dans un vrai navigateur (`tests/test_e2e_premiers_clics.py` ou harnais d'exécution JS), **Then** AC2.1.1 à AC2.1.3 sont vérifiés par exécution réelle, pas par recherche de texte dans le template.
