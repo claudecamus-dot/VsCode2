@@ -1181,40 +1181,46 @@ def test_relancer_la_transcription_audio_depuis_la_fiche(
         assert _python_sur_base(base_db, _COMPTER_JOBS_AUDIO, iid) == "1"
 
 
-def test_alerte_no_speech_epinglee_en_haut_dans_un_vrai_navigateur(
-    serveur: str, nav: Navigateur,
+def test_alerte_no_speech_fixee_en_haut_dans_un_vrai_navigateur(
+    serveur: str, nav: Navigateur, tmp_path,
 ) -> None:
-    """Story 2.1 (AC2.1.1, rendu reel) : sur le VRAI ecran d'enregistrement libre, le
-    bandeau no-speech porte `role="alert"`, reste epingle en haut du viewport apres
-    defilement, en rouge fonce a texte blanc (contraste AA). La logique JS (seuil, duree,
-    titre) est jouee par tests/test_alerte_no_speech_s21.py ; ici le bandeau est
-    revele par le DOM (le code est dans une IIFE, inaccessible) puis rendu et capture."""
+    """Story 2.1 (AC2.1.1, rendu reel) : sur le VRAI ecran d'enregistrement libre le bandeau
+    no-speech est masque au chargement, puis -- revele -- FIXE en haut du viewport
+    (position: fixed, role=alert sur son texte), au defilement 0 comme apres defilement,
+    en 1366x768 et 390x800, en rouge a texte blanc. La logique JS (seuil, duree, titre)
+    est jouee par tests/test_alerte_no_speech_s21.py ; ici le bandeau est revele par le DOM
+    (le code est dans une IIFE, inaccessible) puis rendu et capture."""
     nav.naviguer(serveur + "/")
     nav.cliquer_et_attendre("form[action='/mode/reel'] button[type=submit]")
     nav.naviguer(serveur + "/demarrer")
     nav.cliquer_et_attendre("form[action='/entretiens/libre/nouveau'] button[type=submit]")
     assert nav.url().rstrip("/").endswith("/record-libre"), nav.url()
+    mesure = (
+        "(function(){var b=document.getElementById('rec-nospeech-banner');"
+        "var r=b.getBoundingClientRect();var cs=getComputedStyle(b);"
+        "return JSON.stringify({hidden:b.hidden,shown:cs.display!=='none',pos:cs.position,"
+        "top:Math.round(r.top),bg:cs.backgroundColor,fg:cs.color,"
+        "role:document.getElementById('rec-nospeech-text').getAttribute('role'),"
+        "polite:document.getElementById('rec-nospeech-duration').getAttribute('aria-live'),"
+        "scrollable:document.documentElement.scrollHeight>window.innerHeight+50})})()")
+    charge = json.loads(nav.evaluer(mesure))
+    assert charge["hidden"] is True and charge["shown"] is False, charge  # masque au chargement
     nav.evaluer(
-        "(function(){var b=document.getElementById('rec-nospeech-banner');"
-        "document.getElementById('rec-nospeech-text').textContent="
-        "'\u26a0 Aucune parole d\u00e9tect\u00e9e sur les 3 derniers segments (~3 min). "
-        "V\u00e9rifie le micro s\u00e9lectionn\u00e9 et le volume de la salle.';"
-        "b.hidden=false;var f=document.createElement('div');f.style.height='3000px';"
-        "document.getElementById('record-form').appendChild(f);window.scrollTo(0,1200);return 1})()")
-    etat = nav.evaluer(
-        "(function(){var b=document.getElementById('rec-nospeech-banner');"
-        "var cs=getComputedStyle(b);return JSON.stringify({role:b.getAttribute('role'),"
-        "pos:cs.position,top:Math.round(b.getBoundingClientRect().top),bg:cs.backgroundColor,"
-        "fg:cs.color,h:b.getBoundingClientRect().height})})()")
-    etat = json.loads(etat)
-    assert etat["role"] == "alert", etat
-    assert etat["pos"] == "sticky" and 0 <= etat["top"] <= 1, etat  # visible sans defiler
-    assert etat["bg"] == "rgb(179, 38, 30)" and etat["fg"] == "rgb(255, 255, 255)", etat
-    nav.capturer(Path("C:/tmp/s21-shots/alerte_no_speech_desktop.png"), page_entiere=False)
-    nav._run(nav._cmd("Emulation.setDeviceMetricsOverride", width=390, height=800,
-                      deviceScaleFactor=1, mobile=False))
-    nav.evaluer("window.scrollTo(0,1200)")
-    assert 0 <= json.loads(nav.evaluer(
-        "JSON.stringify(Math.round(document.getElementById('rec-nospeech-banner')"
-        ".getBoundingClientRect().top))")) <= 1
-    nav.capturer(Path("C:/tmp/s21-shots/alerte_no_speech_mobile.png"), page_entiere=False)
+        "(function(){document.getElementById('rec-nospeech-text').textContent="
+        "'\u26a0 Aucune parole d\u00e9tect\u00e9e. V\u00e9rifie le micro s\u00e9lectionn\u00e9.';"
+        "document.getElementById('rec-nospeech-duration').textContent="
+        "'Silence depuis ~3 min (3 segments).';"
+        "document.getElementById('rec-nospeech-banner').hidden=false;return 1})()")
+    for largeur, hauteur in ((1366, 768), (390, 800)):
+        nav._run(nav._cmd("Emulation.setDeviceMetricsOverride", width=largeur, height=hauteur,
+                          deviceScaleFactor=1, mobile=False))  # pas d'API publique de viewport
+        for defilement in (0, 10**6):
+            nav.evaluer("window.scrollTo(0, %d)" % defilement)
+            etat = json.loads(nav.evaluer(mesure))
+            assert etat["shown"] is True and etat["pos"] == "fixed", (largeur, defilement, etat)
+            assert etat["top"] == 0, (largeur, defilement, etat)  # sans demo : tout en haut
+            assert etat["role"] == "alert" and etat["polite"] == "polite", etat
+            assert etat["bg"] == "rgb(179, 38, 30)" and etat["fg"] == "rgb(255, 255, 255)", etat
+        assert etat["scrollable"] is True or largeur == 1366, (
+            "la page de 390 px doit etre defilable pour que le test prouve quelque chose", etat)
+        nav.capturer(tmp_path / ("alerte_%d.png" % largeur), page_entiere=False)
