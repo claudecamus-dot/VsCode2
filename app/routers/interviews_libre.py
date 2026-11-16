@@ -40,6 +40,7 @@ from ..services.interview_segment_jobs import normaliser_jeton
 from ..services.mission_axes import axes_of
 from ..services.structuration_libre import (
     peut_relancer,
+    structurer_texte_disponible,
     planifier_structuration,
     relancer,
 )
@@ -110,6 +111,7 @@ def _entretien_libre(db, interview_id: int) -> Interview:
 def structurer_maintenant(
     interview_id: int,
     background_tasks: BackgroundTasks,
+    texte_disponible: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """« Structurer maintenant » / « Relancer » depuis la fiche. Idempotent :
@@ -118,7 +120,14 @@ def structurer_maintenant(
     Relançable aussi (F4) : un `en_cours` orphelin, un `fait` à 0 tour. Un
     refus se DIT sur la fiche (`?structuration=refusee`), plus de 303 muet."""
     interview = _entretien_libre(db, interview_id)
-    if not relancer(interview.id):
+    # Story 3.4 (B-1) : « Structurer le texte disponible » (après confirm() à
+    # l'écran) — seule sortie d'un `a_transcrire` qui porte du texte quand la
+    # relance des tranches / la retranscription ne produit rien.
+    if texte_disponible.strip():
+        ok = structurer_texte_disponible(interview.id)
+    else:
+        ok = relancer(interview.id)
+    if not ok:
         return RedirectResponse(
             f"/interviews/{interview.id}?structuration=refusee", status_code=303
         )
@@ -246,8 +255,10 @@ def _refus_texte_vide(request, mission, identity, transcript, *, audio_suffit=Fa
     """Garde UNIQUE « aucun texte » des routes de finalisation libre. Rend l'écran
     d'erreur, ou None. Avec `audio_suffit` (« enregistrer sans attendre », 2026-10-19),
     seul « ni texte NI aucune référence audio » est refusé : un audio tronqué ne
-    refuse plus (décision du 2026-10-19), l'entretien est créé `a_transcrire` avec
-    `tranches_manquantes` posé et un avertissement visible sur la fiche."""
+    refuse plus (décision du 2026-10-19). L'état de l'entretien créé est décidé
+    par `_enregistrer_libre_direct` (`a_transcrire` si texte vide OU partiel avec
+    audio) ; la fiche explique ce blocage et propose ses sorties
+    (`_structuration_statut.html`, Story 3.4 / B-1)."""
     vide = not transcript.strip()
     if not audio_suffit:
         return _libre_turns_error(request, mission, identity, "Aucun texte transcrit.") if vide else None
@@ -662,6 +673,8 @@ def _creer_interview_libre(
         identity.get("audio_backup_path"),
         _parse_audio_segments(identity.get("audio_segments", "[]")),
         RECORDINGS_DIR,
+        # Story 3.4 (B-11) : garde anti-réutilisation d'id SQLite.
+        mission=db.get(Mission, mission_id),
     )
     interview = Interview(
         mission_id=mission_id,
@@ -837,6 +850,7 @@ def record_libre_confirm(
     repartition_forces_succes: str = Form(""),
     repartition_points_amelioration: str = Form(""),
     repartition_aspirations: str = Form(""),
+    session_token: str = Form(""),
     db: Session = Depends(get_session),
 ):
     mission = _get_mission(db, mission_id)
@@ -881,22 +895,43 @@ def record_libre_confirm(
 
     # Même filtrage que l'écran de synthèse (`_parse_turns_from_form`) : une
     # seule implémentation, plus deux règles à garder en phase.
-    interview = _creer_interview_libre(
-        db,
-        mission_id,
-        {
-            "interviewee_name": interviewee_name,
-            "interviewee_role": interviewee_role,
-            "interviewee_entity": interviewee_entity,
-            "interview_date": interview_date,
-            "audio_backup_path": audio_backup_path,
-            "audio_segments": audio_segments,
-        },
-        turns_to_save,
-        transcript,
-        resume,
-        repartition,
-    )
+    # Story 3.4 (B-9) : le jeton de session (posté par `libre_turns_review.html`)
+    # est enregistré sur l'entretien — l'index unique partiel (mission, jeton)
+    # refuse alors un double POST, qui redirige vers l'entretien déjà créé au
+    # lieu d'en créer un second. Sans jeton : comportement inchangé.
+    jeton = normaliser_jeton(session_token) or None
+    try:
+        interview = _creer_interview_libre(
+            db,
+            mission_id,
+            {
+                "interviewee_name": interviewee_name,
+                "interviewee_role": interviewee_role,
+                "interviewee_entity": interviewee_entity,
+                "interview_date": interview_date,
+                "audio_backup_path": audio_backup_path,
+                "audio_segments": audio_segments,
+            },
+            turns_to_save,
+            transcript,
+            resume,
+            repartition,
+            segment_token=jeton,
+        )
+    except IntegrityError:
+        db.rollback()
+        existant = db.scalar(
+            select(Interview).where(
+                Interview.mission_id == mission.id, Interview.segment_token == jeton,
+            )
+        ) if jeton else None
+        if existant is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Cet entretien n'a pas pu être enregistré (conflit) — "
+                "recharge la mission pour vérifier s'il existe déjà.",
+            ) from None
+        return _redirection_apres_enregistrement(mission, existant)
     return _redirection_apres_enregistrement(
         mission, interview, _date_illisible(interview_date),
     )

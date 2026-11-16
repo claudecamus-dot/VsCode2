@@ -827,7 +827,9 @@ def test_record_libre_plafonne_la_recuperation_synchrone(
         data={"transcript": "un entretien long", "session_token": "plafond-tok", "segment_tail": ""},
     )
     assert resp.status_code == 200
-    assert len(appels) <= RECUP_TRANCHES_MAX, (
+    # `==` et non `<=` (Story 3.4, D-10c) : `<=` passait aussi avec ZÉRO appel,
+    # c'est-à-dire sans aucune récupération.
+    assert len(appels) == RECUP_TRANCHES_MAX, (
         f"{len(appels)} tranches retraitées dans un seul POST — le plafond "
         f"({RECUP_TRANCHES_MAX}) ne s'applique pas au chemin libre direct"
     )

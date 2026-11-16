@@ -261,7 +261,9 @@ def reconcile_running_on_startup() -> int:
         db.close()
 
 
-def _ecrire_si_texte_inchange(db, job_id: int, texte_attendu, valeurs: dict) -> bool:
+def _ecrire_si_texte_inchange(
+    db, job_id: int, texte_attendu, valeurs: dict, sauf_done: bool = False,
+) -> bool:
     """Écrit `valeurs` sur la tranche `job_id` SEULEMENT si son texte est
     encore celui sur lequel on a travaillé. Rend True si l'écriture a eu lieu.
 
@@ -272,23 +274,25 @@ def _ecrire_si_texte_inchange(db, job_id: int, texte_attendu, valeurs: dict) -> 
     version courante : il mentirait sur ce qui a réellement été extrait.
 
     `texte_attendu is None` = on n'a pas encore lu de texte (échec très
-    précoce) : l'écriture est alors inconditionnelle."""
-    if texte_attendu is None:
-        db.execute(
-            update(InterviewSegmentJob)
-            .where(InterviewSegmentJob.id == job_id)
-            .values(**valeurs)
-        )
-        db.commit()
-        return True
+    précoce) : l'écriture ne dépend alors pas du texte.
+
+    `sauf_done` (Story 3.4, B-6) : un ÉCHEC n'écrase jamais un `done`. La
+    récupération synchrone (`recover_stalled_or_failed_jobs`) peut aboutir une
+    tranche encore `running` en tâche de fond ; si la tâche d'origine échoue
+    ensuite, elle réécrivait `failed` par-dessus le `done` (texte inchangé)."""
+    conditions = [InterviewSegmentJob.id == job_id]
+    if texte_attendu is not None:
+        conditions.append(InterviewSegmentJob.text == texte_attendu)
+    if sauf_done:
+        conditions.append(InterviewSegmentJob.status != "done")
     touchees = db.execute(
         update(InterviewSegmentJob)
-        .where(
-            InterviewSegmentJob.id == job_id,
-            InterviewSegmentJob.text == texte_attendu,
-        )
+        .where(*conditions)
         .values(**valeurs)
     ).rowcount
+    if texte_attendu is None and not sauf_done:
+        db.commit()
+        return True
     db.commit()
     if not touchees:
         logger.info(
@@ -344,6 +348,7 @@ def run_segment_job(job_id: int) -> None:
             _ecrire_si_texte_inchange(
                 db, job_id, texte_extrait,
                 {"status": "failed", "error": str(exc)},
+                sauf_done=True,
             )
             return
         # Écriture CONDITIONNELLE et atomique, jamais un lire-puis-écrire : le
@@ -380,6 +385,7 @@ def run_segment_job(job_id: int) -> None:
                     "status": "failed",
                     "error": f"Échec inattendu ({type(exc).__name__}).",
                 },
+                sauf_done=True,
             )
         except Exception:
             logger.exception("Secours d'échec impossible (tranche %s) : statut peut-être figé", job_id)

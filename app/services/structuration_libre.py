@@ -444,11 +444,25 @@ _attentes_sans_progres = 0
 
 
 def _traiter(element) -> None:
-    """Une étape du worker : prise, attente NON bloquante, ou fin."""
-    interview_id, marque, echeance, jeton, *reste = element
-    priorite = reste[0] if reste else FOND
-    with avec_priorite(priorite):
-        _traiter_prioritaire(interview_id, marque, echeance, jeton, priorite)
+    """Une étape du worker : prise, attente NON bloquante, ou fin.
+
+    Story 3.4 (B-12) : ce qui s'exécute HORS du `try` de `_traiter_prioritaire`
+    (déballage de l'élément, entrée/sortie de `avec_priorite`) ne doit ni tuer
+    le fil worker ni laisser l'id inscrit dans `_en_vol` — sinon toute relance
+    répondait « déjà en file » jusqu'au redémarrage du serveur."""
+    try:
+        interview_id, marque, echeance, jeton, *reste = element
+        priorite = reste[0] if reste else FOND
+    except Exception:
+        logger.exception("Worker de structuration : élément de file illisible %r", element)
+        return
+    try:
+        with avec_priorite(priorite):
+            _traiter_prioritaire(interview_id, marque, echeance, jeton, priorite)
+    except Exception:
+        logger.exception("Worker de structuration : entretien %s", interview_id)
+        _marquer_echec(interview_id)
+        _liberer(interview_id, marque)
 
 
 def _traiter_prioritaire(interview_id, marque, echeance, jeton, priorite) -> None:
@@ -558,6 +572,34 @@ def peut_relancer(interview: Interview) -> bool:
     if statut in ("a_traiter", "echec", "en_cours"):
         return True
     return terminal
+
+
+def structurer_texte_disponible(interview_id: int) -> bool:
+    """Sortie EXPLICITE d'un entretien bloqué `a_transcrire` qui porte du texte
+    (Story 3.4, B-1 ; la règle de blocage elle-même est conservée par arbitrage
+    utilisateur du 2026-11-16). Après confirmation à l'écran, l'utilisateur
+    accepte de structurer le texte DISPONIBLE, sachant qu'une partie manque :
+    `a_transcrire -> a_traiter` par UPDATE conditionnel, puis mise en file LIVE.
+    False si l'entretien n'est pas (ou plus) dans cet état, ou sans texte."""
+    with _db.SessionLocal() as db:
+        interview = db.get(Interview, interview_id)
+        if (
+            interview is None
+            or interview.structuration_status != "a_transcrire"
+            or not (interview.raw_transcript or "").strip()
+        ):
+            return False
+        ok = db.execute(
+            update(Interview)
+            .where(Interview.id == interview_id,
+                   Interview.structuration_status == "a_transcrire")
+            .values(structuration_status="a_traiter")
+        ).rowcount
+        db.commit()
+        if not ok:
+            return False
+    _liberer(interview_id)
+    return planifier_structuration(interview_id, LIVE)
 
 
 def relancer(interview_id: int) -> bool:

@@ -1,0 +1,365 @@
+"""Story 3.4 — intégrité des entretiens côté serveur (triage du 2026-11-16, B-*).
+
+Un test par constat corrigé ; chacun échoue sur le code d'avant la story.
+"""
+from __future__ import annotations
+
+import os
+import time
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import select
+
+from app.db import DB_PATH, SessionLocal, engine, init_db
+from app.main import app
+from app.models import (
+    AudioFileJob,
+    Interview,
+    InterviewSegmentJob,
+    InterviewTurn,
+    Mission,
+)
+from app.services import interview_segment_jobs, mission_backups, structuration_libre
+from app.services.interview_libre_extract_ai import InterviewLibreExtractAIError
+
+
+def setup_module() -> None:
+    try:
+        engine.dispose()
+    except Exception:
+        pass
+    if DB_PATH.exists():
+        DB_PATH.unlink()
+    init_db()
+
+
+def teardown_module() -> None:
+    try:
+        engine.dispose()
+    except Exception:
+        pass
+    if DB_PATH.exists():
+        DB_PATH.unlink()
+
+
+@pytest.fixture
+def client() -> TestClient:
+    return TestClient(app)
+
+
+def _mission(client: TestClient) -> int:
+    response = client.post("/entretiens/libre/nouveau", follow_redirects=False)
+    mission_id = int(response.headers["location"].split("/")[2])
+    with SessionLocal() as db:
+        db.get(Mission, mission_id).is_draft = False
+        db.commit()
+    return mission_id
+
+
+def _interview(mission_id: int, statut: str, texte: str = "Du texte.", **kw) -> int:
+    with SessionLocal() as db:
+        interview = Interview(
+            mission_id=mission_id, mode="libre", status="done",
+            interviewee_name="Sans nom", raw_transcript=texte,
+            structuration_status=statut, **kw,
+        )
+        db.add(interview)
+        db.commit()
+        return interview.id
+
+
+def _statut(interview_id: int) -> str:
+    with SessionLocal() as db:
+        return db.get(Interview, interview_id).structuration_status
+
+
+# --------------------------------------------------------------------------- #
+# B-1 — entretien bloqué `a_transcrire` avec du texte : avertissement + sortie
+# --------------------------------------------------------------------------- #
+def test_b1_fiche_a_transcrire_avec_texte_explique_le_blocage_et_propose_la_sortie(
+    client: TestClient,
+) -> None:
+    mission_id = _mission(client)
+    avec_texte = _interview(mission_id, "a_transcrire", "Bonjour, je suis Alice.")
+    sans_texte = _interview(mission_id, "a_transcrire", "")
+    page = client.get(f"/interviews/{avec_texte}").text
+    assert 'data-structuration-bloquee="1"' in page
+    assert 'name="texte_disponible"' in page
+    assert "Structurer le texte disponible" in page
+    assert "confirm(" in page.split("Structurer le texte disponible")[0][-600:]
+    page_vide = client.get(f"/interviews/{sans_texte}").text
+    assert "data-structuration-bloquee" not in page_vide
+
+
+def test_b1_structurer_le_texte_disponible_debloque_apres_confirmation(
+    client: TestClient, monkeypatch,
+) -> None:
+    programmes: list = []
+    monkeypatch.setattr(
+        structuration_libre, "planifier_structuration",
+        lambda iid, priorite=None: programmes.append(iid) or True,
+    )
+    mission_id = _mission(client)
+    iid = _interview(mission_id, "a_transcrire", "Bonjour, je suis Alice.")
+    # La règle de blocage est CONSERVÉE : la relance simple reste refusée.
+    r = client.post(f"/interviews/{iid}/structurer", follow_redirects=False)
+    assert "structuration=refusee" in r.headers["location"]
+    assert _statut(iid) == "a_transcrire"
+    # Sortie explicite (bouton confirmé à l'écran).
+    r = client.post(
+        f"/interviews/{iid}/structurer", data={"texte_disponible": "1"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    assert "refusee" not in r.headers["location"]
+    assert _statut(iid) == "a_traiter"
+    assert programmes == [iid]
+
+
+def test_b1_sortie_refusee_sans_texte(client: TestClient, monkeypatch) -> None:
+    monkeypatch.setattr(
+        structuration_libre, "planifier_structuration", lambda *a, **k: True,
+    )
+    mission_id = _mission(client)
+    iid = _interview(mission_id, "a_transcrire", "   ")
+    r = client.post(
+        f"/interviews/{iid}/structurer", data={"texte_disponible": "1"},
+        follow_redirects=False,
+    )
+    assert "structuration=refusee" in r.headers["location"]
+    assert _statut(iid) == "a_transcrire"
+
+
+# --------------------------------------------------------------------------- #
+# B-2 — aperçu live : une tranche finie hors ordre ne fait sauter aucune tranche
+# --------------------------------------------------------------------------- #
+def _job(jeton, position, statut, remarque=None):
+    return InterviewSegmentJob(
+        session_token=jeton, position=position, kind="libre_turns",
+        status=statut, text=f"texte {position}",
+        turns_result=(
+            {"turns": [{"interlocuteur": "A", "question": None,
+                        "remarque": remarque, "section_title": None}],
+             "identity": {}}
+            if remarque else None
+        ),
+    )
+
+
+def test_b2_curseur_ne_depasse_pas_une_tranche_encore_en_vol(client: TestClient) -> None:
+    jeton = "b2-hors-ordre"
+    with SessionLocal() as db:
+        db.add_all([_job(jeton, 0, "done", "t0"), _job(jeton, 1, "running"),
+                    _job(jeton, 2, "done", "t2")])
+        db.commit()
+    r = client.get("/interviews/segment-jobs/turns",
+                   params={"session_token": jeton, "since": 0}).json()
+    assert [t["remarque"] for t in r["turns"]] == ["t0"]
+    assert r["next_since"] == 1
+    with SessionLocal() as db:
+        job = db.scalar(select(InterviewSegmentJob).where(
+            InterviewSegmentJob.session_token == jeton, InterviewSegmentJob.position == 1))
+        job.status = "done"
+        job.turns_result = {"turns": [{"interlocuteur": "A", "question": None,
+                                       "remarque": "t1", "section_title": None}],
+                            "identity": {}}
+        db.commit()
+    r = client.get("/interviews/segment-jobs/turns",
+                   params={"session_token": jeton, "since": 1}).json()
+    assert [t["remarque"] for t in r["turns"]] == ["t1", "t2"]
+    assert r["next_since"] == 3
+
+
+def test_b2_une_tranche_en_echec_ne_bloque_pas_l_apercu(client: TestClient) -> None:
+    jeton = "b2-echec"
+    with SessionLocal() as db:
+        db.add_all([_job(jeton, 0, "failed"), _job(jeton, 1, "done", "t1")])
+        db.commit()
+    r = client.get("/interviews/segment-jobs/turns",
+                   params={"session_token": jeton, "since": 0}).json()
+    assert [t["remarque"] for t in r["turns"]] == ["t1"]
+    assert r["next_since"] == 2
+
+
+# --------------------------------------------------------------------------- #
+# B-3 — jeton d'import > 64 caractères : plus de 404 sur status / retry
+# --------------------------------------------------------------------------- #
+def test_b3_jeton_long_status_et_retry_ne_rendent_pas_404(client: TestClient) -> None:
+    long_jeton = "x" * 100
+    with SessionLocal() as db:
+        job = AudioFileJob(
+            session_token=interview_segment_jobs.normaliser_jeton(long_jeton),
+            filename="1_import.webm", status="running", block_seconds=60, blocks=[],
+        )
+        db.add(job)
+        db.commit()
+        job_id = job.id
+    r = client.get("/audio/transcribe-file/status",
+                   params={"job_id": job_id, "session_token": long_jeton})
+    assert r.status_code == 200
+    r = client.post("/audio/transcribe-file/retry",
+                    data={"job_id": job_id, "session_token": long_jeton})
+    assert r.status_code != 404
+    # Un jeton étranger reste refusé.
+    r = client.get("/audio/transcribe-file/status",
+                   params={"job_id": job_id, "session_token": "y" * 100})
+    assert r.status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# B-8 — jeton de tranche fait d'espaces : 400, aucune ligne orpheline partagée
+# --------------------------------------------------------------------------- #
+def test_b8_jeton_d_espaces_refuse_sans_creer_de_ligne(client: TestClient) -> None:
+    r = client.post("/interviews/segment-jobs",
+                    data={"session_token": "   ", "position": 0, "text": "Bonjour"})
+    assert r.status_code == 400
+    with SessionLocal() as db:
+        assert db.scalar(select(InterviewSegmentJob).where(
+            InterviewSegmentJob.session_token == "")) is None
+
+
+# --------------------------------------------------------------------------- #
+# B-9 — double POST de la confirmation : un seul entretien
+# --------------------------------------------------------------------------- #
+def test_b9_double_post_confirm_meme_jeton_un_seul_entretien(client: TestClient) -> None:
+    mission_id = _mission(client)
+    data = {
+        "transcript": "Bonjour.", "interviewee_name": "Alice",
+        "turn_interlocuteur": ["Alice"], "turn_question": [""],
+        "turn_remarque": ["Un propos."], "turn_section_title": [""],
+        "session_token": "b9-jeton",
+    }
+    url = f"/missions/{mission_id}/interviews/record-libre/confirm"
+    r1 = client.post(url, data=data, follow_redirects=False)
+    r2 = client.post(url, data=data, follow_redirects=False)
+    assert r1.status_code == 303 and r2.status_code == 303
+    with SessionLocal() as db:
+        ids = list(db.scalars(select(Interview.id).where(Interview.mission_id == mission_id)))
+    assert len(ids) == 1
+    assert r2.headers["location"] == r1.headers["location"]
+
+
+# --------------------------------------------------------------------------- #
+# B-4 — supprimer une tranche de sauvegarde laisse le trou de positions
+# --------------------------------------------------------------------------- #
+def test_b4_suppression_d_un_segment_garde_le_trou_de_positions(
+    client: TestClient, monkeypatch, tmp_path,
+) -> None:
+    from app.routers import interviews_backup
+
+    monkeypatch.setattr(interviews_backup, "RECORDINGS_DIR", tmp_path)
+    mission_id = _mission(client)
+    noms = [f"{mission_id}_seg{i}.webm" for i in range(3)]
+    for nom in noms:
+        (tmp_path / nom).write_bytes(b"audio")
+    iid = _interview(
+        mission_id, "fait",
+        audio_segments=[{"filename": n, "position": i} for i, n in enumerate(noms)],
+        audio_backup_path=noms[-1],
+    )
+    r = client.post(
+        f"/missions/{mission_id}/interviews/record/backup/{noms[1]}/delete",
+        follow_redirects=False,
+    )
+    assert r.status_code == 303
+    with SessionLocal() as db:
+        segs = db.get(Interview, iid).audio_segments
+    assert [s["position"] for s in segs] == [0, 2]
+    # Le rang d'AFFICHAGE de l'onglet Backup reste « n/2 », jamais « 3/2 ».
+    with SessionLocal() as db:
+        lignes = mission_backups.lister_backups(db.get(Mission, mission_id), tmp_path)
+    rattaches = [b for b in lignes["rattaches"] if b["interview"] is not None]
+    assert sorted((b["position"], b["nb_tranches"]) for b in rattaches) == [(0, 2), (1, 2)]
+
+
+# --------------------------------------------------------------------------- #
+# B-11 — un fichier antérieur à la mission (id SQLite réutilisé) n'est pas rattaché
+# --------------------------------------------------------------------------- #
+def test_b11_reference_audio_anterieure_a_la_mission_ecartee(tmp_path) -> None:
+    nom = "5_ancien.webm"
+    chemin = tmp_path / nom
+    chemin.write_bytes(b"audio")
+    vieux = time.time() - 3 * 24 * 3600
+    os.utime(chemin, (vieux, vieux))
+    mission = SimpleNamespace(id=5, created_at=datetime.now(timezone.utc).replace(tzinfo=None))
+    segs = [{"filename": nom, "position": 0}]
+    chemin_sur, segments = mission_backups.references_audio_sures(
+        5, nom, segs, tmp_path, mission=mission,
+    )
+    assert chemin_sur is None and segments == []
+    # Fichier écrit APRÈS la mission : rattaché.
+    os.utime(chemin, None)
+    mission.created_at = (datetime.now(timezone.utc) - timedelta(hours=1)).replace(tzinfo=None)
+    assert mission_backups.references_audio_sures(
+        5, nom, segs, tmp_path, mission=mission,
+    ) == (nom, [{"filename": nom, "position": 0}])
+
+
+# --------------------------------------------------------------------------- #
+# B-10 — un fichier au préfixe non canonique (« 007_x ») reste visible en orphelin
+# --------------------------------------------------------------------------- #
+def test_b10_prefixe_non_canonique_liste_en_orphelin(client: TestClient, tmp_path) -> None:
+    mission_id = _mission(client)
+    nom = f"00{mission_id}_x.webm"
+    (tmp_path / nom).write_bytes(b"audio")
+    with SessionLocal() as db:
+        orphelins = mission_backups.lister_orphelins_globaux(tmp_path, db)["orphelins"]
+    assert nom in [o["filename"] for o in orphelins]
+
+
+# --------------------------------------------------------------------------- #
+# B-6 — un échec tardif de la tâche d'origine n'écrase pas un `done`
+# --------------------------------------------------------------------------- #
+def test_b6_echec_tardif_n_ecrase_pas_un_done_recupere(monkeypatch) -> None:
+    with SessionLocal() as db:
+        job = InterviewSegmentJob(session_token="b6", position=0, kind="libre_turns",
+                                  status="pending", text="Bonjour.")
+        db.add(job)
+        db.commit()
+        job_id = job.id
+
+    def _recuperee_puis_echec(db, job, *a, **k):
+        # Pendant l'extraction, la récupération synchrone aboutit la tranche.
+        with SessionLocal() as autre:
+            ligne = autre.get(InterviewSegmentJob, job_id)
+            ligne.status = "done"
+            ligne.turns_result = {"turns": [], "identity": {}}
+            autre.commit()
+        raise InterviewLibreExtractAIError("IA indisponible")
+
+    monkeypatch.setattr(interview_segment_jobs, "_extract_with_retries", _recuperee_puis_echec)
+    interview_segment_jobs.run_segment_job(job_id)
+    with SessionLocal() as db:
+        assert db.get(InterviewSegmentJob, job_id).status == "done"
+
+
+# --------------------------------------------------------------------------- #
+# B-12 — une exception hors du `try` du worker ne laisse pas l'id « déjà en file »
+# --------------------------------------------------------------------------- #
+def test_b12_exception_hors_try_libere_l_inscription(monkeypatch) -> None:
+    def _casse(_priorite):
+        raise RuntimeError("priorité indisponible")
+
+    monkeypatch.setattr(structuration_libre, "avec_priorite", _casse)
+    marque = object()
+    with structuration_libre._verrou_registre:
+        structuration_libre._en_vol[987654] = marque
+    structuration_libre._traiter((987654, marque, None, None, 0))  # ne lève pas
+    assert not structuration_libre.est_en_vol(987654)
+
+
+# --------------------------------------------------------------------------- #
+# B-7 — relancer un aperçu existant DIT que les corrections manuelles sont perdues
+# --------------------------------------------------------------------------- #
+def test_b7_relance_avec_tours_avertit_de_la_perte_des_corrections(client: TestClient) -> None:
+    mission_id = _mission(client)
+    iid = _interview(mission_id, "echec")
+    with SessionLocal() as db:
+        db.add(InterviewTurn(interview_id=iid, position=0, interlocuteur="A",
+                             question=None, remarque="Corrigé à la main", section_title=None))
+        db.commit()
+    page = client.get(f"/interviews/{iid}").text
+    assert "corrections faites à la main sur les tours seront perdues" in page

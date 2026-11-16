@@ -519,7 +519,10 @@ def test_le_statut_d_import_expose_le_nom_du_fichier() -> None:
     source = (RACINE / "app" / "routers" / "interviews_audio.py").read_text(
         encoding="utf-8"
     )
-    bloc = source[source.index("def transcribe_file_status") :][:4000]
+    # Borné au décorateur SUIVANT, pas à 4000 caractères (Story 3.4, D-11) : la
+    # découpe fixe débordait sur la route voisine ou tronquait celle-ci.
+    bloc = source[source.index("def transcribe_file_status") :]
+    bloc = bloc.split("\n@router.", 1)[0]
     assert '"filename"' in bloc, (
         "le statut d'import n'expose plus le nom du fichier : le client ne peut "
         "plus rattacher l'audio importé, qui redevient un orphelin injouable"

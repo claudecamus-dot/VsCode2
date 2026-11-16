@@ -15,7 +15,7 @@ from fastapi import (
 )
 from fastapi.responses import JSONResponse
 from sqlalchemy import inspect as sa_inspect
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
@@ -82,6 +82,10 @@ def create_segment_job(
     # wizard abandonné) portent du contenu d'entretien — balayés passé 7 jours.
     purge_stale_segment_jobs(db)
     jeton = normaliser_jeton(session_token)  # une seule normalisation (G5)
+    if not jeton:
+        # Story 3.4 (B-8) : un jeton fait d'espaces se normalisait en '' — toutes
+        # ces sessions partageaient alors les mêmes lignes, sans propriétaire.
+        raise HTTPException(status_code=400, detail="Jeton de session vide.")
     # Une tranche est identifiée par (session_token, position, kind) et la base
     # le garantit depuis ce lot (2026-09-10 ; le 2026-09-09 est la date du
     # CONSTAT d'audit, pas celle de la garantie). Cette route doit donc être IDEMPOTENTE,
@@ -253,10 +257,28 @@ def segment_jobs_turns_json(
     la fusion complète comme avant : compat inchangée. `record_libre.html`
     fournit désormais ce curseur et accumule les tours reçus."""
     status = segment_jobs_status_light(db, session_token, since_position=since)
-    merged = merge_segment_turns(status["jobs"], None)
-    next_since = max(
-        [since] + [j.position + 1 for j in status["jobs"]]
-    )
+    # Story 3.4 (B-2) : une tranche finie HORS ORDRE (position 2 done pendant
+    # que la 1 tourne encore) faisait avancer le curseur au-delà de la 1, qui
+    # n'était plus jamais renvoyée. Le curseur s'arrête à la plus petite
+    # tranche encore EN VOL (pending/running) ; les tranches finies au-delà
+    # attendent le prochain sondage (sinon le client, qui accumule, les
+    # recevrait deux fois). Une tranche `failed` ne bloque pas l'aperçu.
+    jeton = normaliser_jeton(session_token)
+    premiere_en_vol = db.scalar(
+        select(func.min(InterviewSegmentJob.position)).where(
+            InterviewSegmentJob.session_token == jeton,
+            InterviewSegmentJob.kind == "libre_turns",
+            InterviewSegmentJob.status.in_(("pending", "running")),
+            InterviewSegmentJob.position >= since,
+        )
+    ) if jeton else None
+    jobs = [
+        j for j in status["jobs"]
+        if j.kind == "libre_turns"
+        and (premiere_en_vol is None or j.position < premiere_en_vol)
+    ]
+    merged = merge_segment_turns(jobs, None)
+    next_since = max([since] + [j.position + 1 for j in jobs])
     return JSONResponse(
         {
             "turns": merged["turns"],
