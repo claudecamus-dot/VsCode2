@@ -11,6 +11,7 @@ statut → revue → confirmation), pas la qualité de transcription.
 """
 from __future__ import annotations
 
+import re
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
@@ -1476,7 +1477,8 @@ def test_confirmer_est_refuse_et_ne_supprime_rien_si_l_archivage_echoue(
         reponse = _confirmer_texte(client, ctx["interview_id"], "Nouveau texte.", "Nouveau.")
     assert reponse.status_code == 409
     assert "Impossible d'archiver" in reponse.json()["detail"]
-    assert "FileExistsError" in reponse.json()["detail"]
+    # Type de l'OSError selon l'OS (Windows : FileExistsError, Linux : NotADirectoryError).
+    assert re.search(r"cause : (FileExistsError|NotADirectoryError)", reponse.json()["detail"])
     assert "Traceback" not in reponse.text
     db = SessionLocal()
     try:
@@ -1487,7 +1489,7 @@ def test_confirmer_est_refuse_et_ne_supprime_rien_si_l_archivage_echoue(
         db.close()
     alertes = [r for r in caplog.records if r.levelname == "WARNING" and "archivage" in r.getMessage()]
     assert alertes
-    assert "FileExistsError" in alertes[0].getMessage()
+    assert re.search(r"(FileExistsError|NotADirectoryError)", alertes[0].getMessage())
     assert "Ancienne transcription." not in caplog.text
 
 

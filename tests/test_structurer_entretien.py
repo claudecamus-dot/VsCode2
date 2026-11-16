@@ -923,7 +923,7 @@ def test_fait_partiel_garde_les_jobs_et_propose_de_relancer_les_tranches(
         assert structuration_libre.nb_tranches_a_rattraper(interview) == 1
         assert structuration_libre.peut_relancer(interview) is True
     html = client.get(f"/interviews/{interview_id}/structurer/statut").text
-    assert "Relancer les tranches en échec" in html
+    assert ">Relancer ce passage</button>" in html  # libellé « passage » depuis f1e4020 (vocab)
     assert "confirm(" in html  # l'aperçu sera réécrit : on prévient
 
 
