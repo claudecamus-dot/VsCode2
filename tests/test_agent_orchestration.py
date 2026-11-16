@@ -263,8 +263,11 @@ def test_playbook_structure_valide(path):
         assert e["mode"] in VALID_MODES
         assert e["contrat"]["type"] in VALID_CONTRAT_TYPES
         assert e["contrat"].get("critere")
-        # Une étape parallèle borne son fan-out (garde-fou §5).
-        if e["mode"] == "parallele":
+        # Une étape parallèle borne son fan-out (garde-fou §5). Exception : une
+        # étape de SALLE (agent « salle <nom> … ») borne ses voix dans le manifeste
+        # de la salle (_bmad/custom/bmad-party-mode.toml), pas dans le playbook —
+        # canon dev-verifie du hub adopté le 2026-11-06 (arbitrage utilisateur).
+        if e["mode"] == "parallele" and not e["agent"].startswith("salle "):
             assert 1 <= e.get("fan_out_max", 0) <= 4
 
 
@@ -286,11 +289,16 @@ def test_playbooks_de_dev_se_terminent_par_revue_increment():
     """
     for name in ("dev-verifie", "export-ppt-verifie", "cycle-produit-bmad"):
         pb = _extract_playbook_json(PLAYBOOKS_DIR / f"{name}.md")
-        agents = [e["agent"] for e in pb["etapes"]]
-        assert "revue-increment" in agents, f"{name} : pas de DoD"
-        index = agents.index("revue-increment")
-        # Checkpoint sur la DoD elle-même = garde-fou commit.
-        assert pb["etapes"][index]["checkpoint"]
+        ids = [e["id"] for e in pb["etapes"]]
+        assert "revue-increment" in ids, f"{name} : pas de DoD"
+        index = ids.index("revue-increment")
+        assert "revue-increment" in pb["etapes"][index]["agent"], f"{name} : DoD sans la skill"
+        # Checkpoint sur la DoD elle-même = garde-fou commit — sauf dev-verifie,
+        # dont le canon du hub (adopté le 2026-11-06, arbitrage utilisateur) porte
+        # le gate de commit sur `revue-finale`/`relecture-adverse`/`revue-avant-fusion`
+        # (vérifié par test_dev_verifie_revoit_avant_de_committer).
+        if name != "dev-verifie":
+            assert pb["etapes"][index]["checkpoint"]
         # Après elle, uniquement du commit/journal — jamais une étape qui
         # produirait du code non revu.
         for etape in pb["etapes"][index + 1:]:
@@ -305,15 +313,18 @@ def test_dev_verifie_revoit_avant_de_committer():
     plus rien — l'étape doit précéder la DoD et porter un checkpoint bloquant."""
     pb = _extract_playbook_json(PLAYBOOKS_DIR / "dev-verifie.md")
     ids = [e["id"] for e in pb["etapes"]]
-    assert "revue-adversariale" in ids
-    assert ids.index("revue-adversariale") < ids.index("revue-increment")
-    assert ids.index("revue-increment") < ids.index("commit-et-journal")
-    adversariale = pb["etapes"][ids.index("revue-adversariale")]
-    assert adversariale["checkpoint"], "la revue adversariale doit bloquer le commit"
-    # L'accord de lancer des sous-agents se demande AU DÉBUT du run : au moment
-    # du gate, le code est écrit et la question ne se pose plus — c'est là que
-    # la revue saute en pratique.
-    assert ids[0] == "autorisation-sous-agents"
+    # Canon du hub adopté le 2026-11-06 (arbitrage utilisateur) : l'ancienne
+    # `revue-adversariale` s'appelle `relecture-adverse`, suivie de la revue
+    # adverse avant fusion ; `autorisation-sous-agents` et `commit-et-journal`
+    # n'existent plus. Reste invariant : revue de code en salle, puis les deux
+    # relectures adverses, toutes bloquantes, AVANT la DoD et l'implémentation
+    # en amont de toutes.
+    for etape in ("revue-finale", "relecture-adverse", "revue-avant-fusion"):
+        assert etape in ids, etape
+        assert ids.index("implementation") < ids.index(etape) < ids.index("revue-increment")
+        assert pb["etapes"][ids.index(etape)]["checkpoint"], f"{etape} doit bloquer le commit"
+    assert ids.index("relecture-adverse") < ids.index("revue-avant-fusion")
+    assert ids[-1] == "revue-increment"
 
 
 def test_generateur_bmad_est_deterministe_et_synchro(tmp_path):

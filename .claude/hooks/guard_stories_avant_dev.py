@@ -17,20 +17,30 @@ LE POINT DE CONTRÔLE. L'invocation d'une skill BMAD d'IMPLÉMENTATION (`bmad-bu
 `{planning_artifacts}/epics.md` n'existe pas dans le projet, on refuse en disant quoi
 faire (générer les stories), jamais en laissant deviner.
 
-CE QU'IL NE PRÉTEND PAS FAIRE. Il vérifie la PRÉSENCE du fichier, pas que la story
-touchée y a des critères vérifiables — cela reste la lecture du sous-agent
-`utilisateur-produit` (« CONFORMITE AUX ATTENDUS »). Il ne voit pas non plus un code
-écrit par `Edit`/`Write` hors de toute skill : un garde-fou qui bloquerait toute écriture
-de fichier tant qu'epics.md manque bloquerait aussi le rattrapage lui-même.
+CE QU'IL NE PRÉTEND PAS FAIRE. Il vérifie la PRÉSENCE, pas la qualité : un titre
+`### Story N.M` (niveau fixé à `###`, id chiffre.chiffre, titre libre) ET les mots
+« acceptance criteria » / « critères d'acceptance », n'importe où dans epics.md. Une story
+bidon (`### Story 1.1` + la formule), un titre dans un bloc de code clôturé ou un
+commentaire HTML sont donc ACCEPTÉS ; un titre indenté ou cité (`> ### Story 1.1`) ou de
+mauvais niveau (`#### Story 1.1`, `## Story 1.2`) est REFUSÉ. Que la story touchée ait des
+critères vérifiables reste la lecture du sous-agent `utilisateur-produit`. Il ne voit pas
+non plus un code écrit par `Edit`/`Write` hors de toute skill : bloquer ces outils
+empêcherait le rattrapage lui-même (choix de conception, ne pas l'étendre).
 
-FAIL-OPEN INTÉGRAL. PreToolUse : entrée malformée, skill non reconnue, racine
-introuvable → on laisse passer sans un mot. Il ne refuse que sur un cas positivement
-établi : skill d'implémentation reconnue ET fichier absent.
+AUCUNE DÉROGATION, PAR CONCEPTION (décision utilisateur, story-obligatoire B) : pas de
+variable d'environnement ni d'argument de skill qui désactive le refus. Seule voie : écrire
+la story et ses critères.
+
+FAIL-OPEN INTÉGRAL SUR LE CONTENU, PAS SUR LE DÉLAI. Laisse passer sans un mot : stdin vide ou JSON invalide, outil autre que
+`Skill`, skill non reconnue, entrée non-objet. En revanche, stdin non reçu dans le délai
+borné => `os._exit(2)` (refus prudent, comportement historique). Il ne refuse sur le fond que
+sur un cas établi : skill d'implémentation reconnue ET epics.md absent ou sans story+critères.
 
 RACINE DÉRIVÉE DE `__file__` (`.claude/hooks/<ce fichier>` → 3 niveaux), jamais du
 `cwd` : un hook du kit peut être lancé depuis n'importe quel sous-répertoire de la
-cible. `AGENT_SUPERVISION_EPICS` redirige le chemin contrôlé — même convention que les
-autres garde-fous du dispositif, c'est ce qui le rend testable sans toucher au réel.
+cible. ATTENTION : copié hors de `.claude/hooks/` de la cible, il viserait un mauvais
+répertoire. `AGENT_SUPERVISION_EPICS` redirige le chemin contrôlé (tests uniquement) — même
+convention que les autres garde-fous du dispositif.
 """
 import json
 import os
@@ -48,15 +58,36 @@ SKILLS_IMPLEMENTATION = ("bmad-build", "bmad-build-auto", "bmad-agent-dev")
 
 
 _RE_CRITERES = re.compile(r"acceptance\s+criteria|crit[eè]res?\s+d[’']acceptance", re.I)
+# Story B (2026-10-28, option 1) : au moins un VRAI titre de story `### Story <N>.<M>`
+# (id chiffre.chiffre, titre libre) -- des criteres sans titre de story ne sont pas une
+# story. Meme id que warn_commit_sans_ref.RE_STORY_EPICS (`Story\s+(\d+\.\d+)`), mais
+# niveau de titre fige a `###` (`## Story 1.2` et `### Story A` ne comptent pas). Le hook
+# reste autonome (kit) : pas d'import croise. Ne PAS etendre a Edit/Write (rattrapage).
+_RE_TITRE_STORY = re.compile(r"^###[ \t]+Story[ \t]+\d+\.\d+", re.I | re.M)
 
 
 def _porte_des_criteres(chemin: str) -> bool:
-    """Vrai si le fichier existe ET contient au moins un bloc de criteres d'acceptance."""
+    """Vrai si le fichier existe ET contient un titre `### Story N.M` ET des criteres."""
     try:
         with open(chemin, encoding="utf-8", errors="replace") as fh:
-            return bool(_RE_CRITERES.search(fh.read()))
+            texte = fh.read()
+        return bool(_RE_TITRE_STORY.search(texte)) and bool(_RE_CRITERES.search(texte))
     except OSError:
         return False
+
+
+def _etat(chemin: str) -> str:
+    """Motif precis du refus : fichier absent, sans titre de story, ou sans critere."""
+    if not os.path.isfile(chemin):
+        return "absent"
+    try:
+        with open(chemin, encoding="utf-8", errors="replace") as fh:
+            texte = fh.read()
+    except OSError:
+        return "illisible"
+    if not _RE_TITRE_STORY.search(texte):
+        return "sans titre `### Story N.M`"
+    return "sans aucun critere d'acceptance"
 
 
 def _laisser_passer():
@@ -184,17 +215,13 @@ def main() -> None:
     if _porte_des_criteres(EPICS):
         _laisser_passer()
 
-    etat = "absent" if not os.path.isfile(EPICS) else "present mais sans aucun critere d'acceptance"
+    etat = _etat(EPICS)
+    rel = os.path.relpath(EPICS, RACINE) if EPICS.startswith(RACINE) else EPICS
     raison = (
-        f"Skill d'implementation « {nom} » refusee : aucune user story exploitable "
-        f"({os.path.relpath(EPICS, RACINE) if EPICS.startswith(RACINE) else EPICS} {etat}).\n"
-        "Prerequis absent = BLOQUANT pour tout nouveau developpement (arbitrage du "
-        "2026-09-24) : generer d'abord les epics / user stories et leurs criteres "
-        "d'acceptance via /bmad-create-epics-and-stories (playbook cadrage-produit, ou "
-        "l'etape cadrage-epics de dev-verifie ; prerequis de la skill : PRD + architecture).\n"
-        "Correction de bug ? Rattrapage d'abord : ecrire les criteres d'acceptance de la "
-        "story que le bug touche, puis corriger contre eux. Un correctif sans critere "
-        "ecrit est un developpement a l'aveugle."
+        f"Skill « {nom} » refusee : {rel} {etat}. Generer d'abord les stories via "
+        "/bmad-create-epics-and-stories (un titre `### Story N.M` + des criteres "
+        "d'acceptance). Correction de bug : rattrapage d'abord, ecrire la story touchee "
+        "puis corriger contre ses criteres. Aucune derogation, par conception."
     )
     print(json.dumps({"hookSpecificOutput": {
         "hookEventName": "PreToolUse",
