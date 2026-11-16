@@ -652,6 +652,76 @@ def _modele_worker(threads: int):
     return _worker_model
 
 
+# Story 3.2 (C-4, AC3.2.4) : hallucinations de Whisper sur le silence. Constaté :
+# « Merci d'avoir regardé cette vidéo ! » x7 conservé, et un bloc d'hallucinations
+# neutralise l'alerte « aucune parole ». Trois parades, toutes appliquées par
+# `_texte_segments` aux TROIS sites d'appel (worker, séquentiel, direct) :
+# 1. `condition_on_previous_text=False` (`OPTIONS_ANTI_HALLUCINATION`) : un texte
+#    halluciné n'amorce plus le suivant (cause des boucles répétitives).
+# 2. Segment écarté si no_speech_prob > SEUIL_NO_SPEECH ET avg_logprob <
+#    SEUIL_LOGPROB : MÊMES seuils (0,6 / -1,0) et même conjonction que
+#    faster-whisper (`no_speech_threshold`, `log_prob_threshold`,
+#    transcribe.py:274-277 et 1217-1223 du paquet installé), qui ne l'applique
+#    qu'à la FENÊTRE de 30 s entière ; ici, segment par segment.
+# 3. Phrases types de silence (FR/EN, `_PHRASES_SILENCE`) écartées seulement si
+#    ISOLÉES (le bloc ne contient rien d'autre) ou PEU SÛRES (no_speech_prob >=
+#    SEUIL_PHRASE_NO_SPEECH ou avg_logprob < SEUIL_PHRASE_LOGPROB) : une vraie
+#    phrase « merci d'avoir regardé » prononcée avec assurance au milieu d'un
+#    entretien reste. Puis les répétitions exactes consécutives sont repliées.
+# Un bloc qui ne contient que cela rend "" : le direct lève alors `NoSpeechError`
+# (422 `no_speech`, sémantique inchangée) et le fond compte un bloc vide.
+OPTIONS_ANTI_HALLUCINATION = {"condition_on_previous_text": False}
+SEUIL_NO_SPEECH = 0.6
+SEUIL_LOGPROB = -1.0
+SEUIL_PHRASE_NO_SPEECH = 0.3
+SEUIL_PHRASE_LOGPROB = -0.7
+_PHRASES_SILENCE = (
+    "merci d'avoir regardé cette vidéo",
+    "merci d'avoir regardé",
+    "merci de votre attention",
+    "sous-titres réalisés par",
+    "sous-titrage",
+    "abonnez-vous",
+    "thank you for watching",
+    "thanks for watching",
+    "subtitles by",
+)
+
+
+def _norm_phrase(texte: str) -> str:
+    return " ".join(texte.replace("’", "'").lower().split()).strip(" .,;:!?…\"'«»")
+
+
+def _est_phrase_silence(texte: str) -> bool:
+    norme = _norm_phrase(texte)
+    return bool(norme) and any(norme.startswith(p) for p in _PHRASES_SILENCE)
+
+
+def _texte_segments(segments) -> str:
+    """Texte d'un bloc, hallucinations de silence écartées (cf. ci-dessus).
+    Tolère des segments sans `no_speech_prob`/`avg_logprob` (doublures)."""
+    candidats = []
+    for seg in segments:
+        texte = (seg.text or "").strip()
+        if not texte:
+            continue
+        nsp = getattr(seg, "no_speech_prob", 0.0) or 0.0
+        logp = getattr(seg, "avg_logprob", 0.0) or 0.0
+        if nsp > SEUIL_NO_SPEECH and logp < SEUIL_LOGPROB:
+            continue
+        candidats.append((texte, nsp, logp))
+    isole = all(_est_phrase_silence(t) for t, _, _ in candidats)
+    gardes: list[str] = []
+    for texte, nsp, logp in candidats:
+        if _est_phrase_silence(texte) and (
+                isole or nsp >= SEUIL_PHRASE_NO_SPEECH or logp < SEUIL_PHRASE_LOGPROB):
+            continue
+        if gardes and _norm_phrase(gardes[-1]) == _norm_phrase(texte):
+            continue   # répétition exacte consécutive
+        gardes.append(texte)
+    return " ".join(gardes).strip()
+
+
 def _transcribe_pcm_chunk(args: tuple) -> str:
     """Transcrit un tronçon PCM déjà décodé — fonction de niveau module
     (requis par `ProcessPoolExecutor` sous Windows, qui doit pouvoir la
@@ -660,9 +730,9 @@ def _transcribe_pcm_chunk(args: tuple) -> str:
     pcm, threads = args
     model = _modele_worker(threads)
     segments, _info = model.transcribe(
-        pcm, language="fr", beam_size=BEAM_SIZE, vad_filter=True
+        pcm, language="fr", beam_size=BEAM_SIZE, vad_filter=True, **OPTIONS_ANTI_HALLUCINATION
     )
-    return " ".join(seg.text.strip() for seg in segments).strip()
+    return _texte_segments(segments)
 
 
 def _transcribe_parallel(content: bytes, duration_s: float, priority: int = FOND,
@@ -782,9 +852,9 @@ def _transcribe_pcm_sequential(pcm, priority: int = FOND) -> str:
         if signal is not None:
             signal()
         segments, _info = model.transcribe(
-            pcm, language="fr", beam_size=BEAM_SIZE, vad_filter=True
+            pcm, language="fr", beam_size=BEAM_SIZE, vad_filter=True, **OPTIONS_ANTI_HALLUCINATION
         )
-        return " ".join(seg.text.strip() for seg in segments).strip()
+        return _texte_segments(segments)
     finally:
         _MODEL_LOCK.release()
 
@@ -1522,9 +1592,10 @@ def _transcribe_audio_live(content: bytes, duration_s, abandonne=None) -> str:
                 finally:
                     _ATTENTE_CHARGEMENT_MAX.reset(jeton)
                 segments, _info = model.transcribe(
-                    io.BytesIO(content), language="fr", beam_size=BEAM_SIZE, vad_filter=True
+                    io.BytesIO(content), language="fr", beam_size=BEAM_SIZE, vad_filter=True,
+                    **OPTIONS_ANTI_HALLUCINATION,
                 )
-                text = " ".join(seg.text.strip() for seg in segments).strip()
+                text = _texte_segments(segments)
                 _noter_duree(time.monotonic() - debut)
             finally:
                 _MODEL_LOCK.release()
