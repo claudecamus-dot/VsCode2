@@ -53,14 +53,22 @@
       if (Object.prototype.hasOwnProperty.call(options, cle)) opts[cle] = options[cle];
     }
     opts.signal = ctrl.signal;
+    // Story 3.3 (A-18) : le `signal` de l'appelant n'est plus écrasé — il est
+    // chaîné sur le contrôleur interne. Seul NOTRE minuteur produit `recTimeout`.
+    var parDelai = false;
+    var signalAppelant = options && options.signal;
+    if (signalAppelant) {
+      if (signalAppelant.aborted) ctrl.abort();
+      else if (signalAppelant.addEventListener) signalAppelant.addEventListener('abort', function () { ctrl.abort(); });
+    }
 
-    var timer = setTimeout(function () { ctrl.abort(); }, ms);
+    var timer = setTimeout(function () { parDelai = true; ctrl.abort(); }, ms);
 
     // `AbortError` porte un message par défaut du navigateur, illisible dans le
     // bandeau d'erreur. On le remplace par la cause telle que l'utilisateur la
     // vit — le reste de la chaîne n'affiche que `.message`.
     function traduire(err) {
-      if (err && err.name === 'AbortError') {
+      if (err && err.name === 'AbortError' && parDelai) {
         // `Math.max(1, …)` : un délai sous la seconde (les tests) afficherait
         // sinon « après 0 s », qui se lit comme un bug plutôt qu'un délai.
         var e = new Error('pas de réponse après ' + Math.max(1, Math.round(ms / 1000)) + ' s');

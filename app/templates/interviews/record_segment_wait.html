@@ -22,6 +22,14 @@
   <progress id="seg-bar" value="{{ status.done }}" max="{{ status.total }}"></progress>
 </section>
 
+<section id="seg-exit" class="card" hidden>
+  <p id="seg-exit-text" role="alert"></p>
+  <p class="muted">Le texte de l'entretien est dans cette page : garde-le avant toute autre action.</p>
+  <button type="button" id="seg-exit-copy" class="btn">Copier le texte</button>
+  <button type="button" id="seg-exit-download" class="btn">Télécharger le texte</button>
+  <button type="button" id="seg-exit-finalize" class="btn btn-primary">Finaliser maintenant avec le texte disponible</button>
+</section>
+
 <!-- Champs portés vers la finalisation une fois toutes les tranches traitées. -->
 <form id="finalize-form" method="post"
       action="/missions/{{ mission.id }}/interviews/record/from-jobs">
@@ -47,6 +55,55 @@
   // 2026-08-31, même raison que libre_segment_wait.html) : sans lui, un fetch
   // jamais réglé tuait définitivement la chaîne de setTimeout du suivi.
   var POLL_TIMEOUT_MS = 120000;
+  // Story 3.3 (A-8) : l'attente a une BORNE de sortie. Au-delà de WAIT_MAX_MS, après
+  // EXIT_AFTER_FAILS échecs d'affilée, sur un 401 (session expirée) ou après
+  // EXIT_AFTER_EMPTY réponses « aucune tranche » (total == 0) sans fin annoncée,
+  // l'écran propose de copier/télécharger le texte et de finaliser à la main.
+  // Jamais de soumission automatique sur ces cas : l'utilisateur garde la main.
+  var WAIT_MAX_MS = 20 * 60 * 1000;
+  var EXIT_AFTER_FAILS = 6;
+  var EXIT_AFTER_EMPTY = 3;
+  var debut = Date.now();
+  var emptyPolls = 0;
+  var exitEl = document.getElementById('seg-exit');
+  var exitTextEl = document.getElementById('seg-exit-text');
+  function texteEntretien() {
+    var champ = form.querySelector('input[name="transcript"]');
+    return champ ? champ.value : '';
+  }
+  function proposerSortie(raison) {
+    if (submitted || !exitEl) return;
+    exitTextEl.textContent = raison;
+    exitEl.hidden = false;
+  }
+  if (exitEl) {
+    document.getElementById('seg-exit-copy').addEventListener('click', function () {
+      var t = texteEntretien();
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(t).then(function () {
+          exitTextEl.textContent = 'Texte copié dans le presse-papiers.';
+        }, function () { exitTextEl.textContent = 'Copie refusée : utilise « Télécharger le texte ».'; });
+      } else {
+        exitTextEl.textContent = 'Copie indisponible : utilise « Télécharger le texte ».';
+      }
+    });
+    document.getElementById('seg-exit-download').addEventListener('click', function () {
+      var url = URL.createObjectURL(new Blob([texteEntretien()], { type: 'text/plain;charset=utf-8' }));
+      var a = document.createElement('a');
+      a.href = url; a.download = 'entretien-' + token + '.txt';
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    });
+    document.getElementById('seg-exit-finalize').addEventListener('click', function () {
+      if (!confirm('Finaliser maintenant avec le texte disponible ? Les tranches encore en cours ne seront pas attendues.')) return;
+      finalize();
+    });
+  }
+  function bornee() {
+    if (Date.now() - debut >= WAIT_MAX_MS) {
+      proposerSortie("L'attente dépasse " + Math.round(WAIT_MAX_MS / 60000) + ' min — tu peux garder le texte et finaliser maintenant.');
+    }
+  }
 
   function finalize() {
     if (submitted) return;
@@ -62,11 +119,15 @@
         // Un 5xx n'est pas une « connexion perdue » — le distinguer via le catch
         // commun avec un message qui couvre les deux (même durcissement que
         // libre_segment_wait.html, revue adversariale 2026-07-23).
+        if (res.status === 401) {
+          var e401 = new Error('http 401'); e401.session = true; throw e401;
+        }
         if (!res.ok) throw new Error('http ' + res.status);
         return res.json();
       })
       .then(function (s) {
         failedPolls = 0;
+        emptyPolls = (s.total > 0 || s.all_done || s.any_failed) ? 0 : emptyPolls + 1;
         progressEl.classList.remove('error');
         if (s.total > 0) {
           barEl.max = s.total;
@@ -83,10 +144,14 @@
         if (s.all_done || s.any_failed) {
           finalize();
         } else {
+          if (emptyPolls >= EXIT_AFTER_EMPTY) {
+            proposerSortie('Aucune tranche en cours côté serveur — garde le texte et finalise maintenant.');
+          }
+          bornee();
           setTimeout(poll, 5000);
         }
       })
-      .catch(function () {
+      .catch(function (err) {
         // Erreur réseau OU réponse serveur en erreur : on réessaie sans casser
         // l'attente, mais on le DIT — la progression ne doit jamais rester
         // figée sans indiquer si le suivi est encore actif.
@@ -97,6 +162,14 @@
             'Le suivi ne répond plus — nouvelle tentative dans 5 s… ' +
             '(l\'attente reprendra toute seule, ne recharge pas la page)';
         }
+        if (err && err.session) {
+          progressEl.classList.add('error');
+          progressEl.textContent = 'Session expirée — reconnecte-toi dans un autre onglet ; le suivi reprendra.';
+          proposerSortie('Session expirée : garde le texte (copie ou téléchargement) avant toute autre action.');
+        } else if (failedPolls >= EXIT_AFTER_FAILS) {
+          proposerSortie('Le suivi ne répond plus depuis ' + failedPolls + ' tentatives — garde le texte et finalise maintenant.');
+        }
+        bornee();
         setTimeout(poll, 5000);
       });
   }

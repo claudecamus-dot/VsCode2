@@ -236,3 +236,221 @@ rendre(); el('rec-draft-restore')._on.click();
 out = { texte: bac.transcriptSoFar, jeton: bac.sessionToken, suivant: bac.nextBackupPosition };
 """)
     assert r == {"texte": "ancien texte", "jeton": "tok-ancien", "suivant": 6}
+
+
+# --------------------------------------------------------------------------- #
+# A-8 : pages d'attente des tranches -- borne de sortie, 401, total == 0
+# --------------------------------------------------------------------------- #
+ATTENTES = [LIBRE.parent / "record_segment_wait.html", LIBRE.parent / "libre_segment_wait.html"]
+
+_ATTENTE = r"""
+let clock = 0; const timers = []; const reponses = []; let soumis = 0, copie = null, telecharge = 0;
+const Date = { now: function () { return clock; } };
+function setTimeout(fn, d) { timers.push(fn); }
+function mk(id) { return { id: id, hidden: true, textContent: '', value: '', max: 0, h: {},
+  classList: { add: function () {}, remove: function () {} },
+  addEventListener: function (n, f) { this.h[n] = f; }, click: function () {} }; }
+const els = {}; ['seg-progress', 'seg-bar', 'seg-exit', 'seg-exit-text', 'seg-exit-copy',
+  'seg-exit-download', 'seg-exit-finalize'].forEach(function (i) { els[i] = mk(i); });
+const champ = mk('t'); champ.value = 'texte de l entretien';
+els['finalize-form'] = { submit: function () { soumis++; },
+  querySelector: function (s) { return s === 'input[name="transcript"]' ? champ : null; } };
+const document = { getElementById: function (i) { return els[i] || null; },
+  createElement: function () { return mk('a'); }, body: { appendChild: function () {}, removeChild: function () {} } };
+const navigator = { clipboard: { writeText: function (t) { copie = t; return Promise.resolve(); } } };
+const URL = { createObjectURL: function () { telecharge++; return 'blob:x'; }, revokeObjectURL: function () {} };
+function Blob() {} function confirm() { return true; }
+function recFetch() {
+  const r = reponses.shift();
+  if (r === 'reseau') return Promise.reject(new Error('reseau'));
+  return Promise.resolve({ ok: r.status < 300, status: r.status, json: function () { return Promise.resolve(r.data); } });
+}
+async function tick() { for (let i = 0; i < 20; i++) await Promise.resolve(); }
+async function suivant() { timers.shift()(); await tick(); }
+const EN_COURS = { status: 200, data: { total: 3, done: 1 } };
+const VIDE = { status: 200, data: { total: 0, done: 0 } };
+%(prep)s
+%(script)s
+(async () => {
+  const out = {}; await tick();
+  %(corps)s
+  console.log(JSON.stringify(out));
+})();
+"""
+
+
+def _attente(ecran: Path, prep: str, corps: str) -> dict:
+    import re
+    brut = ecran.read_text(encoding="utf-8")
+    script = brut[brut.index("<script>") + len("<script>"):brut.index("</script>")]
+    script = re.sub(r"\{\{.*?\}\}", '"tok"', script)
+    return _node_fichier(_ATTENTE % {"prep": prep, "script": script, "corps": corps})
+
+
+_ETAT_SORTIE = "({ sortie: els['seg-exit'].hidden === false, soumis: soumis })"
+
+
+@pytest.mark.parametrize("ecran", ATTENTES, ids=lambda p: p.name)
+def test_attente_401_propose_la_sortie_sans_soumettre(ecran: Path) -> None:
+    r = _attente(ecran, "reponses.push({ status: 401, data: {} });",
+                 "out.a = %s; out.progression = els['seg-progress'].textContent;" % _ETAT_SORTIE)
+    assert r["a"] == {"sortie": True, "soumis": 0}
+    assert "Session expirée" in r["progression"]
+
+
+@pytest.mark.parametrize("ecran", ATTENTES, ids=lambda p: p.name)
+def test_attente_total_zero_repete_propose_la_sortie(ecran: Path) -> None:
+    r = _attente(ecran, "reponses.push(VIDE, VIDE, VIDE);", """
+out.deux = (await suivant(), %(e)s);
+await suivant(); out.trois = %(e)s;
+""" % {"e": _ETAT_SORTIE})
+    assert r["deux"] == {"sortie": False, "soumis": 0}
+    assert r["trois"] == {"sortie": True, "soumis": 0}
+
+
+@pytest.mark.parametrize("ecran", ATTENTES, ids=lambda p: p.name)
+def test_attente_bornee_dans_le_temps_puis_copie_telechargement_finalisation(ecran: Path) -> None:
+    r = _attente(ecran, "reponses.push(EN_COURS, EN_COURS);", """
+out.avant = %(e)s;
+clock = 21 * 60 * 1000; await suivant();
+out.apres = %(e)s;
+els['seg-exit-copy'].h.click(); await tick(); out.copie = copie;
+els['seg-exit-download'].h.click(); out.telecharge = telecharge;
+els['seg-exit-finalize'].h.click(); out.final = soumis;
+""" % {"e": _ETAT_SORTIE})
+    assert r["avant"] == {"sortie": False, "soumis": 0}
+    assert r["apres"] == {"sortie": True, "soumis": 0}
+    assert r["copie"] == "texte de l entretien" and r["telecharge"] == 1 and r["final"] == 1
+
+
+@pytest.mark.parametrize("ecran", ATTENTES, ids=lambda p: p.name)
+def test_attente_echecs_reseau_repetes_proposent_la_sortie(ecran: Path) -> None:
+    r = _attente(ecran, "for (let i = 0; i < 6; i++) reponses.push('reseau');", """
+for (let i = 0; i < 4; i++) await suivant();
+out.cinq = %(e)s;
+await suivant(); out.six = %(e)s;
+""" % {"e": _ETAT_SORTIE})
+    assert r["cinq"] == {"sortie": False, "soumis": 0}
+    assert r["six"] == {"sortie": True, "soumis": 0}
+
+
+# --------------------------------------------------------------------------- #
+# A-6 : rec_audio_source.js -- « Arreter » pendant le selecteur d'onglet
+# --------------------------------------------------------------------------- #
+REC_AUDIO = LIBRE.parents[2] / "static" / "rec_audio_source.js"
+
+_AUDIO = r"""
+const arretees = []; let ctxCrees = 0; const resoudre = {};
+function piste(nom) { return { nom: nom, readyState: 'live', muted: false,
+  stop: function () { arretees.push(nom); }, addEventListener: function () {} }; }
+function flux(nom, audio) { const p = [piste(nom + '-a'), piste(nom + '-v')];
+  return { getAudioTracks: function () { return audio ? [p[0]] : []; }, getTracks: function () { return p; } }; }
+function AudioContext() { ctxCrees++; this.state = 'running'; }
+AudioContext.prototype = { addEventListener: function () {}, close: function () {},
+  createMediaStreamDestination: function () { return { stream: { mix: true } }; },
+  createMediaStreamSource: function () { return { connect: function () {}, disconnect: function () {} }; },
+  createAnalyser: function () { return { fftSize: 0 }; } };
+function MediaStream() {}
+const navigator = { mediaDevices: {
+  getDisplayMedia: function () { return new Promise(function (ok) { resoudre.onglet = ok; }); },
+  getUserMedia: function () { return new Promise(function (ok) { resoudre.micro = ok; }); } } };
+const window = { AudioContext: AudioContext };
+function setInterval() { return 1; } function clearInterval() {}
+async function tick() { for (let i = 0; i < 20; i++) await Promise.resolve(); }
+%(src)s
+const src = window.i2dAudioSource;
+(async () => {
+  const out = {};
+  %(corps)s
+  console.log(JSON.stringify(out));
+})();
+"""
+
+
+def _audio(corps: str) -> dict:
+    return _node_fichier(_AUDIO % {"src": REC_AUDIO.read_text(encoding="utf-8"), "corps": corps})
+
+
+def test_partage_resolu_apres_arret_ne_reacquiert_rien() -> None:
+    """A-6 : Stop pendant que le selecteur d'onglet est ouvert, puis resolution tardive
+    -> pistes arretees, aucun AudioContext, la demande echoue, l'onglet n'est pas actif."""
+    r = _audio("""
+let erreur = null;
+src.shareTab().then(function () {}, function (e) { erreur = e.message; });
+src.release();
+resoudre.onglet(flux('tab', true)); await tick();
+Object.assign(out, { erreur: erreur, arretees: arretees, ctx: ctxCrees, actif: src.tabActive() });
+""")
+    assert "arrêté entre-temps" in (r["erreur"] or ""), r
+    assert r["arretees"] == ["tab-a", "tab-v"] and r["ctx"] == 0 and r["actif"] is False, r
+
+
+def test_micro_resolu_apres_arret_est_relache() -> None:
+    """A-6 : la permission micro accordee apres « Arreter » ne garde pas le micro ouvert."""
+    r = _audio("""
+let erreur = null;
+src.acquire(false).then(function () {}, function (e) { erreur = e.message; });
+src.release();
+resoudre.micro(flux('mic', true)); await tick();
+Object.assign(out, { erreur: erreur, arretees: arretees });
+""")
+    assert "arrêté entre-temps" in (r["erreur"] or "") and r["arretees"] == ["mic-a", "mic-v"], r
+
+
+def test_partage_sans_arret_reste_inchange() -> None:
+    """Temoin : sans release(), le partage aboutit (onglet actif, mixage cree)."""
+    r = _audio("""
+let ok = false;
+src.shareTab().then(function () { ok = true; });
+resoudre.onglet(flux('tab', true)); await tick();
+resoudre.micro(flux('mic', true)); await tick();
+Object.assign(out, { ok: ok, actif: src.tabActive(), ctx: ctxCrees, arretees: arretees });
+""")
+    assert r == {"ok": True, "actif": True, "ctx": 1, "arretees": []}
+
+
+# --------------------------------------------------------------------------- #
+# Mineurs : A-11 (rec_draft.js), A-18 (rec_fetch.js)
+# --------------------------------------------------------------------------- #
+REC_FETCH = LIBRE.parents[2] / "static" / "rec_fetch.js"
+
+
+def test_brouillon_sans_date_n_affiche_pas_nan() -> None:
+    """A-11 : `savedAt` absent -> « a une date inconnue », jamais « NaN/NaN »."""
+    r = _node_fichier("const window = {};\n" + REC_DRAFT.read_text(encoding="utf-8") + r"""
+window.recDraft = module.exports;
+const sans = window.recDraft.decision({ transcript: 'du texte' }, 1e12);
+const avec = window.recDraft.decision({ transcript: 'du texte', savedAt: 1e12 }, 1e12);
+console.log(JSON.stringify({ sans: sans.libelle, avec: avec.libelle }));
+""")
+    assert "NaN" not in r["sans"] and "à une date inconnue" in r["sans"], r
+    assert "NaN" not in r["avec"] and "sauvegarde locale le " in r["avec"], r
+
+
+_FETCH = r"""
+const window = {}; const timers = [];
+function setTimeout(fn) { timers.push(fn); return 1; } function clearTimeout() {}
+function fetch(url, opts) { return new Promise(function (ok, ko) {
+  opts.signal.addEventListener('abort', function () { const e = new Error('aborted'); e.name = 'AbortError'; ko(e); });
+}); }
+%(src)s
+async function tick() { for (let i = 0; i < 20; i++) await Promise.resolve(); }
+(async () => {
+  const out = {};
+  const appelant = new AbortController();
+  let e1 = null; window.recFetch('/x', { signal: appelant.signal }, 5000).catch(function (e) { e1 = e; });
+  appelant.abort(); await tick();
+  out.appelant = { name: e1 && e1.name, recTimeout: !!(e1 && e1.recTimeout) };
+  let e2 = null; window.recFetch('/y', { signal: new AbortController().signal }, 5000).catch(function (e) { e2 = e; });
+  timers[timers.length - 1](); await tick();
+  out.delai = { recTimeout: !!(e2 && e2.recTimeout) };
+  console.log(JSON.stringify(out));
+})();
+"""
+
+
+def test_recfetch_chaine_le_signal_de_l_appelant() -> None:
+    """A-18 : l'annulation par l'appelant aboutit (AbortError, pas un « delai depasse ») ;
+    le minuteur interne produit toujours `recTimeout`."""
+    r = _node_fichier(_FETCH % {"src": REC_FETCH.read_text(encoding="utf-8")})
+    assert r == {"appelant": {"name": "AbortError", "recTimeout": False}, "delai": {"recTimeout": True}}
