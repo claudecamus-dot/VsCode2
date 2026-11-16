@@ -1202,11 +1202,13 @@ def test_alerte_no_speech_fixee_en_haut_dans_un_vrai_navigateur(
         "top:Math.round(r.top),bg:cs.backgroundColor,fg:cs.color,"
         "role:document.getElementById('rec-nospeech-text').getAttribute('role'),"
         "polite:document.getElementById('rec-nospeech-duration').getAttribute('aria-live'),"
-        "scrollable:document.documentElement.scrollHeight>window.innerHeight+50})})()")
+        "scrollY:Math.round(window.scrollY)})})()")
     charge = json.loads(nav.evaluer(mesure))
     assert charge["hidden"] is True and charge["shown"] is False, charge  # masque au chargement
-    nav.evaluer(
-        "(function(){document.getElementById('rec-nospeech-text').textContent="
+    nav.evaluer(  # transcript long (cas reel) : la page defile ; « Arreter » visible pendant l'entretien
+        "(function(){document.getElementById('rec-transcript').rows=90;"
+        "document.getElementById('rec-stop').hidden=false;"
+        "document.getElementById('rec-nospeech-text').textContent="
         "'\u26a0 Aucune parole d\u00e9tect\u00e9e. V\u00e9rifie le micro s\u00e9lectionn\u00e9.';"
         "document.getElementById('rec-nospeech-duration').textContent="
         "'Silence depuis ~3 min (3 segments).';"
@@ -1221,6 +1223,20 @@ def test_alerte_no_speech_fixee_en_haut_dans_un_vrai_navigateur(
             assert etat["top"] == 0, (largeur, defilement, etat)  # sans demo : tout en haut
             assert etat["role"] == "alert" and etat["polite"] == "polite", etat
             assert etat["bg"] == "rgb(179, 38, 30)" and etat["fg"] == "rgb(255, 255, 255)", etat
-        assert etat["scrollable"] is True or largeur == 1366, (
-            "la page de 390 px doit etre defilable pour que le test prouve quelque chose", etat)
+        assert etat["scrollY"] > 0, ("le defilement doit avoir eu lieu", largeur, etat)
+        # « Arreter » amene a l'ecran ne doit pas finir SOUS l'alerte fixe.
+        libre = nav.evaluer(
+            "(function(){var b=document.getElementById('rec-stop');b.scrollIntoView({block:'start'});"
+            "var r=b.getBoundingClientRect();var e=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);"
+            "return e===b||b.contains(e)})()")
+        assert libre is True, ("l'alerte recouvre le bouton Arreter", largeur)
         nav.capturer(tmp_path / ("alerte_%d.png" % largeur), page_entiere=False)
+    # Un bandeau demo apparait / change de hauteur : au redimensionnement l'alerte se replace dessous.
+    nav.evaluer(
+        "(function(){var d=document.createElement('div');d.className='demo-banner';"
+        "d.style.cssText='position:sticky;top:0;height:30px;z-index:9999';"
+        "document.body.insertBefore(d,document.body.firstChild);return 1})()")
+    nav._run(nav._cmd("Emulation.setDeviceMetricsOverride", width=1200, height=700,
+                      deviceScaleFactor=1, mobile=False))
+    nav.evaluer("window.scrollTo(0, 0)")
+    assert json.loads(nav.evaluer(mesure))["top"] == 30  # resize -> positionnerAlerte

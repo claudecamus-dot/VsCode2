@@ -26,15 +26,21 @@ def _scenario(corps: str, *, segment_ms: int = 60000, remote: bool = False,
               tab_actif: bool = False, demo: int = 0) -> dict:
     src = _sans_commentaires(LIBRE.read_text(encoding="utf-8"))
     code = "".join(_js(_fonction(src, f)) for f in
-                   ("majTitre", "afficherAlerte", "noteNoSpeech", "resetNoSpeech"))
+                   ("majTitre", "positionnerAlerte", "rendreAlerte", "noteNoSpeech",
+                    "resetNoSpeech"))
     stop = _corps_du_gestionnaire(src, "stopBtn.addEventListener('click'")
     perdu = "(function () %s)();" % _bloc(src, src.index("tabLost: function"))
-    ligne = re.search(r"if \(!lostId\) resetNoSpeech\(\);", src)
-    assert ligne, "garde `if (!lostId) resetNoSpeech()` introuvable"
+    depart = src.index("then(function (flux)")
+    partage_ok = "(function (flux) %s)({});" % _bloc(src, depart)
+    echec = src.index(".catch(function (err)", depart)
+    partage_ko = "(function (err) %s)({ message: 'refus utilisateur' });" % _bloc(src, echec)
+    from test_repartition_live import _corps_du_demarrage
+    demarrage = _corps_du_demarrage(src)
+    recommencer = _corps_du_gestionnaire(src, "resetBtn.addEventListener('click'")
     return _bac(code + r"""
 Object.assign(bac, {
   noSpeechStreak: 0, NOSPEECH_ALERT_AFTER: 2, titreOrigine: null, noSpeechActive: false,
-  partagePerdu: false, alerteKind: null,
+  partagePerdu: false, alerteKind: null, partageErreur: '', swapSource: function () {},
   NOSPEECH_TITLE_PREFIX: %(pref)s, PARTAGE_TITLE_PREFIX: %(part)s,
   SEGMENT_MS: %(seg)d, recordingActive: true,
   noSpeechBannerEl: el('b'), noSpeechTextEl: el('t'), noSpeechFixBtn: el('f'),
@@ -48,8 +54,11 @@ el('b').style = {};
 let ecritures = 0, texteAnnonce = '';
 Object.defineProperty(el('t'), 'textContent', { configurable: true,
   get: function () { return texteAnnonce; }, set: function (v) { ecritures++; texteAnnonce = v; } });
-bac.document.querySelector = function () {
-  return %(demo)d ? { getBoundingClientRect: function () { return { height: %(demo)d }; } } : null;
+el('b').getBoundingClientRect = function () { return { height: 40 }; };
+bac.document.body = { style: {} };
+bac.document.documentElement = { style: {} };
+bac.document.querySelector = function (sel) {   // sensible au SELECTEUR : une coquille echoue
+  return (sel === '.demo-banner' && %(demo)d) ? { getBoundingClientRect: function () { return { height: %(demo)d }; } } : null;
 };
 jouer('document.title = ' + %(titre)s);
 let out = {};
@@ -57,13 +66,18 @@ const titre = () => jouer('document.title');
 const stopper = () => jouer(%(stop)s);
 const partage_perdu = () => jouer(%(perdu)s);
 const muet = (n) => { for (let k = 0; k < (n || 1); k++) jouer('noteNoSpeech()'); };
-const parole = (lostId) => jouer('var lostId = ' + (lostId || 0) + '; ' + %(ligne)s);
+const parole = (lostId) => jouer('resetNoSpeech(false, ' + (lostId || 0) + ')');
+const repartage_ok = () => jouer(%(ok)s);
+const repartage_ko = () => jouer(%(ko)s);
+const demarrer = () => jouer(%(demarrage)s);
+const recommencer = () => jouer(%(recommencer)s);
 %(corps)s
 console.log(JSON.stringify(out));
 """ % {"pref": json.dumps(PREFIXE), "part": json.dumps(PARTAGE), "seg": segment_ms,
        "remote": "true" if remote else "false", "tab": "true" if tab_actif else "false",
        "demo": demo, "titre": json.dumps(json.dumps(TITRE)), "stop": json.dumps(stop),
-       "perdu": json.dumps(perdu), "ligne": json.dumps(ligne.group(0)), "corps": corps})
+       "perdu": json.dumps(perdu), "ok": json.dumps(partage_ok),
+       "ko": json.dumps(partage_ko), "demarrage": json.dumps(demarrage), "recommencer": json.dumps(recommencer), "corps": corps})
 
 
 def test_alerte_masquee_au_chargement_et_au_1er_segment_muet() -> None:
@@ -185,3 +199,84 @@ partage_perdu(); out.perdu = titre();
 def test_alerte_se_place_sous_le_bandeau_demo() -> None:
     assert _scenario("muet(2); out = el('b').style.top;", demo=26) == "26px"
     assert _scenario("muet(2); out = el('b').style.top;") == "0px"
+
+
+def test_re_partage_reussi_efface_tout_et_remet_les_etats_a_zero() -> None:
+    r = _scenario("""
+partage_perdu(); muet(2);
+repartage_ok();
+out = { cache: el('b').hidden, titre: titre(), perdu: jouer('partagePerdu'), serie: jouer('noSpeechStreak') };
+""")
+    assert r == {"cache": True, "titre": TITRE, "perdu": False, "serie": 0}
+
+
+def test_re_partage_refuse_ne_touche_pas_au_noeud_alert_et_va_dans_la_region_polie() -> None:
+    r = _scenario("""
+muet(2);
+out.avant = { texte: el('t').textContent, ecritures };
+repartage_ko();
+out.apres = { texte: el('t').textContent, ecritures, polie: el('d').textContent, cle: jouer('alerteKind') };
+""", remote=True)
+    assert r["apres"]["texte"] == r["avant"]["texte"] and "Partager aussi l'audio" in r["apres"]["texte"]
+    assert r["apres"]["ecritures"] == r["avant"]["ecritures"]       # pas de 2e annonce role=alert
+    assert "refus utilisateur" in r["apres"]["polie"] and "~2 min" in r["apres"]["polie"]
+
+
+def test_demarrage_d_une_session_remet_l_alerte_a_zero() -> None:
+    r = _scenario("""
+partage_perdu(); muet(2);
+demarrer();
+out = { cache: el('b').hidden, titre: titre(), perdu: jouer('partagePerdu') };
+""")
+    assert r == {"cache": True, "titre": TITRE, "perdu": False}
+
+
+def test_texte_du_noeud_alert_est_vide_au_masquage_et_reecrit_apres_affichage() -> None:
+    r = _scenario("""
+muet(2); parole();
+out.vide = el('t').textContent;
+muet(2);
+out.revient = { texte: el('t').textContent.length > 0, cache: el('b').hidden };
+""")
+    assert r["vide"] == "" and r["revient"] == {"texte": True, "cache": False}
+
+
+def test_le_conseil_suit_le_changement_de_reparable() -> None:
+    r = _scenario("""
+muet(2);
+out.avant = { t: el('t').textContent, f: el('f').hidden };
+jouer("i2dAudioSource.tabActive = function () { return true; }");
+muet(1);
+out.apres = { t: el('t').textContent, f: el('f').hidden };
+""", remote=True)
+    assert "Partager aussi l'audio" in r["avant"]["t"] and r["avant"]["f"] is False
+    assert "Vérifie le micro" in r["apres"]["t"] and r["apres"]["f"] is True
+
+
+def test_position_recalculee_au_redimensionnement_et_sous_le_demo() -> None:
+    r = _scenario("""
+muet(2);
+out.a = { top: el('b').style.top, pad: jouer('document.body.style.paddingTop'),
+          sp: jouer('document.documentElement.style.scrollPaddingTop') };
+jouer("document.querySelector = function (s) { return s === '.demo-banner' ? " +
+      "{ getBoundingClientRect: function () { return { height: 50 }; } } : null; }");
+jouer('positionnerAlerte()');
+out.b = { top: el('b').style.top, sp: jouer('document.documentElement.style.scrollPaddingTop') };
+partage_perdu();
+out.c = el('b').style.top;
+parole(); stopper();
+out.d = { pad: jouer('document.body.style.paddingTop'), sp: jouer('document.documentElement.style.scrollPaddingTop') };
+""")
+    assert r["a"] == {"top": "0px", "pad": "40px", "sp": "40px"}
+    assert r["b"] == {"top": "50px", "sp": "90px"}
+    assert r["c"] == "50px"                       # la branche partage-perdu repositionne aussi
+    assert r["d"] == {"pad": "", "sp": ""}
+
+
+def test_recommencer_remet_l_alerte_a_zero() -> None:
+    r = _scenario("""
+partage_perdu(); muet(2);
+recommencer();
+out = { cache: el('b').hidden, titre: titre(), perdu: jouer('partagePerdu') };
+""")
+    assert r == {"cache": True, "titre": TITRE, "perdu": False}

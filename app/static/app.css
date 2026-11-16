@@ -1199,9 +1199,9 @@ textarea.htmx-request, input.htmx-request, select.htmx-request {
 /* Story 2.1 : alerte « aucune parole détectée » / « partage perdu » FIXÉE en haut du
    viewport (toujours visible, quel que soit le défilement ; `top` posé en JS sous le
    bandeau démo s'il existe). Recouvre le contenu tant qu'elle est affichée. Fond rouge
-   plein, texte blanc : contraste ≈6.5:1 (AA) — `--danger` (#d8413a) n'atteint que ≈4:1
+   plein, texte blanc : contraste ≈6.5:1 (AA) — `--danger` (#d8413a) n'atteint que ≈4.4:1
    avec du blanc, d'où un rouge dédié. Pas d'animation (rien pour prefers-reduced-motion). */
-#rec-nospeech-banner[data-alerte-epinglee] { position: fixed; top: 0; left: 8px; right: 8px; z-index: 9998;
+#rec-nospeech-banner[data-alerte-epinglee] { position: fixed; top: 0; left: 8px; right: 8px; z-index: 10000;
   background: #b3261e; color: #fff; border: 2px solid #7f1d17; font-weight: 600;
   box-shadow: 0 2px 8px rgba(0,0,0,.25); display: flex; flex-wrap: wrap; align-items: center;
   gap: 8px 12px; }
