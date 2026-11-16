@@ -1097,26 +1097,22 @@ def _erreur_ia(transitoire: bool):
     return exc
 
 
+# `with SessionLocal()` (Story 3.4, D-11) : session fermée même sur exception,
+# sans try/finally recopié à la main.
 def _lancer_tranche(token: str) -> int:
-    db = SessionLocal()
-    try:
+    with SessionLocal() as db:
         job = InterviewSegmentJob(session_token=token, position=0, status="pending", text="du texte")
         db.add(job)
         db.commit()
         job_id = job.id
-    finally:
-        db.close()
     interview_segment_jobs.run_segment_job(job_id)
     return job_id
 
 
 def _statut(job_id: int) -> tuple[str, str | None]:
-    db = SessionLocal()
-    try:
+    with SessionLocal() as db:
         job = db.get(InterviewSegmentJob, job_id)
         return job.status, job.error
-    finally:
-        db.close()
 
 
 def test_panne_transitoire_est_reessayee_puis_la_tranche_aboutit(monkeypatch):

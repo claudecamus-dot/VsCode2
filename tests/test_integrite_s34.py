@@ -212,7 +212,9 @@ def test_b3_jeton_long_status_et_retry_ne_rendent_pas_404(client: TestClient) ->
 # --------------------------------------------------------------------------- #
 # B-8 — jeton de tranche fait d'espaces : 400, aucune ligne orpheline partagée
 # --------------------------------------------------------------------------- #
-def test_b8_jeton_d_espaces_refuse_sans_creer_de_ligne(client: TestClient) -> None:
+def test_b8_jeton_d_espaces_refuse_sans_creer_de_ligne(client: TestClient, monkeypatch) -> None:
+    # Aucune extraction réelle si la garde manque (le mutant programmerait la tâche).
+    monkeypatch.setattr("app.routers.interviews_segment_jobs.run_segment_job", lambda _id: None)
     r = client.post("/interviews/segment-jobs",
                     data={"session_token": "   ", "position": 0, "text": "Bonjour"})
     assert r.status_code == 400
@@ -363,3 +365,70 @@ def test_b7_relance_avec_tours_avertit_de_la_perte_des_corrections(client: TestC
         db.commit()
     page = client.get(f"/interviews/{iid}").text
     assert "corrections faites à la main sur les tours seront perdues" in page
+
+
+# --------------------------------------------------------------------------- #
+# B-9 (suite) — chemin « synthèse » : le jeton traverse libre_review.html
+# --------------------------------------------------------------------------- #
+def test_b9_synthese_transmet_le_jeton_et_confirm_dedoublonne(
+    client: TestClient, monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.routers.interviews_libre.generate_repartition_from_turns",
+        lambda turns, axes: {"repartition": {}, "resume": "Résumé."},
+    )
+    mission_id = _mission(client)
+    tours = {"turn_interlocuteur": ["Alice"], "turn_question": [""],
+             "turn_remarque": ["Un propos."], "turn_section_title": [""]}
+    page = client.post(
+        f"/missions/{mission_id}/interviews/record-libre/synthese",
+        data={"transcript": "Bonjour.", "session_token": "b9s-jeton", **tours},
+    ).text
+    assert 'name="session_token" value="b9s-jeton"' in page
+    url = f"/missions/{mission_id}/interviews/record-libre/confirm"
+    data = {"transcript": "Bonjour.", "resume": "Résumé.",
+            "session_token": "b9s-jeton", **tours}
+    r1 = client.post(url, data=data, follow_redirects=False)
+    r2 = client.post(url, data=data, follow_redirects=False)
+    assert r1.status_code == r2.status_code == 303
+    with SessionLocal() as db:
+        n = len(list(db.scalars(select(Interview.id).where(Interview.mission_id == mission_id))))
+    assert n == 1
+
+
+# --------------------------------------------------------------------------- #
+# B-11 (suite) — import confirmé : un fichier antérieur à la mission est écarté
+# --------------------------------------------------------------------------- #
+def test_b11_import_confirm_ecarte_un_audio_anterieur_a_la_mission(
+    client: TestClient, monkeypatch, tmp_path,
+) -> None:
+    import json
+
+    from app.routers import interviews_gestion
+
+    monkeypatch.setattr(interviews_gestion, "RECORDINGS_DIR", tmp_path)
+    mission_id = _mission(client)
+    nom = f"{mission_id}_ancien.webm"
+    chemin = tmp_path / nom
+    chemin.write_bytes(b"audio")
+    vieux = time.time() - 3 * 24 * 3600
+    os.utime(chemin, (vieux, vieux))
+    proposed = json.dumps({"identity": {"interviewee_name": "Bob",
+                                        "audio_backup_path": nom},
+                           "answers": [], "verbatims": []})
+    r = client.post(f"/missions/{mission_id}/interviews/import/confirm",
+                    data={"proposed": proposed}, follow_redirects=False)
+    assert r.status_code in (302, 303)
+    with SessionLocal() as db:
+        itw = db.scalar(select(Interview).where(Interview.mission_id == mission_id))
+    assert itw is not None and itw.audio_backup_path is None
+
+
+# --------------------------------------------------------------------------- #
+# B-13 — SEGMENT_JOB_STALE_AFTER_S borné
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("brut, attendu", [("0", 60), ("-5", 60), ("1000000000", 86400),
+                                           ("600", 600), ("abc", 2700)])
+def test_b13_seuil_de_peremption_borne(monkeypatch, brut, attendu) -> None:
+    monkeypatch.setenv("SEGMENT_JOB_STALE_AFTER_S", brut)
+    assert interview_segment_jobs.segment_job_stale_after_s() == attendu

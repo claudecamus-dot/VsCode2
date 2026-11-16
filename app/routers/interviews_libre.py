@@ -232,6 +232,7 @@ def _etat_audio(mission, identity, attendu: int = 0) -> tuple[bool, int]:
         identity.get("audio_backup_path"),
         _parse_audio_segments(identity.get("audio_segments", "[]")),
         RECORDINGS_DIR,
+        mission=mission,  # Story 3.4 (B-11) : même garde que la persistance
     )
     attendu = min(max(0, attendu), 1000)  # plafond de bon sens (champ client)
     if not segments:
@@ -763,6 +764,7 @@ def record_libre_synthese(
     turn_question: list[str] = Form([]),
     turn_remarque: list[str] = Form([]),
     turn_section_title: list[str] = Form([]),
+    session_token: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Étape 2 (US9.16) : à partir des tours de parole validés à l'étape
@@ -777,6 +779,9 @@ def record_libre_synthese(
         interview_date=interview_date,
         audio_backup_path=audio_backup_path,
         audio_segments=audio_segments,
+        # Story 3.4 (B-9) : transmis à l'écran de synthèse, qui le reposte à
+        # `confirm` — l'index unique y dédoublonne un double POST.
+        session_token=session_token,
     )
     turns = _parse_turns_from_form(
         turn_interlocuteur, turn_question, turn_remarque, turn_section_title

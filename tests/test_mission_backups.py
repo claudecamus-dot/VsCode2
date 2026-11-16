@@ -356,11 +356,14 @@ def test_suppression_d_un_orphelin(client: TestClient):
     assert not (RECORDINGS_DIR / orphelin).exists()
 
 
-def test_suppression_d_une_tranche_du_milieu_renumerote_les_rangs(client: TestClient):
-    """Régression (revue adversariale 2026-07-29) : `position` est un RANG
-    affiché (« Tranche 2/3 ») — sans renumérotation, supprimer la tranche du
-    milieu laissait les rangs 0 et 2 sur un entretien à 2 tranches, soit
-    « Tranche 3/2 » à l'écran."""
+def test_suppression_d_une_tranche_du_milieu_garde_les_positions_et_affiche_les_rangs(
+    client: TestClient,
+):
+    """Contrat de la Story 3.4 (B-4) : `position` est l'IDENTITÉ de la tranche —
+    supprimer celle du milieu laisse le trou (0, 2) en base, pour que la
+    retranscription le détecte. Le RANG affiché (« Tranche 2/2 ») est calculé
+    par `lister_backups` : jamais « Tranche 3/2 » à l'écran (régression de la
+    revue adversariale 2026-07-29, toujours couverte)."""
     a, b, c = _ecrire("_renum_a.webm"), _ecrire("_renum_b.webm"), _ecrire("_renum_c.webm")
     mid, ivid = _mission_avec_entretien("Backup renumerotation", [a, b, c])
 
@@ -368,7 +371,13 @@ def test_suppression_d_une_tranche_du_milieu_renumerote_les_rangs(client: TestCl
 
     with SessionLocal() as db:
         segments = db.get(Interview, ivid).audio_segments
-    assert [(s["filename"], s["position"]) for s in segments] == [(a, 0), (c, 1)]
+        inventaire = mission_backups.lister_backups(db.get(Mission, mid), RECORDINGS_DIR)
+    assert [(s["filename"], s["position"]) for s in segments] == [(a, 0), (c, 2)]
+    rangs = sorted(
+        (ligne["filename"], ligne["position"], ligne["nb_tranches"])
+        for ligne in inventaire["rattaches"] if ligne["filename"] in (a, c)
+    )
+    assert rangs == [(a, 0, 2), (c, 1, 2)]
 
 
 def test_suppression_refuse_un_fichier_reference_par_une_autre_mission(client: TestClient):

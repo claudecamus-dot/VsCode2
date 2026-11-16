@@ -111,10 +111,17 @@ def segment_job_stale_after_s() -> int:
     raw = os.environ.get("SEGMENT_JOB_STALE_AFTER_S")
     if raw:
         try:
-            return int(raw)
+            # Borné (Story 3.4, B-13) : « 0 » ou négatif déclarait TOUTE tranche
+            # morte dès sa création (`any_failed`, finalisation prématurée) ; une
+            # valeur énorme ne libérait plus jamais un job réellement mort.
+            return min(max(int(raw), _STALE_MIN_S), _STALE_MAX_S)
         except ValueError:
             pass
     return 45 * 60
+
+
+_STALE_MIN_S = 60
+_STALE_MAX_S = 24 * 3600
 
 
 # Plafonds des réglages d'environnement de reprise (arbitrage utilisateur
