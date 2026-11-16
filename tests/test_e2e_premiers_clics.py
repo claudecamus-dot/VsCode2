@@ -31,6 +31,7 @@ existe pour fermer.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import tempfile
@@ -1178,3 +1179,42 @@ def test_relancer_la_transcription_audio_depuis_la_fiche(
         nav.cliquer_et_attendre(sel)
         _sans_erreur(nav, "Relancer la transcription")
         assert _python_sur_base(base_db, _COMPTER_JOBS_AUDIO, iid) == "1"
+
+
+def test_alerte_no_speech_epinglee_en_haut_dans_un_vrai_navigateur(
+    serveur: str, nav: Navigateur,
+) -> None:
+    """Story 2.1 (AC2.1.1, rendu reel) : sur le VRAI ecran d'enregistrement libre, le
+    bandeau no-speech porte `role="alert"`, reste epingle en haut du viewport apres
+    defilement, en rouge fonce a texte blanc (contraste AA). La logique JS (seuil, duree,
+    titre) est jouee par tests/test_alerte_no_speech_s21.py ; ici le bandeau est
+    revele par le DOM (le code est dans une IIFE, inaccessible) puis rendu et capture."""
+    nav.naviguer(serveur + "/")
+    nav.cliquer_et_attendre("form[action='/mode/reel'] button[type=submit]")
+    nav.naviguer(serveur + "/demarrer")
+    nav.cliquer_et_attendre("form[action='/entretiens/libre/nouveau'] button[type=submit]")
+    assert nav.url().rstrip("/").endswith("/record-libre"), nav.url()
+    nav.evaluer(
+        "(function(){var b=document.getElementById('rec-nospeech-banner');"
+        "document.getElementById('rec-nospeech-text').textContent="
+        "'\u26a0 Aucune parole d\u00e9tect\u00e9e sur les 3 derniers segments (~3 min). "
+        "V\u00e9rifie le micro s\u00e9lectionn\u00e9 et le volume de la salle.';"
+        "b.hidden=false;var f=document.createElement('div');f.style.height='3000px';"
+        "document.getElementById('record-form').appendChild(f);window.scrollTo(0,1200);return 1})()")
+    etat = nav.evaluer(
+        "(function(){var b=document.getElementById('rec-nospeech-banner');"
+        "var cs=getComputedStyle(b);return JSON.stringify({role:b.getAttribute('role'),"
+        "pos:cs.position,top:Math.round(b.getBoundingClientRect().top),bg:cs.backgroundColor,"
+        "fg:cs.color,h:b.getBoundingClientRect().height})})()")
+    etat = json.loads(etat)
+    assert etat["role"] == "alert", etat
+    assert etat["pos"] == "sticky" and 0 <= etat["top"] <= 1, etat  # visible sans defiler
+    assert etat["bg"] == "rgb(179, 38, 30)" and etat["fg"] == "rgb(255, 255, 255)", etat
+    nav.capturer(Path("C:/tmp/s21-shots/alerte_no_speech_desktop.png"), page_entiere=False)
+    nav._run(nav._cmd("Emulation.setDeviceMetricsOverride", width=390, height=800,
+                      deviceScaleFactor=1, mobile=False))
+    nav.evaluer("window.scrollTo(0,1200)")
+    assert 0 <= json.loads(nav.evaluer(
+        "JSON.stringify(Math.round(document.getElementById('rec-nospeech-banner')"
+        ".getBoundingClientRect().top))")) <= 1
+    nav.capturer(Path("C:/tmp/s21-shots/alerte_no_speech_mobile.png"), page_entiere=False)

@@ -1195,3 +1195,13 @@ textarea.htmx-request, input.htmx-request, select.htmx-request {
   padding: 7px 0; border-bottom: 1px solid var(--border-subtle);
 }
 .couverture-liste li:last-child { border-bottom: 0; }
+
+/* Story 2.1 : alerte « aucune parole détectée » épinglée en haut de l'écran
+   d'enregistrement, plus marquée que les bandeaux informatifs. Fond rouge plein,
+   texte blanc (7.5:1 sur #b3261e). Pas d'animation : rien à désactiver pour
+   prefers-reduced-motion. */
+#rec-nospeech-banner[role="alert"] { position: sticky; top: 0; z-index: 50; background: #b3261e; color: #fff;
+  border: 2px solid #7f1d17; font-weight: 600; box-shadow: 0 2px 8px rgba(0,0,0,.25);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+#rec-nospeech-banner[role="alert"][hidden] { display: none; }
+#rec-nospeech-banner[role="alert"] .btn { color: #7f1d17; background: #fff; border-color: #fff; }

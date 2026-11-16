@@ -227,7 +227,7 @@
        geste de réparation (demande utilisateur 2026-07-31) : une alerte qui se
        contente de décrire le problème arrive au moment précis où l'utilisateur
        est en entretien et ne peut rien faire — il la lit et continue. -->
-  <div class="ai-error rec-lost-banner" id="rec-nospeech-banner" hidden>
+  <div class="ai-error rec-lost-banner" id="rec-nospeech-banner" role="alert" hidden>
     <span id="rec-nospeech-text"></span>
     <button class="btn btn-sm" type="button" id="rec-nospeech-fix" hidden
             title="Ouvre le partage d'onglet et bascule la source SANS interrompre l'enregistrement en cours">⟳ Capter le son de la réunion</button>
@@ -844,6 +844,20 @@
   // qu'un segment n'a pas de nouveau porté de la parole.
   var noSpeechStreak = 0;
   var NOSPEECH_ALERT_AFTER = 2;
+  // Story 2.1 : l'alerte est AUSSI portée par le titre de l'onglet (visible quand
+  // l'app est en arrière-plan, p. ex. derrière Meet). Pas de son : un bip serait
+  // capté par le micro. `titreOrigine` n'est posé que pendant l'alerte.
+  var NOSPEECH_TITLE_PREFIX = '⚠ Micro muet — ';
+  var titreOrigine = null;
+  function marquerTitreMuet() {
+    if (titreOrigine === null) titreOrigine = document.title;
+    document.title = NOSPEECH_TITLE_PREFIX + titreOrigine;
+  }
+  function restaurerTitre() {
+    if (titreOrigine === null) return;
+    document.title = titreOrigine;
+    titreOrigine = null;
+  }
 
   function noteNoSpeech() {
     noSpeechStreak++;
@@ -859,7 +873,7 @@
     // rapport (revue adversariale 2026-07-31).
     var reparable = remoteModeEl.checked && i2dAudioSource.supported() && !i2dAudioSource.tabActive();
     noSpeechTextEl.textContent = '⚠ Aucune parole détectée sur les ' + noSpeechStreak +
-      ' derniers segments (~' + noSpeechStreak + ' min). ' +
+      ' derniers segments (~' + Math.max(1, Math.round(noSpeechStreak * SEGMENT_MS / 60000)) + ' min). ' +
       (reparable
         ? "Si l'entretien est à distance (Meet/Teams), le micro ne capte PAS le son du casque : " +
           "clique ci-contre, choisis l'onglet de la réunion et coche « Partager aussi l'audio de " +
@@ -867,12 +881,14 @@
         : "Vérifie le micro sélectionné et le volume de la salle.");
     noSpeechFixBtn.hidden = !reparable;
     noSpeechBannerEl.hidden = false;
+    marquerTitreMuet();
   }
 
   function resetNoSpeech() {
     noSpeechStreak = 0;
     noSpeechBannerEl.hidden = true;
     noSpeechFixBtn.hidden = true;
+    restaurerTitre();
   }
 
   // ---- Source audio : présentiel (micro seul) ou à distance (micro + onglet) --
@@ -906,6 +922,7 @@
           "des participants n'est plus enregistrée. Repartage l'onglet : l'enregistrement continue.";
         noSpeechFixBtn.hidden = !i2dAudioSource.supported();
         noSpeechBannerEl.hidden = false;
+        marquerTitreMuet();
       }
     }
   });
@@ -2814,6 +2831,7 @@
 
   stopBtn.addEventListener('click', function () {
     recordingActive = false;
+    restaurerTitre();  // l'alerte ne parle que d'un enregistrement EN COURS
     clearInterval(rotationTimer);
     clearInterval(backupRotationTimer);
     clearInterval(jobSubmitTimer);
