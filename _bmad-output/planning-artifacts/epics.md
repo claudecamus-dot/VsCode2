@@ -63,3 +63,20 @@ afin de corriger la source audio pendant l'entretien au lieu de découvrir aprè
 - AC2.1.2 — **Given** l'alerte affichée, **When** de nouveaux segments restent muets, **Then** la durée affichée se met à jour à chaque segment ; **And** le bandeau ne disparaît que lorsqu'un segment porte de nouveau de la parole.
 - AC2.1.3 — **Given** l'alerte affichée et l'onglet de l'app en arrière-plan, **Then** le titre de l'onglet est préfixé par « ⚠ Micro muet — » ; **And** le titre d'origine est restauré au retour de la parole ou à l'arrêt de l'enregistrement.
 - AC2.1.4 — **Given** des réponses `no_speech` simulées, **When** on rejoue le parcours dans un vrai navigateur (`tests/test_e2e_premiers_clics.py` ou harnais d'exécution JS), **Then** AC2.1.1 à AC2.1.3 sont vérifiés par exécution réelle, pas par recherche de texte dans le template.
+
+### Story 2.2: Transcrire un long audio sans saturer la mémoire ni rester figé
+
+En tant que consultant qui relance la transcription d'un long entretien (retranscription ou import),
+je veux que la transcription avance ou échoue avec un message clair,
+afin de ne jamais attendre des heures un écran « 0 passage » pendant que la machine sature.
+
+**Origine :** 2026-11-16, retranscription de l'entretien 23 (mission 31, ~105 min) : 8 processus de transcription ont chacun chargé le modèle Whisper medium (~1,6 Go privé chacun) sur une machine déjà chargée ; mémoire pleine, pagination continue, 0 bloc en 45 min, aucune erreur avant la péremption de 3 h. Le modèle est rechargé à chaque bloc d'une minute (`audio_transcribe.py`, `_transcribe_pcm_chunk`), le nombre de processus ne dépend que des cœurs (`MAX_PARALLEL_WORKERS`), et le parent attend chaque résultat sans délai (`futures.pop(index).result()`). Approche validée par l'utilisateur le 2026-11-16.
+
+**Statut : à faire.**
+
+**Acceptance Criteria [4 critères]:**
+
+- AC2.2.1 — **Given** une transcription parallèle (`_drain_parallel`), **When** un processus de transcription traite plusieurs blocs, **Then** il charge le modèle une seule fois (au démarrage du processus), jamais à chaque bloc.
+- AC2.2.2 — **Given** une mémoire disponible insuffisante pour N chargements du modèle, **When** le pool démarre, **Then** le nombre de processus est réduit à ce que la mémoire disponible permet (au moins 1, repli séquentiel si besoin), via une mesure de mémoire injectable pour les tests.
+- AC2.2.3 — **Given** un bloc qui ne rend aucun résultat dans un délai borné, **When** le délai expire, **Then** le travail échoue proprement (statut `failed`, message lisible à l'écran proposant la relance) ou se replie, au lieu d'attendre la péremption de 3 h ; **And** le travail signale qu'il est vivant pendant l'attente tant qu'il progresse.
+- AC2.2.4 — **Given** les correctifs, **When** on rejoue la retranscription réelle de l'entretien 23 sur le serveur 8020, **Then** elle avance (blocs > 0) sans saturer la mémoire, et l'utilisateur valide le résultat à l'écran.
