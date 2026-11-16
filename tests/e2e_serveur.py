@@ -1,8 +1,8 @@
 """Un vrai uvicorn pour les parcours navigateur (`tests/test_e2e_*.py`) :
 sous-processus sur un port libre, base SQLite temporaire, préchargements
-coupés (`WHISPER_WARM_UP=0`, `OLLAMA_WARM_UP=0` — sinon le serveur attend
-jusqu'à `OLLAMA_TIMEOUT` un Ollama absent AVANT sa première requête, revue du
-2026-09-09 A2), journal capturé, et un diagnostic qui dit ce qui s'est
+coupés (`WHISPER_WARM_UP=0`, `OLLAMA_WARM_UP=0` — les préchauffages sont des
+fils d'arrière-plan depuis le 2026-11-05 et ne retardent plus le port, mais un
+Ollama absent y garderait un fil jusqu'à `OLLAMA_TIMEOUT`, revue 2026-09-09 A2), journal capturé, et un diagnostic qui dit ce qui s'est
 réellement passé : le code de sortie est relevé AVANT `kill()`, sans quoi la
 branche « n'a pas répondu » était injoignable (A7).
 

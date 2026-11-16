@@ -687,9 +687,11 @@ def warm_up_ollama() -> None:
     un direct ni le retarder au verrou ; une priorité n'aurait aucun effet.
 
     `OLLAMA_WARM_UP=0` le désactive — miroir de `WHISPER_WARM_UP` : le serveur
-    des tests navigateur (`tests/test_e2e_*.py`) ne doit pas attendre jusqu'à
-    `OLLAMA_TIMEOUT` (300 s) qu'un Ollama absent ou muet réponde AVANT
-    d'accepter sa première requête (revue adversariale du 2026-09-09, A2 :
+    des tests navigateur (`tests/test_e2e_*.py`) ne doit pas lancer d'appel
+    Ollama inutile : le préchauffage tourne depuis le 2026-11-05 dans un fil
+    d'arrière-plan (`prechauffage-ollama`, app/main.py) et ne retarde plus
+    l'ouverture du port, mais un Ollama muet y occuperait jusqu'à
+    `OLLAMA_TIMEOUT` (300 s) (revue adversariale du 2026-09-09, A2 :
     mesuré, `GET /missions` jamais servi en 46 s avec une socket muette)."""
     if os.environ.get("OLLAMA_WARM_UP", "1") == "0":
         return

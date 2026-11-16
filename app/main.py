@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -151,17 +153,54 @@ async def lifespan(_app: FastAPI):
             "%d structuration(s) d'entretien interrompue(s) par un redémarrage, "
             "repassée(s) en échec relançable", structurations_liberees,
         )
+    # Les préchauffages partent EN ARRIÈRE-PLAN (2026-11-05) : joués ici avant le
+    # `yield`, ils tenaient le port fermé 12 à 15 min (chargement Whisper sous
+    # charge) — « démarre le site » n'était effectif qu'après ce délai. Sûr :
+    # `_get_model` sérialise le chargement (verrou). Une requête LIVE directe qui
+    # arrive pendant ce temps reçoit « occupé + retry_after » (audio_transcribe.py,
+    # chemin direct). ATTENTION : le chemin d'arrière-plan (jobs fichier) appelle
+    # `_get_model` sans borne et ATTEND la fin du chargement, sans limite.
+    # Deux fils distincts : Ollama (rapide) ne doit pas attendre le chargement
+    # de Whisper (revue du 2026-11-05).
+    threading.Thread(
+        target=_prechauffer_whisper, daemon=True, name="prechauffage-whisper"
+    ).start()
+    threading.Thread(
+        target=_prechauffer_ollama, daemon=True, name="prechauffage-ollama"
+    ).start()
+    yield
+
+
+def _prechauffage_desactive(variable: str, nom: str) -> bool:
+    """Même règle que `warm_up()` / `warm_up_ollama()` (`<VAR>=0` les désactive) :
+    sans ce test, la ligne « modèle prêt » s'écrivait aussi quand rien n'avait
+    été chargé, et le journal affirmait un modèle chaud qui ne l'était pas."""
+    if os.environ.get(variable, "1") == "0":
+        logging.getLogger(__name__).info("préchauffage %s désactivé (%s=0)", nom, variable)
+        return True
+    return False
+
+
+def _prechauffer_whisper() -> None:
+    if _prechauffage_desactive("WHISPER_WARM_UP", "Whisper"):
+        return
     try:
         audio_transcribe.warm_up()
+        logging.getLogger(__name__).info("préchauffage Whisper terminé : modèle Whisper prêt")
     except Exception:
         # non fatal : le premier enregistrement réel retentera et remontera l'erreur
         logging.getLogger(__name__).exception("préchauffage Whisper échoué au démarrage")
+
+
+def _prechauffer_ollama() -> None:
+    if _prechauffage_desactive("OLLAMA_WARM_UP", "Ollama"):
+        return
     try:
         warm_up_ollama()
+        logging.getLogger(__name__).info("préchauffage Ollama terminé : modèle Ollama prêt")
     except Exception:
         # non fatal : le premier appel IA réel retentera et remontera l'erreur
         logging.getLogger(__name__).exception("préchauffage Ollama échoué au démarrage")
-    yield
 
 
 app = FastAPI(title="Interview-to-Deck", lifespan=lifespan)

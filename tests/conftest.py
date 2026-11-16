@@ -24,6 +24,10 @@ os.environ.setdefault("APP_DB_PATH", _TEST_DB)
 os.environ.setdefault("PPTX_NO_PHOTO_FETCH", "1")
 # Pas de préchauffage Ollama réel pendant les tests (route transcribe-segment).
 os.environ.setdefault("OLLAMA_WARM_UP", "0")
+# Idem Whisper : le lifespan lance le préchauffage dans un fil daemon ; sans cela
+# tout TestClient(app) non stubbé chargerait un vrai modèle `medium` en fond.
+# Les tests qui exercent le warm-up posent WHISPER_WARM_UP eux-mêmes (monkeypatch).
+os.environ.setdefault("WHISPER_WARM_UP", "0")
 
 # --------------------------------------------------------------------------- #
 # Authentification (app/auth.py, 2026-09-19) : l'app refuse desormais TOUTE

@@ -412,6 +412,8 @@ def _get_model():
 def warm_up() -> None:
     """Charge le modèle en mémoire dès le démarrage du serveur, pour que le
     premier enregistrement réel de l'utilisateur n'en paie pas le coût.
+    Lancé depuis le 2026-11-05 dans un fil d'arrière-plan (`prechauffage-whisper`,
+    app/main.py) : il ne bloque PAS l'ouverture du port.
 
     `WHISPER_WARM_UP=0` le désactive : le serveur des tests navigateur
     (`tests/test_e2e_premiers_clics.py`) n'enregistre rien, et charger
