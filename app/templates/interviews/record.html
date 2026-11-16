@@ -2282,6 +2282,10 @@
 
   function pollRepartition() {
     if (!sessionToken) return;  // pas encore d'enregistrement -> rien à afficher
+    // Story 3.3 (A-5) : une seule requête d'aperçu en vol (même garde que record_libre).
+    if (pollRepartition.enVol) return;
+    pollRepartition.enVol = true;
+    var liberer = function () { pollRepartition.enVol = false; };
     // Jeton figé au DÉPART, re-vérifié au retour : vider l'onglet sur
     // « Recommencer » ne suffit pas si une réponse partie avant le clic arrive
     // après — elle réafficherait les réponses de la session jetée. Même garde
@@ -2292,7 +2296,8 @@
       .then(function (data) {
         if (data && sessionToken === tokenAuDepart) renderRepartition(data.answers, data.done, data.total);
       })
-      .catch(function () { /* aperçu best-effort : un échec réseau ne casse rien */ });
+      .catch(function () { /* aperçu best-effort : un échec réseau ne casse rien */ })
+      .then(liberer, liberer);
   }
 
   Array.prototype.forEach.call(document.querySelectorAll('.rec-tab'), function (btn) {
