@@ -31,6 +31,7 @@ existe pour fermer.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import tempfile
@@ -1178,3 +1179,64 @@ def test_relancer_la_transcription_audio_depuis_la_fiche(
         nav.cliquer_et_attendre(sel)
         _sans_erreur(nav, "Relancer la transcription")
         assert _python_sur_base(base_db, _COMPTER_JOBS_AUDIO, iid) == "1"
+
+
+def test_alerte_no_speech_fixee_en_haut_dans_un_vrai_navigateur(
+    serveur: str, nav: Navigateur, tmp_path,
+) -> None:
+    """Story 2.1 (AC2.1.1, rendu reel) : sur le VRAI ecran d'enregistrement libre le bandeau
+    no-speech est masque au chargement, puis -- revele -- FIXE en haut du viewport
+    (position: fixed, role=alert sur son texte), au defilement 0 comme apres defilement,
+    en 1366x768 et 390x800, en rouge a texte blanc. La logique JS (seuil, duree, titre)
+    est jouee par tests/test_alerte_no_speech_s21.py ; ici le bandeau est revele par le DOM
+    (le code est dans une IIFE, inaccessible) puis rendu et capture."""
+    nav.naviguer(serveur + "/")
+    nav.cliquer_et_attendre("form[action='/mode/reel'] button[type=submit]")
+    nav.naviguer(serveur + "/demarrer")
+    nav.cliquer_et_attendre("form[action='/entretiens/libre/nouveau'] button[type=submit]")
+    assert nav.url().rstrip("/").endswith("/record-libre"), nav.url()
+    mesure = (
+        "(function(){var b=document.getElementById('rec-nospeech-banner');"
+        "var r=b.getBoundingClientRect();var cs=getComputedStyle(b);"
+        "return JSON.stringify({hidden:b.hidden,shown:cs.display!=='none',pos:cs.position,"
+        "top:Math.round(r.top),bg:cs.backgroundColor,fg:cs.color,"
+        "role:document.getElementById('rec-nospeech-text').getAttribute('role'),"
+        "polite:document.getElementById('rec-nospeech-duration').getAttribute('aria-live'),"
+        "scrollY:Math.round(window.scrollY)})})()")
+    charge = json.loads(nav.evaluer(mesure))
+    assert charge["hidden"] is True and charge["shown"] is False, charge  # masque au chargement
+    nav.evaluer(  # transcript long (cas reel) : la page defile ; « Arreter » visible pendant l'entretien
+        "(function(){document.getElementById('rec-transcript').rows=90;"
+        "document.getElementById('rec-stop').hidden=false;"
+        "document.getElementById('rec-nospeech-text').textContent="
+        "'\u26a0 Aucune parole d\u00e9tect\u00e9e. V\u00e9rifie le micro s\u00e9lectionn\u00e9.';"
+        "document.getElementById('rec-nospeech-duration').textContent="
+        "'Silence depuis ~3 min (3 segments).';"
+        "document.getElementById('rec-nospeech-banner').hidden=false;return 1})()")
+    for largeur, hauteur in ((1366, 768), (390, 800)):
+        nav._run(nav._cmd("Emulation.setDeviceMetricsOverride", width=largeur, height=hauteur,
+                          deviceScaleFactor=1, mobile=False))  # pas d'API publique de viewport
+        for defilement in (0, 10**6):
+            nav.evaluer("window.scrollTo(0, %d)" % defilement)
+            etat = json.loads(nav.evaluer(mesure))
+            assert etat["shown"] is True and etat["pos"] == "fixed", (largeur, defilement, etat)
+            assert etat["top"] == 0, (largeur, defilement, etat)  # sans demo : tout en haut
+            assert etat["role"] == "alert" and etat["polite"] == "polite", etat
+            assert etat["bg"] == "rgb(179, 38, 30)" and etat["fg"] == "rgb(255, 255, 255)", etat
+        assert etat["scrollY"] > 0, ("le defilement doit avoir eu lieu", largeur, etat)
+        # « Arreter » amene a l'ecran ne doit pas finir SOUS l'alerte fixe.
+        libre = nav.evaluer(
+            "(function(){var b=document.getElementById('rec-stop');b.scrollIntoView({block:'start'});"
+            "var r=b.getBoundingClientRect();var e=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);"
+            "return e===b||b.contains(e)})()")
+        assert libre is True, ("l'alerte recouvre le bouton Arreter", largeur)
+        nav.capturer(tmp_path / ("alerte_%d.png" % largeur), page_entiere=False)
+    # Un bandeau demo apparait / change de hauteur : au redimensionnement l'alerte se replace dessous.
+    nav.evaluer(
+        "(function(){var d=document.createElement('div');d.className='demo-banner';"
+        "d.style.cssText='position:sticky;top:0;height:30px;z-index:9999';"
+        "document.body.insertBefore(d,document.body.firstChild);return 1})()")
+    nav._run(nav._cmd("Emulation.setDeviceMetricsOverride", width=1200, height=700,
+                      deviceScaleFactor=1, mobile=False))
+    nav.evaluer("window.scrollTo(0, 0)")
+    assert json.loads(nav.evaluer(mesure))["top"] == 30  # resize -> positionnerAlerte

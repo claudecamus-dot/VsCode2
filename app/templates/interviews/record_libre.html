@@ -227,8 +227,12 @@
        geste de réparation (demande utilisateur 2026-07-31) : une alerte qui se
        contente de décrire le problème arrive au moment précis où l'utilisateur
        est en entretien et ne peut rien faire — il la lit et continue. -->
-  <div class="ai-error rec-lost-banner" id="rec-nospeech-banner" hidden>
-    <span id="rec-nospeech-text"></span>
+  <div class="ai-error rec-lost-banner" id="rec-nospeech-banner" data-alerte-epinglee hidden>
+    <!-- Annonce FORTE une seule fois (role=alert, texte posé à l'apparition) ; la durée,
+         réécrite à chaque segment, vit dans une région POLIE à part : pas de relecture
+         complète toutes les minutes. -->
+    <span id="rec-nospeech-text" role="alert"></span>
+    <span id="rec-nospeech-duration" aria-live="polite"></span>
     <button class="btn btn-sm" type="button" id="rec-nospeech-fix" hidden
             title="Ouvre le partage d'onglet et bascule la source SANS interrompre l'enregistrement en cours">⟳ Capter le son de la réunion</button>
   </div>
@@ -329,6 +333,7 @@
   var lostListEl = document.getElementById('rec-lost-list');
   var noSpeechBannerEl = document.getElementById('rec-nospeech-banner');
   var noSpeechTextEl = document.getElementById('rec-nospeech-text');
+  var noSpeechDurationEl = document.getElementById('rec-nospeech-duration');
   var backupPathHidden = document.getElementById('rec-backup-path');
   var sessionTokenHidden = document.getElementById('rec-session-token');
   var segmentTailHidden = document.getElementById('rec-segment-tail');
@@ -844,35 +849,105 @@
   // qu'un segment n'a pas de nouveau porté de la parole.
   var noSpeechStreak = 0;
   var NOSPEECH_ALERT_AFTER = 2;
+  // Story 2.1 : l'alerte est AUSSI portée par le titre de l'onglet (visible quand
+  // l'app est en arrière-plan, p. ex. derrière Meet). Pas de son : un bip serait
+  // capté par le micro. `titreOrigine` n'est posé que pendant l'alerte.
+  var NOSPEECH_TITLE_PREFIX = '⚠ Micro muet — ';
+  var PARTAGE_TITLE_PREFIX = '⚠ Partage perdu — ';
+  var titreOrigine = null;
+  var noSpeechActive = false;  // série muette en cours (alerte « micro muet »)
+  var partagePerdu = false;    // le partage du son de la réunion s'est arrêté
+  var alerteKind = null;       // null | 'muet' | 'partage' : message actuellement annoncé
+  // Un SEUL préfixe à la fois, calculé depuis l'état : le partage perdu prime et
+  // la parole qui revient ne l'efface pas tant que le partage n'est pas refait.
+  function majTitre() {
+    var prefixe = partagePerdu ? PARTAGE_TITLE_PREFIX : (noSpeechActive ? NOSPEECH_TITLE_PREFIX : null);
+    if (prefixe === null) {
+      if (titreOrigine !== null) { document.title = titreOrigine; titreOrigine = null; }
+      return;
+    }
+    if (titreOrigine === null) titreOrigine = document.title;
+    document.title = prefixe + titreOrigine;
+  }
+  var partageErreur = '';      // échec d'un re-partage : annoncé en POLI, jamais dans le nœud role=alert
+  // Alerte FIXÉE en haut du viewport (toujours visible), SOUS le bandeau démo s'il existe.
+  // Recalculée à chaque rendu ET au redimensionnement/rotation tant qu'elle est affichée.
+  // Le contenu est poussé d'autant (padding du body) et `scroll-padding-top` évite qu'un
+  // élément amené à l'écran (ex. « Arrêter ») se retrouve SOUS l'alerte.
+  function positionnerAlerte() {
+    if (noSpeechBannerEl.hidden) return;
+    var demo = document.querySelector('.demo-banner');
+    var haut = demo ? Math.round(demo.getBoundingClientRect().height) : 0;
+    var hauteur = Math.round(noSpeechBannerEl.getBoundingClientRect().height);
+    noSpeechBannerEl.style.top = haut + 'px';
+    document.body.style.paddingTop = hauteur + 'px';
+    document.documentElement.style.scrollPaddingTop = (haut + hauteur) + 'px';
+  }
+  // Rendu unique, piloté par l'état. Le message (role=alert) n'est réécrit que si le TYPE
+  // d'alerte change, et APRÈS l'affichage (annonce forte, une fois) ; la durée et l'erreur
+  // de re-partage vivent dans la région polie. Un re-partage réussi efface aussi l'alerte
+  // « micro muet » (nouvelle source : décision arbitrée).
+  function rendreAlerte() {
+    var cle = partagePerdu ? 'partage' : (noSpeechActive ? 'muet' : null);
+    if (cle === null) {
+      noSpeechBannerEl.hidden = true;
+      noSpeechFixBtn.hidden = true;
+      noSpeechTextEl.textContent = '';
+      noSpeechDurationEl.textContent = '';
+      alerteKind = null;
+      document.body.style.paddingTop = '';
+      document.documentElement.style.scrollPaddingTop = '';
+      majTitre();
+      return;
+    }
+    // `remoteModeEl.checked` d'ABORD : un entretien PRÉSENTIEL silencieux ne doit pas
+    // proposer de « partager l'onglet de la réunion » (revue adversariale 2026-07-31).
+    var reparable = remoteModeEl.checked && i2dAudioSource.supported() && !i2dAudioSource.tabActive();
+    if (cle === 'muet') cle += reparable ? ':distance' : ':local';
+    noSpeechFixBtn.hidden = partagePerdu ? !i2dAudioSource.supported() : !reparable;
+    noSpeechBannerEl.hidden = false;
+    if (alerteKind !== cle) {
+      alerteKind = cle;
+      noSpeechTextEl.textContent = partagePerdu
+        ? "⚠ Le partage du son de la réunion s'est arrêté — la voix des participants n'est " +
+          "plus enregistrée. Repartage l'onglet : l'enregistrement continue."
+        : '⚠ Aucune parole détectée. ' + (reparable
+          ? "Si l'entretien est à distance (Meet/Teams), le micro ne capte PAS le son du casque : " +
+            "clique ci-contre, choisis l'onglet de la réunion et coche « Partager aussi l'audio de " +
+            "l'onglet ». L'enregistrement continue pendant l'opération."
+          : "Vérifie le micro sélectionné et le volume de la salle.");
+    }
+    noSpeechDurationEl.textContent = [
+      noSpeechActive ? 'Silence depuis ~' + Math.max(1, Math.round(noSpeechStreak * SEGMENT_MS / 60000)) +
+        ' min (' + noSpeechStreak + ' segments).' : '',
+      partageErreur
+    ].filter(Boolean).join(' ');
+    positionnerAlerte();
+    majTitre();
+  }
+  window.addEventListener('resize', positionnerAlerte);
+  window.addEventListener('orientationchange', positionnerAlerte);
 
   function noteNoSpeech() {
+    if (!recordingActive) return;  // segment tardif après « Arrêter » : rien à alerter
     noSpeechStreak++;
     if (noSpeechStreak < NOSPEECH_ALERT_AFTER) return;
-    // Le message PORTE l'action, il ne se contente pas de décrire (demande
-    // utilisateur 2026-07-31) : à la 2e minute l'utilisateur est en entretien
-    // avec un client, il ne va pas tout interrompre pour aller chercher un
-    // réglage. Le bouton bascule la source sans couper l'enregistrement.
-    // `remoteModeEl.checked` d'ABORD : sans cette condition, un entretien
-    // PRÉSENTIEL silencieux (mauvais placement du micro, pause) proposait lui
-    // aussi de « partager l'onglet de la réunion » — mélangeant confusion (il
-    // n'y a pas de réunion) et un bouton qui ouvre un sélecteur d'onglet sans
-    // rapport (revue adversariale 2026-07-31).
-    var reparable = remoteModeEl.checked && i2dAudioSource.supported() && !i2dAudioSource.tabActive();
-    noSpeechTextEl.textContent = '⚠ Aucune parole détectée sur les ' + noSpeechStreak +
-      ' derniers segments (~' + noSpeechStreak + ' min). ' +
-      (reparable
-        ? "Si l'entretien est à distance (Meet/Teams), le micro ne capte PAS le son du casque : " +
-          "clique ci-contre, choisis l'onglet de la réunion et coche « Partager aussi l'audio de " +
-          "l'onglet ». L'enregistrement continue pendant l'opération."
-        : "Vérifie le micro sélectionné et le volume de la salle.");
-    noSpeechFixBtn.hidden = !reparable;
-    noSpeechBannerEl.hidden = false;
+    // Le message PORTE l'action (demande utilisateur 2026-07-31) : le bouton bascule la
+    // source sans couper l'enregistrement.
+    noSpeechActive = true;
+    rendreAlerte();
   }
 
-  function resetNoSpeech() {
+  // `tout` : remise à zéro complète (arrêt, nouvelle session, partage refait) ; sans lui
+  // (retour de la parole) un partage encore perdu reste signalé.
+  // `lostIdOrigine` : succès d'un segment (uploadSegment) — la relance d'un VIEUX segment
+  // (`lostId`) ne prouve pas que la source vit maintenant : on ne touche à rien.
+  function resetNoSpeech(tout, lostIdOrigine) {
+    if (lostIdOrigine) return;
     noSpeechStreak = 0;
-    noSpeechBannerEl.hidden = true;
-    noSpeechFixBtn.hidden = true;
+    noSpeechActive = false;
+    if (tout) { partagePerdu = false; partageErreur = ''; }
+    rendreAlerte();
   }
 
   // ---- Source audio : présentiel (micro seul) ou à distance (micro + onglet) --
@@ -902,10 +977,9 @@
       // segments muets du compteur no-speech pour le dire.
       refreshSource();
       if (recordingActive) {
-        noSpeechTextEl.textContent = "⚠ Le partage du son de la réunion s'est arrêté — la voix " +
-          "des participants n'est plus enregistrée. Repartage l'onglet : l'enregistrement continue.";
-        noSpeechFixBtn.hidden = !i2dAudioSource.supported();
-        noSpeechBannerEl.hidden = false;
+        partagePerdu = true;
+        partageErreur = '';
+        rendreAlerte();
       }
     }
   });
@@ -977,7 +1051,7 @@
     btn.textContent = 'Partage en cours…';
     return i2dAudioSource.shareTab().then(function (flux) {
       swapSource(flux);
-      resetNoSpeech();
+      resetNoSpeech(true);
       if (recordingActive) statusEl.textContent = 'Enregistrement en cours — son de la réunion capté.';
       remoteModeEl.checked = true;
       remoteBypass = false;
@@ -987,7 +1061,7 @@
       // module dit quoi faire. Jamais bloquant pour un enregistrement en cours.
       remotePanelEl.hidden = false;
       remoteHintEl.textContent = '⚠ ' + err.message;
-      if (recordingActive) noSpeechTextEl.textContent = '⚠ ' + err.message;
+      if (recordingActive) { partageErreur = '⚠ ' + err.message; rendreAlerte(); }  // région polie
       refreshSource();
     }).finally(function () {
       btn.disabled = false;
@@ -1695,7 +1769,7 @@
             settle();
             return;
           }
-          resetNoSpeech();  // de la parole est repassée : la source audio vit
+          resetNoSpeech(false, lostId);  // de la parole est repassée (sauf relance d'un vieux segment) : la source audio vit
           settle();
           return;
         }
@@ -2744,7 +2818,7 @@
       // par la garde de génération, ils n'ont donc plus rien à couvrir.
       lostRetryBlocking = 0;
       refreshLostBanner();
-      resetNoSpeech();
+      resetNoSpeech(true);
       hideFileRetry();
 
       startSegment();
@@ -2814,6 +2888,7 @@
 
   stopBtn.addEventListener('click', function () {
     recordingActive = false;
+    resetNoSpeech(true);  // l'alerte ne parle que d'un enregistrement EN COURS
     clearInterval(rotationTimer);
     clearInterval(backupRotationTimer);
     clearInterval(jobSubmitTimer);
@@ -2899,7 +2974,7 @@
     masquerCompletude();
     lostRetryBlocking = 0;
     refreshLostBanner();
-    resetNoSpeech();
+    resetNoSpeech(true);
     hideFileRetry();
     // L'onglet « Répartition (Q/R) » fait partie de la session jetée : sans ce
     // vidage, les tours de l'entretien qu'on vient d'abandonner restaient
