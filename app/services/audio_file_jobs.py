@@ -19,6 +19,7 @@ from __future__ import annotations
 import inspect
 import logging
 import os
+import threading
 import time
 from datetime import UTC, timedelta
 
@@ -245,6 +246,38 @@ def _est_reessayable(exc: BaseException) -> bool:
     return str(exc) == audio_transcribe.ECHEC_TRANSCRIPTION
 
 
+# Exécution PROPRIÉTAIRE de chaque job (story 2.2) : un fil de fond resté en vie
+# après qu'un job a été repris (péremption, relance) ne doit plus rien écrire dans
+# ce job — sinon blocs en double et statut écrasé. Chaque `run_audio_file_job` pose
+# son jeton au départ ; un fil dont le jeton n'est plus le courant s'arrête sans
+# écrire. Portée : le processus serveur (un serveur par base, cf.
+# `reconcile_running_on_startup`).
+_PROPRIETAIRES: dict[int, object] = {}
+_PROPRIETAIRES_LOCK = threading.Lock()
+
+
+class _ExecutionSupplantee(Exception):
+    """Le job a été repris par une autre exécution : celle-ci s'arrête sans écrire."""
+
+
+def _prendre_job(job_id: int) -> object:
+    jeton = object()
+    with _PROPRIETAIRES_LOCK:
+        _PROPRIETAIRES[job_id] = jeton
+    return jeton
+
+
+def _est_proprietaire(job_id: int, jeton: object) -> bool:
+    with _PROPRIETAIRES_LOCK:
+        return _PROPRIETAIRES.get(job_id) is jeton
+
+
+def _rendre_job(job_id: int, jeton: object) -> None:
+    with _PROPRIETAIRES_LOCK:
+        if _PROPRIETAIRES.get(job_id) is jeton:
+            del _PROPRIETAIRES[job_id]
+
+
 def _cause(exc: BaseException) -> str:
     """Type de la cause d'origine (jamais son texte : il peut porter un chemin)."""
     return type(exc.__cause__ or exc).__name__
@@ -271,16 +304,25 @@ def run_audio_file_job(job_id: int) -> None:
     db = SessionLocal()
     jeton_battement = None
     _noter_bilan = None   # défini plus bas ; le filet `except Exception` le teste
+    proprietaire = _prendre_job(job_id)
+
+    def _commit() -> None:
+        # Garde unique de TOUTE écriture de l'exécution (blocs, reprise, statut,
+        # files_done/blocks_before_file) : une exécution supplantée n'écrit rien.
+        if not _est_proprietaire(job_id, proprietaire):
+            raise _ExecutionSupplantee()
+        db.commit()
+
     try:
         job = db.get(AudioFileJob, job_id)
         if job is None:
             return
         job.status = "running"
         job.error = None
-        db.commit()
+        _commit()
         # AD-2 : l'attente de permis du fond bat le cœur du job (cf. `_battement`).
         jeton_battement = audio_transcribe.BATTEMENT_ATTENTE.set(
-            lambda: _battement(db, job)
+            lambda: _est_proprietaire(job_id, proprietaire) and _battement(db, job)
         )
         incidents: list[str] = []
         # Bilan de complétude CUMULÉ sur les exécutions : on repart de ce qui est
@@ -364,7 +406,7 @@ def run_audio_file_job(job_id: int) -> None:
                                 if nouveaux:
                                     rejoues |= nouveaux
                                     _noter_bilan()
-                                db.commit()
+                                _commit()
                             break
                         except audio_transcribe.NoSpeechError:
                             raise
@@ -400,7 +442,7 @@ def run_audio_file_job(job_id: int) -> None:
                                 "Bloc en échec (%s), nouvel essai %s/%s",
                                 _cause(exc_bloc), essais_bloc, BLOC_RETRIES,
                             )
-                            db.commit()  # rend la connexion DB avant de dormir
+                            _commit()  # rend la connexion DB avant de dormir
                             time.sleep(BLOC_RETRY_DELAY_S * essais_bloc)
                     durees["conteneur"] = _somme_durees(
                         durees["conteneur"], stats.get("duree_conteneur_s")
@@ -408,6 +450,12 @@ def run_audio_file_job(job_id: int) -> None:
                     durees["decodee"] = _somme_durees(
                         durees["decodee"], stats.get("duree_decodee_s")
                     )
+                except (audio_transcribe.TranscriptionBloqueeError,
+                        audio_transcribe.TranscriptionMemoireInsuffisanteError):
+                    # Story 2.2 : un bloc figé (mémoire saturée) n'est PAS une tranche
+                    # illisible — l'ignorer passerait à la suivante sur la même machine
+                    # saturée. Le job échoue et propose la relance (reprise au bloc).
+                    raise
                 except audio_transcribe.NoSpeechError as exc:
                     if not job.filenames:
                         raise
@@ -455,7 +503,7 @@ def run_audio_file_job(job_id: int) -> None:
                     job.files_done = (job.files_done or 0) + 1
                     job.blocks_before_file = len(job.blocks or [])
                     _noter_bilan()
-                    db.commit()
+                    _commit()
         except audio_transcribe.TranscriptionError as exc:
             job.status = "failed"
             # Cause réelle consignée en base (TYPE seul : jamais de chemin).
@@ -463,7 +511,7 @@ def run_audio_file_job(job_id: int) -> None:
                 f" (cause : {_cause(exc)})" if exc.__cause__ is not None else ""
             )
             _noter_bilan()
-            db.commit()
+            _commit()
             return
         except OSError:
             job.status = "failed"
@@ -472,7 +520,7 @@ def run_audio_file_job(job_id: int) -> None:
             logger.exception("Fichier audio introuvable ou illisible (job %s)", job_id)
             job.error = "Fichier audio introuvable ou illisible."
             _noter_bilan()
-            db.commit()
+            _commit()
             return
         bilan = _noter_bilan(termine=True)
         if len(bilan["blocs_vides"]) == len(job.blocks or []):
@@ -495,8 +543,9 @@ def run_audio_file_job(job_id: int) -> None:
                 if motifs
                 else "Aucune parole détectée dans l'enregistrement."
             )
-            db.commit()
+            _commit()
             return
+        _commit()   # garde AVANT l'extraction, qui commite elle-même (sans `_commit`)
         if job.interview_id:
             # Retranscription d'un entretien enregistré : la transcription ne
             # suffit pas, l'écran de revue attend aussi les tours de parole.
@@ -507,8 +556,14 @@ def run_audio_file_job(job_id: int) -> None:
         # bien un résultat exploitable — simplement incomplet, et l'utilisateur
         # doit le savoir AVANT de remplacer un tour de table complet).
         job.error = " ; ".join(incidents) if incidents else None
-        db.commit()
+        _commit()
+    except _ExecutionSupplantee:
+        logger.warning("Job %s repris par une autre exécution : ce fil s'arrête sans écrire.", job_id)
+        db.rollback()
     except Exception as exc:  # garde-fou : un job planté ne reste pas "running"
+        if not _est_proprietaire(job_id, proprietaire):
+            logger.exception("Échec d'une exécution supplantée (job %s) : rien écrit", job_id)
+            return
         logger.exception("Échec inattendu de la transcription d'un fichier importé")
         try:
             # Si l'exception vient d'un commit() raté (ex. verrou SQLite), la
@@ -544,6 +599,7 @@ def run_audio_file_job(job_id: int) -> None:
             # (le rattrapage au démarrage le libérera) — le dire au journal.
             logger.exception("Secours d'échec impossible (job %s) : statut peut-être figé", job_id)
     finally:
+        _rendre_job(job_id, proprietaire)
         if jeton_battement is not None:
             audio_transcribe.BATTEMENT_ATTENTE.reset(jeton_battement)
         # Le fichier importé n'est PLUS supprimé au succès (2026-09-01, règle
