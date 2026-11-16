@@ -54,9 +54,12 @@
 # premier kill et entre les deux passes de purge. Les appels réseau et le
 # sous-processus python sont bornés (une instance bloquée 2 jours a été vue).
 # Limite assumée de (a) : un serveur JEUNE qui sert du code PÉRIMÉ (--reload
-# raté juste après le démarrage) est épargné jusqu'à -GraceDemarrageS (900 s)
-# avec le message « démarrage en cours » ; il n'est purgé qu'ensuite. Choix
-# délibéré (mieux vaut 15 min de code périmé qu'un démarrage Whisper tué).
+# raté juste après le démarrage) est épargné jusqu'à -GraceDemarrageS (120 s)
+# avec le message « démarrage en cours » ; il n'est purgé qu'ensuite. Ramenée
+# de 900 à 120 s (Story 3.1, D-7) : depuis le 2026-11-05 les préchauffages
+# Whisper/Ollama tournent dans des fils d'arrière-plan (app/main.py, lifespan),
+# le port s'ouvre dès les réconciliations faites ; 900 s épargnaient 15 min un
+# worker périmé au nom d'un port fermé qui ne l'est plus.
 # Paramètres numériques bornés au chargement (cf. Limiter-Entier). Le mutex
 # Global\ entre une instance élevée et une non élevée peut lever
 # UnauthorizedAccessException : traité comme « verrou tenu » (NON prouvé ici,
@@ -75,10 +78,13 @@ param(
     [switch]$StopOnly,
     [switch]$KeepIfFresh,
     [switch]$CheckOnly,
-    # 900 s : mesuré le 2026-10-15, le démarrage (lifespan : réconciliations puis
-    # préchauffage Whisper audio_transcribe.warm_up(), puis Ollama) dure >= 8 min
-    # sous charge — 1 Go de RAM, 83 s de CPU, port fermé pendant tout ce temps.
-    [int]$GraceDemarrageS = 900,
+    # 120 s (Story 3.1, D-7 ; 900 s avant) : la valeur de 2026-10-15 venait d'un
+    # démarrage qui tenait le port FERMÉ >= 8 min pendant le préchauffage Whisper.
+    # Depuis le 2026-11-05 ce préchauffage part en fil d'arrière-plan : le port
+    # s'ouvre après init_db + réconciliations. 120 s couvre ce démarrage sous
+    # charge (et le plafond « actif port fermé » = 2 x 120 s) sans épargner
+    # 15 min un worker périmé.
+    [int]$GraceDemarrageS = 120,
     [int]$StabiliteS = 120,
     [int]$AttenteDemarrageS = 300,
     [int]$VerrouAttenteS = 60
@@ -461,7 +467,7 @@ function Write-DecisionEtSortir {
                 if ($null -ne $script:etatServeur.Age) { $age = [int]$script:etatServeur.Age }
                 $cpu = [int]$script:etatServeur.Cpu
             }
-            Write-Host "Démarrage ou rechargement en cours depuis $age s (CPU des process serveur : $cpu s), rien purgé. Un démarrage peut durer plusieurs minutes (préchauffage Whisper). La prochaine instance retestera."
+            Write-Host "Démarrage ou rechargement en cours depuis $age s (CPU des process serveur : $cpu s), rien purgé (grâce de démarrage : $GraceDemarrageS s ; les préchauffages Whisper/Ollama tournent en arrière-plan, port ouvert). La prochaine instance retestera."
             exit 0
         }
         "indetermine" {
@@ -508,6 +514,28 @@ function Get-MotDePasseApp {
     return [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64.Trim()))
 }
 
+function Test-MotDePassePresent {
+    # Deterministic, python-free: is APP_AUTH_PASSWORD non-empty for the app?
+    # Env variable SET (even empty) decides, as python-dotenv never overrides it;
+    # otherwise the last `APP_AUTH_PASSWORD=` line of <Racine>/.env (optional
+    # `export `, quotes, inline ` #` comment on unquoted values).
+    param([string]$Racine)
+    $env_val = [Environment]::GetEnvironmentVariable("APP_AUTH_PASSWORD")
+    if ($null -ne $env_val) { return ($env_val -ne "") }
+    $fichier = Join-Path $Racine ".env"
+    if (-not (Test-Path -LiteralPath $fichier)) { return $false }
+    $valeur = $null
+    foreach ($ligne in [System.IO.File]::ReadAllLines($fichier)) {
+        if ($ligne -match '^\s*(?:export\s+)?APP_AUTH_PASSWORD\s*=\s*(.*)$') {
+            $v = $Matches[1].Trim()
+            if ($v -match '^"(.*)"$' -or $v -match "^'(.*)'$") { $v = $Matches[1] }
+            else { $v = ($v -replace '\s+#.*$', '').Trim() }
+            $valeur = $v
+        }
+    }
+    return ($null -ne $valeur -and $valeur -ne "")
+}
+
 function Get-CodeRouteProtegee {
     # Code HTTP de GET /missions AUTHENTIFIÉ. 200 = le site sert vraiment ;
     # 503 = mot de passe absent côté serveur ; 401 = mot de passe différent.
@@ -547,6 +575,18 @@ if ($env:SERVEUR_DEV_FONCTIONS_SEULES -eq "1") { return }
 $script:motDePasse = $null
 if (-not $StopOnly) {
     $script:pythonIndetermine = $false
+    # (Story 3.1) « Absent » is decided WITHOUT python: a probe that times out
+    # under load used to turn into a false « absent » (D-8), and the reverse
+    # fix made a truly absent password depend on that same probe (85 s measured
+    # under load against a 90 s limit). Same rule as the app: an env variable,
+    # even empty, wins over .env (python-dotenv never overrides it).
+    if (-not (Test-MotDePassePresent -Racine $racine)) {
+        Write-Historique "refus port=$Port APP_AUTH_PASSWORD absent"
+        $host.UI.WriteErrorLine(("APP_AUTH_PASSWORD absent (ni variable d'environnement ni .env) : le site " +
+                     "rendrait 503 sur toute page hors /connexion. Poser la ligne " +
+                     "APP_AUTH_PASSWORD=... dans .env puis relancer. Rien n'a été arrêté."))
+        exit 2
+    }
     $script:motDePasse = Get-MotDePasseApp
     if (-not $script:motDePasse -and $script:pythonIndetermine) {
         # (Story 3.1, D-8) Timeout is not « absent »: say so, purge nothing.
@@ -743,7 +783,7 @@ if (-not $pret) {
     # PAS de Stop-Process ici : le processus lancé continue de démarrer.
     Write-Historique "demarrage_lent port=$Port uvicorn_pid=$($proc.Id) attente=$AttenteDemarrageS"
     Write-Error ("Le serveur n'a pas répondu en $AttenteDemarrageS s — il a PEUT-ÊTRE simplement démarré lentement " +
-                 "(préchauffage Whisper sous charge : ce n'est pas forcément un échec). Il N'A PAS été tué (PID $($proc.Id)) : " +
+                 "(machine très chargée, ou init_db/réconciliations lentes — les préchauffages ne tiennent plus le port depuis le 2026-11-05 : à examiner dans les journaux). Il N'A PAS été tué (PID $($proc.Id)) : " +
                  "revérifier avec -CheckOnly avant de le relancer. Journaux : $journal et $journal.err")
     exit 1
 }

@@ -24,7 +24,8 @@ pytestmark = pytest.mark.skipif(
 
 def _ps(expression: str, env_sup: dict | None = None, timeout: int = 120) -> str:
     env = dict(os.environ, SERVEUR_DEV_FONCTIONS_SEULES="1", APP_AUTH_PASSWORD="mdp-de-test",
-               SERVEUR_DEV_PYTHON=sys.executable, **(env_sup or {}))
+               SERVEUR_DEV_PYTHON=sys.executable)
+    env.update(env_sup or {})
     res = subprocess.run(
         ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
          f". '{SCRIPT}' -Port 8099; {expression}"],
@@ -105,3 +106,32 @@ def test_un_serveur_mort_au_demarrage_n_est_pas_dit_lent() -> None:
     i_lent = texte.index("PEUT-ÊTRE simplement démarré lentement")
     assert i_mort < i_lent
     assert "$proc.ExitCode" in texte[i_mort:i_lent]
+
+
+@pytest.mark.parametrize("contenu_env, attendu", [
+    (None, "False"),                                   # no .env at all
+    ("AUTRE=1\n", "False"),
+    ("APP_AUTH_PASSWORD=\n", "False"),
+    ("APP_AUTH_PASSWORD=  # vide\n", "True"),       # python-dotenv reads '# vide' (measured)
+    ("APP_AUTH_PASSWORD=x # commentaire\n", "True"),
+    ('APP_AUTH_PASSWORD=""\n', "False"),
+    ("APP_AUTH_PASSWORD=s3cret\n", "True"),
+    ("export APP_AUTH_PASSWORD='é à # x'\n", "True"),
+    ("APP_AUTH_PASSWORD=s3cret\nAPP_AUTH_PASSWORD=\n", "False"),  # last line wins
+])
+def test_mot_de_passe_present_se_decide_sans_python(tmp_path, contenu_env, attendu) -> None:
+    """Story 3.1: « absent » is decided from env/.env, never from a python probe."""
+    if contenu_env is not None:
+        (tmp_path / ".env").write_text(contenu_env, encoding="utf-8")
+    sortie = _ps(f"Remove-Item Env:APP_AUTH_PASSWORD; Test-MotDePassePresent -Racine '{tmp_path}'")
+    assert sortie.splitlines()[-1] == attendu, (contenu_env, sortie)
+
+
+def test_variable_d_environnement_l_emporte_sur_le_env(tmp_path) -> None:
+    """Same rule as python-dotenv: a SET variable is never overridden by .env.
+    (An EMPTY variable cannot be tested here: on Windows .NET drops it from
+    the environment it sees — measured — so the python child would not see
+    it either; the function mirrors what that child would read.)"""
+    (tmp_path / ".env").write_text("APP_AUTH_PASSWORD=\n", encoding="utf-8")
+    assert _ps(f"Test-MotDePassePresent -Racine '{tmp_path}'",
+               {"APP_AUTH_PASSWORD": "depuis-l-env"}).splitlines()[-1] == "True"

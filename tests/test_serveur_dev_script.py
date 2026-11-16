@@ -28,10 +28,12 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _lancer(*args: str, mot_de_passe: str) -> subprocess.CompletedProcess:
+def _lancer(*args: str, mot_de_passe: str,
+            python: str | None = None) -> subprocess.CompletedProcess:
     # Variable POSÉE (même vide) : python-dotenv n'écrase jamais une variable
     # existante, donc le .env du poste ne peut pas fausser le test.
-    env = dict(os.environ, APP_AUTH_PASSWORD=mot_de_passe, SERVEUR_DEV_PYTHON=sys.executable)
+    env = dict(os.environ, APP_AUTH_PASSWORD=mot_de_passe,
+               SERVEUR_DEV_PYTHON=python or sys.executable)
     return subprocess.run(
         ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
          str(SCRIPT), "-Port", PORT_LIBRE, *args],
@@ -39,10 +41,16 @@ def _lancer(*args: str, mot_de_passe: str) -> subprocess.CompletedProcess:
     )
 
 
-def test_sans_mot_de_passe_le_script_refuse_avant_toute_purge() -> None:
-    res = _lancer(mot_de_passe="")
+def test_sans_mot_de_passe_le_script_refuse_avant_toute_purge(tmp_path) -> None:
+    # Story 3.1: « absent » is decided WITHOUT the python probe. Under load the
+    # probe took 85 s against a 90 s limit, and a timeout is now reported as
+    # « indéterminé » (exit 4) — so the interpreter given here does not exist:
+    # if the script still asked python, it could not answer 2.
+    t0 = time.monotonic()
+    res = _lancer(mot_de_passe="", python=str(tmp_path / "pas-de-python.exe"))
     sortie = (res.stdout + res.stderr).decode("utf-8", errors="replace")
     assert res.returncode == 2, sortie
+    assert time.monotonic() - t0 < 60, "le refus attend encore une sonde python"
     assert "APP_AUTH_PASSWORD" in sortie
     assert "Purge" not in sortie  # aucun serveur tué pour rien
 
@@ -159,7 +167,9 @@ def test_le_script_est_en_utf8_avec_bom_et_se_parse_en_ps51() -> None:
 
 def test_parametres_par_defaut_de_la_garde() -> None:
     sortie = _ps_fonctions("\"$GraceDemarrageS $StabiliteS $AttenteDemarrageS $VerrouAttenteS\"")
-    assert sortie.splitlines()[-1] == "900 120 300 60"
+    # Grâce 120 s (Story 3.1, D-7 ; 900 s avant) : le port s'ouvre d'emblée
+    # depuis que les préchauffages tournent en arrière-plan (2026-11-05).
+    assert sortie.splitlines()[-1] == "120 120 300 60"
 
 
 def test_decision_keepiffresh_table() -> None:
@@ -171,11 +181,12 @@ def test_decision_keepiffresh_table() -> None:
         ("$false", "1000", "500", "$true", "purger"),
         ("$false", "$null", "$null", "$false", "purger"),     # rien ne tourne
         ("$false", "1000", "10", "$false", "purger"),         # muet et vieux : la stabilité ne s'applique pas
-        ("$false", "800", "9999", "$false", "demarrage"),     # 13 min : sous la grâce de 900 s (Whisper)
+        ("$false", "100", "9999", "$false", "demarrage"),     # 100 s : sous la grâce de 120 s
+        ("$false", "800", "9999", "$false", "purger"),        # 13 min muet et inactif : plus épargné (D-7)
     ]
     for sain, age, modif, repond, attendu in cas:
         expr = (f"Get-DecisionKeepIfFresh -Sain {sain} -AgeServeurS {age} -AgeModifS {modif} "
-                f"-Repond {repond} -Grace 900 -Stabilite 120")
+                f"-Repond {repond} -Grace 120 -Stabilite 120")
         assert _ps_fonctions(expr).splitlines()[-1] == attendu, (sain, age, modif, repond)
 
 
