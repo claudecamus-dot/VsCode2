@@ -213,6 +213,24 @@ MEMOIRE_MARGE_OCTETS = 1024 ** 3
 # (pagination, worker figé) — l'incident aurait échoué à 15 min au lieu de 3 h.
 BLOC_RESULTAT_TIMEOUT_S = float(_entier_env("WHISPER_BLOC_TIMEOUT_S", 900))
 
+# Story 3.2 (C-1, AC3.2.1) : le délai d'un bloc NE COURT QU'UNE FOIS le modèle
+# prêt. Avant, les 900 s ci-dessus incluaient le chargement ; sous charge (12-15
+# min de chargement observés, entretien 23) le 1er bloc de chaque worker expirait,
+# la relance tuait les workers et repayait le chargement : le job pouvait ne
+# jamais avancer. Le chargement a donc SA borne, généreuse : 1800 s = 2x le pire
+# chargement observé sous charge, et égale à BACKGROUND_LOCK_TIMEOUT_S (l'autre
+# attente longue légitime du fond). Au-delà, `TranscriptionBloqueeError` avec un
+# message propre au chargement. `WHISPER_CHARGEMENT_TIMEOUT_S` l'écrase.
+CHARGEMENT_MODELE_TIMEOUT_S = float(_entier_env("WHISPER_CHARGEMENT_TIMEOUT_S", 1800))
+
+# Story 3.2 (D-10 a, AC3.2.2) : attente max (s), côté FOND, d'un chargement du
+# modèle du serveur DÉJÀ en cours dans un autre fil (préchauffage). Au-delà :
+# `TranscriptionChargementEnCoursError` (« occupé » réessayable), que le job
+# rejoue avec battement sans consommer d'essai, borné au total par
+# CHARGEMENT_MODELE_TIMEOUT_S. 60 s = un battement : le job signale qu'il vit au
+# moins à ce rythme, jamais une attente silencieuse sans borne.
+ATTENTE_CHARGEMENT_FOND_S = float(_entier_env("WHISPER_ATTENTE_CHARGEMENT_FOND_S", 60))
+
 # Temps (secondes) qu'une transcription synchrone (direct : segment de
 # record.html, ou dictée de notes libres) attend `_MODEL_LOCK` avant de
 # recevoir un refus "occupé" plutôt que de bloquer le thread indéfiniment
@@ -401,6 +419,21 @@ class TranscriptionBusyError(TranscriptionError):
     retry_after_s: float = 0.0
 
 
+class TranscriptionChargementEnCoursError(TranscriptionBusyError):
+    """Le modèle du serveur est en cours de chargement dans un autre fil (story
+    3.2, D-10 a) : rien n'a été tenté, à rejouer. Sous-classe de
+    `TranscriptionBusyError` : le direct garde son refus « occupé » ; le job de
+    fond la rejoue sans consommer d'essai (borne : CHARGEMENT_MODELE_TIMEOUT_S)."""
+
+
+def message_chargement_trop_long(delai_s: float) -> str:
+    return (
+        f"Le modèle de transcription n'a pas pu être prêt en "
+        f"{max(1, round(delai_s / 60))} min (machine très chargée). Relancez la "
+        "transcription plus tard — les blocs déjà transcrits sont conservés."
+    )
+
+
 def corps_erreur_transcription(exc: TranscriptionError) -> dict:
     """Corps JSON d'un refus 422 de transcription (routes segment et dictée).
 
@@ -445,6 +478,14 @@ _ATTENTE_CHARGEMENT_MAX: contextvars.ContextVar[float | None] = contextvars.Cont
     "attente_chargement_max", default=None
 )
 
+# Story 3.2 (C-2) : rappel posé par `_sequentiel_borne`, appelé par
+# `_transcribe_pcm_sequential` une fois `_MODEL_LOCK` obtenu ET le modèle prêt —
+# le délai du bloc ne court qu'à partir de là. Il lève `TranscriptionAbandonnee`
+# si le demandeur a déjà renoncé (le bloc n'est alors pas transcrit pour rien).
+_SIGNAL_MODELE_PRET: contextvars.ContextVar = contextvars.ContextVar(
+    "signal_modele_pret", default=None
+)
+
 
 def _get_model():
     """Charge le modèle une seule fois, même si le warm-up (démarrage ou
@@ -456,7 +497,7 @@ def _get_model():
     if _model is None:
         borne = _ATTENTE_CHARGEMENT_MAX.get()
         if not _MODEL_LOAD_LOCK.acquire(timeout=-1 if borne is None else borne):
-            exc = TranscriptionBusyError("Chargement du modèle en cours, réessayez.")
+            exc = TranscriptionChargementEnCoursError("Chargement du modèle en cours, réessayez.")
             exc.retry_after_s = estimer_retry_after()
             raise exc
         try:
@@ -468,6 +509,9 @@ def _get_model():
         finally:
             _MODEL_LOAD_LOCK.release()
     return _model
+
+
+_GET_MODEL_REEL = _get_model   # cf. `_garde_memoire_sequentielle`
 
 
 def warm_up() -> None:
@@ -577,6 +621,16 @@ def _decode_to_pcm16k(content: bytes):
 # un `WhisperModel` À CHAQUE bloc de 60 s (~105 chargements pour 105 min). Reste
 # `None` dans le processus serveur : le chemin séquentiel a son singleton `_model`.
 _worker_model = None
+# Story 3.2 (C-1) : compteur PARTAGÉ (multiprocessing.Value) des workers dont le
+# modèle est prêt, transmis par l'`initializer` du pool RÉEL. Le parent ne fait
+# courir le délai d'un bloc qu'une fois tous les workers attendus prêts.
+_workers_prets = None
+
+
+def _init_worker(compteur) -> None:
+    """`initializer` du pool réel : mémorise le compteur partagé des modèles prêts."""
+    global _workers_prets
+    _workers_prets = compteur
 
 
 def _modele_worker(threads: int):
@@ -592,6 +646,9 @@ def _modele_worker(threads: int):
         _worker_model = faster_whisper.WhisperModel(
             MODEL_SIZE, device="cpu", compute_type="int8", cpu_threads=threads
         )
+        if _workers_prets is not None:
+            with _workers_prets.get_lock():
+                _workers_prets.value += 1
     return _worker_model
 
 
@@ -706,13 +763,35 @@ def _transcribe_pcm_sequential(pcm, priority: int = FOND) -> str:
         if not _MODEL_LOCK.acquire(timeout=BACKGROUND_LOCK_TIMEOUT_S, priority=FOND):
             raise TranscriptionFondBusyError(ECHEC_TRANSCRIPTION)
     try:
-        model = _get_model()
+        # D-10 a : un chargement DÉJÀ en cours ailleurs (préchauffage) n'est plus
+        # attendu sans borne par le fond : « occupé » réessayable au-delà de
+        # ATTENTE_CHARGEMENT_FOND_S. Le direct garde sa propre borne (posée par lui).
+        jeton = None
+        if _ATTENTE_CHARGEMENT_MAX.get() is None:
+            jeton = _ATTENTE_CHARGEMENT_MAX.set(
+                SEGMENT_LOCK_TIMEOUT_S if priority == LIVE else ATTENTE_CHARGEMENT_FOND_S
+            )
+        try:
+            model = _get_model()
+        finally:
+            if jeton is not None:
+                _ATTENTE_CHARGEMENT_MAX.reset(jeton)
+        # C-2 : verrou obtenu ET modèle prêt — le délai du bloc commence ici ;
+        # un demandeur qui a déjà abandonné fait sauter le bloc (verrou rendu).
+        signal = _SIGNAL_MODELE_PRET.get()
+        if signal is not None:
+            signal()
         segments, _info = model.transcribe(
             pcm, language="fr", beam_size=BEAM_SIZE, vad_filter=True
         )
         return " ".join(seg.text.strip() for seg in segments).strip()
     finally:
         _MODEL_LOCK.release()
+
+
+# Vraie fonction, capturée à la définition (cf. `_POOL_REEL`) : elle seule émet
+# `_SIGNAL_MODELE_PRET`.
+_SEQUENTIEL_REEL = _transcribe_pcm_sequential
 
 
 def _norm_word(word: str) -> str:
@@ -852,16 +931,23 @@ def _pool_reel() -> bool:
     return isinstance(ProcessPoolExecutor, type) and issubclass(ProcessPoolExecutor, _POOL_REEL)
 
 
-def _attendre_resultat(future, index: int, total: int) -> str:
+def _attendre_resultat(future, index: int, total: int, chargement=None) -> str:
     """Résultat d'un bloc, attendu au plus BLOC_RESULTAT_TIMEOUT_S, avec un battement
     du job toutes les BATTEMENT_ATTENTE_S tant que l'attente dure (sans lui, un bloc
     lent mais vivant laissait le job sans signe de vie jusqu'au bloc suivant).
     Au-delà : `TranscriptionBloqueeError`. Une doublure de test qui n'est pas un
-    `Future` (déjà résolue, sans `timeout`) est lue directement."""
+    `Future` (déjà résolue, sans `timeout`) est lue directement.
+
+    `chargement` (story 3.2, C-1/C-2) : appelé à chaque réveil, vrai tant qu'un
+    modèle attendu se charge encore (ou que le verrou est attendu) — l'échéance du
+    bloc est alors repoussée : son délai ne court qu'une fois le modèle prêt. Il
+    lève lui-même `TranscriptionBloqueeError` au-delà de la borne du chargement."""
     if not isinstance(future, Future):
         return future.result()
     echeance = time.monotonic() + BLOC_RESULTAT_TIMEOUT_S
     while True:
+        if chargement is not None and not future.done() and chargement():
+            echeance = max(echeance, time.monotonic() + BLOC_RESULTAT_TIMEOUT_S)
         reste = echeance - time.monotonic()
         if reste <= 0:
             if future.done():
@@ -910,10 +996,28 @@ def _sequentiel_borne(pcm, priority: int, index: int, total: int) -> str:
     """Un bloc sur le modèle du serveur, dans un fil dédié, attendu comme un bloc du
     pool (`_attendre_resultat` : borne BLOC_RESULTAT_TIMEOUT_S + battement). Au
     délai dépassé le fil n'est pas tuable : il finit son bloc, dont le texte est
-    jeté, puis rend `_MODEL_LOCK`."""
+    jeté, puis rend `_MODEL_LOCK`.
+
+    Story 3.2 (C-2, C-10) : le délai du bloc ne court qu'une fois le verrou obtenu
+    ET le modèle prêt (`_SIGNAL_MODELE_PRET`) ; l'attente du verrou garde sa borne
+    (BACKGROUND_LOCK_TIMEOUT_S / SEGMENT_LOCK_TIMEOUT_S, levée par le fil), le
+    chargement la sienne (CHARGEMENT_MODELE_TIMEOUT_S en plus). Le fil s'exécute
+    dans une COPIE du contexte (contextvars : bornes du direct, battement). Après
+    abandon du demandeur, un fil qui obtient le verrou saute le bloc."""
     future: Future = Future()
+    pret = threading.Event()
+    abandon = threading.Event()
+    debut = time.monotonic()
+    borne_verrou = SEGMENT_LOCK_TIMEOUT_S if priority == LIVE else BACKGROUND_LOCK_TIMEOUT_S
+    borne_totale = borne_verrou + CHARGEMENT_MODELE_TIMEOUT_S
+
+    def _signal() -> None:
+        pret.set()
+        if abandon.is_set():
+            raise TranscriptionAbandonnee()
 
     def _executer() -> None:
+        _SIGNAL_MODELE_PRET.set(_signal)
         try:
             if priority == FOND:
                 future.set_result(_transcribe_pcm_sequential(pcm))
@@ -922,8 +1026,27 @@ def _sequentiel_borne(pcm, priority: int, index: int, total: int) -> str:
         except BaseException as exc:   # remonté au demandeur via le Future
             future.set_exception(exc)
 
-    threading.Thread(target=_executer, name="whisper-repli-borne", daemon=True).start()
-    return _attendre_resultat(future, index, total)
+    def _chargement() -> bool:
+        if pret.is_set():
+            return False
+        if time.monotonic() - debut > borne_totale:
+            logger.error("Bloc %d/%d : verrou/modèle non prêts en %.0f s.", index + 1, total, borne_totale)
+            raise TranscriptionBloqueeError(message_chargement_trop_long(borne_totale))
+        return True
+
+    contexte = contextvars.copy_context()
+    threading.Thread(target=contexte.run, args=(_executer,),
+                     name="whisper-repli-borne", daemon=True).start()
+    try:
+        # Seule la vraie `_transcribe_pcm_sequential` émet le signal « prêt » : une
+        # doublure de test (qui ne charge rien) garde la borne simple d'avant.
+        return _attendre_resultat(
+            future, index, total,
+            chargement=_chargement if _transcribe_pcm_sequential is _SEQUENTIEL_REEL else None,
+        )
+    except TranscriptionBloqueeError:
+        abandon.set()
+        raise
 
 
 def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
@@ -1009,8 +1132,28 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
         # queue, uvicorn) et un enfant forké dans cet état se bloque sur un
         # verrou hérité. Vécu en CI le 2026-09-30 : pytest figé 6 h dans
         # `_drain_parallel` (runs #48-#50), jamais vu sous Windows qui spawne.
-        with ProcessPoolExecutor(max_workers=n_workers,
-                                 mp_context=multiprocessing.get_context("spawn")) as executor:
+        contexte_mp = multiprocessing.get_context("spawn")
+        pool_kw: dict = {}
+        chargement = None
+        if _pool_reel():
+            # C-1 : chaque worker incrémente ce compteur une fois SON modèle chargé ;
+            # tant qu'un worker attendu charge encore, le délai des blocs ne court pas
+            # (borne propre du chargement : CHARGEMENT_MODELE_TIMEOUT_S).
+            prets = contexte_mp.Value("i", 0)
+            attendus = max(1, min(n_workers, total - start))
+            debut_pool = time.monotonic()
+            pool_kw = {"initializer": _init_worker, "initargs": (prets,)}
+
+            def chargement() -> bool:
+                if prets.value >= attendus:
+                    return False
+                if time.monotonic() - debut_pool > CHARGEMENT_MODELE_TIMEOUT_S:
+                    logger.error("Modèle des workers non chargé en %.0f s.", CHARGEMENT_MODELE_TIMEOUT_S)
+                    raise TranscriptionBloqueeError(
+                        message_chargement_trop_long(CHARGEMENT_MODELE_TIMEOUT_S))
+                return True
+        with ProcessPoolExecutor(max_workers=n_workers, mp_context=contexte_mp,
+                                 **pool_kw) as executor:
             def _submit(i: int) -> None:
                 futures[i] = executor.submit(
                     _transcribe_pcm_chunk, (blocks[i], CPU_THREADS_PER_WORKER)
@@ -1022,7 +1165,7 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
                 submitted += 1
             for index in range(start, total):
                 try:
-                    text = _attendre_resultat(futures.pop(index), index, total)
+                    text = _attendre_resultat(futures.pop(index), index, total, chargement)
                 except TranscriptionBloqueeError:
                     _arreter_workers(executor, futures)
                     raise
@@ -1042,6 +1185,21 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
             _GLOBAL_WORKERS_SEMAPHORE.release()
 
 
+def _garde_memoire_sequentielle() -> None:
+    """Story 3.2 (C-3) : avant un bloc sur le modèle du SERVEUR, si ce modèle n'est
+    pas encore chargé et que la mémoire disponible ne couvre pas un modèle + la
+    marge, échec immédiat (`TranscriptionMemoireInsuffisanteError`) plutôt que
+    charger ~1,6 Gio maintenant. Ne vaut que pour la vraie chaîne de chargement
+    (doublures de tests : rien n'est chargé, la mémoire de la machine n'y entre pas)."""
+    if _model is not None or _get_model is not _GET_MODEL_REEL \
+            or _transcribe_pcm_sequential is not _SEQUENTIEL_REEL:
+        return
+    dispo = memoire_disponible()
+    if dispo is not None and dispo - MEMOIRE_MARGE_OCTETS < MEMOIRE_PAR_WORKER_OCTETS:
+        logger.warning("Mémoire insuffisante pour charger le modèle du serveur : échec immédiat.")
+        raise TranscriptionMemoireInsuffisanteError(MESSAGE_MEMOIRE_INSUFFISANTE)
+
+
 def _noter_rejeu(stats: dict | None, index: int) -> None:
     """Consigne qu'un bloc a nécessité plus d'une tentative (échec masqué)."""
     if stats is not None and index not in stats["blocs_rejoues"]:
@@ -1052,13 +1210,21 @@ def _transcrire_bloc_sequentiel(blocs: list, index: int, total: int,
                                 tentatives: dict, stats: dict | None) -> str:
     """Transcrit `blocs[index]` dans le processus courant, avec les tentatives
     restantes. Définitifs, jamais rejoués : `TranscriptionError` (dont
-    `NoSpeechError`) et `OSError`. Épuisement : `TranscriptionError`."""
+    `NoSpeechError`) et `OSError`. Épuisement : `TranscriptionError`.
+
+    Story 3.2 (C-3) : job d'un seul bloc et repli final après casse du pool passent
+    par `_sequentiel_borne` (borné, battement, délai démarré modèle prêt) et par le
+    garde mémoire (`_garde_memoire_sequentielle`) — avant, attente sans borne ni
+    battement, et chargement de ~1,6 Gio sans contrôle juste après un
+    `BrokenProcessPool` (typiquement un manque de mémoire)."""
+    _garde_memoire_sequentielle()
     while True:
         tentatives[index] = tentatives.get(index, 0) + 1
         try:
-            return _transcribe_pcm_sequential(blocs[index])
-        except TranscriptionFondBusyError:
-            raise   # classe conservée : `_est_reessayable` la refuse (AD-6)
+            return _sequentiel_borne(blocs[index], FOND, index, total)
+        except (TranscriptionFondBusyError, TranscriptionBusyError,
+                TranscriptionBloqueeError, TranscriptionMemoireInsuffisanteError):
+            raise   # classes conservées : `_est_reessayable` en décide (AD-6, story 2.2/3.2)
         except Exception as exc:
             if (isinstance(exc, (TranscriptionError, OSError))
                     or tentatives[index] >= BLOC_MAX_TENTATIVES):
