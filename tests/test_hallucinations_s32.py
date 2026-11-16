@@ -37,8 +37,19 @@ def test_ac324_segment_non_parole_mais_sur_garde():
     " Thank you for watching.",
     " Sous-titrage ST' 501",
 ])
-def test_ac324_phrase_type_isolee_ecartee(phrase):
-    assert at._texte_segments([_Seg(phrase)]) == ""
+def test_ac324_phrase_type_isolee_peu_sure_ecartee(phrase):
+    assert at._texte_segments([_Seg(phrase, no_speech_prob=0.45, avg_logprob=-0.5)]) == ""
+
+
+def test_ac324_phrase_type_isolee_sure_gardee():
+    # Une vraie « Merci de votre attention » prononcée avec assurance survit.
+    assert at._texte_segments([_Seg(" Merci de votre attention.")]) == "Merci de votre attention."
+
+
+def test_ac324_phrase_type_comparee_entiere_pas_par_prefixe():
+    segs = [_Seg(" Merci de votre attention, on passe à la suite.",
+                 no_speech_prob=0.45, avg_logprob=-0.8)]
+    assert at._texte_segments(segs) == "Merci de votre attention, on passe à la suite."
 
 
 def test_ac324_phrase_type_repetee_ecartee_bloc_vide():
@@ -64,6 +75,11 @@ def test_ac324_repetitions_exactes_repliees():
     segs = [_Seg(" C'est important."), _Seg(" C'est important."), _Seg(" c'est important !"),
             _Seg(" Autre chose.")]
     assert at._texte_segments(segs) == "C'est important. Autre chose."
+
+
+def test_ac324_deux_oui_de_deux_interlocuteurs_survivent():
+    segs = [_Seg(" Oui."), _Seg(" Oui."), _Seg(" Alors on commence.")]
+    assert at._texte_segments(segs) == "Oui. Oui. Alors on commence."
 
 
 def test_ac324_segments_sans_attributs_de_confiance_toleres():

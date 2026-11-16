@@ -625,12 +625,22 @@ _worker_model = None
 # modèle est prêt, transmis par l'`initializer` du pool RÉEL. Le parent ne fait
 # courir le délai d'un bloc qu'une fois tous les workers attendus prêts.
 _workers_prets = None
+# Revue 3.2 : compteur PARTAGÉ des workers dont le chargement a COMMENCÉ (servis).
+_workers_servis = None
 
 
-def _init_worker(compteur) -> None:
-    """`initializer` du pool réel : mémorise le compteur partagé des modèles prêts."""
-    global _workers_prets
+def _init_worker(compteur, servis=None) -> None:
+    """`initializer` du pool réel : mémorise les compteurs partagés (modèles prêts,
+    chargements commencés)."""
+    global _workers_prets, _workers_servis
     _workers_prets = compteur
+    _workers_servis = servis
+
+
+def _ajouter(compteur, delta: int) -> None:
+    if compteur is not None:
+        with compteur.get_lock():
+            compteur.value += delta
 
 
 def _modele_worker(threads: int):
@@ -643,12 +653,15 @@ def _modele_worker(threads: int):
     global _worker_model
     if _worker_model is None:
         faster_whisper = _faster_whisper()
-        _worker_model = faster_whisper.WhisperModel(
-            MODEL_SIZE, device="cpu", compute_type="int8", cpu_threads=threads
-        )
-        if _workers_prets is not None:
-            with _workers_prets.get_lock():
-                _workers_prets.value += 1
+        _ajouter(_workers_servis, 1)        # chargement commencé
+        try:
+            _worker_model = faster_whisper.WhisperModel(
+                MODEL_SIZE, device="cpu", compute_type="int8", cpu_threads=threads
+            )
+        except BaseException:
+            _ajouter(_workers_servis, -1)   # échec : la tâche suivante recommencera
+            raise
+        _ajouter(_workers_prets, 1)
     return _worker_model
 
 
@@ -663,11 +676,11 @@ def _modele_worker(threads: int):
 #    faster-whisper (`no_speech_threshold`, `log_prob_threshold`,
 #    transcribe.py:274-277 et 1217-1223 du paquet installé), qui ne l'applique
 #    qu'à la FENÊTRE de 30 s entière ; ici, segment par segment.
-# 3. Phrases types de silence (FR/EN, `_PHRASES_SILENCE`) écartées seulement si
-#    ISOLÉES (le bloc ne contient rien d'autre) ou PEU SÛRES (no_speech_prob >=
+# 3. Phrases types de silence (FR/EN, `_PHRASES_SILENCE`, phrase entière)
+#    écartées seulement si RÉPÉTÉES dans le bloc ou PEU SÛRES (no_speech_prob >=
 #    SEUIL_PHRASE_NO_SPEECH ou avg_logprob < SEUIL_PHRASE_LOGPROB) : une vraie
-#    phrase « merci d'avoir regardé » prononcée avec assurance au milieu d'un
-#    entretien reste. Puis les répétitions exactes consécutives sont repliées.
+#    phrase prononcée avec assurance reste, même seule. Puis les suites d'au
+#    moins RUN_REPETITION_MIN segments identiques sont repliées.
 # Un bloc qui ne contient que cela rend "" : le direct lève alors `NoSpeechError`
 # (422 `no_speech`, sémantique inchangée) et le fond compte un bloc vide.
 OPTIONS_ANTI_HALLUCINATION = {"condition_on_previous_text": False}
@@ -675,17 +688,26 @@ SEUIL_NO_SPEECH = 0.6
 SEUIL_LOGPROB = -1.0
 SEUIL_PHRASE_NO_SPEECH = 0.3
 SEUIL_PHRASE_LOGPROB = -0.7
-_PHRASES_SILENCE = (
+# Revue 3.2 : PHRASES ENTIÈRES (après normalisation), jamais un préfixe — « merci
+# de votre attention, on passe à la suite » est de la parole. Une phrase type
+# n'est écartée que PEU SÛRE ou RÉPÉTÉE dans le bloc (signature d'une boucle
+# d'hallucination) ; une phrase type isolée et sûre reste (vraie parole).
+_PHRASES_SILENCE = frozenset({
     "merci d'avoir regardé cette vidéo",
     "merci d'avoir regardé",
     "merci de votre attention",
-    "sous-titres réalisés par",
-    "sous-titrage",
+    "merci à tous",
+    "sous-titres réalisés par la communauté d'amara.org",
+    "sous-titrage st' 501",
+    "sous-titrage société radio-canada",
     "abonnez-vous",
     "thank you for watching",
     "thanks for watching",
-    "subtitles by",
-)
+})
+# Une suite d'au moins RUN_REPETITION_MIN segments identiques consécutifs est
+# repliée en un seul (boucle de décodage) ; deux « Oui. » d'affilée (deux
+# interlocuteurs) restent tous les deux.
+RUN_REPETITION_MIN = 3
 
 
 def _norm_phrase(texte: str) -> str:
@@ -693,8 +715,7 @@ def _norm_phrase(texte: str) -> str:
 
 
 def _est_phrase_silence(texte: str) -> bool:
-    norme = _norm_phrase(texte)
-    return bool(norme) and any(norme.startswith(p) for p in _PHRASES_SILENCE)
+    return _norm_phrase(texte) in _PHRASES_SILENCE
 
 
 def _texte_segments(segments) -> str:
@@ -710,15 +731,22 @@ def _texte_segments(segments) -> str:
         if nsp > SEUIL_NO_SPEECH and logp < SEUIL_LOGPROB:
             continue
         candidats.append((texte, nsp, logp))
-    isole = all(_est_phrase_silence(t) for t, _, _ in candidats)
+    occurrences = collections.Counter(_norm_phrase(t) for t, _, _ in candidats)
+    retenus = [
+        t for t, nsp, logp in candidats
+        if not (_est_phrase_silence(t) and (
+            occurrences[_norm_phrase(t)] >= 2
+            or nsp >= SEUIL_PHRASE_NO_SPEECH or logp < SEUIL_PHRASE_LOGPROB))
+    ]
     gardes: list[str] = []
-    for texte, nsp, logp in candidats:
-        if _est_phrase_silence(texte) and (
-                isole or nsp >= SEUIL_PHRASE_NO_SPEECH or logp < SEUIL_PHRASE_LOGPROB):
-            continue
-        if gardes and _norm_phrase(gardes[-1]) == _norm_phrase(texte):
-            continue   # répétition exacte consécutive
-        gardes.append(texte)
+    i = 0
+    while i < len(retenus):
+        j = i
+        while j + 1 < len(retenus) and _norm_phrase(retenus[j + 1]) == _norm_phrase(retenus[i]):
+            j += 1
+        longueur = j - i + 1
+        gardes.extend(retenus[i:i + 1] if longueur >= RUN_REPETITION_MIN else retenus[i:j + 1])
+        i = j + 1
     return " ".join(gardes).strip()
 
 
@@ -1114,7 +1142,9 @@ def _sequentiel_borne(pcm, priority: int, index: int, total: int) -> str:
             future, index, total,
             chargement=_chargement if _transcribe_pcm_sequential is _SEQUENTIEL_REEL else None,
         )
-    except TranscriptionBloqueeError:
+    except BaseException:
+        # Toute sortie du demandeur (délai, KeyboardInterrupt, GeneratorExit…) : le
+        # fil qui obtiendrait le verrou ensuite saute le bloc (revue 3.2).
         abandon.set()
         raise
 
@@ -1209,13 +1239,21 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
             # C-1 : chaque worker incrémente ce compteur une fois SON modèle chargé ;
             # tant qu'un worker attendu charge encore, le délai des blocs ne court pas
             # (borne propre du chargement : CHARGEMENT_MODELE_TIMEOUT_S).
+            # Revue 3.2 : on compare aux workers qui ont RÉELLEMENT commencé à charger
+            # (`servis`, incrémenté au début du chargement), pas à un nombre figé : un
+            # worker ne charge qu'à sa 1re tâche, et `_limite()` (direct actif) peut ne
+            # jamais en servir certains — l'échéance resterait repoussée à tort.
             prets = contexte_mp.Value("i", 0)
-            attendus = max(1, min(n_workers, total - start))
+            servis = contexte_mp.Value("i", 0)
             debut_pool = time.monotonic()
-            pool_kw = {"initializer": _init_worker, "initargs": (prets,)}
+            pool_kw = {"initializer": _init_worker, "initargs": (prets, servis)}
 
             def chargement() -> bool:
-                if prets.value >= attendus:
+                # Repoussé tant qu'AUCUN modèle n'est prêt (démarrage du pool : le
+                # processus n'a peut-être pas encore commencé à charger), puis
+                # seulement tant qu'un chargement commencé n'a pas abouti. Un worker
+                # jamais servi ne compte pas.
+                if prets.value > 0 and prets.value >= servis.value:
                     return False
                 if time.monotonic() - debut_pool > CHARGEMENT_MODELE_TIMEOUT_S:
                     logger.error("Modèle des workers non chargé en %.0f s.", CHARGEMENT_MODELE_TIMEOUT_S)
@@ -1263,6 +1301,11 @@ def _garde_memoire_sequentielle() -> None:
     (doublures de tests : rien n'est chargé, la mémoire de la machine n'y entre pas)."""
     if _model is not None or _get_model is not _GET_MODEL_REEL \
             or _transcribe_pcm_sequential is not _SEQUENTIEL_REEL:
+        return
+    if _MODEL_LOAD_LOCK.locked():
+        # Revue 3.2 : un chargement est DÉJÀ en cours (préchauffage) — sa mémoire
+        # est déjà engagée, ce n'est pas un manque : `_get_model` rendra un
+        # « occupé » réessayable (TranscriptionChargementEnCoursError), pas un échec.
         return
     dispo = memoire_disponible()
     if dispo is not None and dispo - MEMOIRE_MARGE_OCTETS < MEMOIRE_PAR_WORKER_OCTETS:

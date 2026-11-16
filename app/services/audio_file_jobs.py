@@ -416,6 +416,9 @@ def run_audio_file_job(job_id: int) -> None:
                                 # la relance proposée par l'écran doublonne la tâche de
                                 # fond en cours (deux sessions écrivant `job.blocks`).
                                 job.created_at = utc_naif()
+                                # Revue 3.2 : un bloc obtenu clôt l'épisode de chargement ;
+                                # un préchauffage ultérieur repart avec sa borne entière.
+                                debut_chargement = None
                                 # Un bloc rejoué est un échec masqué : le persister dès
                                 # qu'il apparaît, pour qu'une coupure ne l'efface pas.
                                 nouveaux = {
@@ -444,8 +447,19 @@ def run_audio_file_job(job_id: int) -> None:
                                     audio_transcribe.message_chargement_trop_long(
                                         audio_transcribe.CHARGEMENT_MODELE_TIMEOUT_S))
                             logger.info("Modèle en cours de chargement : bloc rejoué sans essai consommé.")
-                            if _est_proprietaire(job_id, proprietaire):
-                                _battement(db, job)
+                            # Revue 3.2 : un fil supplanté s'arrête (pas de reprise du
+                            # verrou contre le nouveau propriétaire pendant 1800 s).
+                            _verifier_proprietaire()
+                            # Rejeux du pool de CET appel : acquis (comme la branche
+                            # TranscriptionError ci-dessous) avant la remise à zéro de
+                            # `stats` par l'appel suivant.
+                            acquis_pool = {
+                                decalage + i for i in stats.get("blocs_rejoues", [])
+                            } - rejoues
+                            if acquis_pool:
+                                rejoues |= acquis_pool
+                                _noter_bilan()
+                            _battement(db, job)
                             time.sleep(BLOC_RETRY_DELAY_S)
                         except audio_transcribe.TranscriptionError as exc_bloc:
                             # Retry borné d'un échec de transcription d'un bloc
