@@ -846,3 +846,52 @@ def test_f7_apercu_q_r_filtre_la_nature_des_tranches(client: TestClient) -> None
     corps = r.json()
     assert (corps["done"], corps["total"]) == (0, 1)
     assert corps["answers"] == {}
+
+
+def test_revue_finale_sans_attendre_n_ecrase_pas_un_confirm_concurrent(
+    client: TestClient, monkeypatch,
+) -> None:
+    """Chemin voisin de F2 : « enregistrer sans attendre » relit l'entretien du
+    jeton (« a_transcrire sans tour ») puis complète son texte. Si un `confirm`
+    du même jeton le complète ENTRE cette lecture et l'écriture, l'ancien code
+    écrasait `fait` par `a_traiter` et relançait la structuration par-dessus les
+    tours validés à la main. On injecte ce `confirm` juste avant l'UPDATE."""
+    from sqlalchemy import event
+
+    from app.routers import interviews_libre
+
+    relances: list[int] = []
+    monkeypatch.setattr(interviews_libre, "planifier_structuration",
+                        lambda iid, *a, **k: relances.append(iid) or True)
+    mission_id = _mission(client)
+    iid = _interview(mission_id, "a_transcrire", "Court.", segment_token="rf-voisin")
+    deja = {"fait": False}
+
+    def _confirm_concurrent(conn, cursor, statement, params, context, executemany):
+        if deja["fait"] or not statement.lstrip().upper().startswith("UPDATE INTERVIEWS"):
+            return
+        deja["fait"] = True
+        with SessionLocal() as autre:
+            itw = autre.get(Interview, iid)
+            itw.structuration_status = "fait"
+            autre.add(InterviewTurn(interview_id=iid, position=0, interlocuteur="Alice",
+                                    question=None, remarque="Validé à la main.",
+                                    section_title=None))
+            autre.commit()
+
+    event.listen(engine, "before_cursor_execute", _confirm_concurrent)
+    try:
+        r = client.post(f"/missions/{mission_id}/interviews/record-libre/enregistrer",
+                        data={"transcript": "Un texte bien plus long que le premier.",
+                              "session_token": "rf-voisin"},
+                        follow_redirects=False)
+    finally:
+        event.remove(engine, "before_cursor_execute", _confirm_concurrent)
+    assert r.status_code == 303
+    assert deja["fait"], "l'écriture concurrente n'a pas été injectée"
+    with SessionLocal() as db:
+        itw = db.get(Interview, iid)
+        assert itw.structuration_status == "fait"
+        assert [t.remarque for t in itw.turns] == ["Validé à la main."]
+        assert itw.raw_transcript == "Court."
+    assert relances == [], "structuration relancée par-dessus des tours validés"

@@ -338,17 +338,36 @@ def _enregistrer_libre_direct(
             and not existant.turns
             and len(texte) > len((existant.raw_transcript or "").strip())
         ):
-            existant.raw_transcript = texte
+            valeurs = {
+                "raw_transcript": texte,
+                "tranches_manquantes": tranches,  # retry incomplet : le compte suit le texte
+            }
             # Story 3.4 (B-13) : le reliquat suit le texte complété — sinon la
             # structuration relancée repartait de l'ancien `segment_tail`.
             if (segment_tail or "").strip():
-                existant.segment_tail = segment_tail
-            existant.tranches_manquantes = tranches  # retry incomplet : le compte suit le texte
-            relance = existant.structuration_status == "a_transcrire" and not sans_texte
+                valeurs["segment_tail"] = segment_tail
+            relance = not sans_texte
             if relance:
-                existant.structuration_status = "a_traiter"
+                valeurs["structuration_status"] = "a_traiter"
+            # Revue finale Story 3.4 (chemin voisin de F2) : la lecture
+            # « a_transcrire sans tour » ci-dessus peut être périmée si un
+            # `confirm` du même jeton vient de compléter l'entretien (statut
+            # `fait` + tours validés). UPDATE CONDITIONNEL : on n'écrase ni le
+            # statut ni le texte d'un entretien complété entre-temps, et la
+            # structuration n'est relancée que si la transition a eu lieu.
+            gagne = db.execute(
+                update(Interview)
+                .where(
+                    Interview.id == existant.id,
+                    Interview.structuration_status == "a_transcrire",
+                    ~select(InterviewTurn.id)
+                    .where(InterviewTurn.interview_id == Interview.id)
+                    .exists(),
+                )
+                .values(**valeurs)
+            ).rowcount == 1
             db.commit()
-            if relance:
+            if gagne and relance:
                 background_tasks.add_task(au_fond(planifier_structuration), existant.id)
         return _redirection_apres_enregistrement(mission, existant)
     if not sans_texte:
