@@ -83,6 +83,9 @@ def _add_missing_columns() -> None:
             # query string sur la redirection d'enregistrement — un simple F5
             # sur la fiche le perdait, sans qu'aucune trace ne subsiste.
             "tranches_manquantes": "INTEGER DEFAULT 0",
+            # Parties audio supprimées depuis l'onglet Backup (Story 3.5) :
+            # 0 pour tout entretien existant (aucune suppression comptée avant).
+            "parties_supprimees": "INTEGER DEFAULT 0",
             # Structuration différée de l'entretien libre (2026-10-06) : tout
             # entretien existant est déjà structuré (ou ne le sera jamais par ce
             # flux) — d'où 'fait' par défaut.

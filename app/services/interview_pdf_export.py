@@ -248,7 +248,22 @@ def _header_flowables(interview: Interview) -> list:
         sub = f"{sub} · {date_str}" if sub else date_str
     if sub:
         flowables.append(Paragraph(_text(sub), _STYLES["subtitle"]))
+    alerte = texte_parties_supprimees(interview)
+    if alerte:
+        # Story 3.5 : un entretien amputé d'une partie audio ne se présente
+        # jamais comme complet, même exporté hors de l'application.
+        flowables += [_callout(alerte, label="Entretien incomplet"), Spacer(1, 6)]
     return flowables
+
+
+def texte_parties_supprimees(interview) -> str:
+    """« N partie(s) audio supprimée(s) … » si l'entretien en compte, sinon ""."""
+    n = getattr(interview, "parties_supprimees", 0) or 0
+    if n <= 0:
+        return ""
+    s = "s" if n > 1 else ""
+    return (f"{n} partie{s} audio supprimée{s} de l'enregistrement : "
+            "le contenu restitué ne couvre pas tout l'entretien.")
 
 
 def _resume_flowables(resume: str) -> list:

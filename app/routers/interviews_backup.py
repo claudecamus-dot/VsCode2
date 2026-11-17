@@ -260,7 +260,13 @@ def delete_record_backup(
         segments = [
             seg for seg in (interview.audio_segments or []) if seg.get("filename") != filename
         ]
-        if len(segments) != len(interview.audio_segments or []):
+        partie_retiree = len(segments) != len(interview.audio_segments or [])
+        # Story 3.5 : la suppression est COMPTÉE — première, milieu ou DERNIÈRE
+        # partie (la dernière ne laisse aucun trou de positions), ou l'audio
+        # unique d'un entretien d'avant la segmentation.
+        if partie_retiree or interview.audio_backup_path == filename:
+            interview.parties_supprimees = (interview.parties_supprimees or 0) + 1
+        if partie_retiree:
             # PAS de renumérotation (Story 3.4, B-4) : `position` est l'IDENTITÉ
             # de la tranche dans l'enregistrement. Renuméroter effaçait le trou
             # (0, 2 -> 0, 1) et la confirmation de retranscription concluait

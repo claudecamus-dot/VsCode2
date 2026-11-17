@@ -122,6 +122,9 @@ def build_presentation(
             prs, couverture_mission(mission),
             [(t.title, *par_theme.get(t.id, (0, 0)))
              for t in (mission.trame.themes if mission.trame else [])],
+            entretiens_incomplets=sum(
+                1 for iv in mission.interviews if (iv.parties_supprimees or 0) > 0
+            ),
         )
 
     _slide_cover(prs, mission)
