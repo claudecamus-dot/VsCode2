@@ -751,6 +751,9 @@ def test_finalisation_incomplete_atteint_le_serveur_par_l_action_rendue(ecran: P
     info = interviews_record.FINALISATION_RATTRAPEE
     assert info not in infos[""], "temoin : sans le drapeau, aucun message"
     assert info in infos["1"], pages["1"][:3000]
+    # note d'information, jamais une alerte « ⚠ » (re-revue 2026-11-17)
+    assert f'<p class="muted" role="status">{info}</p>' in pages["1"], pages["1"][:3000]
+    assert f"⚠ {info}" not in pages["1"]
     for page in pages.values():
         assert "tranche n'a pas pu être structurée" not in page, page[:3000]
         if not libre:

@@ -80,9 +80,12 @@ def _record_error(request, mission, identity, message):
     )
 
 
+# Formulation NEUTRE (re-revue 2026-11-17) : elle ne prétend pas qu'un
+# rattrapage a eu lieu — le drapeau peut arriver alors que tous les jobs étaient
+# déjà `done`, ou sans aucun job. Elle n'est rendue que si rien ne manque.
 FINALISATION_RATTRAPEE = (
-    "Finalisé avant la fin du suivi : les tranches restantes ont été "
-    "rattrapées côté serveur."
+    "Finalisé avant la fin du suivi : le serveur a traité toutes les tranches "
+    "reçues, aucune ne manque."
 )
 
 
@@ -415,6 +418,7 @@ def _finalize_libre_turns(
     # 2026-09-04, finding F5).
     manquantes = extracted.get("tranches_manquantes", 0)
     error = None
+    info = None
     if manquantes:
         pluriel = manquantes > 1
         error = (
@@ -426,7 +430,10 @@ def _finalize_libre_turns(
     elif incomplete:
         # Finalisation MANUELLE (Story 3.3) : informatif, ne compte rien — même
         # raisonnement que `_finalize_record_answers` (re-revue 2026-11-17).
-        error = FINALISATION_RATTRAPEE
+        # Rendu en note d'information (`info`), PAS par `error` : celui-ci
+        # s'affiche en alerte « ⚠ » avec l'export PDF de secours, et faisait
+        # passer une finalisation réussie pour une panne (re-revue 2026-11-17).
+        info = FINALISATION_RATTRAPEE
 
     return templates.TemplateResponse(
         request,
@@ -437,6 +444,7 @@ def _finalize_libre_turns(
             "identity": merged_identity,
             "transcript": transcript,
             "error": error,
+            "info": info,
         },
     )
 

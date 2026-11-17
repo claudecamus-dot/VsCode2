@@ -420,7 +420,8 @@ def test_r1_partage_onglet_a_un_mutex(client: TestClient) -> None:
     assert "if (partageEnCours) {" in module
     assert "partageEnCours = true;" in module
     assert "partageEnCours = false;\n    });" in module or re.search(
-        r"\.finally\(function \(\) \{\s*partageEnCours = false;", module
+        r"\.finally\(function \(\) \{(?:\s*//[^\r\n]*)*\s*"
+        r"(?:if \(genDepart === generation\) )?partageEnCours = false;", module
     )
 
 

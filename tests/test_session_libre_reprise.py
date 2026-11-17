@@ -366,7 +366,11 @@ def test_le_budget_de_relance_est_par_session(ecran: Path) -> None:
     plus rien."""
     html = ecran.read_text(encoding="utf-8")
     for debut in ("startBtn.addEventListener('click'", "resetBtn.addEventListener('click'"):
-        bloc = html[html.index(debut):html.index(debut) + 3500]
+        # bornee au gestionnaire lui-meme (jusqu'au prochain addEventListener),
+        # pas a une fenetre fixe que la croissance du gestionnaire depasse
+        i = html.index(debut)
+        fin = html.find("addEventListener(", i + len(debut))
+        bloc = html[i:fin if fin != -1 else len(html)]
         assert "jobEchecsConsecutifs = 0;" in bloc, debut
         assert "clearTimeout(jobRetryTimer);" in bloc, debut
 
