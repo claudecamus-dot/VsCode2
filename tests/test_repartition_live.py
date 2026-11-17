@@ -538,7 +538,8 @@ def test_une_reponse_de_la_session_courante_s_affiche_bien() -> None:
             + _fonction(src, "pollRepartition") + "\n"
             "pollRepartition();\n"
             "reglerReponse({ ok: true, json: function () {"
-            "  return Promise.resolve({ turns: " + json.dumps(turns) + " });"
+            "  return Promise.resolve({ turns: " + json.dumps(turns) + ", next_since: 1,"
+            "    tranches: [{ position: 0, turns: " + json.dumps(turns) + " }] });"
             "} });\n"
         )
         + "setTimeout(function () { " + _etat_libre() + " }, 50);"
