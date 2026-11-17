@@ -435,9 +435,10 @@ def run_audio_file_job(job_id: int) -> None:
                             # Story 3.2 (D-10 a) : le modèle du serveur se charge
                             # ailleurs (préchauffage) — rien n'a été tenté. Rejoué
                             # SANS consommer d'essai (un serveur qui chauffe n'est
-                            # pas un échec), avec battement, borné au total par
-                            # CHARGEMENT_MODELE_TIMEOUT_S : jamais une attente
-                            # silencieuse sans fin.
+                            # pas un échec), avec battement, borné PAR ÉPISODE par
+                            # CHARGEMENT_MODELE_TIMEOUT_S (l'épisode est remis à zéro
+                            # à chaque bloc obtenu) : jamais une attente silencieuse
+                            # sans fin.
                             maintenant = time.monotonic()
                             if debut_chargement is None:
                                 debut_chargement = maintenant
@@ -447,9 +448,6 @@ def run_audio_file_job(job_id: int) -> None:
                                     audio_transcribe.message_chargement_trop_long(
                                         audio_transcribe.CHARGEMENT_MODELE_TIMEOUT_S))
                             logger.info("Modèle en cours de chargement : bloc rejoué sans essai consommé.")
-                            # Revue 3.2 : un fil supplanté s'arrête (pas de reprise du
-                            # verrou contre le nouveau propriétaire pendant 1800 s).
-                            _verifier_proprietaire()
                             # Rejeux du pool de CET appel : acquis (comme la branche
                             # TranscriptionError ci-dessous) avant la remise à zéro de
                             # `stats` par l'appel suivant.
@@ -459,6 +457,11 @@ def run_audio_file_job(job_id: int) -> None:
                             if acquis_pool:
                                 rejoues |= acquis_pool
                                 _noter_bilan()
+                            # Revue 3.2 : un fil supplanté s'arrête (pas de reprise du
+                            # verrou contre le nouveau propriétaire pendant 1800 s).
+                            # Re-revue (B1) : vérifié JUSTE avant le commit du
+                            # battement, rien entre les deux — comme `_commit()`.
+                            _verifier_proprietaire()
                             _battement(db, job)
                             time.sleep(BLOC_RETRY_DELAY_S)
                         except audio_transcribe.TranscriptionError as exc_bloc:

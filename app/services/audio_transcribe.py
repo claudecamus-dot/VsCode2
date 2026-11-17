@@ -486,6 +486,15 @@ _SIGNAL_MODELE_PRET: contextvars.ContextVar = contextvars.ContextVar(
     "signal_modele_pret", default=None
 )
 
+# Re-revue 3.2 (M1) : posé par `_transcrire_bloc_sequentiel` (chemin gardé par
+# `_garde_memoire_sequentielle`) autour de son appel borné. Le garde laisse passer
+# un préchauffage en cours (`_MODEL_LOAD_LOCK` tenu) ; si ce préchauffage échoue,
+# `_get_model` obtient le verrou avec `_model` toujours None : il refait alors le
+# contrôle mémoire SOUS le verrou au lieu de charger ~1,6 Gio sans contrôle.
+_CONTROLE_MEMOIRE_AU_CHARGEMENT: contextvars.ContextVar[bool] = contextvars.ContextVar(
+    "controle_memoire_au_chargement", default=False
+)
+
 
 def _get_model():
     """Charge le modèle une seule fois, même si le warm-up (démarrage ou
@@ -502,6 +511,8 @@ def _get_model():
             raise exc
         try:
             if _model is None:
+                if _CONTROLE_MEMOIRE_AU_CHARGEMENT.get():
+                    _exiger_memoire_pour_modele()
                 faster_whisper = _faster_whisper()
                 _model = faster_whisper.WhisperModel(
                     MODEL_SIZE, device="cpu", compute_type="int8"
@@ -698,6 +709,12 @@ _PHRASES_SILENCE = frozenset({
     "merci de votre attention",
     "merci à tous",
     "sous-titres réalisés par la communauté d'amara.org",
+    "sous-titres réalisés para la communauté d'amara.org",
+    "sous-titres faits par la communauté d'amara.org",
+    "sous-titres par la communauté d'amara.org",
+    "subtitles by the amara.org community",
+    "sous-titrage fr",
+    "sous-titres fr",
     "sous-titrage st' 501",
     "sous-titrage société radio-canada",
     "abonnez-vous",
@@ -1184,6 +1201,14 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
             # sur lui (aucune mémoire de plus), borné comme un bloc du pool. Pas
             # chargé : échec immédiat plutôt que charger ~1,6 Gio maintenant.
             if _model is None:
+                if _MODEL_LOAD_LOCK.locked():
+                    # Re-revue 3.2 (M3) : un préchauffage charge DÉJÀ le modèle (sa
+                    # mémoire est engagée) — « occupé » réessayable, pas un échec
+                    # définitif (même règle que `_garde_memoire_sequentielle`).
+                    exc = TranscriptionChargementEnCoursError(
+                        "Chargement du modèle en cours, réessayez.")
+                    exc.retry_after_s = estimer_retry_after()
+                    raise exc
                 logger.warning("Mémoire insuffisante pour un worker et modèle non chargé : échec immédiat.")
                 raise TranscriptionMemoireInsuffisanteError(MESSAGE_MEMOIRE_INSUFFISANTE)
             for index in range(start, total):
@@ -1245,7 +1270,11 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
             # jamais en servir certains — l'échéance resterait repoussée à tort.
             prets = contexte_mp.Value("i", 0)
             servis = contexte_mp.Value("i", 0)
-            debut_pool = time.monotonic()
+            # Re-revue 3.2 (M2) : la borne court depuis le début de l'ÉPISODE de
+            # chargement (pool démarré, puis chaque instant où un worker servi
+            # n'est pas encore prêt), pas depuis le démarrage du pool — un 2e worker
+            # servi tard dans un long job dispose de sa borne entière.
+            debut_episode = [time.monotonic()]
             pool_kw = {"initializer": _init_worker, "initargs": (prets, servis)}
 
             def chargement() -> bool:
@@ -1254,8 +1283,12 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
                 # seulement tant qu'un chargement commencé n'a pas abouti. Un worker
                 # jamais servi ne compte pas.
                 if prets.value > 0 and prets.value >= servis.value:
+                    debut_episode[0] = None
                     return False
-                if time.monotonic() - debut_pool > CHARGEMENT_MODELE_TIMEOUT_S:
+                maintenant = time.monotonic()
+                if debut_episode[0] is None:
+                    debut_episode[0] = maintenant
+                if maintenant - debut_episode[0] > CHARGEMENT_MODELE_TIMEOUT_S:
                     logger.error("Modèle des workers non chargé en %.0f s.", CHARGEMENT_MODELE_TIMEOUT_S)
                     raise TranscriptionBloqueeError(
                         message_chargement_trop_long(CHARGEMENT_MODELE_TIMEOUT_S))
@@ -1307,6 +1340,11 @@ def _garde_memoire_sequentielle() -> None:
         # est déjà engagée, ce n'est pas un manque : `_get_model` rendra un
         # « occupé » réessayable (TranscriptionChargementEnCoursError), pas un échec.
         return
+    _exiger_memoire_pour_modele()
+
+
+def _exiger_memoire_pour_modele() -> None:
+    """Échec immédiat si la mémoire disponible ne couvre pas un modèle + la marge."""
     dispo = memoire_disponible()
     if dispo is not None and dispo - MEMOIRE_MARGE_OCTETS < MEMOIRE_PAR_WORKER_OCTETS:
         logger.warning("Mémoire insuffisante pour charger le modèle du serveur : échec immédiat.")
@@ -1333,6 +1371,9 @@ def _transcrire_bloc_sequentiel(blocs: list, index: int, total: int,
     _garde_memoire_sequentielle()
     while True:
         tentatives[index] = tentatives.get(index, 0) + 1
+        # M1 : le fil de `_sequentiel_borne` copie ce contexte — un chargement qu'il
+        # ferait après l'échec d'un préchauffage repasse par le contrôle mémoire.
+        jeton = _CONTROLE_MEMOIRE_AU_CHARGEMENT.set(True)
         try:
             return _sequentiel_borne(blocs[index], FOND, index, total)
         except (TranscriptionFondBusyError, TranscriptionBusyError,
@@ -1350,6 +1391,8 @@ def _transcrire_bloc_sequentiel(blocs: list, index: int, total: int,
                 tentatives[index] + 1, BLOC_MAX_TENTATIVES,
             )
             time.sleep(BLOC_RETRY_PAUSE_S)
+        finally:
+            _CONTROLE_MEMOIRE_AU_CHARGEMENT.reset(jeton)
 
 
 TOLERANCE_ECART_MIN_S = 2.0

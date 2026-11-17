@@ -36,6 +36,11 @@ def test_ac324_segment_non_parole_mais_sur_garde():
     " Sous-titres réalisés par la communauté d'Amara.org",
     " Thank you for watching.",
     " Sous-titrage ST' 501",
+    # Re-revue 3.2 (B2) : variantes connues, perdues par la comparaison entière.
+    " Subtitles by the Amara.org community",
+    " Sous-titres réalisés para la communauté d'Amara.org",
+    " Sous-titrage FR",
+    " Sous-titrage FR.",
 ])
 def test_ac324_phrase_type_isolee_peu_sure_ecartee(phrase):
     assert at._texte_segments([_Seg(phrase, no_speech_prob=0.45, avg_logprob=-0.5)]) == ""

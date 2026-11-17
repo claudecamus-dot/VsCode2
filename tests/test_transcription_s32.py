@@ -174,14 +174,15 @@ def test_ac322_chargement_trop_long_echoue_clairement_et_le_bloc_est_abandonne(
     modele = _FauxModele()
     libere = threading.Event()
     monkeypatch.setattr(at, "_get_model", lambda: libere.wait(5) and modele)
+    avant = set(threading.enumerate())
     debut = time.monotonic()
     with pytest.raises(at.TranscriptionBloqueeError) as e:
         at._sequentiel_borne(np.zeros(160, dtype=np.float32), at.FOND, 0, 1)
     assert time.monotonic() - debut < 3
     assert "pas pu être prêt" in str(e.value)
     libere.set()
-    time.sleep(0.3)
-    assert modele.appels == 0                                   # bloc jeté, pas transcrit
+    _joindre_fils_repli(avant)
+    assert modele.appels == 0                                 # bloc jeté, pas transcrit
     assert at._MODEL_LOCK.acquire(timeout=1, priority=at.FOND)  # verrou rendu
     at._MODEL_LOCK.release()
 
@@ -196,14 +197,26 @@ def test_ac322_toute_sortie_du_demandeur_abandonne_le_bloc(monkeypatch, delais_c
         raise KeyboardInterrupt()
 
     monkeypatch.setattr(at, "_attendre_resultat", _sortie)
+    avant = set(threading.enumerate())
     at._MODEL_LOCK.acquire(timeout=1, priority=at.FOND)
     try:
         with pytest.raises(KeyboardInterrupt):
             at._sequentiel_borne(np.zeros(160, dtype=np.float32), at.FOND, 0, 1)
     finally:
         at._MODEL_LOCK.release()
-    time.sleep(0.5)
+    # Re-revue 3.2 (B3) : on attend la FIN du fil (join), pas un délai arbitraire —
+    # l'assertion négative ne peut plus passer parce que le fil n'a pas encore tourné.
+    _joindre_fils_repli(avant)
     assert modele.appels == 0
+
+
+def _joindre_fils_repli(avant: set) -> None:
+    fils = [t for t in threading.enumerate()
+            if t not in avant and t.name == "whisper-repli-borne"]
+    assert fils, "fil whisper-repli-borne introuvable"
+    for t in fils:
+        t.join(5)
+        assert not t.is_alive()
 
 
 # --------------------------------------------------------------------------- #
@@ -536,3 +549,164 @@ def test_ac325_memoire_insuffisante_echoue_le_job_sans_ignorer_la_tranche(monkey
     assert "fermez des applications" in (job.error or "")
     assert job.files_done in (None, 0)                         # tranche NON ignorée
     assert "illisible" not in (job.error or "")
+
+
+# --------------------------------------------------------------------------- #
+# Re-revue 3.2 (2026-11-17)
+# --------------------------------------------------------------------------- #
+def test_m1_prechauffage_echoue_le_chargement_repasse_par_le_controle_memoire(
+        monkeypatch, delais_courts, un_bloc):
+    """M1 : le garde laisse passer un préchauffage en cours ; celui-ci échoue
+    (`_model` reste None, verrou rendu) — le fil de repli ne charge PAS ~1,6 Gio
+    sans contrôle : échec « mémoire » immédiat, aucune construction."""
+    constructions = []
+
+    class _Fw:
+        class WhisperModel:
+            def __init__(self, *a, **k):
+                constructions.append(1)
+
+    monkeypatch.setattr(at, "_faster_whisper", lambda: _Fw)
+    monkeypatch.setattr(at, "_model", None)
+    monkeypatch.setattr(at, "memoire_disponible", lambda: 1 * 1024 ** 3)
+    monkeypatch.setattr(at, "MEMOIRE_PAR_WORKER_OCTETS", int(1.6 * 1024 ** 3))
+    monkeypatch.setattr(at, "ATTENTE_CHARGEMENT_FOND_S", 5.0)
+    monkeypatch.setattr(at, "_MODEL_LOAD_LOCK", threading.Lock())
+    at._MODEL_LOAD_LOCK.acquire()                               # préchauffage en cours…
+    minuterie = threading.Timer(0.3, at._MODEL_LOAD_LOCK.release)  # …qui échoue
+    minuterie.start()
+    try:
+        with pytest.raises(at.TranscriptionMemoireInsuffisanteError):
+            list(at.iter_transcribe_blocks(b"x", 60))
+    finally:
+        minuterie.join(2)
+    assert constructions == []
+
+
+def test_m3_aucun_worker_pendant_un_prechauffage_rend_un_occupe(monkeypatch):
+    """M3 : aucun worker ne tient en mémoire, modèle non chargé MAIS préchauffage en
+    cours — « occupé » réessayable, pas un échec définitif « mémoire »."""
+    monkeypatch.setattr(at, "ProcessPoolExecutor", _PoolInitEnLigne)
+    monkeypatch.setattr(at, "memoire_disponible", lambda: 0)
+    monkeypatch.setattr(at, "_model", None)
+    monkeypatch.setattr(at, "_MODEL_LOAD_LOCK", threading.Lock())
+    at._MODEL_LOAD_LOCK.acquire()
+    try:
+        with pytest.raises(at.TranscriptionChargementEnCoursError) as e:
+            list(at._drain_parallel(_blocs_s32(2), 0, 2, 2))
+    finally:
+        at._MODEL_LOAD_LOCK.release()
+    assert audio_file_jobs._est_reessayable(e.value) is True
+
+
+class _PoolDeuxiemeWorkerTardif(at.ProcessPoolExecutor):
+    """Vraie classe (garde « pool réel »), aucune tâche exécutée. Worker 1 servi et
+    prêt d'emblée ; le bloc 0 est rendu tout de suite. Le worker 2 n'est servi
+    qu'à `SERVI_A` s (après la borne de chargement comptée depuis le pool), puis
+    prêt et le bloc 1 rendu à `PRET_A` s."""
+    SERVI_A = 1.3
+    PRET_A = 1.8
+
+    def __init__(self, max_workers=None, mp_context=None, initializer=None, initargs=()):
+        super().__init__(max_workers=max_workers, mp_context=mp_context)
+        self._prets, self._servis = initargs
+        self._prets.value = self._servis.value = 1
+        self._n = 0
+        self._minuteries = []
+
+    def submit(self, fn, *args, **kwargs):
+        f: Future = Future()
+        self._n += 1
+        if self._n == 1:
+            f.set_result("bloc 0")
+            return f
+
+        def _servir():
+            with self._servis.get_lock():
+                self._servis.value += 1
+
+        def _pret():
+            with self._prets.get_lock():
+                self._prets.value += 1
+            f.set_result("bloc 1")
+
+        for delai, action in ((self.SERVI_A, _servir), (self.PRET_A, _pret)):
+            t = threading.Timer(delai, action)
+            t.daemon = True
+            t.start()
+            self._minuteries.append(t)
+        return f
+
+
+def test_m2_borne_du_chargement_comptee_depuis_l_episode_pas_le_pool(monkeypatch):
+    """M2 : un 2e worker servi APRÈS CHARGEMENT_MODELE_TIMEOUT_S (compté depuis le
+    démarrage du pool) dispose de sa borne entière ; avant, échec immédiat."""
+    monkeypatch.setattr(at, "ProcessPoolExecutor", _PoolDeuxiemeWorkerTardif)
+    monkeypatch.setattr(at, "memoire_disponible", lambda: 64 * 1024 ** 3)
+    monkeypatch.setattr(at, "CHARGEMENT_MODELE_TIMEOUT_S", 1.0)
+    monkeypatch.setattr(at, "BLOC_RESULTAT_TIMEOUT_S", 2.0)
+    monkeypatch.setattr(at, "BATTEMENT_ATTENTE_S", 0.05)
+    assert list(at._drain_parallel(_blocs_s32(2), 0, 2, 2)) == [(0, "bloc 0"), (1, "bloc 1")]
+
+
+def test_b1_chargement_supplante_entre_bilan_et_battement_n_ecrit_rien(monkeypatch):
+    """B1 : supplanté PENDANT la consignation du bilan (après l'ancienne
+    vérification) — le battement ne commit rien pour le fantôme."""
+    monkeypatch.setattr(audio_file_jobs, "BLOC_RETRY_DELAY_S", 0.05)
+    monkeypatch.setattr(at, "CHARGEMENT_MODELE_TIMEOUT_S", 1.0)
+    job_id = _job("chargement_supplante_bilan")
+    vu = {}
+    vrai_bilan = at.bilan_completude
+
+    def _iter(content, block_s=None, start_index=0, stats=None):
+        if stats is not None:
+            stats["blocs_rejoues"] = [0]                       # rejeu du pool : bilan noté
+        vu["chargement"] = True
+        raise at.TranscriptionChargementEnCoursError("Chargement du modèle en cours, réessayez.")
+        yield  # noqa: unreachable
+
+    def _bilan(*a, **k):
+        if vu.get("chargement") and "date" not in vu:
+            audio_file_jobs._prendre_job(job_id)              # reprise par une autre exécution
+            vu["date"] = _relire(job_id).created_at
+            time.sleep(0.01)
+        return vrai_bilan(*a, **k)
+
+    monkeypatch.setattr(at, "iter_transcribe_blocks", _iter)
+    monkeypatch.setattr(at, "bilan_completude", _bilan)
+    try:
+        audio_file_jobs.run_audio_file_job(job_id)
+        assert "date" in vu
+        job = _relire(job_id)
+        assert job.created_at == vu["date"]                    # pas re-daté par le fantôme
+        assert job.status == "running"
+    finally:
+        audio_file_jobs._PROPRIETAIRES.pop(job_id, None)
+
+
+def test_b3_modele_worker_compte_servis_et_rend_sur_echec(monkeypatch):
+    """B3 : `servis` monte au début du chargement, redescend s'il échoue ; `prets`
+    ne monte qu'au succès."""
+    import multiprocessing
+
+    essais = []
+
+    class _Fw:
+        class WhisperModel:
+            def __init__(self, *a, **k):
+                essais.append(servis.value)
+                if len(essais) == 1:
+                    raise RuntimeError("chargement raté")
+
+    prets = multiprocessing.Value("i", 0)
+    servis = multiprocessing.Value("i", 0)
+    monkeypatch.setattr(at, "_faster_whisper", lambda: _Fw)
+    monkeypatch.setattr(at, "_worker_model", None)
+    monkeypatch.setattr(at, "_workers_prets", prets)
+    monkeypatch.setattr(at, "_workers_servis", servis)
+    with pytest.raises(RuntimeError):
+        at._modele_worker(1)
+    assert (servis.value, prets.value) == (0, 0)
+    assert at._modele_worker(1) is not None
+    assert essais == [1, 1]                                    # compté PENDANT le chargement
+    assert (servis.value, prets.value) == (1, 1)
