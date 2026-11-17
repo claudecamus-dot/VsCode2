@@ -13,7 +13,7 @@ from pptx.util import Inches
 from ...models import Mission
 from .. import pptx_deck as D
 from ..constats import constats_par_axe, texte_fondee_sur
-from ..synthese_material import couverture_mission, couverture_par_theme
+from ..synthese_material import couverture_mission, couverture_par_theme, interviews_contributifs
 from .archetypes import Archetype, normaliser_plan, plan_applicable
 from .base import _H_IN, _W_IN, OCTO_TEMPLATE_PATH, _clear_slides
 
@@ -116,18 +116,26 @@ def build_presentation(
     # Couverture déterministe (I1) : calculée par le CODE, jamais par le modèle.
     # Calcul PARESSEUX (revue 2026-09-28) : deux parcours des entretiens pour
     # des chiffres qu'un export sans cette slide n'affichera pas.
+    # Story 3.5 : entretiens amputés d'une partie audio PARMI ceux qui nourrissent
+    # le deck (`interviews_contributifs`, la matière que reçoit la synthèse et le
+    # numérateur de « Base de l'analyse ») — un entretien sans matière exploitée
+    # ne rend pas le contenu du deck partiel. Signalé sur la COUVERTURE, seule
+    # slide toujours émise (« Base de l'analyse » est optionnelle, décochée par
+    # défaut dans le formulaire d'export), et rappelé sur « Base de l'analyse ».
+    entretiens_incomplets = sum(
+        1 for iv in interviews_contributifs(mission) if (iv.parties_supprimees or 0) > 0
+    )
+
     def _base_analyse():
         par_theme = couverture_par_theme(mission)
         _slide_base_analyse(
             prs, couverture_mission(mission),
             [(t.title, *par_theme.get(t.id, (0, 0)))
              for t in (mission.trame.themes if mission.trame else [])],
-            entretiens_incomplets=sum(
-                1 for iv in mission.interviews if (iv.parties_supprimees or 0) > 0
-            ),
+            entretiens_incomplets=entretiens_incomplets,
         )
 
-    _slide_cover(prs, mission)
+    _slide_cover(prs, mission, entretiens_incomplets=entretiens_incomplets)
 
     gs = mission.global_synthesis
     swot = mission.swot

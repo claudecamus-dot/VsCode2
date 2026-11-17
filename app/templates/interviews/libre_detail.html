@@ -51,13 +51,15 @@
 {% endif %}
 {% if bilan_audio %}
 {# Story 3.5 : une transcription « complète » des parties RESTANTES ne rend pas
-   complet un entretien dont une partie audio a été supprimée. #}
-{% set bilan_alerte = bilan_audio.etat == 'echec' or bilan_audio.statut == 'incomplet' or (bilan_audio.statut == 'complet' and interview.parties_supprimees) %}
+   complet un entretien dont une partie audio a été supprimée. Le bilan le dit
+   sobrement ; l'ALERTE est portée une seule fois, par `_completude.html` juste
+   dessous (deux paragraphes d'alerte consécutifs disaient la même chose). #}
+{% set bilan_alerte = bilan_audio.etat == 'echec' or bilan_audio.statut == 'incomplet' %}
 <p class="{{ 'ai-error' if bilan_alerte else 'muted' }}" id="bilan-audio" role="status">
   {% if bilan_audio.etat == 'echec' %}⚠ Dernière transcription de l'audio échouée : relance-la.
   {%- elif bilan_audio.etat == 'en_cours' %}Transcription de l'audio en cours.
   {%- elif bilan_audio.statut == 'incomplet' %}⚠ Transcription incomplète{% if bilan_audio.blocs_vides %} : {{ bilan_audio.blocs_vides }} passage{{ 's' if bilan_audio.blocs_vides > 1 else '' }} sans texte{% endif %}.
-  {%- elif bilan_audio.statut == 'complet' and interview.parties_supprimees %}⚠ Transcription complète des parties restantes seulement : l'entretien reste incomplet.
+  {%- elif bilan_audio.statut == 'complet' and interview.parties_supprimees %}Transcription des parties restantes terminée.
   {%- elif bilan_audio.statut == 'complet' %}Transcription complète.{% endif %}
   {% if bilan_audio.blocs_rejoues %}{{ bilan_audio.blocs_rejoues }} passage{{ 's' if bilan_audio.blocs_rejoues > 1 else '' }} audio repris automatiquement, puis réussi{{ 's' if bilan_audio.blocs_rejoues > 1 else '' }}.{% endif %}
 </p>

@@ -38,7 +38,7 @@ from reportlab.platypus import (
 )
 
 from ..models import Interview
-from .interview_export import group_turns_into_sections
+from .interview_export import group_turns_into_sections, texte_parties_supprimees
 
 logger = logging.getLogger(__name__)
 
@@ -254,16 +254,6 @@ def _header_flowables(interview: Interview) -> list:
         # jamais comme complet, même exporté hors de l'application.
         flowables += [_callout(alerte, label="Entretien incomplet"), Spacer(1, 6)]
     return flowables
-
-
-def texte_parties_supprimees(interview) -> str:
-    """« N partie(s) audio supprimée(s) … » si l'entretien en compte, sinon ""."""
-    n = getattr(interview, "parties_supprimees", 0) or 0
-    if n <= 0:
-        return ""
-    s = "s" if n > 1 else ""
-    return (f"{n} partie{s} audio supprimée{s} de l'enregistrement : "
-            "le contenu restitué ne couvre pas tout l'entretien.")
 
 
 def _resume_flowables(resume: str) -> list:

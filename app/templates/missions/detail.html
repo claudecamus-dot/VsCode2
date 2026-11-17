@@ -178,7 +178,7 @@
           <a class="btn-link" href="/missions/{{ mission.id }}/interviews/record/backup/{{ b.filename | urlencode }}" download>Télécharger</a>
           {% endif %}
           <form method="post" action="/missions/{{ mission.id }}/interviews/record/backup/{{ b.filename | urlencode }}/delete"
-                onsubmit="return confirm('Supprimer définitivement cet enregistrement ? La transcription et les tours de parole de l’entretien ne sont pas touchés.');">
+                onsubmit="return confirm('Supprimer définitivement cet enregistrement ?\n\nL’entretien sera marqué INCOMPLET pour toujours : ce marquage ne disparaît jamais, même après une retranscription.\n\nLa transcription et les tours de parole de l’entretien ne sont pas touchés.');">
             <button class="btn btn-danger btn-sm" type="submit">Supprimer</button>
           </form>
         </td>

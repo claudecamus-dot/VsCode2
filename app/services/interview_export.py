@@ -92,8 +92,25 @@ def _header_lines(interview: Interview) -> list[str]:
     lines = [f"# Entretien — {interview.interviewee_name}"]
     if sub:
         lines.append(f"_{sub}_")
+    alerte = texte_parties_supprimees(interview)
+    if alerte:
+        # Story 3.5 : même signal que le PDF mis en page — et, par ricochet, que
+        # l'export PDF de secours, construit depuis ce Markdown.
+        lines += ["", f"> **Entretien incomplet** — {alerte}"]
     lines.append("")
     return lines
+
+
+def texte_parties_supprimees(interview) -> str:
+    """« N partie(s) audio supprimée(s) … » si l'entretien en compte, sinon "".
+
+    Formulation UNIQUE des exports d'entretien (Markdown, PDF, PDF de secours)."""
+    n = getattr(interview, "parties_supprimees", 0) or 0
+    if n <= 0:
+        return ""
+    s = "s" if n > 1 else ""
+    return (f"{n} partie{s} audio supprimée{s} de l'enregistrement : "
+            "le contenu restitué ne couvre pas tout l'entretien.")
 
 
 def _build_libre_body(interview: Interview) -> list[str]:
