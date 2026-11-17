@@ -57,8 +57,10 @@ Object.defineProperty(el('t'), 'textContent', { configurable: true,
 el('b').getBoundingClientRect = function () { return { height: 40 }; };
 bac.document.body = { style: {} };
 bac.document.documentElement = { style: {} };
+const demoBanner = { style: {}, getBoundingClientRect: function () { return { height: %(demo)d }; } };
+bac.demoBanner = demoBanner;
 bac.document.querySelector = function (sel) {   // sensible au SELECTEUR : une coquille echoue
-  return (sel === '.demo-banner' && %(demo)d) ? { getBoundingClientRect: function () { return { height: %(demo)d }; } } : null;
+  return (sel === '.demo-banner' && %(demo)d) ? demoBanner : null;
 };
 jouer('document.title = ' + %(titre)s);
 let out = {};
@@ -201,13 +203,43 @@ def test_alerte_se_place_sous_le_bandeau_demo() -> None:
     assert _scenario("muet(2); out = el('b').style.top;") == "0px"
 
 
-def test_re_partage_reussi_efface_tout_et_remet_les_etats_a_zero() -> None:
+def test_re_partage_reussi_leve_le_partage_perdu_mais_garde_l_alerte_muette() -> None:
+    """Story 3.3 AC3.3.3 (decision du 2026-11-16, remplace « efface tout ») : le
+    re-partage repare le partage perdu, l'alerte « aucune parole » reste jusqu'au
+    retour de la parole -- l'onglet repartage peut etre muet lui aussi."""
     r = _scenario("""
 partage_perdu(); muet(2);
 repartage_ok();
-out = { cache: el('b').hidden, titre: titre(), perdu: jouer('partagePerdu'), serie: jouer('noSpeechStreak') };
+out.apres = { cache: el('b').hidden, titre: titre(), perdu: jouer('partagePerdu'), serie: jouer('noSpeechStreak') };
+parole();
+out.parole = { cache: el('b').hidden, titre: titre() };
 """)
-    assert r == {"cache": True, "titre": TITRE, "perdu": False, "serie": 0}
+    assert r["apres"] == {"cache": False, "titre": PREFIXE + TITRE, "perdu": False, "serie": 2}
+    assert r["parole"] == {"cache": True, "titre": TITRE}
+
+
+def test_re_partage_reussi_sans_alerte_muette_masque_le_bandeau() -> None:
+    r = _scenario("""
+partage_perdu();
+repartage_ok();
+out = { cache: el('b').hidden, titre: titre(), perdu: jouer('partagePerdu') };
+""")
+    assert r == {"cache": True, "titre": TITRE, "perdu": False}
+
+
+def test_mode_demo_l_alerte_ne_pousse_pas_le_bandeau_demo_dessous() -> None:
+    """Story 3.3 A-3 : en mode demo, l'espace est reserve APRES le bandeau demo
+    (marge basse) et non par un padding du body, qui poussait le bandeau sticky
+    sous l'alerte a scroll 0. Rendu reel : tests/test_e2e_premiers_clics.py."""
+    r = _scenario("""
+muet(2);
+out.affiche = { top: el('b').style.top, pad: jouer('document.body.style.paddingTop'),
+                marge: jouer('demoBanner.style.marginBottom') };
+parole();
+out.masque = { pad: jouer('document.body.style.paddingTop'), marge: jouer('demoBanner.style.marginBottom') };
+""", demo=26)
+    assert r["affiche"] == {"top": "26px", "pad": "", "marge": "40px"}
+    assert r["masque"] == {"pad": "", "marge": ""}
 
 
 def test_re_partage_refuse_ne_touche_pas_au_noeud_alert_et_va_dans_la_region_polie() -> None:
@@ -259,7 +291,7 @@ muet(2);
 out.a = { top: el('b').style.top, pad: jouer('document.body.style.paddingTop'),
           sp: jouer('document.documentElement.style.scrollPaddingTop') };
 jouer("document.querySelector = function (s) { return s === '.demo-banner' ? " +
-      "{ getBoundingClientRect: function () { return { height: 50 }; } } : null; }");
+      "{ style: {}, getBoundingClientRect: function () { return { height: 50 }; } } : null; }");
 jouer('positionnerAlerte()');
 out.b = { top: el('b').style.top, sp: jouer('document.documentElement.style.scrollPaddingTop') };
 partage_perdu();

@@ -303,6 +303,7 @@
   var JOB_SEGMENT_MS = 5 * 60000;
 
   var startBtn = document.getElementById('rec-start');
+  var draftBannerEl = document.getElementById('rec-draft-banner');  // reprise d'un brouillon (Story 3.3)
   var stopBtn = document.getElementById('rec-stop');
   var resetBtn = document.getElementById('rec-reset');
   var submitBtn = document.getElementById('rec-submit');
@@ -880,13 +881,17 @@
     var haut = demo ? Math.round(demo.getBoundingClientRect().height) : 0;
     var hauteur = Math.round(noSpeechBannerEl.getBoundingClientRect().height);
     noSpeechBannerEl.style.top = haut + 'px';
-    document.body.style.paddingTop = hauteur + 'px';
+    // Mode démo (Story 3.3, A-3) : le bandeau démo est le 1er enfant STICKY du body ;
+    // un padding du body le poussait SOUS l'alerte à scroll 0. L'espace est alors
+    // réservé APRÈS lui (marge basse), le body garde son padding d'origine.
+    if (demo) { demo.style.marginBottom = hauteur + 'px'; document.body.style.paddingTop = ''; }
+    else document.body.style.paddingTop = hauteur + 'px';
     document.documentElement.style.scrollPaddingTop = (haut + hauteur) + 'px';
   }
   // Rendu unique, piloté par l'état. Le message (role=alert) n'est réécrit que si le TYPE
   // d'alerte change, et APRÈS l'affichage (annonce forte, une fois) ; la durée et l'erreur
-  // de re-partage vivent dans la région polie. Un re-partage réussi efface aussi l'alerte
-  // « micro muet » (nouvelle source : décision arbitrée).
+  // de re-partage vivent dans la région polie. Un re-partage réussi n'efface PAS l'alerte
+  // « micro muet » : seul un segment porteur de parole la lève (Story 3.3, AC3.3.3).
   function rendreAlerte() {
     var cle = partagePerdu ? 'partage' : (noSpeechActive ? 'muet' : null);
     if (cle === null) {
@@ -896,6 +901,8 @@
       noSpeechDurationEl.textContent = '';
       alerteKind = null;
       document.body.style.paddingTop = '';
+      var demoEl = document.querySelector('.demo-banner');
+      if (demoEl) demoEl.style.marginBottom = '';
       document.documentElement.style.scrollPaddingTop = '';
       majTitre();
       return;
@@ -1051,7 +1058,12 @@
     btn.textContent = 'Partage en cours…';
     return i2dAudioSource.shareTab().then(function (flux) {
       swapSource(flux);
-      resetNoSpeech(true);
+      // Story 3.3 (AC3.3.3, A-4) : le partage perdu est réparé, mais l'alerte
+      // « aucune parole » RESTE jusqu'à ce qu'un segment porte de la parole —
+      // l'onglet repartagé peut lui aussi être muet (case audio non cochée).
+      partagePerdu = false;
+      partageErreur = '';
+      rendreAlerte();
       if (recordingActive) statusEl.textContent = 'Enregistrement en cours — son de la réunion capté.';
       remoteModeEl.checked = true;
       remoteBypass = false;
@@ -1753,7 +1765,13 @@
       headers: segId ? { 'X-Segment-Id': segId } : {},
     }, delaiRequete)
       .then(function (res) {
-        return res.json().then(function (data) { return { ok: res.ok, status: res.status, data: data }; });
+        // Story 3.3 (revue #6) : un 2xx à corps VIDE (204) ne passe pas par JSON.parse,
+        // qui lèverait et enverrait le segment sur le chemin « erreur réseau » ; il vaut
+        // « aucune parole » (rec_retry.classer). Un corps non vide illisible lève comme avant.
+        var lire = (typeof res.text === 'function')
+          ? res.text().then(function (t) { return (t && t.trim()) ? JSON.parse(t) : {}; })  // blancs seuls = vide (revue finale R4)
+          : res.json();
+        return lire.then(function (data) { return { ok: res.ok, status: res.status, data: data || {} }; });
       })
       .then(function (result) {
         if (gen !== backupGeneration) { settle(); return; }  // session abandonnée : ne pas ressusciter
@@ -2773,6 +2791,9 @@
     i2dAudioSource.acquire(remoteModeEl.checked && !remoteBypass).then(function (s) {
       stream = s;
       recordingActive = true;
+      // Story 3.3 (AC3.3.1, revue) : la proposition de reprise disparaît seulement quand
+      // l'enregistrement a VRAIMENT démarré (micro refusé, confirmation refusée : elle reste).
+      if (draftBannerEl) draftBannerEl.hidden = true;
       finalizing = false;
       finalizingRecorders = 0;
       backupGeneration++;  // nouvelle session : les uploads en vol de l'ancienne seront ignorés
@@ -3042,6 +3063,13 @@
 
   function pollRepartition() {
     if (!sessionToken) return;  // pas encore d'enregistrement -> rien à afficher
+    // Story 3.3 (A-5) : UNE seule requête d'aperçu en vol. Le minuteur tire toutes les
+    // 5 s pour un délai réseau bien plus long : sans garde, des réponses chevauchées
+    // avançaient le curseur `since` dans le désordre (tours perdus ou doublés).
+    // Drapeau porté par la fonction elle-même (aucune variable externe à déclarer).
+    if (pollRepartition.enVol) return;
+    pollRepartition.enVol = true;
+    var liberer = function () { pollRepartition.enVol = false; };
     // Le jeton est figé au DÉPART de la requête, et re-vérifié au retour : vider
     // l'onglet sur « Recommencer » ne suffit pas si une réponse partie avant le
     // clic arrive après, car elle réafficherait les tours de la session jetée.
@@ -3058,7 +3086,8 @@
         renderRepartition(data.turns, sinceAuDepart === repartitionSincePosition && sinceAuDepart > 0);
         if (typeof data.next_since === 'number') repartitionSincePosition = data.next_since;
       })
-      .catch(function () { /* aperçu best-effort : un échec réseau ne casse rien */ });
+      .catch(function () { /* aperçu best-effort : un échec réseau ne casse rien */ })
+      .then(liberer, liberer);
   }
 
   Array.prototype.forEach.call(document.querySelectorAll('.rec-tab'), function (btn) {
@@ -3126,7 +3155,23 @@
     document.getElementById('rec-draft-text').textContent = dec.libelle;
     banner.classList.toggle('rec-draft-discret', dec.mode === 'discret');
     banner.hidden = false;
+    // Story 3.3 (AC3.3.1, A-1) : la bannière est masquée par le démarrage RÉUSSI (suite
+    // de `i2dAudioSource.acquire` dans le gestionnaire de « Démarrer ») ; le garde
+    // ci-dessous couvre le reste.
     document.getElementById('rec-draft-restore').addEventListener('click', function () {
+      // Garde du gestionnaire (bannière restée visible, clic clavier, etc.) :
+      // jamais de reprise par-dessus un enregistrement en cours ou un texte présent.
+      // `=== true` : `recordingActive` est toujours un booléen dans l'écran.
+      // Revue finale R5 : juste après « Arrêter », dernière tranche pas encore
+      // livrée (`finalizing`) ou envois encore en vol (`pendingBackups`,
+      // `pendingSegments`) = session vivante — la reprise écraserait
+      // sessionToken / backupSegments.
+      if (recordingActive === true || finalizing === true
+          || pendingBackups > 0 || pendingSegments > 0
+          || String(transcriptSoFar || '').trim()) {
+        banner.hidden = true;
+        return;
+      }
       transcriptSoFar = brouillon.transcript;
       transcriptEl.value = transcriptSoFar;
       transcriptHidden.value = transcriptSoFar;
@@ -3142,7 +3187,12 @@
       if (Array.isArray(brouillon.backupSegments) && brouillon.backupSegments.length) {
         backupSegments = brouillon.backupSegments;
         sessionRestauree = true;
-        nextBackupPosition = backupSegments.length;  // une tranche suivante ne réutilise pas un numéro (F15)
+        // max(position) + 1, pas `length` : des positions restaurées non contiguës
+        // (une tranche supprimée) feraient réutiliser un numéro (F15 ; Story 3.3, A-15).
+        nextBackupPosition = backupSegments.reduce(function (m, s) {
+          var p = s ? s.position : null;
+          return (typeof p === 'number' && p === p && p >= m) ? p + 1 : m;
+        }, backupSegments.length);
         audioSegmentsHidden.value = JSON.stringify(backupSegments);
         backupPathHidden.value = backupSegments[backupSegments.length - 1].filename;
         refreshBackupStatus();

@@ -52,6 +52,14 @@
   var onTabLost = null, onLevels = null;
   var tabEnded = false;
   var partageEnCours = false;  // mutex : voir shareTab()
+  // Story 3.3 (A-6) : jeton de génération, incrémenté par release(). Une demande
+  // (sélecteur d'onglet, permission micro) résolue APRÈS « Arrêter » ne doit pas
+  // réacquérir micro/onglet/AudioContext : ses pistes sont arrêtées et elle échoue.
+  var generation = 0;
+  function perimee(s) {
+    if (s) s.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
+    return new Error("Demande abandonnée : l'enregistrement a été arrêté entre-temps.");
+  }
 
   function supported() {
     return !!(navigator.mediaDevices &&
@@ -165,7 +173,9 @@
      d'origine pour reconstruire un mélange sans redemander la permission. */
   function acquireMic() {
     if (micStream) return Promise.resolve(micStream);
+    var genDepart = generation;
     return navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
+      if (genDepart !== generation) throw perimee(s);
       micStream = s;
       return s;
     });
@@ -225,6 +235,7 @@
         'Une demande de partage est déjà en cours — patiente le temps de la fenêtre du navigateur.'));
     }
     partageEnCours = true;
+    var genDepart = generation;
     return navigator.mediaDevices.getDisplayMedia({
       video: true,                              // exigée par le navigateur pour accorder l'audio
       audio: {
@@ -234,6 +245,7 @@
         suppressLocalAudioPlayback: false
       }
     }).then(function (s) {
+      if (genDepart !== generation) throw perimee(s);
       var pistes = s.getAudioTracks();
       if (!pistes.length) {
         s.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
@@ -259,11 +271,18 @@
         throw err;
       });
     }).finally(function () {
-      partageEnCours = false;
+      // Seulement si la session n'a pas changé : après release() + un nouveau
+      // partage B, le règlement tardif de A rouvrait le mutex de B et laissait
+      // passer un getDisplayMedia concurrent (revue finale 3.3, R3).
+      if (genDepart === generation) partageEnCours = false;
     });
   }
 
   function release() {
+    generation++;
+    // Une demande de partage restée en vol appartient à la session close : la
+    // session suivante ne doit pas se la voir opposer par le mutex (Story 3.3).
+    partageEnCours = false;
     stopMeters();
     detachTab();
     if (micNode) { try { micNode.disconnect(); } catch (e) {} }

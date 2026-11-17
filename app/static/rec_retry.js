@@ -15,7 +15,8 @@
 // (commit 3) ; ce module décide quoi en faire.
 //
 // Politique (inchangée sauf la ligne « transient ») :
-//   • réseau / statut >= 500        -> 2 relances, après 2 s puis 6 s ;
+//   • réseau / statut >= 500, 408, 429 -> 2 relances, après 2 s puis 6 s ;
+//   • 2xx sans texte                -> comme 422 `no_speech` ;
 //   • 422 `code: "transient"`       -> 3 relances, 2 s, 6 s puis 15 s (plafond
 //                                      ≈ 23 s hors durée des requêtes) ;
 //   • 503 `code: "busy"`            -> HORS budget : file d'attente normale du
@@ -60,6 +61,13 @@
     var code = data && data.code;
     if (status === 503 && code === 'busy') return 'busy';
     if (status >= 500) return 'retry';
+    // 408 (délai côté serveur/proxy) et 429 (trop de requêtes) : l'audio n'a
+    // pas été traité, une relance a de vraies chances d'aboutir (Story 3.3, A-9).
+    if (status === 408 || status === 429) return 'retry';
+    // 2xx SANS texte (appelé seulement quand `ok && text` a échoué) : le serveur
+    // a traité l'audio et n'y a rien trouvé — même issue qu'un 422 no_speech,
+    // jamais un segment perdu BLOQUANT (Story 3.3, A-7).
+    if (status >= 200 && status < 300) return 'no_speech';
     if (status === 422 && code === 'transient') return 'transient';
     if (status === 422 && code === 'no_speech') return 'no_speech';
     return 'definitif';

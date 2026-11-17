@@ -162,7 +162,10 @@ var recDraft = (function () {
 
   function formaterDate(ts) {
     try {
+      // Story 3.3 (A-11) : date absente ou illisible -> libellé explicite, jamais « NaN/NaN ».
+      if (typeof ts !== 'number' || !isFinite(ts)) return null;
       var d = new Date(ts);
+      if (isNaN(d.getTime())) return null;  // hors plage (> 8,64e15 ms) : date invalide
       var jj = ('0' + d.getDate()).slice(-2);
       var mm = ('0' + (d.getMonth() + 1)).slice(-2);
       var hh = ('0' + d.getHours()).slice(-2);
@@ -185,19 +188,21 @@ var recDraft = (function () {
     var texte = (typeof brouillon.transcript === 'string') ? brouillon.transcript.trim() : '';
     if (!texte) return null;
     if (typeof brouillon.savedAt === 'number' && maintenant(now) - brouillon.savedAt > AGE_MAX_MS) return null;
-    var quand = formaterDate(brouillon.savedAt);
+    var date = formaterDate(brouillon.savedAt);
+    var quand = date ? 'le ' + date : 'à une date inconnue';
     var taille = texte.length + ' caractères';
     if (typeof brouillon.envoyeLe === 'number') {
       return {
         mode: 'discret',
-        libelle: 'Une transcription envoyée le ' + formaterDate(brouillon.envoyeLe)
+        libelle: 'Une transcription envoyée '
+          + (formaterDate(brouillon.envoyeLe) ? 'le ' + formaterDate(brouillon.envoyeLe) : 'à une date inconnue')
           + ' (' + taille + ') est encore en mémoire locale — vérifie qu\'elle figure '
           + 'bien dans la mission, sinon tu peux la restaurer ici.'
       };
     }
     return {
       mode: 'reprise',
-      libelle: 'Une session non enregistrée a été retrouvée (dernière sauvegarde locale le '
+      libelle: 'Une session non enregistrée a été retrouvée (dernière sauvegarde locale '
         + quand + ', ' + taille + ').'
     };
   }

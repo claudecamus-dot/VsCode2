@@ -53,14 +53,29 @@
       if (Object.prototype.hasOwnProperty.call(options, cle)) opts[cle] = options[cle];
     }
     opts.signal = ctrl.signal;
+    // Story 3.3 (A-18) : le `signal` de l'appelant n'est plus écrasé — il est
+    // chaîné sur le contrôleur interne. Seul NOTRE minuteur produit `recTimeout`.
+    var parDelai = false;
+    var signalAppelant = options && options.signal;
+    function relayer() { ctrl.abort(); }
+    // Fin de vie de la requête : minuteur annulé ET écouteur retiré du signal de
+    // l'appelant (un signal longue durée accumulerait sinon un écouteur par requête).
+    function liberer() {
+      clearTimeout(timer);
+      if (signalAppelant && signalAppelant.removeEventListener) signalAppelant.removeEventListener('abort', relayer);
+    }
+    if (signalAppelant) {
+      if (signalAppelant.aborted) ctrl.abort();
+      else if (signalAppelant.addEventListener) signalAppelant.addEventListener('abort', relayer);
+    }
 
-    var timer = setTimeout(function () { ctrl.abort(); }, ms);
+    var timer = setTimeout(function () { parDelai = true; ctrl.abort(); }, ms);
 
     // `AbortError` porte un message par défaut du navigateur, illisible dans le
     // bandeau d'erreur. On le remplace par la cause telle que l'utilisateur la
     // vit — le reste de la chaîne n'affiche que `.message`.
     function traduire(err) {
-      if (err && err.name === 'AbortError') {
+      if (err && err.name === 'AbortError' && parDelai) {
         // `Math.max(1, …)` : un délai sous la seconde (les tests) afficherait
         // sinon « après 0 s », qui se lit comme un bug plutôt qu'un délai.
         var e = new Error('pas de réponse après ' + Math.max(1, Math.round(ms / 1000)) + ' s');
@@ -87,18 +102,23 @@
         // Réponse sans `.json` (jamais en navigateur, mais un test ou un futur
         // appelant peut en fournir une) : rien à attendre, on libère tout de suite
         // plutôt que de lever en enveloppant.
-        if (!res || typeof res.json !== 'function') { clearTimeout(timer); return res; }
-        var lire = res.json.bind(res);
-        res.json = function () {
-          return lire().then(
-            function (data) { clearTimeout(timer); return data; },
-            function (err) { clearTimeout(timer); throw traduire(err); }
-          );
-        };
+        if (!res || typeof res.json !== 'function') { liberer(); return res; }
+        // `text` aussi (Story 3.3) : un appelant qui lit le corps brut (corps vide
+        // d'un 204) garde la même borne sur la lecture du corps.
+        ['json', 'text'].forEach(function (m) {
+          if (typeof res[m] !== 'function') return;
+          var lire = res[m].bind(res);
+          res[m] = function () {
+            return lire().then(
+              function (data) { liberer(); return data; },
+              function (err) { liberer(); throw traduire(err); }
+            );
+          };
+        });
         return res;
       },
       function (err) {
-        clearTimeout(timer);
+        liberer();
         throw traduire(err);
       }
     );

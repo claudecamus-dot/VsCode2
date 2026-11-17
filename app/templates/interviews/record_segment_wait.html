@@ -22,6 +22,17 @@
   <progress id="seg-bar" value="{{ status.done }}" max="{{ status.total }}"></progress>
 </section>
 
+<section id="seg-exit" class="card" hidden>
+  <p id="seg-exit-text" role="alert"></p>
+  <p class="muted">Seule la transcription brute reçue par cette page peut être copiée ou
+    téléchargée ; la structuration des tranches encore en cours n'y figure pas.</p>
+  <button type="button" id="seg-exit-copy" class="btn">Copier la transcription brute</button>
+  <button type="button" id="seg-exit-download" class="btn">Télécharger la transcription brute</button>
+  <button type="button" id="seg-exit-finalize" class="btn btn-primary">Finaliser avec le texte disponible</button>
+  <p id="seg-exit-status" class="muted" aria-live="polite"></p>
+</section>
+<script src="/static/seg_wait_exit.js"></script>
+
 <!-- Champs portés vers la finalisation une fois toutes les tranches traitées. -->
 <form id="finalize-form" method="post"
       action="/missions/{{ mission.id }}/interviews/record/from-jobs">
@@ -33,6 +44,7 @@
   <input type="hidden" name="interviewee_entity" value="{{ identity.interviewee_entity or '' }}">
   <input type="hidden" name="interview_date" value="{{ identity.interview_date or '' }}">
   <input type="hidden" name="audio_backup_path" value="{{ identity.audio_backup_path or '' }}">
+  <input type="hidden" name="transcription_incomplete" value="">
 </form>
 
 <script>
@@ -47,10 +59,45 @@
   // 2026-08-31, même raison que libre_segment_wait.html) : sans lui, un fetch
   // jamais réglé tuait définitivement la chaîne de setTimeout du suivi.
   var POLL_TIMEOUT_MS = 120000;
+  // Story 3.3 (A-8) : l'attente a une BORNE de sortie. Au-delà de WAIT_MAX_MS, après
+  // EXIT_AFTER_FAILS échecs d'affilée, sur un 401 (session expirée) ou après
+  // EXIT_AFTER_EMPTY réponses « aucune tranche » (total == 0) sans fin annoncée,
+  // le panneau partagé (/static/seg_wait_exit.js) propose de garder la
+  // transcription brute et, hors session expirée, de finaliser à la main.
+  // Jamais de soumission automatique sur ces cas : l'utilisateur garde la main.
+  var WAIT_MAX_MS = 20 * 60 * 1000;
+  var EXIT_AFTER_FAILS = 6;
+  var EXIT_AFTER_EMPTY = 3;
+  var debut = Date.now();
+  var emptyPolls = 0;
+  var sortie = segWaitExit({ form: form, token: token,
+    inactif: function () { return submitted; },
+    onFinalize: function () { finalize(true); } });
+  function horsDelai() { return Date.now() - debut >= WAIT_MAX_MS; }
+  // Une seule raison de sortie par poll, priorité STABLE (revue finale R8) :
+  // session expirée > borne de temps > suivi muet / aucune tranche. Deux raisons
+  // proposées l'une après l'autre à chaque poll faisaient basculer (et
+  // ré-annoncer) le message role=alert toutes les 5 s.
+  function bornee() {
+    if (!horsDelai()) return false;
+    sortie.proposer("L'attente dépasse " + Math.round(WAIT_MAX_MS / 60000) + ' min — garde la ' +
+      'transcription brute (copie ou téléchargement) ou finalise avec le texte disponible.');
+    return true;
+  }
 
-  function finalize() {
+  function finalize(manuel) {
     if (submitted) return;
     submitted = true;
+    if (manuel) {
+      // Finalisation MANUELLE (panneau de sortie) : des tranches peuvent encore être
+      // en cours — le dire au serveur et ne pas afficher « terminé » (Story 3.3).
+      // Pas de garde `if (champ)` : un champ absent du formulaire doit casser
+      // bruyamment (et le harnais), jamais finaliser sans le signal (revue finale R2).
+      form.querySelector('input[name="transcription_incomplete"]').value = '1';
+      progressEl.textContent = 'Finalisation avec le texte disponible — les tranches non terminées ne sont pas attendues…';
+      form.submit();
+      return;
+    }
     progressEl.textContent = 'Traitement terminé — affichage de la revue des réponses…';
     form.submit();
   }
@@ -62,11 +109,19 @@
         // Un 5xx n'est pas une « connexion perdue » — le distinguer via le catch
         // commun avec un message qui couvre les deux (même durcissement que
         // libre_segment_wait.html, revue adversariale 2026-07-23).
+        if (res.status === 401) {
+          var e401 = new Error('http 401'); e401.session = true; throw e401;
+        }
         if (!res.ok) throw new Error('http ' + res.status);
         return res.json();
       })
       .then(function (s) {
+        s = s || {};
         failedPolls = 0;
+        sortie.authentifie();  // 2xx authentifié : fin de l'état « session expirée »
+        // « Aucune tranche » = total EXPLICITEMENT nul : un 2xx sans `total` (corps
+        // inattendu) ne compte pas comme une réponse vide (revue finale R11a).
+        emptyPolls = (s.total === 0 && !s.all_done && !s.any_failed) ? emptyPolls + 1 : 0;
         progressEl.classList.remove('error');
         if (s.total > 0) {
           barEl.max = s.total;
@@ -80,13 +135,18 @@
         }
         // Toutes terminées, ou un job en échec (récupération bornée par
         // tranche côté serveur) : on finalise.
+        if (emptyPolls < EXIT_AFTER_EMPTY && !horsDelai()) sortie.masquer();  // suivi redevenu sain
         if (s.all_done || s.any_failed) {
           finalize();
         } else {
+          if (!bornee() && emptyPolls >= EXIT_AFTER_EMPTY) {
+            sortie.proposer('Aucune tranche en cours côté serveur — garde la transcription brute ' +
+              '(copie ou téléchargement) ou finalise avec le texte disponible.');
+          }
           setTimeout(poll, 5000);
         }
       })
-      .catch(function () {
+      .catch(function (err) {
         // Erreur réseau OU réponse serveur en erreur : on réessaie sans casser
         // l'attente, mais on le DIT — la progression ne doit jamais rester
         // figée sans indiquer si le suivi est encore actif.
@@ -96,6 +156,16 @@
           progressEl.textContent =
             'Le suivi ne répond plus — nouvelle tentative dans 5 s… ' +
             '(l\'attente reprendra toute seule, ne recharge pas la page)';
+        }
+        if (err && err.session) {
+          progressEl.classList.add('error');
+          progressEl.textContent = 'Session expirée — reconnecte-toi dans un autre onglet ; le suivi reprendra.';
+          sortie.proposer('Session expirée : copie ou télécharge la transcription brute avant toute ' +
+            'autre action. « Finaliser » est désactivé : il renverrait vers la page de connexion ' +
+            'et quitterait cette page. Reconnecte-toi dans un autre onglet ; le suivi reprendra.', true);
+        } else if (!bornee() && failedPolls >= EXIT_AFTER_FAILS) {
+          sortie.proposer('Le suivi ne répond plus — garde la transcription brute (copie ou ' +
+            'téléchargement) ou finalise avec le texte disponible.');
         }
         setTimeout(poll, 5000);
       });

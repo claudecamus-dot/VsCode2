@@ -654,6 +654,13 @@
 
   function noteNoSpeech() {
     noSpeechStreak++;
+    afficherMuet();
+  }
+
+  // Rendu de l'alerte « aucune parole » d'après la série en cours (rien sous le seuil).
+  // Séparé de noteNoSpeech pour qu'un re-partage réussi puisse la RE-rendre sans
+  // compter un segment de plus (Story 3.3, AC3.3.3).
+  function afficherMuet() {
     if (noSpeechStreak < NOSPEECH_ALERT_AFTER) return;
     // Le message PORTE l'action (demande utilisateur 2026-07-31) : à la 2e minute
     // l'utilisateur est en entretien, il n'ira pas chercher un réglage.
@@ -780,7 +787,10 @@
     btn.textContent = 'Partage en cours…';
     return i2dAudioSource.shareTab().then(function (flux) {
       var sauvegardeInchangee = swapSource(flux);
-      resetNoSpeech();
+      // Story 3.3 (AC3.3.3, revue) : le partage perdu est réparé, mais une alerte
+      // « aucune parole » en cours RESTE jusqu'au retour de la parole — l'onglet
+      // repartagé peut lui aussi être muet. Sans série muette : bandeau masqué.
+      if (noSpeechStreak >= NOSPEECH_ALERT_AFTER) afficherMuet(); else resetNoSpeech();
       if (recordingActive) {
         statusEl.textContent = sauvegardeInchangee
           ? 'Enregistrement en cours — son de la réunion capté dans la transcription ' +
@@ -1287,7 +1297,14 @@
       : TRANSCRIBE_TIMEOUT_MS;
     recFetch('/audio/transcribe-segment', { method: 'POST', body: formData }, delaiRequete)
       .then(function (res) {
-        return res.json().then(function (data) { return { ok: res.ok, status: res.status, data: data }; });
+        // Story 3.3 (revue finale R4, parité record_libre.html) : un 2xx à corps vide
+        // ou blanc (204) ne passe pas par JSON.parse, qui lèverait et enverrait le
+        // segment sur le chemin « erreur réseau » ; il vaut « aucune parole »
+        // (rec_retry.classer). Un corps non vide illisible lève comme avant.
+        var lire = (typeof res.text === 'function')
+          ? res.text().then(function (t) { return (t && t.trim()) ? JSON.parse(t) : {}; })
+          : res.json();
+        return lire.then(function (data) { return { ok: res.ok, status: res.status, data: data || {} }; });
       })
       .then(function (result) {
         if (gen !== recGeneration) { settle(); return; }  // session abandonnée : ne pas ressusciter
@@ -2282,6 +2299,10 @@
 
   function pollRepartition() {
     if (!sessionToken) return;  // pas encore d'enregistrement -> rien à afficher
+    // Story 3.3 (A-5) : une seule requête d'aperçu en vol (même garde que record_libre).
+    if (pollRepartition.enVol) return;
+    pollRepartition.enVol = true;
+    var liberer = function () { pollRepartition.enVol = false; };
     // Jeton figé au DÉPART, re-vérifié au retour : vider l'onglet sur
     // « Recommencer » ne suffit pas si une réponse partie avant le clic arrive
     // après — elle réafficherait les réponses de la session jetée. Même garde
@@ -2292,7 +2313,8 @@
       .then(function (data) {
         if (data && sessionToken === tokenAuDepart) renderRepartition(data.answers, data.done, data.total);
       })
-      .catch(function () { /* aperçu best-effort : un échec réseau ne casse rien */ });
+      .catch(function () { /* aperçu best-effort : un échec réseau ne casse rien */ })
+      .then(liberer, liberer);
   }
 
   Array.prototype.forEach.call(document.querySelectorAll('.rec-tab'), function (btn) {

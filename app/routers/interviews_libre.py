@@ -74,6 +74,7 @@ def record_libre_from_jobs(
     audio_segments: str = Form("[]"),
     session_token: str = Form(""),
     segment_tail: str = Form(""),
+    transcription_incomplete: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Finalisation après l'écran d'attente : tous les jobs sont terminés (ou un
@@ -95,6 +96,7 @@ def record_libre_from_jobs(
         return refus
     return _finalize_libre_turns(
         db, request, mission, identity, transcript, session_token, segment_tail,
+        incomplete=bool(str(transcription_incomplete or "").strip()),
     )
 
 

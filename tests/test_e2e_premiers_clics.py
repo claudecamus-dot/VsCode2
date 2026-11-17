@@ -1240,3 +1240,11 @@ def test_alerte_no_speech_fixee_en_haut_dans_un_vrai_navigateur(
                       deviceScaleFactor=1, mobile=False))
     nav.evaluer("window.scrollTo(0, 0)")
     assert json.loads(nav.evaluer(mesure))["top"] == 30  # resize -> positionnerAlerte
+    # Story 3.3 (A-3) : au defilement 0, le bandeau demo n'est PAS recouvert par l'alerte
+    # (avant : le padding du body poussait le bandeau sticky sous l'alerte fixe).
+    demo_visible = json.loads(nav.evaluer(
+        "(function(){var d=document.querySelector('.demo-banner');var r=d.getBoundingClientRect();"
+        "var e=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);"
+        "return JSON.stringify({visible:e===d||d.contains(e),top:Math.round(r.top),"
+        "scrollY:Math.round(window.scrollY)})})()"))
+    assert demo_visible == {"visible": True, "top": 0, "scrollY": 0}, demo_visible

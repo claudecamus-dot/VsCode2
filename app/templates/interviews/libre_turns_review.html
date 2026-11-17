@@ -16,6 +16,9 @@
   stade.
 </p>
 
+{% if info and not error %}
+<p class="muted" role="status">{{ info }}</p>
+{% endif %}
 {% if error %}
 <p class="ai-error">⚠ {{ error }}</p>
 <form method="post" action="/interviews/transcript/export-pdf" class="card form">

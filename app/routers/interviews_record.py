@@ -80,8 +80,18 @@ def _record_error(request, mission, identity, message):
     )
 
 
+# Formulation NEUTRE (re-revue 2026-11-17) : elle ne prétend pas qu'un
+# rattrapage a eu lieu — le drapeau peut arriver alors que tous les jobs étaient
+# déjà `done`, ou sans aucun job. Elle n'est rendue que si rien ne manque.
+FINALISATION_RATTRAPEE = (
+    "Finalisé avant la fin du suivi : le serveur a traité toutes les tranches "
+    "reçues, aucune ne manque."
+)
+
+
 def _finalize_record_answers(
-    db, request, mission, identity, transcript, session_token, segment_tail
+    db, request, mission, identity, transcript, session_token, segment_tail,
+    incomplete: bool = False,
 ):
     """Produit la répartition question/réponse puis rend l'écran de revue —
     pendant structuré de `_finalize_libre_turns` (mêmes garanties) :
@@ -187,6 +197,15 @@ def _finalize_record_answers(
         delete_segment_jobs(db, session_token)
 
     contexte = _build_review_context(mission, extracted, identity, manquantes)
+    if incomplete and not manquantes:
+        # Finalisation MANUELLE depuis l'écran d'attente (Story 3.3) : le drapeau
+        # ne COMPTE rien (re-revue 2026-11-17). Le texte entier est déjà côté
+        # serveur et la récupération synchrone ci-dessus a retraité chaque job
+        # pas `done` ; ce qui reste KO (ou non tenté) est déjà dans `still_ko`.
+        # Ajouter « +1 » persistait une tranche fantôme après nettoyage des jobs
+        # et rendait N+1 sur N échecs — l'analogie avec l'enregistrement direct
+        # (audio réellement perdu) ne tient pas ici. Message informatif seul.
+        contexte["finalisation_info"] = FINALISATION_RATTRAPEE
     if manquantes:
         contexte["tranches_manquantes"] = manquantes
         contexte["tranches_manquantes_detail"] = detail
@@ -270,6 +289,7 @@ def record_from_jobs(
     audio_backup_path: str = Form(""),
     session_token: str = Form(""),
     segment_tail: str = Form(""),
+    transcription_incomplete: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Finalisation après l'écran d'attente du mode structuré : tous les jobs
@@ -289,7 +309,8 @@ def record_from_jobs(
     if not transcript.strip():
         return _record_error(request, mission, identity, "Aucun texte transcrit.")
     return _finalize_record_answers(
-        db, request, mission, identity, transcript, session_token, segment_tail
+        db, request, mission, identity, transcript, session_token, segment_tail,
+        incomplete=bool(str(transcription_incomplete or "").strip()),
     )
 
 
@@ -382,6 +403,7 @@ def _identite_fusionnee(identity: dict, extracted: dict) -> dict:
 
 def _finalize_libre_turns(
     db, request, mission, identity, transcript, session_token, segment_tail,
+    incomplete: bool = False,
 ):
     """Produit les tours de parole puis rend l'écran de revue (étape 2 du
     wizard historique — plus atteignable depuis l'écran d'enregistrement
@@ -396,6 +418,7 @@ def _finalize_libre_turns(
     # 2026-09-04, finding F5).
     manquantes = extracted.get("tranches_manquantes", 0)
     error = None
+    info = None
     if manquantes:
         pluriel = manquantes > 1
         error = (
@@ -404,6 +427,13 @@ def _finalize_libre_turns(
             "en tours de parole par l'IA. Le texte, lui, est conservé dans la "
             "transcription."
         )
+    elif incomplete:
+        # Finalisation MANUELLE (Story 3.3) : informatif, ne compte rien — même
+        # raisonnement que `_finalize_record_answers` (re-revue 2026-11-17).
+        # Rendu en note d'information (`info`), PAS par `error` : celui-ci
+        # s'affiche en alerte « ⚠ » avec l'export PDF de secours, et faisait
+        # passer une finalisation réussie pour une panne (re-revue 2026-11-17).
+        info = FINALISATION_RATTRAPEE
 
     return templates.TemplateResponse(
         request,
@@ -414,6 +444,7 @@ def _finalize_libre_turns(
             "identity": merged_identity,
             "transcript": transcript,
             "error": error,
+            "info": info,
         },
     )
 

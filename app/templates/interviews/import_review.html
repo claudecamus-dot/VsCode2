@@ -21,6 +21,9 @@
   {% if tranches_manquantes_detail %}<br><small>{{ tranches_manquantes_detail }}</small>{% endif %}
 </p>
 {% endif %}
+{% if finalisation_info and not tranches_manquantes %}
+<p class="muted" role="status">{{ finalisation_info }}</p>
+{% endif %}
 <p class="muted">
   Décoche ce que tu ne veux pas importer. L'entretien n'est créé qu'à la validation ;
   chaque réponse importée reste marquée « à valider » jusqu'à relecture dans l'écran de saisie.
