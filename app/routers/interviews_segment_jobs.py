@@ -6,6 +6,8 @@ ordre d'enregistrement des routes et nom de logger inchangés.
 """
 from __future__ import annotations
 
+from datetime import timedelta
+
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -26,6 +28,7 @@ from ..models import (
 )
 from ..services.horloge import utc_naif
 from ..services.interview_segment_jobs import (
+    segment_job_stale_after_s,
     merge_segment_answers,
     merge_segment_turns,
     normaliser_jeton,
@@ -256,7 +259,9 @@ def segment_jobs_turns_json(
     Un client qui ne le fournit pas (`since=0`, ancien frontend en cache) reçoit
     la fusion complète comme avant : compat inchangée. `record_libre.html`
     fournit désormais ce curseur et accumule les tours reçus."""
-    status = segment_jobs_status_light(db, session_token, since_position=since)
+    status = segment_jobs_status_light(
+        db, session_token, since_position=since, kind="libre_turns",
+    )
     # Story 3.4 (B-2) : une tranche finie HORS ORDRE (position 2 done pendant
     # que la 1 tourne encore) faisait avancer le curseur au-delà de la 1, qui
     # n'était plus jamais renvoyée. Le curseur s'arrête à la plus petite
@@ -270,6 +275,10 @@ def segment_jobs_turns_json(
             InterviewSegmentJob.kind == "libre_turns",
             InterviewSegmentJob.status.in_(("pending", "running")),
             InterviewSegmentJob.position >= since,
+            # Revue : une tranche PÉRIMÉE (worker mort, `is_stale`) ne gèle pas
+            # l'aperçu indéfiniment — même horloge que `is_stale`.
+            InterviewSegmentJob.created_at
+            >= utc_naif() - timedelta(seconds=segment_job_stale_after_s()),
         )
     ) if jeton else None
     jobs = [
@@ -306,7 +315,7 @@ def segment_jobs_answers_json(
     déjà vues perdrait ces compléments. `segment_jobs_status_light` évite
     quand même le coût dominant mesuré (chargement de la colonne `text`, tout
     le texte source, à chaque sondage 5s)."""
-    status = segment_jobs_status_light(db, session_token)
+    status = segment_jobs_status_light(db, session_token, kind="answers")
     merged = merge_segment_answers(status["jobs"], None)
     return JSONResponse(
         {

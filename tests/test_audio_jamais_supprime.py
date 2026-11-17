@@ -163,19 +163,29 @@ def _verbe_destructeur(node: ast.Call, alias: dict[str, str] | None = None) -> s
     if attr in ("replace", "rename") and nargs == 1 and nkw == 0:
         return f"Path.{attr}"
     if attr == "open" and canonique != "os":
-        # `Path.open(mode)` (Story 3.4, D-10b) : même règle que le `open()`
-        # natif, mode en PREMIER positionnel. Sans mode : lecture, anodin.
-        modes = [a.value for a in node.args[0:1] if isinstance(a, ast.Constant)]
-        modes += [
-            k.value.value
-            for k in node.keywords
-            if k.arg == "mode" and isinstance(k.value, ast.Constant)
-        ]
-        # Un premier positionnel NON constant n'est pas un mode : c'est la forme
-        # `module.open(source)` (`av.open(io.BytesIO(...))`), pas `Path.open`.
-        if not modes and any(k.arg == "mode" for k in node.keywords):
+        # `x.open(...)` (Story 3.4, D-10b, revue) : deux formes.
+        # - `Path.open(mode)` : UN positionnel, le mode ;
+        # - `module.open(source, mode)` (`wave.open`, `gzip.open`) : le mode est
+        #   le DEUXIÈME positionnel ; le premier est un chemin, jamais un mode.
+        # Mode variable en position de mode : traité comme destructeur
+        # (conservateur). Un seul positionnel non constant (`av.open(flux)`) :
+        # c'est une source, pas un mode.
+        if len(node.args) >= 2:
+            positionnel = node.args[1]
+        elif node.args and isinstance(node.args[0], ast.Constant) and isinstance(
+            node.args[0].value, str
+        ) and set(node.args[0].value) <= set("rwabxtU+"):
+            positionnel = node.args[0]
+        else:
+            positionnel = None
+        mots = [k.value for k in node.keywords if k.arg == "mode"]
+        candidats = ([positionnel] if positionnel is not None else []) + mots
+        if any(not isinstance(c, ast.Constant) for c in candidats):
             return "Path.open(mode variable)"
-        ecrit = any(isinstance(m, str) and any(c in m for c in "wa+") for m in modes)
+        ecrit = any(
+            isinstance(c.value, str) and any(ch in c.value for ch in "wa+")
+            for c in candidats
+        )
         return "Path.open(écriture)" if ecrit else None
     return None
 
@@ -349,6 +359,14 @@ def test_le_detecteur_voit_les_verbes_que_l_ancienne_version_ratait() -> None:
         "os.open": "os.open(chemin, os.O_WRONLY | os.O_TRUNC)",
         "Path.open(écriture)": "chemin.open('wb')",
     }
+    # Revue Story 3.4 : `module.open(chemin, mode)` — le mode est le 2e positionnel.
+    for code, attendu in (("wave.open('x.wav', 'wb')", "Path.open(écriture)"),
+                          ("wave.open(chemin, mode)", "Path.open(mode variable)"),
+                          ("wave.open('x.wav', 'rb')", None),
+                          ("wave.open('archive.wav')", None),
+                          ("av.open(io.BytesIO(octets))", None)):
+        node = ast.parse(code, mode="eval").body
+        assert _verbe_destructeur(node) == attendu, code
     for attendu, code in extraits.items():
         node = ast.parse(code, mode="eval").body
         assert isinstance(node, ast.Call)

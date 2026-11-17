@@ -464,8 +464,8 @@ def test_turns_endpoint_since_cursor_only_returns_new_turns(
     jobs_lus = []
     original = interview_segment_jobs.segment_jobs_status_light
 
-    def _espion(db_arg, session_token, since_position=0):
-        result = original(db_arg, session_token, since_position=since_position)
+    def _espion(db_arg, session_token, since_position=0, **kw):  # `kind=` (Story 3.4, B-5)
+        result = original(db_arg, session_token, since_position=since_position, **kw)
         jobs_lus.append(list(result["jobs"]))
         return result
 

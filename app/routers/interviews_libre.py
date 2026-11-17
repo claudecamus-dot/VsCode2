@@ -36,7 +36,7 @@ from ..services.interview_libre_extract_ai import (
     InterviewLibreExtractAIError,
     generate_repartition_from_turns,
 )
-from ..services.interview_segment_jobs import normaliser_jeton
+from ..services.interview_segment_jobs import delete_segment_jobs, normaliser_jeton
 from ..services.mission_axes import axes_of
 from ..services.structuration_libre import (
     peut_relancer,
@@ -339,6 +339,10 @@ def _enregistrer_libre_direct(
             and len(texte) > len((existant.raw_transcript or "").strip())
         ):
             existant.raw_transcript = texte
+            # Story 3.4 (B-13) : le reliquat suit le texte complété — sinon la
+            # structuration relancée repartait de l'ancien `segment_tail`.
+            if (segment_tail or "").strip():
+                existant.segment_tail = segment_tail
             existant.tranches_manquantes = tranches  # retry incomplet : le compte suit le texte
             relance = existant.structuration_status == "a_transcrire" and not sans_texte
             if relance:
@@ -936,7 +940,57 @@ def record_libre_confirm(
                 detail="Cet entretien n'a pas pu être enregistré (conflit) — "
                 "recharge la mission pour vérifier s'il existe déjà.",
             ) from None
-        return _redirection_apres_enregistrement(mission, existant)
+        return _confirm_sur_jeton_existant(db, mission, existant, turns_to_save, transcript,
+                                           resume, repartition)
+    # Les jobs de tranche de la session sont CONSOMMÉS : les tours viennent d'être
+    # validés à la main. Gardés, un job en échec rendait l'entretien « relançable »
+    # (`peut_relancer`) et la relance aurait réécrit ces tours (Story 3.4, B-9).
+    if jeton:
+        delete_segment_jobs(db, jeton)
     return _redirection_apres_enregistrement(
         mission, interview, _date_illisible(interview_date),
+    )
+
+
+def _memes_tours(interview: Interview, turns: list[dict]) -> bool:
+    """Les tours en base sont-ils exactement ceux postés (double POST) ?"""
+    existants = sorted(interview.turns, key=lambda t: t.position or 0)
+    cles = ("interlocuteur", "question", "remarque", "section_title")
+    return len(existants) == len(turns) and all(
+        all((getattr(e, k) or None) == (t.get(k) or None) for k in cles)
+        for e, t in zip(existants, turns)
+    )
+
+
+def _confirm_sur_jeton_existant(db, mission, existant, turns, transcript, resume, repartition):
+    """Story 3.4 (B-9, revue) : `confirm` tombe sur un entretien qui porte déjà
+    le jeton de la session. Jamais de perte silencieuse du contenu validé :
+    - double POST (mêmes tours) : redirection vers l'entretien déjà créé ;
+    - entretien `a_transcrire` SANS tour (« enregistrer sans attendre » du même
+      jeton) : COMPLÉTÉ avec les tours, le résumé et la répartition validés ;
+    - sinon : 409 explicite."""
+    if existant.turns and _memes_tours(existant, turns):
+        return _redirection_apres_enregistrement(mission, existant)
+    if existant.structuration_status == "a_transcrire" and not existant.turns:
+        for position, turn in enumerate(turns):
+            db.add(InterviewTurn(
+                interview_id=existant.id, position=position,
+                interlocuteur=turn["interlocuteur"], question=turn["question"],
+                remarque=turn["remarque"], section_title=turn["section_title"],
+            ))
+        texte = (transcript or "").strip()
+        if len(texte) > len((existant.raw_transcript or "").strip()):
+            existant.raw_transcript = texte
+        existant.resume = (resume or "").strip() or existant.resume
+        if repartition:
+            existant.repartition = repartition
+        existant.structuration_status = "fait"
+        existant.tranches_manquantes = 0
+        db.commit()
+        delete_segment_jobs(db, existant.segment_token)
+        return _redirection_apres_enregistrement(mission, existant)
+    raise HTTPException(
+        status_code=409,
+        detail="Un entretien de cette session existe déjà avec un autre contenu — "
+        "ouvre-le depuis la mission ; les tours validés ici n'ont PAS été enregistrés.",
     )

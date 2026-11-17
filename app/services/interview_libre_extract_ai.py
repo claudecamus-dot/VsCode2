@@ -407,7 +407,12 @@ def _turns_to_text(turns: list[dict]) -> str:
         section_title = turn.get("section_title")
         if section_title:
             lines.append(f"[{section_title}]")
-        propos = turn.get("question") or turn.get("remarque") or ""
+        # Story 3.4 (B-13) : question ET remarque — `question or remarque`
+        # perdait la remarque d'un tour qui porte les deux.
+        propos = " ".join(
+            p for p in ((turn.get("question") or "").strip(),
+                        (turn.get("remarque") or "").strip()) if p
+        )
         lines.append(f"{turn.get('interlocuteur', '')} : {propos}")
     return "\n".join(lines)
 

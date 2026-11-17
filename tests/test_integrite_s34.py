@@ -89,7 +89,20 @@ def test_b1_fiche_a_transcrire_avec_texte_explique_le_blocage_et_propose_la_sort
     assert 'data-structuration-bloquee="1"' in page
     assert 'name="texte_disponible"' in page
     assert "Structurer le texte disponible" in page
-    assert "confirm(" in page.split("Structurer le texte disponible")[0][-600:]
+    # Comportemental (revue) : le formulaire RENDU, soumis tel quel, débloque.
+    import re as _re
+    bloc = page.split('data-structuration-bloquee="1"', 1)[1].split("</form>", 1)[0]
+    action = _re.search(r'action="([^"]+)"', bloc).group(1)
+    champs = dict(_re.findall(r'type="hidden" name="([^"]+)" value="([^"]*)"', bloc))
+    assert champs == {"texte_disponible": "1"}
+    _orig = structuration_libre.planifier_structuration
+    structuration_libre.planifier_structuration = lambda iid, priorite=None: True
+    try:
+        r = client.post(action, data=champs, follow_redirects=False)
+    finally:
+        structuration_libre.planifier_structuration = _orig
+    assert r.status_code == 303 and "refusee" not in r.headers["location"]
+    assert _statut(avec_texte) == "a_traiter"
     page_vide = client.get(f"/interviews/{sans_texte}").text
     assert "data-structuration-bloquee" not in page_vide
 
@@ -432,3 +445,205 @@ def test_b11_import_confirm_ecarte_un_audio_anterieur_a_la_mission(
 def test_b13_seuil_de_peremption_borne(monkeypatch, brut, attendu) -> None:
     monkeypatch.setenv("SEGMENT_JOB_STALE_AFTER_S", brut)
     assert interview_segment_jobs.segment_job_stale_after_s() == attendu
+
+
+# --------------------------------------------------------------------------- #
+# Ronde de correction (revue bmad-code-review du 2026-11-16)
+# --------------------------------------------------------------------------- #
+_TOURS = {"turn_interlocuteur": ["Alice"], "turn_question": [""],
+          "turn_remarque": ["Un propos validé."], "turn_section_title": [""]}
+
+
+def test_revue1_confirm_consomme_les_jobs_un_tour_valide_n_est_pas_relancable(
+    client: TestClient,
+) -> None:
+    mission_id = _mission(client)
+    with SessionLocal() as db:
+        db.add(_job("rv1-jeton", 0, "failed"))
+        db.commit()
+    r = client.post(f"/missions/{mission_id}/interviews/record-libre/confirm",
+                    data={"transcript": "Bonjour.", "session_token": "rv1-jeton", **_TOURS},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    with SessionLocal() as db:
+        itw = db.scalar(select(Interview).where(Interview.mission_id == mission_id))
+        assert not structuration_libre.peut_relancer(itw)
+        assert db.scalar(select(InterviewSegmentJob).where(
+            InterviewSegmentJob.session_token == "rv1-jeton")) is None
+
+
+def test_revue2_confirm_complete_un_a_transcrire_sans_tour_du_meme_jeton(
+    client: TestClient,
+) -> None:
+    mission_id = _mission(client)
+    iid = _interview(mission_id, "a_transcrire", "", segment_token="rv2-jeton")
+    r = client.post(f"/missions/{mission_id}/interviews/record-libre/confirm",
+                    data={"transcript": "Bonjour complet.", "resume": "Résumé validé.",
+                          "session_token": "rv2-jeton", **_TOURS},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    with SessionLocal() as db:
+        itw = db.get(Interview, iid)
+        assert [t.remarque for t in itw.turns] == ["Un propos validé."]
+        assert itw.resume == "Résumé validé."
+        assert itw.structuration_status == "fait"
+        assert itw.raw_transcript == "Bonjour complet."
+        n = len(list(db.scalars(select(Interview.id).where(Interview.mission_id == mission_id))))
+    assert n == 1
+
+
+def test_revue2_confirm_sur_un_autre_contenu_du_meme_jeton_rend_409(client: TestClient) -> None:
+    mission_id = _mission(client)
+    iid = _interview(mission_id, "a_traiter", "Du texte.", segment_token="rv2b-jeton")
+    r = client.post(f"/missions/{mission_id}/interviews/record-libre/confirm",
+                    data={"transcript": "Bonjour.", "session_token": "rv2b-jeton", **_TOURS},
+                    follow_redirects=False)
+    assert r.status_code == 409
+    with SessionLocal() as db:
+        assert db.get(Interview, iid).turns == []
+
+
+def test_revue3_fiche_affiche_le_rang_des_parties_pas_la_position(client: TestClient) -> None:
+    mission_id = _mission(client)
+    segs = [{"filename": f"{mission_id}_p0.webm", "position": 0},
+            {"filename": f"{mission_id}_p2.webm", "position": 2}]
+    iid = _interview(mission_id, "fait", audio_segments=segs)
+    page = client.get(f"/interviews/{iid}").text
+    assert "Partie 1" in page and "Partie 2" in page
+    assert "Partie 3" not in page
+
+
+def test_revue4_une_tranche_perimee_ne_gele_pas_l_apercu(client: TestClient) -> None:
+    jeton = "rv4-perime"
+    with SessionLocal() as db:
+        mort = _job(jeton, 0, "running")
+        mort.created_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=1)
+        db.add_all([mort, _job(jeton, 1, "done", "t1")])
+        db.commit()
+    r = client.get("/interviews/segment-jobs/turns",
+                   params={"session_token": jeton, "since": 0}).json()
+    assert [t["remarque"] for t in r["turns"]] == ["t1"]
+    assert r["next_since"] == 2
+
+
+def test_revue5_b5_compteurs_de_l_apercu_filtres_par_nature(client: TestClient) -> None:
+    jeton = "rv5-kind"
+    with SessionLocal() as db:
+        db.add(_job(jeton, 0, "done", "t0"))
+        autre = _job(jeton, 0, "failed")
+        autre.kind = "answers"
+        db.add(autre)
+        db.commit()
+    r = client.get("/interviews/segment-jobs/turns",
+                   params={"session_token": jeton, "since": 0}).json()
+    assert (r["done"], r["total"]) == (1, 1)
+
+
+def test_revue5_b13_synthese_garde_question_et_remarque() -> None:
+    from app.services.interview_libre_extract_ai import _turns_to_text
+
+    texte = _turns_to_text([{"interlocuteur": "A", "question": "Pourquoi ?",
+                             "remarque": "Parce que.", "section_title": None}])
+    assert "Pourquoi ?" in texte and "Parce que." in texte
+
+
+def test_revue5_b13_doublon_de_jeton_reprend_le_reliquat(client: TestClient, monkeypatch) -> None:
+    monkeypatch.setattr("app.routers.interviews_libre.planifier_structuration",
+                        lambda *a, **k: True)
+    mission_id = _mission(client)
+    iid = _interview(mission_id, "a_transcrire", "", segment_token="rv5-tail")
+    r = client.post(f"/missions/{mission_id}/interviews/record-libre/enregistrer",
+                    data={"transcript": "Texte complet.", "session_token": "rv5-tail",
+                          "segment_tail": "Reliquat final."},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    with SessionLocal() as db:
+        assert db.get(Interview, iid).segment_tail == "Reliquat final."
+
+
+def test_revue6_b1_refus_de_mise_en_file_ne_change_pas_le_statut(
+    client: TestClient, monkeypatch,
+) -> None:
+    monkeypatch.setattr(structuration_libre, "planifier_structuration",
+                        lambda *a, **k: False)
+    mission_id = _mission(client)
+    iid = _interview(mission_id, "a_transcrire", "Du texte.")
+    assert structuration_libre.structurer_texte_disponible(iid) is False
+    assert _statut(iid) == "a_transcrire"
+
+
+def test_revue6_b1_n_efface_pas_l_inscription_d_un_autre(client: TestClient) -> None:
+    mission_id = _mission(client)
+    iid = _interview(mission_id, "a_transcrire", "Du texte.")
+    marque = object()
+    with structuration_libre._verrou_registre:
+        structuration_libre._en_vol[iid] = marque
+    try:
+        assert structuration_libre.structurer_texte_disponible(iid) is False
+        assert structuration_libre._en_vol.get(iid) is marque
+        assert _statut(iid) == "a_transcrire"
+    finally:
+        structuration_libre._liberer(iid, marque)
+
+
+def test_revue7_b3_jeton_long_par_le_vrai_post_d_import(
+    client: TestClient, monkeypatch, tmp_path,
+) -> None:
+    from app.routers import interviews_audio
+
+    monkeypatch.setattr(interviews_audio, "RECORDINGS_DIR", tmp_path)
+    monkeypatch.setattr(interviews_audio, "run_audio_file_job", lambda _id: None)
+    mission_id = _mission(client)
+    long_jeton = "z" * 100
+    r = client.post("/audio/transcribe-file",
+                    data={"session_token": long_jeton, "mission_id": mission_id},
+                    files={"file": ("reunion.webm", b"audio", "audio/webm")})
+    assert r.status_code == 200, r.text
+    job_id = r.json()["job_id"]
+    r = client.get("/audio/transcribe-file/status",
+                   params={"job_id": job_id, "session_token": long_jeton})
+    assert r.status_code == 200
+
+
+def test_revue7_b6_echec_inattendu_n_ecrase_pas_un_done(monkeypatch) -> None:
+    with SessionLocal() as db:
+        job = InterviewSegmentJob(session_token="rv7-b6", position=0, kind="libre_turns",
+                                  status="pending", text="Bonjour.")
+        db.add(job)
+        db.commit()
+        job_id = job.id
+
+    def _recuperee_puis_plantage(db, job, *a, **k):
+        with SessionLocal() as autre:
+            ligne = autre.get(InterviewSegmentJob, job_id)
+            ligne.status = "done"
+            ligne.turns_result = {"turns": [], "identity": {}}
+            autre.commit()
+        raise RuntimeError("plantage inattendu")
+
+    monkeypatch.setattr(interview_segment_jobs, "_extract_with_retries", _recuperee_puis_plantage)
+    interview_segment_jobs.run_segment_job(job_id)
+    with SessionLocal() as db:
+        assert db.get(InterviewSegmentJob, job_id).status == "done"
+
+
+def test_revue7_b11_enregistrement_libre_ecarte_un_audio_anterieur(
+    client: TestClient, monkeypatch, tmp_path,
+) -> None:
+    from app.routers import interviews_libre
+
+    monkeypatch.setattr(interviews_libre, "RECORDINGS_DIR", tmp_path)
+    monkeypatch.setattr(interviews_libre, "planifier_structuration", lambda *a, **k: True)
+    mission_id = _mission(client)
+    nom = f"{mission_id}_ancien.webm"
+    (tmp_path / nom).write_bytes(b"audio")
+    vieux = time.time() - 3 * 24 * 3600
+    os.utime(tmp_path / nom, (vieux, vieux))
+    r = client.post(f"/missions/{mission_id}/interviews/record-libre/enregistrer",
+                    data={"transcript": "Du texte.", "session_token": "rv7-b11",
+                          "audio_backup_path": nom},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    with SessionLocal() as db:
+        itw = db.scalar(select(Interview).where(Interview.mission_id == mission_id))
+    assert itw.audio_backup_path is None

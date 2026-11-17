@@ -462,8 +462,12 @@ _MERGE_LIGHT_COLUMNS = (
 )
 
 
+def _filtre_kind(kind: str | None) -> tuple:
+    return (InterviewSegmentJob.kind == kind,) if kind else ()
+
+
 def segment_jobs_status_light(
-    db: Session, session_token: str, since_position: int = 0
+    db: Session, session_token: str, since_position: int = 0, kind: str | None = None,
 ) -> dict:
     """Version allégée de `segment_jobs_status`, pour les endpoints de LECTURE
     SEULE `/segment-jobs/turns` et `/segment-jobs/answers` — sondés toutes les
@@ -486,7 +490,11 @@ def segment_jobs_status_light(
       début (les positions démarrent à 0).
     `total`/`done`/`failed`/`stale` restent calculés sur TOUTES les lignes de
     la session, par agrégats SQL (`func.count`), jamais faussés par le
-    curseur — seule la fusion des tours/réponses en profite."""
+    curseur — seule la fusion des tours/réponses en profite.
+
+    `kind` (Story 3.4, B-5) : compteurs ET fusion restreints à cette nature de
+    job — sans lui, une session portant des jobs des deux natures mélangeait
+    `libre_turns` et `answers` dans les deux aperçus."""
     session_token = normaliser_jeton(session_token)
     if not session_token:
         return {"jobs": [], "total": 0, "done": 0, "failed": 0, "stale": 0,
@@ -494,18 +502,21 @@ def segment_jobs_status_light(
     now = utc_naif()
     total = db.scalar(
         select(func.count(InterviewSegmentJob.id)).where(
-            InterviewSegmentJob.session_token == session_token
+            InterviewSegmentJob.session_token == session_token,
+            *_filtre_kind(kind)
         )
     ) or 0
     done = db.scalar(
         select(func.count(InterviewSegmentJob.id)).where(
             InterviewSegmentJob.session_token == session_token,
+            *_filtre_kind(kind),
             InterviewSegmentJob.status == "done",
         )
     ) or 0
     failed = db.scalar(
         select(func.count(InterviewSegmentJob.id)).where(
             InterviewSegmentJob.session_token == session_token,
+            *_filtre_kind(kind),
             InterviewSegmentJob.status == "failed",
         )
     ) or 0
@@ -517,6 +528,7 @@ def segment_jobs_status_light(
             .options(load_only(InterviewSegmentJob.id, InterviewSegmentJob.status, InterviewSegmentJob.created_at))
             .where(
                 InterviewSegmentJob.session_token == session_token,
+            *_filtre_kind(kind),
                 InterviewSegmentJob.status.in_(("pending", "running")),
             )
         )
@@ -528,6 +540,7 @@ def segment_jobs_status_light(
             .options(load_only(*_MERGE_LIGHT_COLUMNS))
             .where(
                 InterviewSegmentJob.session_token == session_token,
+            *_filtre_kind(kind),
                 InterviewSegmentJob.status == "done",
                 InterviewSegmentJob.position >= since_position,
             )

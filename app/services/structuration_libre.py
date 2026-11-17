@@ -581,6 +581,10 @@ def structurer_texte_disponible(interview_id: int) -> bool:
     accepte de structurer le texte DISPONIBLE, sachant qu'une partie manque :
     `a_transcrire -> a_traiter` par UPDATE conditionnel, puis mise en file LIVE.
     False si l'entretien n'est pas (ou plus) dans cet état, ou sans texte."""
+    # Revue Story 3.4 : jamais de statut commité sans mise en file réussie, et
+    # aucun `_liberer` sans marque (il effaçait l'inscription d'un autre).
+    if est_en_vol(interview_id):
+        return False
     with _db.SessionLocal() as db:
         interview = db.get(Interview, interview_id)
         if (
@@ -598,8 +602,18 @@ def structurer_texte_disponible(interview_id: int) -> bool:
         db.commit()
         if not ok:
             return False
-    _liberer(interview_id)
-    return planifier_structuration(interview_id, LIVE)
+    if planifier_structuration(interview_id, LIVE):
+        return True
+    # Mise en file refusée (inscrite entre-temps) : le statut revient en arrière.
+    with _db.SessionLocal() as db:
+        db.execute(
+            update(Interview)
+            .where(Interview.id == interview_id,
+                   Interview.structuration_status == "a_traiter")
+            .values(structuration_status="a_transcrire")
+        )
+        db.commit()
+    return False
 
 
 def relancer(interview_id: int) -> bool:
