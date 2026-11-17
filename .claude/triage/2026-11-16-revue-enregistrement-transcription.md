@@ -41,18 +41,18 @@ les INFO sont perdues. Hypothèse non vérifiée : index unique partiel posé sa
 | A-5 | à corriger | record_libre.html:3043-3061,3110 | `setInterval(pollRepartition, 5000)` avec délai 120 s et sans garde « en vol » → requêtes chevauchées, aperçu qui perd/duplique des tours | CONSTAT (absence de garde) / HYPOTHÈSE (effet) | drapeau `repPollEnVol` | ouvert |
 | A-6 | à corriger | rec_audio_source.js | Stop pendant que le sélecteur d'onglet est ouvert puis résolution tardive → micro/AudioContext réacquis après l'arrêt | HYPOTHÈSE | jeton de génération | ouvert |
 | A-7 | à corriger | record_libre.html:1761-1775 | 2xx avec texte vide → segment perdu bloquant au lieu d'un équivalent no_speech | HYPOTHÈSE | traiter comme no_speech | ouvert |
-| A-8 | à corriger | record_segment_wait.html:89-100 ; libre_segment_wait.html:94-105 | Poll sans borne, sans traitement du 401 ni de `total == 0` | HYPOTHÈSE (2 couches) | borne de sortie + export/copie proposés | ouvert |
+| A-8 | à corriger | record_segment_wait.html:89-100 ; libre_segment_wait.html:94-105 | Poll sans borne, sans traitement du 401 ni de `total == 0` | HYPOTHÈSE (2 couches) | borne de sortie + export/copie proposés | corrigé (d810f1d, branche fix/s33-navigateur) ; seuils 20 min / 6 échecs / 3 réponses vides validés par l'utilisateur le 2026-11-16 |
 | A-9 | à corriger | rec_retry.js | 408/429 non classés « relance » → segment perdu bloquant ; lien avec « réseau ×12 » non établi | HYPOTHÈSE | classer en relance | ouvert |
-| A-10 | mineur | record.html:3872-3892,5369-5401 | Mode guidé : `noteNoSpeech` sans garde `recordingActive`, ancienne alerte (périmètre de la story 2.1 ?) | HYPOTHÈSE | aligner sur record_libre | ouvert |
-| A-11 | mineur | rec_draft.js:163-188 | `savedAt` absent → « NaN/NaN », jamais périmé | CONSTAT (Blind Hunter) | garde | ouvert |
-| A-12 | mineur | rec_draft.js:40 | Une seule clé par mission : deux onglets s'écrasent | CONSTAT | clé par session | ouvert |
-| A-13 | mineur | rec_draft.js:142 vs 153 | Ordre des paramètres incohérent `marquerEnvoye` / `effacerSiEnvoye` | CONSTAT | aligner | ouvert |
-| A-14 | mineur | record_libre.html:549-556 | Brouillon sans identité saisie ni segments perdus relançables | CONSTAT | étendre le brouillon | ouvert |
-| A-15 | mineur | record_libre.html:3146 | `nextBackupPosition = length` : réutilisation de numéro si positions restaurées non contiguës | HYPOTHÈSE | max(position)+1 | ouvert |
-| A-16 | mineur | rec_retry.js:24-33 ; record_libre.html:1616-1622 ; rec_fetch.js:83-93 | Libellés « (1/1) » vs « (2/3) », commentaires périmés, `STATUT_ECHEC_MOTIFS` incomplet | CONSTAT | harmoniser | ouvert |
-| A-17 | mineur | autosave.js:168-183 | 403/413/422 et `sendError` effacés au bout de 3 s alors que rien n'est enregistré ; `htmx:timeout` non écouté | CONSTAT | garder l'erreur affichée | ouvert |
-| A-18 | mineur | rec_fetch.js:55 | Le minuteur écrase le `signal` fourni par l'appelant | CONSTAT | `AbortSignal.any` ou chaînage | ouvert |
-| A-19 | mineur | rec_audio_source.js:66-73 | Échec de `resume()` ou piste `muted` sans rappel → enregistrement silencieux possible | CONSTAT | prévenir l'utilisateur | ouvert |
+| A-10 | mineur | record.html:3872-3892,5369-5401 | Mode guidé : `noteNoSpeech` sans garde `recordingActive`, ancienne alerte (périmètre de la story 2.1 ?) | HYPOTHÈSE | aligner sur record_libre | reporté le 2026-11-17 (hors Story 3.3, mineur : à reprendre dans une story dédiée) |
+| A-11 | mineur | rec_draft.js:163-188 | `savedAt` absent → « NaN/NaN », jamais périmé | CONSTAT (Blind Hunter) | garde | corrigé (branche fix/s33-navigateur, revue finale 2026-11-17) |
+| A-12 | mineur | rec_draft.js:40 | Une seule clé par mission : deux onglets s'écrasent | CONSTAT | clé par session | reporté le 2026-11-17 (hors Story 3.3, mineur : à reprendre dans une story dédiée) |
+| A-13 | mineur | rec_draft.js:142 vs 153 | Ordre des paramètres incohérent `marquerEnvoye` / `effacerSiEnvoye` | CONSTAT | aligner | reporté le 2026-11-17 (hors Story 3.3, mineur : à reprendre dans une story dédiée) |
+| A-14 | mineur | record_libre.html:549-556 | Brouillon sans identité saisie ni segments perdus relançables | CONSTAT | étendre le brouillon | reporté le 2026-11-17 (hors Story 3.3, mineur : à reprendre dans une story dédiée) |
+| A-15 | mineur | record_libre.html:3146 | `nextBackupPosition = length` : réutilisation de numéro si positions restaurées non contiguës | HYPOTHÈSE | max(position)+1 | corrigé (branche fix/s33-navigateur, revue finale 2026-11-17) |
+| A-16 | mineur | rec_retry.js:24-33 ; record_libre.html:1616-1622 ; rec_fetch.js:83-93 | Libellés « (1/1) » vs « (2/3) », commentaires périmés, `STATUT_ECHEC_MOTIFS` incomplet | CONSTAT | harmoniser | reporté le 2026-11-17 (hors Story 3.3, mineur : à reprendre dans une story dédiée) |
+| A-17 | mineur | autosave.js:168-183 | 403/413/422 et `sendError` effacés au bout de 3 s alors que rien n'est enregistré ; `htmx:timeout` non écouté | CONSTAT | garder l'erreur affichée | reporté le 2026-11-17 (hors Story 3.3, mineur : à reprendre dans une story dédiée) |
+| A-18 | mineur | rec_fetch.js:55 | Le minuteur écrase le `signal` fourni par l'appelant | CONSTAT | `AbortSignal.any` ou chaînage | corrigé (branche fix/s33-navigateur, revue finale 2026-11-17) |
+| A-19 | mineur | rec_audio_source.js:66-73 | Échec de `resume()` ou piste `muted` sans rappel → enregistrement silencieux possible | CONSTAT | prévenir l'utilisateur | reporté le 2026-11-17 (hors Story 3.3, mineur : à reprendre dans une story dédiée) |
 | A-20 | mineur | AC2.1.1 | Durée muette en `aria-live` poli hors de la région `role="alert"` (conforme à l'arbitrage B du 2026-11-16) | CONSTAT | aucun (arbitré) | arbitré |
 
 ## B — routes serveur (rendu 2026-11-16, STATUT partiel : base non lue, CSRF non vérifié route par route, non croisé avec les triages antérieurs)
@@ -105,3 +105,23 @@ rejoint la décision utilisateur en attente sur l'attente `_get_model` sans born
 
 Note C : `epics.md` affiche encore « Statut : à faire » pour les stories 2.1 et 2.2, fusionnées
 et validées par l'utilisateur le 2026-11-16 — à mettre à jour.
+
+## Arbitrages utilisateur du 2026-11-17 (revue finale des stories 3.1-3.4)
+
+- Filtre d'hallucinations (3.2) : la règle « phrase de silence répétée ≥ 2 fois dans un bloc → écartée » est **conservée** telle quelle (plus agressive que RUN_REPETITION_MIN = 3, choix assumé).
+- AC3.2.1 seconde clause (réutiliser les workers Whisper déjà chargés à la relance d'un job) et AC3.2.4 (bloc fait d'une hallucination répétée hors liste, confiance moyenne → « aucune parole ») : **à corriger avant fusion**.
+- B-2 (tranche en échec récupérée après le curseur, absente de l'aperçu live) : **à corriger** (client record_libre.html + curseur serveur), sur la branche d'intégration.
+- CLAUDE.md : mise à jour du paragraphe du site 8020 (grâce 120 s, plafond « actif » 1800 s, codes de sortie 4 et 5) **acceptée**, après fusion.
+
+## Clôture du 2026-11-17 : stories 3.1 à 3.4 fusionnées dans main (non poussé)
+
+Fusions locales sur main : 3.4 (4deed34 + reliquats 7770651), 3.3 (58baa5b), 3.2 (c9dbebc + arrêt du pool garé 153a78c), 3.1 (0b01e80 + journal des workers et CLAUDE.md 542c2f1), B-2 (29fb726), clics P5 (3756668). Chaque story : revue finale bmad-code-review, tours de correction avec preuve P1, re-revue des correctifs.
+
+Restes ouverts (non bloquants, à reprendre dans une story dédiée) :
+- 3.4 F4 : supprimer la DERNIÈRE partie d'un entretien ne laisse aucun trou détectable (aucune colonne ne porte le nombre de tranches attendu ; une marque dans `audio_segments` toucherait 75 lectures dans 19 fichiers) — à arbitrer, proposition : colonne dédiée.
+- 3.4 : B-14 non fait ; tri `position or 0` (interviews_backup.py, mission_backups.py) ; B-5 non appliqué à `segment_jobs_status` complet.
+- 3.3 : en mode libre (route historique `POST /record-libre`), le signal « transcription incomplète » s'affiche sur la revue mais n'est pas persisté dans l'entretien créé (lacune antérieure) ; `record_segment_wait.html` sans clic e2e de sortie.
+- 3.2 : pool chaud repris seulement à taille EXACTE — rechargements entre fichiers de durées différentes (performance, pas correction) ; B1-B3/B5 de la re-revue du pool (attente sans battement, gardes mémoire du direct qui ignorent le pool garé).
+- 3.1 : purge `-KeepIfFresh` par âge du worker (arbitrage utilisateur) ; serveur non identifiable avec certitude → « indéterminé » sans purge (le lancement manuel purge) ; tests de minutage instables sous forte charge (test_audio_fond_busy_non_rejoue, test_audio_permis_fond_attente, test CPU de test_serveur_dev_script).
+- B-2 : positions sans ligne (POST de segment échoué) redemandées à chaque sondage, borné à 500 ; tranche ré-extraite après réception non rafraîchie dans l'aperçu.
+- A-10, A-12, A-13, A-14, A-16, A-17, A-19 : reportés (voir tableau A).
