@@ -678,9 +678,11 @@ def warm_up_ollama() -> None:
     n'en paie pas le coût — même principe que `audio_transcribe.warm_up()`
     pour Whisper. Requête sans `messages` : Ollama charge le modèle et
     répond immédiatement, sans générer de texte (documenté par Ollama comme
-    façon de précharger un modèle). Silencieuse en cas d'échec (Ollama pas
-    encore démarré, serveur injoignable) — le premier appel réel retentera
-    et remontera l'erreur normale (`_call_ollama`) le cas échéant.
+    façon de précharger un modèle). LÈVE en cas d'échec (Ollama pas encore
+    démarré, serveur injoignable : `urllib.error.URLError`, `OSError`…) :
+    c'est l'APPELANT (fil `prechauffage-ollama`, app/main.py) qui attrape et
+    journalise ; le premier appel réel retentera et remontera l'erreur
+    normale (`_call_ollama`) le cas échéant.
 
     Pas de `au_fond` ici (M2, tranché) : l'appel n'utilise PAS le verrou
     `_OLLAMA_UN_A_LA_FOIS` (urlopen direct), donc il ne peut ni passer devant

@@ -123,7 +123,7 @@ def _battement(db, job: AudioFileJob) -> None:
         raise
 
 
-def _extraire_tours(db, job: AudioFileJob) -> None:
+def _extraire_tours(db, job: AudioFileJob, garde=None) -> None:
     """Enchaîne l'extraction des tours de parole sur les blocs transcrits, pour
     un job de RETRANSCRIPTION uniquement (2026-07-30).
 
@@ -144,7 +144,17 @@ def _extraire_tours(db, job: AudioFileJob) -> None:
     échouée définitivement irrécupérable par la relance : sa position existait,
     donc la reprise l'ignorait, et son contenu ne pouvait plus être rattrapé que
     par la récupération synchrone de l'écran de revue (revue adversariale
-    2026-07-30)."""
+    2026-07-30).
+
+    `garde` (story 3.2, C-6) : appelé AVANT chaque écriture (insertion d'une
+    tranche, exécution, battement) ; il lève `_ExecutionSupplantee` si le job a été
+    repris par une autre exécution — sans lui, un fil supplanté pendant
+    l'extraction re-datait le job et créait une tranche en double à la même
+    position (tours dupliqués à la fusion)."""
+    def _garder() -> None:
+        if garde is not None:
+            garde()
+
     tranches = tranches_extraction(list(job.blocks or []))
     existants = {
         j.position: j
@@ -165,9 +175,12 @@ def _extraire_tours(db, job: AudioFileJob) -> None:
             # son exécution) : on la rejoue TELLE QUELLE plutôt que d'en créer
             # une seconde à la même position, ce qui dupliquerait ses tours à la
             # fusion.
+            _garder()
             run_segment_job(existant.id)
+            _garder()
             _battement(db, job)
             continue
+        _garder()
         segment = InterviewSegmentJob(
             session_token=job.session_token,
             position=position,
@@ -183,6 +196,7 @@ def _extraire_tours(db, job: AudioFileJob) -> None:
         # session, ne lève jamais (un échec est consigné dans `job.error`) et
         # sera récupéré tranche par tranche à l'application du résultat.
         run_segment_job(segment.id)
+        _garder()
         _battement(db, job)
 
 
@@ -231,6 +245,14 @@ def reprendre_job_echoue_ou_perime(db: Session, job: AudioFileJob) -> bool:
 # Nouveaux essais d'un bloc dont la transcription échoue (échec transitoire).
 BLOC_RETRIES = 2
 BLOC_RETRY_DELAY_S = 2.0
+
+
+def _delai_rejeu_chargement(exc: BaseException) -> float:
+    """Pause avant de rejouer un « chargement en cours » (revue finale 3.2, F1) :
+    `retry_after_s` de l'exception (10..240 s, `estimer_retry_after`), plafonné à
+    ATTENTE_CHARGEMENT_FOND_S (un battement), jamais sous BLOC_RETRY_DELAY_S."""
+    annonce = getattr(exc, "retry_after_s", None) or 0.0
+    return max(BLOC_RETRY_DELAY_S, min(float(annonce), audio_transcribe.ATTENTE_CHARGEMENT_FOND_S))
 
 
 def _est_reessayable(exc: BaseException) -> bool:
@@ -306,11 +328,14 @@ def run_audio_file_job(job_id: int) -> None:
     _noter_bilan = None   # défini plus bas ; le filet `except Exception` le teste
     proprietaire = _prendre_job(job_id)
 
+    def _verifier_proprietaire() -> None:
+        if not _est_proprietaire(job_id, proprietaire):
+            raise _ExecutionSupplantee()
+
     def _commit() -> None:
         # Garde unique de TOUTE écriture de l'exécution (blocs, reprise, statut,
         # files_done/blocks_before_file) : une exécution supplantée n'écrit rien.
-        if not _est_proprietaire(job_id, proprietaire):
-            raise _ExecutionSupplantee()
+        _verifier_proprietaire()
         db.commit()
 
     try:
@@ -379,6 +404,7 @@ def run_audio_file_job(job_id: int) -> None:
                     # reprenant au bloc COURANT. Un rejeu de niveau job est
                     # aussi un échec masqué : compté dans `rejoues`.
                     essais_bloc = 0
+                    debut_chargement = None   # 1re attente d'un chargement en cours (D-10 a)
                     while True:
                         # Reprise au bloc COURANT à chaque tentative : les blocs
                         # déjà persistés ne sont jamais re-transcrits.
@@ -398,6 +424,9 @@ def run_audio_file_job(job_id: int) -> None:
                                 # la relance proposée par l'écran doublonne la tâche de
                                 # fond en cours (deux sessions écrivant `job.blocks`).
                                 job.created_at = utc_naif()
+                                # Revue 3.2 : un bloc obtenu clôt l'épisode de chargement ;
+                                # un préchauffage ultérieur repart avec sa borne entière.
+                                debut_chargement = None
                                 # Un bloc rejoué est un échec masqué : le persister dès
                                 # qu'il apparaît, pour qu'une coupure ne l'efface pas.
                                 nouveaux = {
@@ -410,6 +439,42 @@ def run_audio_file_job(job_id: int) -> None:
                             break
                         except audio_transcribe.NoSpeechError:
                             raise
+                        except audio_transcribe.TranscriptionChargementEnCoursError as exc_charge:
+                            # Story 3.2 (D-10 a) : le modèle du serveur se charge
+                            # ailleurs (préchauffage) — rien n'a été tenté. Rejoué
+                            # SANS consommer d'essai (un serveur qui chauffe n'est
+                            # pas un échec), avec battement, borné PAR ÉPISODE par
+                            # CHARGEMENT_MODELE_TIMEOUT_S (l'épisode est remis à zéro
+                            # à chaque bloc obtenu) : jamais une attente silencieuse
+                            # sans fin.
+                            maintenant = time.monotonic()
+                            if debut_chargement is None:
+                                debut_chargement = maintenant
+                            elif (maintenant - debut_chargement
+                                  > audio_transcribe.CHARGEMENT_MODELE_TIMEOUT_S):
+                                raise audio_transcribe.TranscriptionBloqueeError(
+                                    audio_transcribe.message_chargement_trop_long(
+                                        audio_transcribe.CHARGEMENT_MODELE_TIMEOUT_S))
+                            logger.info("Modèle en cours de chargement : bloc rejoué sans essai consommé.")
+                            # Rejeux du pool de CET appel : acquis (comme la branche
+                            # TranscriptionError ci-dessous) avant la remise à zéro de
+                            # `stats` par l'appel suivant.
+                            acquis_pool = {
+                                decalage + i for i in stats.get("blocs_rejoues", [])
+                            } - rejoues
+                            if acquis_pool:
+                                rejoues |= acquis_pool
+                                _noter_bilan()
+                            # Revue 3.2 : un fil supplanté s'arrête (pas de reprise du
+                            # verrou contre le nouveau propriétaire pendant 1800 s).
+                            # Re-revue (B1) : vérifié JUSTE avant le commit du
+                            # battement, rien entre les deux — comme `_commit()`.
+                            _verifier_proprietaire()
+                            _battement(db, job)
+                            # Revue finale 3.2 (F1) : chaque rejeu re-décode le fichier
+                            # entier — attendre le délai annoncé par l'exception
+                            # (plafonné à un battement), pas 2 s.
+                            time.sleep(_delai_rejeu_chargement(exc_charge))
                         except audio_transcribe.TranscriptionError as exc_bloc:
                             # Retry borné d'un échec de transcription d'un bloc
                             # (message fixe ECHEC_TRANSCRIPTION) : un échec
@@ -549,7 +614,7 @@ def run_audio_file_job(job_id: int) -> None:
         if job.interview_id:
             # Retranscription d'un entretien enregistré : la transcription ne
             # suffit pas, l'écran de revue attend aussi les tours de parole.
-            _extraire_tours(db, job)
+            _extraire_tours(db, job, garde=_verifier_proprietaire)
         job.status = "done"
         # Job ABOUTI mais partiel : `error` porte l'avertissement que l'écran de
         # revue affiche avant tout écrasement (`status` reste « done », c'est
