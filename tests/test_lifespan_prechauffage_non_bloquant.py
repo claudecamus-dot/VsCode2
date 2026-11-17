@@ -151,3 +151,21 @@ def test_un_prechauffage_desactive_n_annonce_pas_de_modele_pret(monkeypatch, cap
     assert "prêt" not in textes, textes
     assert "préchauffage Whisper désactivé" in textes
     assert "préchauffage Ollama désactivé" in textes
+
+
+def test_l_arret_de_l_app_ferme_le_pool_whisper_gare(monkeypatch):
+    """Story 3.2 (pool chaud) : un pool de workers Whisper garé entre deux jobs
+    doit être arrêté à l'arrêt de l'app (lifespan), pas seulement par `atexit`
+    que le rechargeur d'uvicorn peut ne pas jouer — sinon des workers spawn
+    (~1,6 Gio chacun) restent orphelins à chaque rechargement."""
+    from app import main as app_main
+
+    monkeypatch.setenv("WHISPER_WARM_UP", "0")
+    monkeypatch.setenv("OLLAMA_WARM_UP", "0")
+    fermetures: list[int] = []
+    monkeypatch.setattr(app_main.audio_transcribe, "fermer_pool_chaud",
+                        lambda: fermetures.append(1))
+    with TestClient(app_main.app):
+        assert fermetures == [], "le pool ne doit pas être fermé au démarrage"
+    _joindre_prechauffages()
+    assert fermetures == [1], "le pool Whisper garé n'est pas fermé à l'arrêt de l'app"

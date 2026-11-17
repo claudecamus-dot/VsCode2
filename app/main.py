@@ -168,7 +168,17 @@ async def lifespan(_app: FastAPI):
     threading.Thread(
         target=_prechauffer_ollama, daemon=True, name="prechauffage-ollama"
     ).start()
-    yield
+    try:
+        yield
+    finally:
+        # Story 3.2 (pool chaud) : un pool de workers Whisper garé entre deux
+        # jobs (~1,6 Gio par worker) doit mourir avec l'app. `atexit` ne suffit
+        # pas : le rechargeur d'uvicorn peut terminer le worker sans le jouer,
+        # et les processus spawn restaient alors orphelins à chaque reload.
+        try:
+            audio_transcribe.fermer_pool_chaud()
+        except Exception:
+            logging.getLogger(__name__).exception("arrêt du pool Whisper garé échoué")
 
 
 def _prechauffage_desactive(variable: str, nom: str) -> bool:
