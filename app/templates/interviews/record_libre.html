@@ -303,6 +303,7 @@
   var JOB_SEGMENT_MS = 5 * 60000;
 
   var startBtn = document.getElementById('rec-start');
+  var draftBannerEl = document.getElementById('rec-draft-banner');  // reprise d'un brouillon (Story 3.3)
   var stopBtn = document.getElementById('rec-stop');
   var resetBtn = document.getElementById('rec-reset');
   var submitBtn = document.getElementById('rec-submit');
@@ -1764,7 +1765,13 @@
       headers: segId ? { 'X-Segment-Id': segId } : {},
     }, delaiRequete)
       .then(function (res) {
-        return res.json().then(function (data) { return { ok: res.ok, status: res.status, data: data }; });
+        // Story 3.3 (revue #6) : un 2xx à corps VIDE (204) ne passe pas par JSON.parse,
+        // qui lèverait et enverrait le segment sur le chemin « erreur réseau » ; il vaut
+        // « aucune parole » (rec_retry.classer). Un corps non vide illisible lève comme avant.
+        var lire = (typeof res.text === 'function')
+          ? res.text().then(function (t) { return t ? JSON.parse(t) : {}; })
+          : res.json();
+        return lire.then(function (data) { return { ok: res.ok, status: res.status, data: data || {} }; });
       })
       .then(function (result) {
         if (gen !== backupGeneration) { settle(); return; }  // session abandonnée : ne pas ressusciter
@@ -2784,6 +2791,9 @@
     i2dAudioSource.acquire(remoteModeEl.checked && !remoteBypass).then(function (s) {
       stream = s;
       recordingActive = true;
+      // Story 3.3 (AC3.3.1, revue) : la proposition de reprise disparaît seulement quand
+      // l'enregistrement a VRAIMENT démarré (micro refusé, confirmation refusée : elle reste).
+      if (draftBannerEl) draftBannerEl.hidden = true;
       finalizing = false;
       finalizingRecorders = 0;
       backupGeneration++;  // nouvelle session : les uploads en vol de l'ancienne seront ignorés
@@ -3145,9 +3155,9 @@
     document.getElementById('rec-draft-text').textContent = dec.libelle;
     banner.classList.toggle('rec-draft-discret', dec.mode === 'discret');
     banner.hidden = false;
-    // Story 3.3 (AC3.3.1, A-1) : « Démarrer » masque la proposition — reprendre un
-    // brouillon pendant une session vivante écraserait texte, jeton et positions.
-    startBtn.addEventListener('click', function () { banner.hidden = true; });
+    // Story 3.3 (AC3.3.1, A-1) : la bannière est masquée par le démarrage RÉUSSI (suite
+    // de `i2dAudioSource.acquire` dans le gestionnaire de « Démarrer ») ; le garde
+    // ci-dessous couvre le reste.
     document.getElementById('rec-draft-restore').addEventListener('click', function () {
       // Garde du gestionnaire (bannière restée visible, clic clavier, etc.) :
       // jamais de reprise par-dessus un enregistrement en cours ou un texte présent.

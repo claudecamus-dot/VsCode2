@@ -165,6 +165,7 @@ var recDraft = (function () {
       // Story 3.3 (A-11) : date absente ou illisible -> libellé explicite, jamais « NaN/NaN ».
       if (typeof ts !== 'number' || !isFinite(ts)) return null;
       var d = new Date(ts);
+      if (isNaN(d.getTime())) return null;  // hors plage (> 8,64e15 ms) : date invalide
       var jj = ('0' + d.getDate()).slice(-2);
       var mm = ('0' + (d.getMonth() + 1)).slice(-2);
       var hh = ('0' + d.getHours()).slice(-2);
@@ -193,7 +194,8 @@ var recDraft = (function () {
     if (typeof brouillon.envoyeLe === 'number') {
       return {
         mode: 'discret',
-        libelle: 'Une transcription envoyée le ' + formaterDate(brouillon.envoyeLe)
+        libelle: 'Une transcription envoyée '
+          + (formaterDate(brouillon.envoyeLe) ? 'le ' + formaterDate(brouillon.envoyeLe) : 'à une date inconnue')
           + ' (' + taille + ') est encore en mémoire locale — vérifie qu\'elle figure '
           + 'bien dans la mission, sinon tu peux la restaurer ici.'
       };

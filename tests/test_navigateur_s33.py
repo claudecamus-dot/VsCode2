@@ -209,15 +209,6 @@ console.log(JSON.stringify(out));
 """ % {"bloc": json.dumps(_bloc_reprise()), "corps": corps})
 
 
-def test_demarrer_masque_la_proposition_de_reprise() -> None:
-    """AC3.3.1 / A-1 : la banniere est masquee au clic sur « Demarrer »."""
-    r = _reprise("""
-rendre(); out.avant = el('rec-draft-banner').hidden;
-el('rec-start')._on.click(); out.apres = el('rec-draft-banner').hidden;
-""")
-    assert r == {"avant": False, "apres": True}
-
-
 @pytest.mark.parametrize("etat", ["bac.recordingActive = true;", "bac.transcriptSoFar = 'parole vivante';"],
                          ids=["enregistrement_en_cours", "texte_present"])
 def test_reprendre_est_sans_effet_sur_une_session_vivante(etat: str) -> None:
@@ -245,16 +236,25 @@ ATTENTES = [LIBRE.parent / "record_segment_wait.html", LIBRE.parent / "libre_seg
 
 _ATTENTE = r"""
 let clock = 0; const timers = []; const reponses = []; let soumis = 0, copie = null, telecharge = 0;
+const window = globalThis;
 const Date = { now: function () { return clock; } };
 function setTimeout(fn, d) { timers.push(fn); }
-function mk(id) { return { id: id, hidden: true, textContent: '', value: '', max: 0, h: {},
+function mk(id) { return { id: id, hidden: true, disabled: false, textContent: '', value: '', max: 0, h: {},
   classList: { add: function () {}, remove: function () {} },
   addEventListener: function (n, f) { this.h[n] = f; }, click: function () {} }; }
-const els = {}; ['seg-progress', 'seg-bar', 'seg-exit', 'seg-exit-text', 'seg-exit-copy',
+const els = {}; ['seg-progress', 'seg-bar', 'seg-exit', 'seg-exit-copy', 'seg-exit-status',
   'seg-exit-download', 'seg-exit-finalize'].forEach(function (i) { els[i] = mk(i); });
+let annonces = 0, annonce = '';
+els['seg-exit-text'] = mk('seg-exit-text');
+Object.defineProperty(els['seg-exit-text'], 'textContent', { get: function () { return annonce; },
+  set: function (v) { annonces++; annonce = v; } });
 const champ = mk('t'); champ.value = 'texte de l entretien';
+const incomplet = mk('i');
 els['finalize-form'] = { submit: function () { soumis++; },
-  querySelector: function (s) { return s === 'input[name="transcript"]' ? champ : null; } };
+  querySelector: function (s) {
+    if (s === 'input[name="transcript"]') return champ;
+    if (s === 'input[name="transcription_incomplete"]') return %(a_incomplet)s ? incomplet : null;
+    return null; } };
 const document = { getElementById: function (i) { return els[i] || null; },
   createElement: function () { return mk('a'); }, body: { appendChild: function () {}, removeChild: function () {} } };
 const navigator = { clipboard: { writeText: function (t) { copie = t; return Promise.resolve(); } } };
@@ -270,6 +270,7 @@ async function suivant() { timers.shift()(); await tick(); }
 const EN_COURS = { status: 200, data: { total: 3, done: 1 } };
 const VIDE = { status: 200, data: { total: 0, done: 0 } };
 %(prep)s
+%(module)s
 %(script)s
 (async () => {
   const out = {}; await tick();
@@ -277,25 +278,38 @@ const VIDE = { status: 200, data: { total: 0, done: 0 } };
   console.log(JSON.stringify(out));
 })();
 """
+SEG_EXIT = LIBRE.parents[2] / "static" / "seg_wait_exit.js"
 
 
 def _attente(ecran: Path, prep: str, corps: str) -> dict:
     import re
     brut = ecran.read_text(encoding="utf-8")
-    script = brut[brut.index("<script>") + len("<script>"):brut.index("</script>")]
+    assert '<script src="/static/seg_wait_exit.js"></script>' in brut, "module partage non charge"
+    debut = brut.index("<script>") + len("<script>")
+    script = brut[debut:brut.index("</script>", debut)]
     script = re.sub(r"\{\{.*?\}\}", '"tok"', script)
-    return _node_fichier(_ATTENTE % {"prep": prep, "script": script, "corps": corps})
+    return _node_fichier(_ATTENTE % {"prep": prep, "script": script, "corps": corps,
+                                     "module": SEG_EXIT.read_text(encoding="utf-8"),
+                                     "a_incomplet": "true" if 'name="transcription_incomplete"' in brut else "false"})
 
 
 _ETAT_SORTIE = "({ sortie: els['seg-exit'].hidden === false, soumis: soumis })"
 
 
 @pytest.mark.parametrize("ecran", ATTENTES, ids=lambda p: p.name)
-def test_attente_401_propose_la_sortie_sans_soumettre(ecran: Path) -> None:
-    r = _attente(ecran, "reponses.push({ status: 401, data: {} });",
-                 "out.a = %s; out.progression = els['seg-progress'].textContent;" % _ETAT_SORTIE)
+def test_attente_401_garde_copie_et_telechargement_mais_pas_finaliser(ecran: Path) -> None:
+    """Revue 3.3 #2 : session expiree -> panneau visible, « Finaliser » masque ET
+    desactive (le POST quitterait vers la connexion), copie/telechargement restent."""
+    r = _attente(ecran, "reponses.push({ status: 401, data: {} });", """
+out.a = %(e)s; out.progression = els['seg-progress'].textContent; out.message = annonce;
+out.fin = { cache: els['seg-exit-finalize'].hidden, inactif: els['seg-exit-finalize'].disabled };
+els['seg-exit-finalize'].h.click(); out.apres_clic = soumis;
+els['seg-exit-copy'].h.click(); await tick(); out.copie = copie;
+""" % {"e": _ETAT_SORTIE})
     assert r["a"] == {"sortie": True, "soumis": 0}
-    assert "Session expirée" in r["progression"]
+    assert "Session expirée" in r["progression"] and "désactivé" in r["message"]
+    assert r["fin"] == {"cache": True, "inactif": True} and r["apres_clic"] == 0
+    assert r["copie"] == "texte de l entretien"
 
 
 @pytest.mark.parametrize("ecran", ATTENTES, ids=lambda p: p.name)
@@ -309,18 +323,17 @@ await suivant(); out.trois = %(e)s;
 
 
 @pytest.mark.parametrize("ecran", ATTENTES, ids=lambda p: p.name)
-def test_attente_bornee_dans_le_temps_puis_copie_telechargement_finalisation(ecran: Path) -> None:
+def test_attente_bornee_dans_le_temps_puis_copie_telechargement(ecran: Path) -> None:
     r = _attente(ecran, "reponses.push(EN_COURS, EN_COURS);", """
 out.avant = %(e)s;
 clock = 21 * 60 * 1000; await suivant();
 out.apres = %(e)s;
 els['seg-exit-copy'].h.click(); await tick(); out.copie = copie;
 els['seg-exit-download'].h.click(); out.telecharge = telecharge;
-els['seg-exit-finalize'].h.click(); out.final = soumis;
 """ % {"e": _ETAT_SORTIE})
     assert r["avant"] == {"sortie": False, "soumis": 0}
     assert r["apres"] == {"sortie": True, "soumis": 0}
-    assert r["copie"] == "texte de l entretien" and r["telecharge"] == 1 and r["final"] == 1
+    assert r["copie"] == "texte de l entretien" and r["telecharge"] == 1
 
 
 @pytest.mark.parametrize("ecran", ATTENTES, ids=lambda p: p.name)
@@ -332,6 +345,37 @@ await suivant(); out.six = %(e)s;
 """ % {"e": _ETAT_SORTIE})
     assert r["cinq"] == {"sortie": False, "soumis": 0}
     assert r["six"] == {"sortie": True, "soumis": 0}
+
+
+@pytest.mark.parametrize("ecran", ATTENTES, ids=lambda p: p.name)
+def test_attente_message_ecrit_une_fois_retour_copie_garde_puis_masque_au_retour_du_suivi(ecran: Path) -> None:
+    """Revue 3.3 #3 : les polls qui continuent apres le clic ne re-ecrivent pas le noeud
+    role=alert ni n'effacent « copiee » ; un poll sain re-masque le panneau."""
+    r = _attente(ecran, "for (let i = 0; i < 9; i++) reponses.push('reseau'); reponses.push(EN_COURS);", """
+for (let i = 0; i < 5; i++) await suivant();
+out.ouvert = { sortie: els['seg-exit'].hidden === false, annonces: annonces };
+els['seg-exit-copy'].h.click(); await tick();
+for (let i = 0; i < 3; i++) await suivant();
+out.apres_polls = { annonces: annonces, statut: els['seg-exit-status'].textContent };
+await suivant();
+out.sain = { sortie: els['seg-exit'].hidden === false };
+""")
+    assert r["ouvert"] == {"sortie": True, "annonces": 1}
+    assert r["apres_polls"]["annonces"] == 1 and "copiée" in r["apres_polls"]["statut"], r
+    assert r["sain"] == {"sortie": False}
+
+
+def test_finalisation_manuelle_signale_l_incomplet_et_ne_dit_pas_termine() -> None:
+    """Revue 3.3 #5 (page libre) : finaliser a la main pendant des tranches en cours
+    envoie transcription_incomplete=1 et n'affiche pas « Traitement termine »."""
+    r = _attente(LIBRE.parent / "libre_segment_wait.html", "reponses.push(EN_COURS, EN_COURS);", """
+clock = 21 * 60 * 1000; await suivant();
+els['seg-exit-finalize'].h.click();
+Object.assign(out, { soumis: soumis, incomplet: incomplet.value, progression: els['seg-progress'].textContent });
+""")
+    assert r["soumis"] == 1 and r["incomplet"] == "1", r
+    assert "Traitement terminé" not in r["progression"], r
+    assert r["progression"].startswith("Finalisation avec le texte disponible"), r
 
 
 # --------------------------------------------------------------------------- #
@@ -454,3 +498,134 @@ def test_recfetch_chaine_le_signal_de_l_appelant() -> None:
     le minuteur interne produit toujours `recTimeout`."""
     r = _node_fichier(_FETCH % {"src": REC_FETCH.read_text(encoding="utf-8")})
     assert r == {"appelant": {"name": "AbortError", "recTimeout": False}, "delai": {"recTimeout": True}}
+
+
+# --------------------------------------------------------------------------- #
+# Tour de correctifs (revue de code 3.3)
+# --------------------------------------------------------------------------- #
+def _guide(corps: str, *, remote: bool = True) -> dict:
+    """record.html (mode guide) : vraies fonctions d'alerte + vrai succes de re-partage."""
+    src = _sans_commentaires(STRUCTURE.read_text(encoding="utf-8"))
+    code = "".join(_js(_fonction(src, f)) for f in ("noteNoSpeech", "afficherMuet", "resetNoSpeech"))
+    perdu = "(function () %s)();" % _bloc(src, src.index("tabLost: function"))
+    depart = src.index("then(function (flux)", src.index("function demanderPartage"))
+    partage_ok = "(function (flux) %s)({});" % _bloc(src, depart)
+    return _bac(code + r"""
+let out = {};
+Object.assign(bac, {
+  noSpeechStreak: 0, NOSPEECH_ALERT_AFTER: 2, recordingActive: true,
+  noSpeechBannerEl: el('b'), noSpeechTextEl: el('t'), noSpeechFixBtn: el('f'), statusEl: el('s'),
+  remoteModeEl: { checked: %(remote)s }, swapSource: function () { return false; }, refreshSource: function () {},
+  i2dAudioSource: { supported: function () { return true; }, tabActive: function () { return true; } }
+});
+const muet = (n) => { for (let k = 0; k < n; k++) jouer('noteNoSpeech()'); };
+const partage_perdu = () => jouer(%(perdu)s);
+const repartage_ok = () => jouer(%(ok)s);
+const parole = () => jouer('resetNoSpeech()');
+const etat = () => ({ cache: el('b').hidden, texte: el('t').textContent, serie: jouer('noSpeechStreak') });
+%(corps)s
+console.log(JSON.stringify(out));
+""" % {"remote": "true" if remote else "false", "perdu": json.dumps(perdu), "ok": json.dumps(partage_ok),
+       "corps": corps})
+
+
+def test_mode_guide_re_partage_garde_l_alerte_muette_jusqu_a_la_parole() -> None:
+    """Revue 3.3 #1 (AC3.3.3 sur record.html) : apres un re-partage reussi, l'alerte
+    « aucune parole » en cours reste (texte muet, plus « partage arrete ») ; la parole la leve."""
+    r = _guide("""
+muet(2); partage_perdu();
+out.perdu = etat();
+repartage_ok(); out.repartage = etat();
+parole(); out.parole = etat();
+""")
+    assert "partage du son" in r["perdu"]["texte"] and r["perdu"]["cache"] is False
+    assert r["repartage"]["cache"] is False and "Aucune parole" in r["repartage"]["texte"], r
+    assert r["repartage"]["serie"] == 2
+    assert r["parole"]["cache"] is True
+
+
+def test_mode_guide_re_partage_sans_serie_muette_masque_le_bandeau() -> None:
+    r = _guide("partage_perdu(); repartage_ok(); out = etat();")
+    assert r["cache"] is True and r["serie"] == 0
+
+
+def test_demarrage_reussi_seul_masque_la_reprise() -> None:
+    """Revue 3.3 #4 : un clic sur « Demarrer » ne masque rien par lui-meme (micro refuse,
+    confirmation refusee : la proposition reste) ; la suite REUSSIE du demarrage la masque."""
+    from test_repartition_live import _corps_du_demarrage
+    demarrage = _corps_du_demarrage(_sans_commentaires(LIBRE.read_text(encoding="utf-8")))
+    r = _reprise("const DEMARRAGE = %s;" % json.dumps(demarrage) + """
+bac.draftBannerEl = el('rec-draft-banner');
+rendre();
+out.clic_seul = { ecouteur: typeof el('rec-start')._on.click, cache: el('rec-draft-banner').hidden };
+try { jouer(DEMARRAGE); } catch (e) { out.erreur = String(e); }
+out.apres_succes = el('rec-draft-banner').hidden;
+""")
+    assert r["clic_seul"] == {"ecouteur": "undefined", "cache": False}, r
+    assert r["apres_succes"] is True, r
+
+
+def test_vrai_upload_reponse_204_corps_vide_vaut_aucune_parole() -> None:
+    """Revue 3.3 #6 : 204 sans corps -> pas de JSON.parse qui leve (chemin reseau),
+    mais « aucune parole » non bloquant."""
+    r = _upload(r"""
+recFetch = function () { return Promise.resolve({ ok: true, status: 204,
+  text: function () { return Promise.resolve(''); },
+  json: function () { return Promise.reject(new SyntaxError('Unexpected end of JSON input')); } }); };
+(async () => {
+  const out = {}; recordingActive = true;
+  enqueueSegment({ type: 'audio/webm' }); await tick();
+  enqueueSegment({ type: 'audio/webm' }); await tick();
+  out.etat = %(etat)s; out.perdus = lostSegments.length; out.timers = timers.length;
+  console.log(JSON.stringify(out));
+})();
+""" % {"etat": _ETAT})
+    assert r["etat"]["cache"] is False and r["etat"]["serie"] == 2, r
+    assert r["etat"]["bloquants"] == 0 and r["perdus"] == 2 and r["timers"] == 0, r
+
+
+def test_brouillon_dates_hors_plage_ni_nan_ni_null() -> None:
+    """Revue 3.3 #7 : savedAt / envoyeLe hors plage -> « a une date inconnue »."""
+    r = _node_fichier("const window = {};\n" + REC_DRAFT.read_text(encoding="utf-8") + r"""
+window.recDraft = module.exports;
+const a = window.recDraft.decision({ transcript: 'x', savedAt: 1e20 }, 1e12);
+const b = window.recDraft.decision({ transcript: 'x', savedAt: 1e12, envoyeLe: 1e20 }, 1e12);
+console.log(JSON.stringify({ a: a.libelle, b: b.libelle }));
+""")
+    for libelle in (r["a"], r["b"]):
+        assert "NaN" not in libelle and "null" not in libelle and "date inconnue" in libelle, r
+
+
+def test_release_libere_le_mutex_de_partage() -> None:
+    """Revue 3.3 #8 : un partage reste en vol a l'arret ne bloque pas celui de la session suivante."""
+    r = _audio("""
+src.shareTab().catch(function () {});
+src.release();
+let erreur = null;
+src.shareTab().then(function () {}, function (e) { erreur = e.message; });
+await tick();
+Object.assign(out, { erreur: erreur });
+""")
+    assert r == {"erreur": None}
+
+
+def test_recfetch_retire_l_ecouteur_du_signal_appelant() -> None:
+    """Revue 3.3 #9 : apres lecture du corps (ou echec reseau), plus d'ecouteur sur le
+    signal de l'appelant."""
+    r = _node_fichier(r"""
+const window = {}; function setTimeout() { return 1; } function clearTimeout() {}
+let mode = 'ok';
+function fetch() { return mode === 'ok'
+  ? Promise.resolve({ ok: true, json: function () { return Promise.resolve({}); } })
+  : Promise.reject(new Error('reseau')); }
+""" + REC_FETCH.read_text(encoding="utf-8") + r"""
+function signal() { return { aborted: false, ls: [], addEventListener: function (n, f) { this.ls.push(f); },
+  removeEventListener: function (n, f) { this.ls = this.ls.filter(function (g) { return g !== f; }); } }; }
+(async () => {
+  const s1 = signal(); const res = await window.recFetch('/a', { signal: s1 }, 1000); await res.json();
+  mode = 'ko'; const s2 = signal();
+  try { await window.recFetch('/b', { signal: s2 }, 1000); } catch (e) {}
+  console.log(JSON.stringify({ ok: s1.ls.length, ko: s2.ls.length }));
+})();
+""")
+    assert r == {"ok": 0, "ko": 0}

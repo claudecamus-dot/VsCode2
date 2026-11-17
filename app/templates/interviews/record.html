@@ -654,6 +654,13 @@
 
   function noteNoSpeech() {
     noSpeechStreak++;
+    afficherMuet();
+  }
+
+  // Rendu de l'alerte « aucune parole » d'après la série en cours (rien sous le seuil).
+  // Séparé de noteNoSpeech pour qu'un re-partage réussi puisse la RE-rendre sans
+  // compter un segment de plus (Story 3.3, AC3.3.3).
+  function afficherMuet() {
     if (noSpeechStreak < NOSPEECH_ALERT_AFTER) return;
     // Le message PORTE l'action (demande utilisateur 2026-07-31) : à la 2e minute
     // l'utilisateur est en entretien, il n'ira pas chercher un réglage.
@@ -780,7 +787,10 @@
     btn.textContent = 'Partage en cours…';
     return i2dAudioSource.shareTab().then(function (flux) {
       var sauvegardeInchangee = swapSource(flux);
-      resetNoSpeech();
+      // Story 3.3 (AC3.3.3, revue) : le partage perdu est réparé, mais une alerte
+      // « aucune parole » en cours RESTE jusqu'au retour de la parole — l'onglet
+      // repartagé peut lui aussi être muet. Sans série muette : bandeau masqué.
+      if (noSpeechStreak >= NOSPEECH_ALERT_AFTER) afficherMuet(); else resetNoSpeech();
       if (recordingActive) {
         statusEl.textContent = sauvegardeInchangee
           ? 'Enregistrement en cours — son de la réunion capté dans la transcription ' +

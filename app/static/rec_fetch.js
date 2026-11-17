@@ -57,9 +57,16 @@
     // chaîné sur le contrôleur interne. Seul NOTRE minuteur produit `recTimeout`.
     var parDelai = false;
     var signalAppelant = options && options.signal;
+    function relayer() { ctrl.abort(); }
+    // Fin de vie de la requête : minuteur annulé ET écouteur retiré du signal de
+    // l'appelant (un signal longue durée accumulerait sinon un écouteur par requête).
+    function liberer() {
+      clearTimeout(timer);
+      if (signalAppelant && signalAppelant.removeEventListener) signalAppelant.removeEventListener('abort', relayer);
+    }
     if (signalAppelant) {
       if (signalAppelant.aborted) ctrl.abort();
-      else if (signalAppelant.addEventListener) signalAppelant.addEventListener('abort', function () { ctrl.abort(); });
+      else if (signalAppelant.addEventListener) signalAppelant.addEventListener('abort', relayer);
     }
 
     var timer = setTimeout(function () { parDelai = true; ctrl.abort(); }, ms);
@@ -95,18 +102,23 @@
         // Réponse sans `.json` (jamais en navigateur, mais un test ou un futur
         // appelant peut en fournir une) : rien à attendre, on libère tout de suite
         // plutôt que de lever en enveloppant.
-        if (!res || typeof res.json !== 'function') { clearTimeout(timer); return res; }
-        var lire = res.json.bind(res);
-        res.json = function () {
-          return lire().then(
-            function (data) { clearTimeout(timer); return data; },
-            function (err) { clearTimeout(timer); throw traduire(err); }
-          );
-        };
+        if (!res || typeof res.json !== 'function') { liberer(); return res; }
+        // `text` aussi (Story 3.3) : un appelant qui lit le corps brut (corps vide
+        // d'un 204) garde la même borne sur la lecture du corps.
+        ['json', 'text'].forEach(function (m) {
+          if (typeof res[m] !== 'function') return;
+          var lire = res[m].bind(res);
+          res[m] = function () {
+            return lire().then(
+              function (data) { liberer(); return data; },
+              function (err) { liberer(); throw traduire(err); }
+            );
+          };
+        });
         return res;
       },
       function (err) {
-        clearTimeout(timer);
+        liberer();
         throw traduire(err);
       }
     );

@@ -277,6 +277,9 @@
 
   function release() {
     generation++;
+    // Une demande de partage restée en vol appartient à la session close : la
+    // session suivante ne doit pas se la voir opposer par le mutex (Story 3.3).
+    partageEnCours = false;
     stopMeters();
     detachTab();
     if (micNode) { try { micNode.disconnect(); } catch (e) {} }

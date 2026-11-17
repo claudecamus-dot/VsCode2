@@ -23,11 +23,14 @@
 
 <section id="seg-exit" class="card" hidden>
   <p id="seg-exit-text" role="alert"></p>
-  <p class="muted">Le texte de l'entretien est dans cette page : garde-le avant toute autre action.</p>
-  <button type="button" id="seg-exit-copy" class="btn">Copier le texte</button>
-  <button type="button" id="seg-exit-download" class="btn">Télécharger le texte</button>
-  <button type="button" id="seg-exit-finalize" class="btn btn-primary">Finaliser maintenant avec le texte disponible</button>
+  <p class="muted">Seule la transcription brute reçue par cette page peut être copiée ou
+    téléchargée ; la structuration des tranches encore en cours n'y figure pas.</p>
+  <button type="button" id="seg-exit-copy" class="btn">Copier la transcription brute</button>
+  <button type="button" id="seg-exit-download" class="btn">Télécharger la transcription brute</button>
+  <button type="button" id="seg-exit-finalize" class="btn btn-primary">Finaliser avec le texte disponible</button>
+  <p id="seg-exit-status" class="muted" aria-live="polite"></p>
 </section>
+<script src="/static/seg_wait_exit.js"></script>
 
 <!-- Champs portés vers la finalisation une fois toutes les tranches traitées.
      `finalize_action` décide de la suite (revue des tours du wizard historique,
@@ -41,6 +44,7 @@
   <input type="hidden" name="interviewee_entity" value="{{ identity.interviewee_entity or '' }}">
   <input type="hidden" name="interview_date" value="{{ identity.interview_date or '' }}">
   <input type="hidden" name="audio_backup_path" value="{{ identity.audio_backup_path or '' }}">
+  <input type="hidden" name="transcription_incomplete" value="">
   <input type="hidden" name="audio_segments" value="{{ identity.audio_segments or '[]' }}">
 </form>
 
@@ -62,56 +66,37 @@
   // Story 3.3 (A-8) : l'attente a une BORNE de sortie. Au-delà de WAIT_MAX_MS, après
   // EXIT_AFTER_FAILS échecs d'affilée, sur un 401 (session expirée) ou après
   // EXIT_AFTER_EMPTY réponses « aucune tranche » (total == 0) sans fin annoncée,
-  // l'écran propose de copier/télécharger le texte et de finaliser à la main.
+  // le panneau partagé (/static/seg_wait_exit.js) propose de garder la
+  // transcription brute et, hors session expirée, de finaliser à la main.
   // Jamais de soumission automatique sur ces cas : l'utilisateur garde la main.
   var WAIT_MAX_MS = 20 * 60 * 1000;
   var EXIT_AFTER_FAILS = 6;
   var EXIT_AFTER_EMPTY = 3;
   var debut = Date.now();
   var emptyPolls = 0;
-  var exitEl = document.getElementById('seg-exit');
-  var exitTextEl = document.getElementById('seg-exit-text');
-  function texteEntretien() {
-    var champ = form.querySelector('input[name="transcript"]');
-    return champ ? champ.value : '';
-  }
-  function proposerSortie(raison) {
-    if (submitted || !exitEl) return;
-    exitTextEl.textContent = raison;
-    exitEl.hidden = false;
-  }
-  if (exitEl) {
-    document.getElementById('seg-exit-copy').addEventListener('click', function () {
-      var t = texteEntretien();
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(t).then(function () {
-          exitTextEl.textContent = 'Texte copié dans le presse-papiers.';
-        }, function () { exitTextEl.textContent = 'Copie refusée : utilise « Télécharger le texte ».'; });
-      } else {
-        exitTextEl.textContent = 'Copie indisponible : utilise « Télécharger le texte ».';
-      }
-    });
-    document.getElementById('seg-exit-download').addEventListener('click', function () {
-      var url = URL.createObjectURL(new Blob([texteEntretien()], { type: 'text/plain;charset=utf-8' }));
-      var a = document.createElement('a');
-      a.href = url; a.download = 'entretien-' + token + '.txt';
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-    });
-    document.getElementById('seg-exit-finalize').addEventListener('click', function () {
-      if (!confirm('Finaliser maintenant avec le texte disponible ? Les tranches encore en cours ne seront pas attendues.')) return;
-      finalize();
-    });
-  }
+  var sortie = segWaitExit({ form: form, token: token,
+    inactif: function () { return submitted; },
+    onFinalize: function () { finalize(true); } });
+  function horsDelai() { return Date.now() - debut >= WAIT_MAX_MS; }
   function bornee() {
-    if (Date.now() - debut >= WAIT_MAX_MS) {
-      proposerSortie("L'attente dépasse " + Math.round(WAIT_MAX_MS / 60000) + ' min — tu peux garder le texte et finaliser maintenant.');
+    if (horsDelai()) {
+      sortie.proposer("L'attente dépasse " + Math.round(WAIT_MAX_MS / 60000) + ' min — garde la ' +
+        'transcription brute (copie ou téléchargement) ou finalise avec le texte disponible.');
     }
   }
 
-  function finalize() {
+  function finalize(manuel) {
     if (submitted) return;
     submitted = true;
+    if (manuel) {
+      // Finalisation MANUELLE (panneau de sortie) : des tranches peuvent encore être
+      // en cours — le dire au serveur et ne pas afficher « terminé » (Story 3.3).
+      var incomplet = form.querySelector('input[name="transcription_incomplete"]');
+      if (incomplet) incomplet.value = '1';
+      progressEl.textContent = 'Finalisation avec le texte disponible — les tranches non terminées ne sont pas attendues…';
+      form.submit();
+      return;
+    }
     // `tojson` et pas une interpolation directe : « enregistrement de
     // l'entretien » porte une apostrophe, qui couperait la chaîne JS en deux.
     progressEl.textContent = 'Traitement terminé — ' + {{ suite_label | tojson }} + '…';
@@ -146,11 +131,13 @@
         }
         // Toutes terminées, ou un job en échec (on retombe alors sur le
         // traitement synchrone complet, géré côté serveur) : on finalise.
+        if (emptyPolls < EXIT_AFTER_EMPTY && !horsDelai()) sortie.masquer();  // suivi redevenu sain
         if (s.all_done || s.any_failed) {
           finalize();
         } else {
           if (emptyPolls >= EXIT_AFTER_EMPTY) {
-            proposerSortie('Aucune tranche en cours côté serveur — garde le texte et finalise maintenant.');
+            sortie.proposer('Aucune tranche en cours côté serveur — garde la transcription brute ' +
+              '(copie ou téléchargement) ou finalise avec le texte disponible.');
           }
           bornee();
           setTimeout(poll, 5000);
@@ -170,9 +157,12 @@
         if (err && err.session) {
           progressEl.classList.add('error');
           progressEl.textContent = 'Session expirée — reconnecte-toi dans un autre onglet ; le suivi reprendra.';
-          proposerSortie('Session expirée : garde le texte (copie ou téléchargement) avant toute autre action.');
+          sortie.proposer('Session expirée : copie ou télécharge la transcription brute avant toute ' +
+            'autre action. « Finaliser » est désactivé : il renverrait vers la page de connexion ' +
+            'et quitterait cette page. Reconnecte-toi dans un autre onglet ; le suivi reprendra.', true);
         } else if (failedPolls >= EXIT_AFTER_FAILS) {
-          proposerSortie('Le suivi ne répond plus depuis ' + failedPolls + ' tentatives — garde le texte et finalise maintenant.');
+          sortie.proposer('Le suivi ne répond plus — garde la transcription brute (copie ou ' +
+            'téléchargement) ou finalise avec le texte disponible.');
         }
         bornee();
         setTimeout(poll, 5000);
