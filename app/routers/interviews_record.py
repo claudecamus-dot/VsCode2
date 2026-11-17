@@ -81,7 +81,8 @@ def _record_error(request, mission, identity, message):
 
 
 def _finalize_record_answers(
-    db, request, mission, identity, transcript, session_token, segment_tail
+    db, request, mission, identity, transcript, session_token, segment_tail,
+    incomplete: bool = False,
 ):
     """Produit la répartition question/réponse puis rend l'écran de revue —
     pendant structuré de `_finalize_libre_turns` (mêmes garanties) :
@@ -163,7 +164,7 @@ def _finalize_record_answers(
             detail = detail or str(exc)
         extracted = merge_segment_answers(status["jobs"], tail_result)
 
-    if not extracted and not manquantes:
+    if not extracted and not manquantes and not incomplete:
         # L'IA peut répondre sans lever d'exception mais sans répartir aucune
         # réponse (silence, transcription trop courte, jobs `done` au résultat
         # vide — non comptés par `still_ko`, qui ne filtre que sur le statut).
@@ -185,6 +186,17 @@ def _finalize_record_answers(
         # éviter). Le texte lui-même n'est pas en jeu ici : il voyage déjà
         # dans `identity["transcript"]` jusqu'à `import_interview_confirm`.
         delete_segment_jobs(db, session_token)
+
+    if incomplete:
+        # Finalisation MANUELLE depuis l'écran d'attente (Story 3.3, revue finale
+        # R2) : des tranches n'étaient pas terminées. Même règle que la route
+        # d'enregistrement direct (`_enregistrer_libre_direct` : une tranche
+        # manquante) — compté APRÈS la décision de nettoyage des jobs, qui ne
+        # dépend que de leur propre issue. Le compteur voyage dans
+        # `proposed_json` jusqu'à `Interview.tranches_manquantes`.
+        manquantes += 1
+        detail = detail or ("Finalisé avant la fin du traitement des tranches : "
+                            "une partie de l'entretien peut manquer de cette revue.")
 
     contexte = _build_review_context(mission, extracted, identity, manquantes)
     if manquantes:
@@ -270,6 +282,7 @@ def record_from_jobs(
     audio_backup_path: str = Form(""),
     session_token: str = Form(""),
     segment_tail: str = Form(""),
+    transcription_incomplete: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Finalisation après l'écran d'attente du mode structuré : tous les jobs
@@ -289,7 +302,8 @@ def record_from_jobs(
     if not transcript.strip():
         return _record_error(request, mission, identity, "Aucun texte transcrit.")
     return _finalize_record_answers(
-        db, request, mission, identity, transcript, session_token, segment_tail
+        db, request, mission, identity, transcript, session_token, segment_tail,
+        incomplete=bool(str(transcription_incomplete or "").strip()),
     )
 
 
@@ -382,6 +396,7 @@ def _identite_fusionnee(identity: dict, extracted: dict) -> dict:
 
 def _finalize_libre_turns(
     db, request, mission, identity, transcript, session_token, segment_tail,
+    incomplete: bool = False,
 ):
     """Produit les tours de parole puis rend l'écran de revue (étape 2 du
     wizard historique — plus atteignable depuis l'écran d'enregistrement
@@ -395,6 +410,10 @@ def _finalize_libre_turns(
     # échec de répartition rendait la revue SANS le dire (bmad-code-review
     # 2026-09-04, finding F5).
     manquantes = extracted.get("tranches_manquantes", 0)
+    if incomplete:
+        # Finalisation MANUELLE depuis l'écran d'attente (Story 3.3, revue finale
+        # R1) : même règle que l'enregistrement direct — une tranche manquante.
+        manquantes += 1
     error = None
     if manquantes:
         pluriel = manquantes > 1

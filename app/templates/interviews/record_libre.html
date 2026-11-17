@@ -1769,7 +1769,7 @@
         // qui lèverait et enverrait le segment sur le chemin « erreur réseau » ; il vaut
         // « aucune parole » (rec_retry.classer). Un corps non vide illisible lève comme avant.
         var lire = (typeof res.text === 'function')
-          ? res.text().then(function (t) { return t ? JSON.parse(t) : {}; })
+          ? res.text().then(function (t) { return (t && t.trim()) ? JSON.parse(t) : {}; })  // blancs seuls = vide (revue finale R4)
           : res.json();
         return lire.then(function (data) { return { ok: res.ok, status: res.status, data: data || {} }; });
       })
@@ -3162,7 +3162,13 @@
       // Garde du gestionnaire (bannière restée visible, clic clavier, etc.) :
       // jamais de reprise par-dessus un enregistrement en cours ou un texte présent.
       // `=== true` : `recordingActive` est toujours un booléen dans l'écran.
-      if (recordingActive === true || String(transcriptSoFar || '').trim()) {
+      // Revue finale R5 : juste après « Arrêter », dernière tranche pas encore
+      // livrée (`finalizing`) ou envois encore en vol (`pendingBackups`,
+      // `pendingSegments`) = session vivante — la reprise écraserait
+      // sessionToken / backupSegments.
+      if (recordingActive === true || finalizing === true
+          || pendingBackups > 0 || pendingSegments > 0
+          || String(transcriptSoFar || '').trim()) {
         banner.hidden = true;
         return;
       }

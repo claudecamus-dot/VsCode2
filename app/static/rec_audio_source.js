@@ -271,7 +271,10 @@
         throw err;
       });
     }).finally(function () {
-      partageEnCours = false;
+      // Seulement si la session n'a pas changé : après release() + un nouveau
+      // partage B, le règlement tardif de A rouvrait le mutex de B et laissait
+      // passer un getDisplayMedia concurrent (revue finale 3.3, R3).
+      if (genDepart === generation) partageEnCours = false;
     });
   }
 

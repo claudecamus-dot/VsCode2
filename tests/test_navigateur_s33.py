@@ -193,7 +193,7 @@ def _reprise(corps: str) -> dict:
 let out = {};
 Object.assign(bac, {
   MISSION_ID: 19, transcriptSoFar: '', sessionToken: 'vivant', coveredLen: 0, segmentJobPosition: 0,
-  backupSegments: [], nextBackupPosition: 0, recordingActive: false,
+  backupSegments: [], nextBackupPosition: 0, recordingActive: false, finalizing: false,
   transcriptEl: el('t'), transcriptHidden: el('th'), sessionTokenHidden: el('st'),
   audioSegmentsHidden: el('as'), backupPathHidden: el('bp'), statusEl: el('status'),
   startBtn: el('rec-start'), updateSubmitState: function () {}, refreshSegmentTail: function () {},
@@ -246,8 +246,9 @@ const els = {}; ['seg-progress', 'seg-bar', 'seg-exit', 'seg-exit-copy', 'seg-ex
   'seg-exit-download', 'seg-exit-finalize'].forEach(function (i) { els[i] = mk(i); });
 let annonces = 0, annonce = '';
 els['seg-exit-text'] = mk('seg-exit-text');
+let cacheALEcriture = null;
 Object.defineProperty(els['seg-exit-text'], 'textContent', { get: function () { return annonce; },
-  set: function (v) { annonces++; annonce = v; } });
+  set: function (v) { annonces++; annonce = v; cacheALEcriture = els['seg-exit'].hidden; } });
 const champ = mk('t'); champ.value = 'texte de l entretien';
 const incomplet = mk('i');
 els['finalize-form'] = { submit: function () { soumis++; },
@@ -281,16 +282,63 @@ const VIDE = { status: 200, data: { total: 0, done: 0 } };
 SEG_EXIT = LIBRE.parents[2] / "static" / "seg_wait_exit.js"
 
 
-def _attente(ecran: Path, prep: str, corps: str) -> dict:
+_RENDUS: dict[str, tuple[str, int]] = {}
+
+
+def _rendre_attente(nom: str) -> tuple[str, int]:
+    """Revue finale 3.3 (R12) : la page d'attente REELLEMENT servie (TestClient),
+    pas le gabarit brut aux `{{ }}` remplaces. Rend (html, mission_id)."""
+    if nom in _RENDUS:
+        return _RENDUS[nom]
+    import uuid
+
+    from fastapi.testclient import TestClient
+
+    from app.db import SessionLocal, init_db
+    from app.main import app
+    from app.models import InterviewSegmentJob, Mission
+
+    init_db()
+    c = TestClient(app)
+    libre = nom == "libre_segment_wait.html"
+    r = c.post("/entretiens/libre/nouveau" if libre else "/entretiens/structure/nouveau",
+               follow_redirects=False)
+    mid = int(r.headers["location"].split("/")[2])
+    jeton = "s33w" + uuid.uuid4().hex[:12]
+    with SessionLocal() as db:
+        db.get(Mission, mid).is_draft = False
+        db.add(InterviewSegmentJob(session_token=jeton, kind="libre_turns" if libre else "answers",
+                                   mission_id=mid, position=0, status="pending", text="Tranche en cours."))
+        db.commit()
+    page = c.post(f"/missions/{mid}/interviews/{'record-libre' if libre else 'record'}",
+                  data={"transcript": "Bonjour, texte de l entretien.", "session_token": jeton})
+    assert page.status_code == 200 and 'id="finalize-form"' in page.text, page.text[:300]
+    assert "Traitement des tranches en cours" in page.text
+    _RENDUS[nom] = (page.text, mid)
+    return _RENDUS[nom]
+
+
+def _formulaire_finalisation(html: str) -> tuple[str, dict[str, str]]:
+    """(action, champs caches) du formulaire de finalisation tel que rendu."""
+    import html as _html
     import re
-    brut = ecran.read_text(encoding="utf-8")
-    assert '<script src="/static/seg_wait_exit.js"></script>' in brut, "module partage non charge"
-    debut = brut.index("<script>") + len("<script>")
-    script = brut[debut:brut.index("</script>", debut)]
-    script = re.sub(r"\{\{.*?\}\}", '"tok"', script)
+    debut = html.index('<form id="finalize-form"')
+    bloc = html[debut:html.index("</form>", debut)]
+    action = _html.unescape(re.search(r'action="([^"]+)"', bloc).group(1))
+    champs = {_html.unescape(n): _html.unescape(v) for n, v in
+              re.findall(r'<input type="hidden" name="([^"]+)" value="([^"]*)"', bloc)}
+    return action, champs
+
+
+def _attente(ecran: Path, prep: str, corps: str) -> dict:
+    html, _mid = _rendre_attente(ecran.name)
+    assert '<script src="/static/seg_wait_exit.js"></script>' in html, "module partage non charge"
+    debut = html.index("<script>", html.index('id="finalize-form"')) + len("<script>")
+    script = html[debut:html.index("</script>", debut)]
+    _action, champs = _formulaire_finalisation(html)
     return _node_fichier(_ATTENTE % {"prep": prep, "script": script, "corps": corps,
                                      "module": SEG_EXIT.read_text(encoding="utf-8"),
-                                     "a_incomplet": "true" if 'name="transcription_incomplete"' in brut else "false"})
+                                     "a_incomplet": "true" if "transcription_incomplete" in champs else "false"})
 
 
 _ETAT_SORTIE = "({ sortie: els['seg-exit'].hidden === false, soumis: soumis })"
@@ -365,15 +413,23 @@ out.sain = { sortie: els['seg-exit'].hidden === false };
     assert r["sain"] == {"sortie": False}
 
 
-def test_finalisation_manuelle_signale_l_incomplet_et_ne_dit_pas_termine() -> None:
-    """Revue 3.3 #5 (page libre) : finaliser a la main pendant des tranches en cours
-    envoie transcription_incomplete=1 et n'affiche pas « Traitement termine »."""
-    r = _attente(LIBRE.parent / "libre_segment_wait.html", "reponses.push(EN_COURS, EN_COURS);", """
+@pytest.mark.parametrize("ecran", ATTENTES, ids=lambda p: p.name)
+def test_finalisation_manuelle_signale_l_incomplet_et_ne_dit_pas_termine(ecran: Path) -> None:
+    """Revue 3.3 #5 + revue finale R2/R11a (les DEUX pages, page rendue) : finaliser a
+    la main pendant des tranches en cours envoie transcription_incomplete=1 (champ
+    present dans le formulaire rendu, sinon le harnais echoue), n'affiche pas
+    « Traitement termine », et « Finaliser » reste desactive apres l'envoi, meme
+    apres un poll sain."""
+    r = _attente(ecran, "reponses.push(EN_COURS, EN_COURS, EN_COURS);", """
 clock = 21 * 60 * 1000; await suivant();
 els['seg-exit-finalize'].h.click();
-Object.assign(out, { soumis: soumis, incomplet: incomplet.value, progression: els['seg-progress'].textContent });
+Object.assign(out, { soumis: soumis, incomplet: incomplet.value, progression: els['seg-progress'].textContent,
+                     desactive: els['seg-exit-finalize'].disabled });
+await suivant(); out.desactive_apres_poll = els['seg-exit-finalize'].disabled;
+els['seg-exit-finalize'].h.click(); out.soumis2 = soumis;
 """)
     assert r["soumis"] == 1 and r["incomplet"] == "1", r
+    assert r["desactive"] is True and r["desactive_apres_poll"] is True and r["soumis2"] == 1, r
     assert "Traitement terminé" not in r["progression"], r
     assert r["progression"].startswith("Finalisation avec le texte disponible"), r
 
@@ -653,3 +709,134 @@ els['seg-exit-finalize'].h.click(); out.clic_ok = soumis;
     assert r["sain"] == {"cache": False, "inactif": False, "sortie": False}, r
     assert r["borne"] == {"cache": False, "inactif": False, "sortie": True}, r
     assert r["clic_ok"] == 1
+
+
+# --------------------------------------------------------------------------- #
+# Revue finale 3.3 (2026-11-17)
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("ecran", ATTENTES, ids=lambda p: p.name)
+def test_finalisation_incomplete_atteint_le_serveur_par_l_action_rendue(ecran: Path, monkeypatch) -> None:
+    """R1/R2 : le formulaire REELLEMENT rendu, poste vers SA propre action avec
+    transcription_incomplete=1, produit une revue qui le dit (une tranche manquante,
+    meme regle que l'enregistrement direct) ; sans le drapeau, rien n'est signale."""
+    import html as _html
+
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from app.routers import interviews_record
+
+    html, _mid = _rendre_attente(ecran.name)
+    action, champs = _formulaire_finalisation(html)
+    assert "transcription_incomplete" in champs, champs
+    libre = ecran.name == "libre_segment_wait.html"
+    if libre:
+        monkeypatch.setattr(interviews_record, "_extraire_tours_libre", lambda *a, **k: {
+            "turns": [{"interlocuteur": "A", "question": "Bonjour", "remarque": None, "section_title": None}],
+            "identity": {}, "tranches_manquantes": 0})
+    else:
+        monkeypatch.setattr(interviews_record, "segment_jobs_status", lambda db, tok: {
+            "jobs": [], "total": 0, "done": 0, "failed": 0, "stale": 0, "all_done": False, "any_failed": False})
+        monkeypatch.setattr(interviews_record, "extract_answers_from_text",
+                            lambda questions, texte: {999999: {"text": "Une reponse", "verbatims": []}})
+    c = TestClient(app)
+    pages = {}
+    for drapeau in ("", "1"):
+        r = c.post(action, data={**champs, "transcription_incomplete": drapeau})
+        assert r.status_code == 200, r.text[:300]
+        pages[drapeau] = _html.unescape(r.text)
+    signal = "1 tranche n'a pas pu être structurée" if libre else '"tranches_manquantes": 1'
+    assert signal not in pages[""], "temoin : sans le drapeau, aucune tranche manquante"
+    assert signal in pages["1"], pages["1"][:3000]
+
+
+@pytest.mark.parametrize("ecran", ATTENTES, ids=lambda p: p.name)
+def test_attente_deux_raisons_message_stable_et_demasque_avant_ecriture(ecran: Path) -> None:
+    """R8 : borne de temps ET « aucune tranche » en meme temps -> une seule annonce,
+    stable d'un poll a l'autre (priorite fixe), ecrite panneau deja visible."""
+    r = _attente(ecran, "for (let i = 0; i < 8; i++) reponses.push(VIDE);", """
+clock = 21 * 60 * 1000;
+for (let i = 0; i < 6; i++) await suivant();
+Object.assign(out, { annonces: annonces, message: annonce, cache: cacheALEcriture,
+                     sortie: els['seg-exit'].hidden === false });
+""")
+    assert r["sortie"] is True and r["annonces"] == 1, r
+    assert r["message"].startswith("L'attente dépasse"), r
+    assert r["cache"] is False, r
+
+
+@pytest.mark.parametrize("ecran", ATTENTES, ids=lambda p: p.name)
+def test_attente_session_expiree_et_borne_ne_basculent_pas(ecran: Path) -> None:
+    """R8 : 401 repetes passe la borne de temps -> le message session reste, une annonce."""
+    r = _attente(ecran, "for (let i = 0; i < 8; i++) reponses.push({ status: 401, data: {} });", """
+clock = 21 * 60 * 1000;
+for (let i = 0; i < 5; i++) await suivant();
+Object.assign(out, { annonces: annonces, message: annonce });
+""")
+    assert r["annonces"] == 1 and r["message"].startswith("Session expirée"), r
+
+
+@pytest.mark.parametrize("ecran", ATTENTES, ids=lambda p: p.name)
+def test_attente_2xx_sans_total_n_est_pas_une_reponse_vide(ecran: Path) -> None:
+    """R11a : un 2xx au corps inattendu (pas de `total`) ne compte pas comme « aucune tranche »."""
+    r = _attente(ecran, "for (let i = 0; i < 6; i++) reponses.push({ status: 200, data: {} });", """
+for (let i = 0; i < 4; i++) await suivant();
+out.e = %(e)s;
+""" % {"e": _ETAT_SORTIE})
+    assert r["e"] == {"sortie": False, "soumis": 0}, r
+
+
+def test_partage_perime_regle_apres_nouveau_partage_garde_le_mutex() -> None:
+    """R3 : partage A en vol, release(), nouveau partage B ; le reglement tardif de A
+    ne rouvre pas le mutex de B -> un 3e partage est refuse, aucun getDisplayMedia concurrent."""
+    r = _audio("""
+const demandes = []; let appelsDM = 0;
+navigator.mediaDevices.getDisplayMedia = function () { appelsDM++;
+  return new Promise(function (ok, ko) { demandes.push({ ok: ok, ko: ko }); }); };
+src.shareTab().catch(function () {});
+src.release();
+src.shareTab().catch(function () {});
+demandes[0].ko(new Error('refus A')); await tick();
+let erreur = null;
+src.shareTab().then(function () {}, function (e) { erreur = e.message; }); await tick();
+Object.assign(out, { appels: appelsDM, erreur: erreur });
+""")
+    assert r["appels"] == 2, r
+    assert "déjà en cours" in (r["erreur"] or ""), r
+
+
+@pytest.mark.parametrize("corps", ["", "  \n"], ids=["vide", "blancs"])
+@pytest.mark.parametrize("ecran", [LIBRE, STRUCTURE], ids=lambda p: p.name)
+def test_upload_2xx_corps_vide_ou_blanc_vaut_aucune_parole(ecran: Path, corps: str) -> None:
+    """R4 : sur les DEUX ecrans, un 2xx sans corps JSON (204, ou blancs seuls) ne
+    leve pas dans JSON.parse : « aucune parole », ni perdu bloquant ni relance."""
+    try:
+        from test_transcription_occupee_execution import _lancer
+    except ImportError:  # pragma: no cover
+        from tests.test_transcription_occupee_execution import _lancer
+    r = _lancer(ecran, [], 900000, r"""
+let muets = 0;
+noteNoSpeech = function () { muets++; };
+recFetch = function (url, opts, delai) { fetchs.push({ delai: delai });
+  return Promise.resolve({ ok: true, status: 204, text: function () { return Promise.resolve(%s); },
+    json: function () { return Promise.reject(new SyntaxError('Unexpected end of JSON input')); } }); };
+(async () => {
+  uploadSegment({ type: 'audio/webm' }, 0, null, 0, function () { appels.onSettle++; });
+  await tick();
+  console.log(JSON.stringify({ bloquants: appels.keepLostSegment.filter(function (x) { return x.blocking !== false; }).length, minuteurs: timers.length,
+                               fetchs: fetchs.length, muets: muets, settle: appels.onSettle }));
+})();
+""" % json.dumps(corps))
+    assert r == {"bloquants": 0, "minuteurs": 0, "fetchs": 1, "muets": 1, "settle": 1}, r
+
+
+@pytest.mark.parametrize("etat", ["bac.finalizing = true;", "bac.pendingBackups = 1;", "bac.pendingSegments = 1;"],
+                         ids=["derniere_tranche_en_cours", "sauvegarde_en_vol", "segment_en_vol"])
+def test_reprendre_juste_apres_arret_ne_reecrit_pas_la_session(etat: str) -> None:
+    """R5 : juste apres « Arreter » (texte encore vide, derniere tranche ou envois encore
+    en vol), « Reprendre » n'ecrase ni le jeton ni les parties audio."""
+    r = _reprise("rendre(); %s el('rec-draft-restore')._on.click();" % etat + """
+out = { jeton: bac.sessionToken, segments: bac.backupSegments.map(function (s) { return s.filename; }),
+        cache: el('rec-draft-banner').hidden, texte: bac.transcriptSoFar };
+""")
+    assert r == {"jeton": "vivant", "segments": [], "cache": True, "texte": ""}, r

@@ -44,6 +44,7 @@
   <input type="hidden" name="interviewee_entity" value="{{ identity.interviewee_entity or '' }}">
   <input type="hidden" name="interview_date" value="{{ identity.interview_date or '' }}">
   <input type="hidden" name="audio_backup_path" value="{{ identity.audio_backup_path or '' }}">
+  <input type="hidden" name="transcription_incomplete" value="">
 </form>
 
 <script>
@@ -73,11 +74,15 @@
     inactif: function () { return submitted; },
     onFinalize: function () { finalize(true); } });
   function horsDelai() { return Date.now() - debut >= WAIT_MAX_MS; }
+  // Une seule raison de sortie par poll, priorité STABLE (revue finale R8) :
+  // session expirée > borne de temps > suivi muet / aucune tranche. Deux raisons
+  // proposées l'une après l'autre à chaque poll faisaient basculer (et
+  // ré-annoncer) le message role=alert toutes les 5 s.
   function bornee() {
-    if (horsDelai()) {
-      sortie.proposer("L'attente dépasse " + Math.round(WAIT_MAX_MS / 60000) + ' min — garde la ' +
-        'transcription brute (copie ou téléchargement) ou finalise avec le texte disponible.');
-    }
+    if (!horsDelai()) return false;
+    sortie.proposer("L'attente dépasse " + Math.round(WAIT_MAX_MS / 60000) + ' min — garde la ' +
+      'transcription brute (copie ou téléchargement) ou finalise avec le texte disponible.');
+    return true;
   }
 
   function finalize(manuel) {
@@ -86,8 +91,9 @@
     if (manuel) {
       // Finalisation MANUELLE (panneau de sortie) : des tranches peuvent encore être
       // en cours — le dire au serveur et ne pas afficher « terminé » (Story 3.3).
-      var incomplet = form.querySelector('input[name="transcription_incomplete"]');
-      if (incomplet) incomplet.value = '1';
+      // Pas de garde `if (champ)` : un champ absent du formulaire doit casser
+      // bruyamment (et le harnais), jamais finaliser sans le signal (revue finale R2).
+      form.querySelector('input[name="transcription_incomplete"]').value = '1';
       progressEl.textContent = 'Finalisation avec le texte disponible — les tranches non terminées ne sont pas attendues…';
       form.submit();
       return;
@@ -110,9 +116,12 @@
         return res.json();
       })
       .then(function (s) {
+        s = s || {};
         failedPolls = 0;
         sortie.authentifie();  // 2xx authentifié : fin de l'état « session expirée »
-        emptyPolls = (s.total > 0 || s.all_done || s.any_failed) ? 0 : emptyPolls + 1;
+        // « Aucune tranche » = total EXPLICITEMENT nul : un 2xx sans `total` (corps
+        // inattendu) ne compte pas comme une réponse vide (revue finale R11a).
+        emptyPolls = (s.total === 0 && !s.all_done && !s.any_failed) ? emptyPolls + 1 : 0;
         progressEl.classList.remove('error');
         if (s.total > 0) {
           barEl.max = s.total;
@@ -130,11 +139,10 @@
         if (s.all_done || s.any_failed) {
           finalize();
         } else {
-          if (emptyPolls >= EXIT_AFTER_EMPTY) {
+          if (!bornee() && emptyPolls >= EXIT_AFTER_EMPTY) {
             sortie.proposer('Aucune tranche en cours côté serveur — garde la transcription brute ' +
               '(copie ou téléchargement) ou finalise avec le texte disponible.');
           }
-          bornee();
           setTimeout(poll, 5000);
         }
       })
@@ -155,11 +163,10 @@
           sortie.proposer('Session expirée : copie ou télécharge la transcription brute avant toute ' +
             'autre action. « Finaliser » est désactivé : il renverrait vers la page de connexion ' +
             'et quitterait cette page. Reconnecte-toi dans un autre onglet ; le suivi reprendra.', true);
-        } else if (failedPolls >= EXIT_AFTER_FAILS) {
+        } else if (!bornee() && failedPolls >= EXIT_AFTER_FAILS) {
           sortie.proposer('Le suivi ne répond plus — garde la transcription brute (copie ou ' +
             'téléchargement) ou finalise avec le texte disponible.');
         }
-        bornee();
         setTimeout(poll, 5000);
       });
   }

@@ -1297,7 +1297,14 @@
       : TRANSCRIBE_TIMEOUT_MS;
     recFetch('/audio/transcribe-segment', { method: 'POST', body: formData }, delaiRequete)
       .then(function (res) {
-        return res.json().then(function (data) { return { ok: res.ok, status: res.status, data: data }; });
+        // Story 3.3 (revue finale R4, parité record_libre.html) : un 2xx à corps vide
+        // ou blanc (204) ne passe pas par JSON.parse, qui lèverait et enverrait le
+        // segment sur le chemin « erreur réseau » ; il vaut « aucune parole »
+        // (rec_retry.classer). Un corps non vide illisible lève comme avant.
+        var lire = (typeof res.text === 'function')
+          ? res.text().then(function (t) { return (t && t.trim()) ? JSON.parse(t) : {}; })
+          : res.json();
+        return lire.then(function (data) { return { ok: res.ok, status: res.status, data: data || {} }; });
       })
       .then(function (result) {
         if (gen !== recGeneration) { settle(); return; }  // session abandonnée : ne pas ressusciter

@@ -31,9 +31,11 @@
     // poll authentifié réussisse (`authentifie()`). Sinon un 401 puis une coupure
     // réoffraient un POST qui renverrait vers la connexion (perte de la page).
     var sessionExpiree = false;
+    // Désactivé aussi une fois la page soumise (`inactif()`), quel que soit le
+    // chemin de soumission : un second clic ne re-POSTe pas (revue finale R11a).
     function majFinaliser() {
       finalizeBtn.hidden = sessionExpiree;
-      finalizeBtn.disabled = sessionExpiree;
+      finalizeBtn.disabled = sessionExpiree || !!(o.inactif && o.inactif());
     }
 
     function texte() {
@@ -48,10 +50,12 @@
       var nouvelle = raison + (sessionExpiree ? '|session' : '');
       if (nouvelle === cle) return;
       cle = nouvelle;
-      textEl.textContent = raison + (sessionExpiree && !session
-        ? ' « Finaliser » reste désactivé : la session a expiré (reconnecte-toi dans un autre onglet).' : '');
+      // Démasquer AVANT d'écrire : un role=alert écrit pendant qu'il est caché
+      // peut ne pas être annoncé (revue finale R8).
       majFinaliser();
       root.hidden = false;
+      textEl.textContent = raison + (sessionExpiree && !session
+        ? ' « Finaliser » reste désactivé : la session a expiré (reconnecte-toi dans un autre onglet).' : '');
     }
     function masquer() {
       if (cle === null) return;
@@ -88,6 +92,7 @@
       if (finalizeBtn.disabled || sessionExpiree) return;
       if (!confirm('Finaliser avec le texte disponible ? Les tranches encore en cours ne seront pas attendues.')) return;
       o.onFinalize();
+      majFinaliser();
     });
     return { proposer: proposer, masquer: masquer, authentifie: authentifie };
   };
