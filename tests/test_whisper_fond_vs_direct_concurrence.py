@@ -130,12 +130,28 @@ def test_retry_bloc_inclut_busy_par_classe():
 
 
 def _jobs(n):
-    return [SimpleNamespace(status="failed", text="du texte", error=None, turns_result=None)
-            for _ in range(n)]
+    return [SimpleNamespace(id=i, status="failed", text="du texte", error=None,
+                            turns_result=None)
+            for i in range(n)]
 
 
 class _Db:
+    """Fausse session : `execute` applique l'UPDATE conditionnel de `_marquer_echec`
+    (`WHERE id = ? AND status != 'done'`) aux jobs en mémoire."""
+
+    def __init__(self, jobs=()):
+        self._jobs = {j.id: j for j in jobs}
+
+    def execute(self, stmt):
+        p = stmt.compile().params
+        job = self._jobs[p["id_1"]]
+        if job.status != p["status_1"]:
+            job.status, job.error = p["status"], p["error"]
+
     def commit(self):
+        pass
+
+    def refresh(self, job):
         pass
 
 
@@ -150,7 +166,7 @@ def test_recuperation_plafond_dur_sans_appel(monkeypatch):
         return {"turns": []}
     monkeypatch.setattr(isj, "_extract_with_retries", lent)
     jobs = _jobs(4)
-    isj.recover_stalled_or_failed_jobs(_Db(), jobs)
+    isj.recover_stalled_or_failed_jobs(_Db(jobs), jobs)
     assert len(appels) == 1                       # au moins un essai, puis plus d'appel
     assert jobs[0].status == "done"
     for j in jobs[1:]:

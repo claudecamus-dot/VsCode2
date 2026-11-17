@@ -87,6 +87,8 @@ def test_b1_fiche_a_transcrire_avec_texte_explique_le_blocage_et_propose_la_sort
     sans_texte = _interview(mission_id, "a_transcrire", "")
     page = client.get(f"/interviews/{avec_texte}").text
     assert 'data-structuration-bloquee="1"' in page
+    # Bandeau statique : `status`, jamais `alert` (annonce intempestive).
+    assert 'role="status" data-structuration-bloquee="1"' in page
     assert 'name="texte_disponible"' in page
     assert "Structurer le texte disponible" in page
     # Comportemental (revue) : le formulaire RENDU, soumis tel quel, débloque.
@@ -817,6 +819,43 @@ def test_f5_recuperation_synchrone_n_ecrase_pas_un_done(monkeypatch) -> None:
         assert job.status == "done"  # l'objet relu, vu par la fusion qui suit
     with SessionLocal() as db:
         assert db.get(InterviewSegmentJob, job_id).status == "done"
+
+
+def test_f5_budget_dur_epuise_n_ecrase_pas_un_done(monkeypatch) -> None:
+    """Reliquat F5 : la branche « budget dur épuisé » écrivait `failed` par l'ORM ;
+    une tranche passée `done` (tâche de fond) entre la lecture et l'écriture était
+    écrasée. Elle passe désormais par l'UPDATE conditionnel."""
+    with SessionLocal() as db:
+        jobs = [InterviewSegmentJob(session_token="f5-dur", position=i, kind="libre_turns",
+                                    status="pending", text=f"Bonjour {i}.")
+                for i in range(2)]
+        db.add_all(jobs)
+        db.commit()
+        ids = [j.id for j in jobs]
+    horloge = [0.0]
+    monkeypatch.setattr(interview_segment_jobs.time, "monotonic", lambda: horloge[0])
+
+    def _premier_essai_epuise_le_budget(db, job, *a, **k):
+        # Pendant cet essai, la tâche de fond aboutit la tranche SUIVANTE, déjà
+        # lue `pending` par la session de la requête (expire_on_commit=False).
+        with SessionLocal() as autre:
+            ligne = autre.get(InterviewSegmentJob, ids[1])
+            ligne.status = "done"
+            ligne.turns_result = {"turns": [], "identity": {}}
+            autre.commit()
+        horloge[0] += interview_segment_jobs._RECOVER_HARD_BUDGET_S + 1
+        return {"turns": [], "identity": {}}
+
+    monkeypatch.setattr(interview_segment_jobs, "_extract_with_retries",
+                        _premier_essai_epuise_le_budget)
+    with SessionLocal() as db:
+        jobs = [db.get(InterviewSegmentJob, i) for i in ids]
+        assert jobs[1].status == "pending"
+        interview_segment_jobs.recover_stalled_or_failed_jobs(db, jobs)
+        assert jobs[1].status == "done"  # l'objet relu, vu par la fusion qui suit
+    with SessionLocal() as db:
+        ligne = db.get(InterviewSegmentJob, ids[1])
+        assert ligne.status == "done" and ligne.error is None
 
 
 def test_f7_etat_audio_applique_la_garde_de_mission(monkeypatch, tmp_path) -> None:

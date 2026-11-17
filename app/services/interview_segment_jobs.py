@@ -610,12 +610,10 @@ def recover_stalled_or_failed_jobs(db: Session, jobs: list[InterviewSegmentJob])
             continue
         if tentees >= _RECOVER_MIN_ESSAIS and time.monotonic() - debut >= _RECOVER_HARD_BUDGET_S:
             # Budget dur épuisé : aucun appel, la tranche reste rejouable.
-            # (Écriture ORM conservée ici : aucun essai n'a tourné pour CETTE
-            # tranche dans cette requête ; la fenêtre de course est celle des
-            # essais précédents. Limite connue, revue finale Story 3.4 F5.)
-            job.status = "failed"
-            job.error = _RECOVER_DIFFEREE_MSG
-            db.commit()
+            # UPDATE conditionnel lui aussi (reliquat F5) : la tâche de fond peut
+            # avoir abouti la tranche entre la lecture de `job.status` ci-dessus
+            # et l'écriture — une écriture ORM réécrivait `failed` sur son `done`.
+            _marquer_echec(db, job, _RECOVER_DIFFEREE_MSG)
             continue
         tentees += 1
         try:
