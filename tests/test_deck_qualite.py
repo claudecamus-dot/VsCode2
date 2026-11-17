@@ -1111,3 +1111,32 @@ def test_date_couverture_est_le_jour_local_pas_utc(monkeypatch) -> None:
     texte = " ".join(sh.text_frame.text for sh in prs.slides[0].shapes if sh.has_text_frame)
     assert "22/10/2026" in texte
     assert "21/10/2026" not in texte
+
+
+def test_design_avertissement_couverture_hors_du_gabarit() -> None:
+    """Story 3.5 (P4) : la ligne « Attention : N entretiens incomplets » posée sur
+    la couverture de marque ne chevauche aucun placeholder du gabarit, tient dans
+    sa boîte et reste sur la slide (la garde du n° de page est dans le builder)."""
+    mid = _mission_complete()
+    db = SessionLocal()
+    try:
+        db.add_all(Interview(mission_id=mid, mode="libre", status="done", interviewee_name=n,
+                             repartition={"contexte": "Vu."}, parties_supprimees=1)
+                   for n in ("Amputé 1", "Amputé 2"))
+        db.commit()
+        prs = build_presentation(db.get(Mission, mid), include_base_analyse=False)
+    finally:
+        db.close()
+    cover = prs.slides[0]
+    alertes = [sh for sh in cover.shapes
+               if sh.has_text_frame and sh.text_frame.text.startswith("Attention :")]
+    assert len(alertes) == 1
+    a = alertes[0]
+    for ph in cover.placeholders:
+        disjoint = (a.left + a.width <= ph.left or ph.left + ph.width <= a.left
+                    or a.top + a.height <= ph.top or ph.top + ph.height <= a.top)
+        assert disjoint, f"avertissement sur le placeholder {ph.name}"
+    assert a.left >= 0 and a.top >= 0
+    assert a.left + a.width <= prs.slide_width and a.top + a.height <= prs.slide_height
+    problemes = D.verifier_debordements_texte(prs)
+    assert problemes == [], problemes

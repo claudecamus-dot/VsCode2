@@ -309,6 +309,14 @@ class Interview(Base):
     # simple F5 de la fiche (avant ce champ, le compteur ne voyageait qu'en
     # query string sur la redirection d'enregistrement).
     tranches_manquantes: Mapped[int] = mapped_column(Integer, default=0)
+    # Parties audio de sauvegarde SUPPRIMÉES depuis l'onglet Backup (Story 3.5).
+    # Distinct de `tranches_manquantes` (transcription incomplète, remis à 0 par
+    # une retranscription complète) : l'audio supprimé reste perdu, ce compte ne
+    # redescend jamais. Seul témoin de la suppression de la DERNIÈRE partie
+    # (positions 0,1,2 -> 0,1 : aucun trou à détecter).
+    parties_supprimees: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
     # Structuration IA différée de l'entretien libre (2026-10-06) : l'entretien
     # est enregistré tout de suite (texte + audio), la répartition en tours de
     # parole tourne ensuite en tâche de fond. a_traiter|en_cours|fait|echec ;

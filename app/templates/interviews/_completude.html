@@ -1,0 +1,11 @@
+{# Story 3.5 — parties audio supprimées depuis l'onglet Backup. Signal DISTINCT
+   de `tranches_manquantes` (transcription incomplète, rattrapable) : l'audio
+   supprimé est perdu, une retranscription ne le fait pas revenir. #}
+{% set n_supprimees = interview.parties_supprimees or 0 %}
+{% if n_supprimees %}
+<p class="ai-error" role="status" data-parties-supprimees="{{ n_supprimees }}">
+  ⚠ Entretien incomplet : {{ n_supprimees }} partie{{ 's' if n_supprimees > 1 else '' }} supprimée{{ 's' if n_supprimees > 1 else '' }}
+  de l'enregistrement audio (onglet Backup).
+  Leur contenu n'est plus récupérable : une retranscription ne repart que des parties restantes.
+</p>
+{% endif %}

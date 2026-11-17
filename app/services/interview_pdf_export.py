@@ -38,7 +38,7 @@ from reportlab.platypus import (
 )
 
 from ..models import Interview
-from .interview_export import group_turns_into_sections
+from .interview_export import group_turns_into_sections, texte_parties_supprimees
 
 logger = logging.getLogger(__name__)
 
@@ -248,6 +248,11 @@ def _header_flowables(interview: Interview) -> list:
         sub = f"{sub} · {date_str}" if sub else date_str
     if sub:
         flowables.append(Paragraph(_text(sub), _STYLES["subtitle"]))
+    alerte = texte_parties_supprimees(interview)
+    if alerte:
+        # Story 3.5 : un entretien amputé d'une partie audio ne se présente
+        # jamais comme complet, même exporté hors de l'application.
+        flowables += [_callout(alerte, label="Entretien incomplet"), Spacer(1, 6)]
     return flowables
 
 

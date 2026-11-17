@@ -19,7 +19,7 @@ from fastapi import (
     UploadFile,
 )
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
-from sqlalchemy import select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from ..db import RECORDINGS_DIR, get_session
@@ -256,11 +256,18 @@ def delete_record_backup(
             detail="Fichier momentanément verrouillé — réessaie dans un instant.",
         ) from exc
 
+    amputes: list[int] = []
     for interview in mission.interviews:
         segments = [
             seg for seg in (interview.audio_segments or []) if seg.get("filename") != filename
         ]
-        if len(segments) != len(interview.audio_segments or []):
+        partie_retiree = len(segments) != len(interview.audio_segments or [])
+        # Story 3.5 : la suppression est COMPTÉE — première, milieu ou DERNIÈRE
+        # partie (la dernière ne laisse aucun trou de positions), ou l'audio
+        # unique d'un entretien d'avant la segmentation.
+        if partie_retiree or interview.audio_backup_path == filename:
+            amputes.append(interview.id)
+        if partie_retiree:
             # PAS de renumérotation (Story 3.4, B-4) : `position` est l'IDENTITÉ
             # de la tranche dans l'enregistrement. Renuméroter effaçait le trou
             # (0, 2 -> 0, 1) et la confirmation de retranscription concluait
@@ -276,5 +283,16 @@ def delete_record_backup(
             # retomber sur celle qui reste, pas sur None si l'entretien a
             # encore de l'audio.
             interview.audio_backup_path = segments[-1]["filename"] if segments else None
+    if amputes:
+        # Incrément ATOMIQUE côté SQL (revue Story 3.5) : un `n + 1` calculé en
+        # Python perdait une suppression sur deux requêtes concurrentes (même
+        # valeur lue, même valeur écrite). Après l'unlink réussi, dans la même
+        # transaction que la mise à jour des segments.
+        db.execute(
+            update(Interview)
+            .where(Interview.id.in_(amputes))
+            .values(parties_supprimees=func.coalesce(Interview.parties_supprimees, 0) + 1)
+            .execution_options(synchronize_session=False)
+        )
     db.commit()
     return RedirectResponse(f"/missions/{mission_id}#backup", status_code=303)

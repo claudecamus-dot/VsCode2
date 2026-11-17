@@ -557,7 +557,8 @@ def _slide_maturite(prs: Presentation, maturites) -> None:
             lx += 0.16 + tw + 0.22
 
 
-def _slide_base_analyse(prs: Presentation, couverture_mission, couverture_themes) -> None:
+def _slide_base_analyse(prs: Presentation, couverture_mission, couverture_themes,
+                        entretiens_incomplets: int = 0) -> None:
     """« Base de l'analyse » — sur quelle matière REELLE repose le diagnostic.
 
     Incrément I1 de `docs/reflexions/spec-restitution-defendable.md`. En
@@ -601,6 +602,15 @@ def _slide_base_analyse(prs: Presentation, couverture_mission, couverture_themes
                    [("Chiffres calculés sur les entretiens de la mission — aucun n'est estimé.",
                      {"size": s, "color": D.MUTED})])
         top += 0.36
+        if entretiens_incomplets > 0:
+            # Story 3.5 : un entretien amputé d'une partie audio est DIT, sur la
+            # slide qui répond « sur quelle matière repose le diagnostic ? ».
+            pl = "s" if entretiens_incomplets > 1 else ""
+            D.add_text(slide, MARGIN + 0.3, top, w_in - 2 * (MARGIN + 0.3), 0.26,
+                       [(f"⚠ {entretiens_incomplets} entretien{pl} incomplet{pl} : "
+                         "partie audio supprimée, contenu partiel.",
+                         {"size": s, "bold": True, "color": D.MUTED})])
+            top += 0.36
         avail = max(0.0, bas - top)
 
         # Carte-chiffre : l'unique aplat de la slide (hiérarchie n°1). Chiffre et

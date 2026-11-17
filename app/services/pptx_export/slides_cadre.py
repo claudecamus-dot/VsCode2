@@ -39,7 +39,30 @@ _CHAPITRES = [
 ]
 
 
-def _slide_cover(prs: Presentation, mission: Mission) -> None:
+def texte_entretiens_incomplets(n: int) -> str:
+    """Story 3.5 — avertissement du deck, "" si aucun entretien incomplet.
+    Texte brut, sans glyphe « ⚠ » : la police du thème (Arial) ne le porte pas."""
+    if n <= 0:
+        return ""
+    pl = "s" if n > 1 else ""
+    return (f"Attention : {n} entretien{pl} incomplet{pl} — partie audio supprimée, "
+            "contenu partiel.")
+
+
+def _avertissement_couverture(prs: Presentation, slide, entretiens_incomplets: int,
+                              couleur: str) -> None:
+    """Ligne d'avertissement en bas de couverture : la seule slide TOUJOURS émise.
+    Au-dessus de la signature « DIGITAL THINKERS & DOERS » du gabarit OCTO et à
+    gauche de son n° de page / de sa mention verticale (coin bas droit, ~1 in)."""
+    texte = texte_entretiens_incomplets(entretiens_incomplets)
+    if not texte:
+        return
+    w_in, h_in = _dims(prs)
+    D.add_text(slide, MARGIN, h_in - 1.05, w_in - 2 * MARGIN - 1.0, 0.3,
+               [(texte, {"size": D.TYPE["small"], "bold": True, "color": couleur})])
+
+
+def _slide_cover(prs: Presentation, mission: Mission, entretiens_incomplets: int = 0) -> None:
     """Couverture : sur un template OCTO, remplit les placeholders du layout de
     marque « 40 - Couverture » (titre/sous-titre/date) — la mise en forme (police
     Outfit, tailles, éventuelle photo de couverture) vient du template. Repli sur un
@@ -67,8 +90,11 @@ def _slide_cover(prs: Presentation, mission: Mission) -> None:
         if 3 in phs:
             phs[3].text_frame.text = date_str
             D.appliquer_police(phs[3].text_frame)
+        # Couverture de marque : photo sombre plein cadre -> texte blanc.
+        _avertissement_couverture(prs, slide, entretiens_incomplets, "#FFFFFF")
         return
     _slide_title(prs, mission, subtitle, date_str)
+    _avertissement_couverture(prs, prs.slides[-1], entretiens_incomplets, D.INK)
 
 
 def _slide_title(prs: Presentation, mission: Mission, subtitle: str, date_str: str) -> None:
