@@ -60,6 +60,7 @@ sur une machine à mémoire serrée.
 """
 from __future__ import annotations
 
+import atexit
 import collections
 import contextlib
 import contextvars
@@ -67,6 +68,7 @@ import io
 import logging
 import multiprocessing
 import os
+import sys
 import threading
 import time
 from concurrent.futures import Future, ProcessPoolExecutor
@@ -692,7 +694,9 @@ def _modele_worker(threads: int):
 #    SEUIL_PHRASE_NO_SPEECH ou avg_logprob < SEUIL_PHRASE_LOGPROB) : une vraie
 #    phrase prononcée avec assurance reste, même seule. Puis, dans une suite d'au
 #    moins RUN_REPETITION_MIN segments identiques, les redites PEU SÛRES (même
-#    critère) sont repliées sur la première ; les redites sûres restent.
+#    critère) sont repliées sur la première ; les redites sûres restent. Un bloc
+#    qui n'est QUE la même phrase répétée (>= RUN_REPETITION_MIN), toute peu
+#    sûre, est vide (arbitrage 2026-11-17).
 # Un bloc qui ne contient que cela rend "" : le direct lève alors `NoSpeechError`
 # (422 `no_speech`, sémantique inchangée) et le fond compte un bloc vide.
 OPTIONS_ANTI_HALLUCINATION = {"condition_on_previous_text": False}
@@ -755,6 +759,16 @@ def _texte_segments(segments) -> str:
         if not (_est_phrase_silence(t) and (
             occurrences[_norm_phrase(t)] >= 2 or _peu_sur(nsp, logp)))
     ]
+    # Arbitrage utilisateur 2026-11-17 (AC3.2.4) : un bloc fait d'UNE SEULE phrase
+    # (normalisée) répétée au moins RUN_REPETITION_MIN fois, toutes ses occurrences
+    # PEU SÛRES, est une boucle d'hallucination même hors `_PHRASES_SILENCE`
+    # (sonde : « Bonjour bonjour. » x6 à no_speech_prob 0,2 / avg_logprob -0,9).
+    # Aucune parole : sinon le repli ci-dessous en gardait une et neutralisait
+    # l'alerte. Des redites SÛRES (« Non. » x3) restent de la parole.
+    if (len(retenus) >= RUN_REPETITION_MIN
+            and len({_norm_phrase(t) for t, _, _ in retenus}) == 1
+            and all(_peu_sur(nsp, logp) for _, nsp, logp in retenus)):
+        return ""
     gardes: list[str] = []
     i = 0
     while i < len(retenus):
@@ -1022,7 +1036,7 @@ def memoire_disponible() -> int | None:
         return None
 
 
-def _workers_selon_memoire(demandes: int) -> int:
+def _workers_selon_memoire(demandes: int, credit_workers: int = 0) -> int:
     """Workers que la mémoire disponible permet de démarrer (0 = aucun : repli
     séquentiel borné si le modèle du serveur est chargé, sinon échec immédiat).
 
@@ -1034,6 +1048,10 @@ def _workers_selon_memoire(demandes: int) -> int:
     dispo = memoire_disponible()
     if dispo is None:
         return demandes
+    # Arbitrage 2026-11-17 : la mémoire d'un pool chaud garé (`credit_workers`
+    # workers déjà chargés) est déjà retirée du « disponible » ; elle reste
+    # récupérable (pool réutilisé, ou arrêté s'il ne tient plus).
+    dispo += max(0, credit_workers) * MEMOIRE_PAR_WORKER_OCTETS
     permis = max(0, int((dispo - MEMOIRE_MARGE_OCTETS) // max(1, MEMOIRE_PAR_WORKER_OCTETS)))
     retenus = min(demandes, permis)
     logger.info(
@@ -1114,6 +1132,163 @@ def _arreter_workers(executor, futures: dict) -> None:
         if p.is_alive():
             p.kill()
             p.join(5)
+
+
+# Arbitrage utilisateur 2026-11-17 (AC3.2.1, 2e clause) : « une relance ne repaie
+# pas un chargement déjà fait quand c'est évitable ». Avant, chaque appel de
+# `_drain_parallel` (donc chaque rejeu de niveau job, chaque fichier d'une
+# retranscription) démarrait un pool neuf et chaque worker rechargeait son modèle
+# (~1,6 Gio, minutes sous charge). Un pool RÉEL resté SAIN est désormais GARÉ ici
+# à la sortie (fin normale, ou échec levé par une tâche, workers vivants) et repris
+# par l'appel suivant compatible. Arrêté net (`_arreter_workers`) : worker figé
+# (`TranscriptionBloqueeError`), pool cassé (`BrokenProcessPool`), `MemoryError`,
+# consommateur parti (`GeneratorExit` : exécution supplantée, abandon), tâches en
+# vol qui ne finissent pas dans le délai d'un bloc, garde mémoire qui ne le laisse
+# plus tenir, appel incompatible (moins de permis que ses workers, autre modèle),
+# inactivité au-delà de POOL_CHAUD_INACTIF_S, sortie du processus (`atexit`). Un
+# seul pool garé à la fois. Garé, il ne tient AUCUN permis : tout appel qui démarre
+# un pool commence par le reprendre ou l'arrêter, il ne s'ajoute donc pas à un
+# pool neuf. RISQUE RÉSIDUEL assumé : un pool garé PENDANT qu'un autre appel
+# démarre le sien (fenêtre de quelques ms) vit à côté jusqu'au prochain appel ou à
+# l'inactivité — même ordre que le risque résiduel de `_workers_selon_memoire`.
+POOL_CHAUD_INACTIF_S = float(_entier_env("WHISPER_POOL_INACTIF_S", 300))
+
+
+class _PoolChaud:
+    __slots__ = ("executor", "taille", "prets", "servis", "cle", "generation", "minuterie")
+
+    def __init__(self, executor, taille: int, prets, servis, cle: tuple) -> None:
+        self.executor = executor
+        self.taille = taille
+        self.prets = prets
+        self.servis = servis
+        self.cle = cle
+        self.generation = 0
+        self.minuterie = None
+
+
+_POOL_CHAUD: _PoolChaud | None = None
+_POOL_CHAUD_LOCK = threading.Lock()
+_POOL_CHAUD_GENERATION = 0
+
+
+def _cle_pool() -> tuple:
+    """Ce qui fige le modèle d'un worker à son chargement : taille, fils de calcul
+    (passés au 1er bloc) et `sys.path` transmis au `spawn` (quel `faster_whisper`
+    le worker a importé). Un pool garé n'est repris qu'à clé égale."""
+    return (MODEL_SIZE, CPU_THREADS_PER_WORKER, tuple(sys.path))
+
+
+def _pool_garable() -> bool:
+    # La VRAIE classe seulement : les doublures des tests (sous-classes qui ne
+    # lancent aucune tâche) ne sont jamais réutilisées d'un appel à l'autre.
+    return ProcessPoolExecutor is _POOL_REEL
+
+
+def _pool_sain(executor) -> bool:
+    if getattr(executor, "_broken", False) or getattr(executor, "_shutdown_thread", False):
+        return False
+    return all(p.is_alive() for p in list((getattr(executor, "_processes", None) or {}).values()))
+
+
+def _detruire_pool(entree: _PoolChaud) -> None:
+    if entree.minuterie is not None:
+        entree.minuterie.cancel()
+        entree.minuterie = None
+    try:
+        _arreter_workers(entree.executor, {})
+    except Exception:
+        logger.warning("Arrêt du pool de transcription garé en échec.", exc_info=True)
+
+
+def _taille_pool_chaud() -> int:
+    with _POOL_CHAUD_LOCK:
+        return _POOL_CHAUD.taille if _POOL_CHAUD is not None else 0
+
+
+def _prendre_pool_chaud(n_workers: int, cle: tuple) -> _PoolChaud | None:
+    """Le pool garé s'il est sain, de même clé et d'au plus `n_workers` workers
+    (jamais plus de processus que de permis tenus) ; sinon il est arrêté."""
+    global _POOL_CHAUD
+    with _POOL_CHAUD_LOCK:
+        entree, _POOL_CHAUD = _POOL_CHAUD, None
+    if entree is None:
+        return None
+    if entree.cle == cle and 1 <= entree.taille <= n_workers and _pool_sain(entree.executor):
+        if entree.minuterie is not None:
+            entree.minuterie.cancel()
+            entree.minuterie = None
+        logger.info("Transcription parallèle : pool chaud de %d worker(s) réutilisé "
+                    "(modèles déjà chargés).", entree.taille)
+        return entree
+    logger.info("Pool de transcription garé arrêté (incompatible ou hors d'usage).")
+    _detruire_pool(entree)
+    return None
+
+
+def _garer_pool(entree: _PoolChaud) -> None:
+    global _POOL_CHAUD, _POOL_CHAUD_GENERATION
+    with _POOL_CHAUD_LOCK:
+        ancien, _POOL_CHAUD = _POOL_CHAUD, entree
+        _POOL_CHAUD_GENERATION += 1
+        entree.generation = _POOL_CHAUD_GENERATION
+    if ancien is not None and ancien is not entree:
+        _detruire_pool(ancien)
+    if POOL_CHAUD_INACTIF_S <= 0:
+        fermer_pool_chaud()
+        return
+    minuterie = threading.Timer(POOL_CHAUD_INACTIF_S, _expirer_pool_chaud, args=(entree.generation,))
+    minuterie.daemon = True
+    entree.minuterie = minuterie
+    minuterie.start()
+
+
+def _expirer_pool_chaud(generation: int) -> None:
+    global _POOL_CHAUD
+    with _POOL_CHAUD_LOCK:
+        if _POOL_CHAUD is None or _POOL_CHAUD.generation != generation:
+            return
+        entree, _POOL_CHAUD = _POOL_CHAUD, None
+    logger.info("Pool de transcription garé arrêté après %.0f s d'inactivité.", POOL_CHAUD_INACTIF_S)
+    entree.minuterie = None
+    _detruire_pool(entree)
+
+
+def fermer_pool_chaud() -> None:
+    """Arrête le pool garé s'il y en a un (sortie du processus, arrêt de l'app)."""
+    global _POOL_CHAUD
+    with _POOL_CHAUD_LOCK:
+        entree, _POOL_CHAUD = _POOL_CHAUD, None
+    if entree is not None:
+        _detruire_pool(entree)
+
+
+atexit.register(fermer_pool_chaud)
+
+
+def _sortie_saine(exc: BaseException, executor) -> bool:
+    """Vrai si l'échec vient d'une tâche, workers vivants : le pool peut être garé."""
+    return (isinstance(exc, Exception)
+            and not isinstance(exc, (BrokenProcessPool, MemoryError, TranscriptionBloqueeError))
+            and _pool_sain(executor))
+
+
+def _attendre_taches_en_vol(futures: dict) -> bool:
+    """Annule les blocs en file et attend ceux déjà en cours, au plus le délai d'un
+    bloc : un pool garé ne porte rien de l'appel précédent. Faux au-delà."""
+    for f in futures.values():
+        f.cancel()
+    echeance = time.monotonic() + BLOC_RESULTAT_TIMEOUT_S
+    for f in futures.values():
+        if not isinstance(f, Future) or f.cancelled():
+            continue
+        try:
+            f.exception(timeout=max(0.0, echeance - time.monotonic()))
+        except FuturesTimeoutError:
+            return False
+        except BaseException:   # annulé entre-temps : rien en vol
+            pass
+    return True
 
 
 def _sequentiel_borne(pcm, priority: int, index: int, total: int) -> str:
@@ -1206,8 +1381,10 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
     n_workers = max(1, min(n_workers, max(1, GLOBAL_MAX_PARALLEL_WORKERS)))
     if _pool_reel():
         # Story 2.2 : garde mémoire AVANT les permis et le pool (cf. MEMOIRE_PAR_WORKER_OCTETS).
-        n_workers = _workers_selon_memoire(n_workers)
+        n_workers = _workers_selon_memoire(
+            n_workers, _taille_pool_chaud() if _pool_garable() else 0)
         if n_workers == 0:
+            fermer_pool_chaud()      # mémoire insuffisante même en le récupérant
             # Pas même un worker. Modèle du serveur DÉJÀ chargé : repli séquentiel
             # sur lui (aucune mémoire de plus), borné comme un bloc du pool. Pas
             # chargé : échec immédiat plutôt que charger ~1,6 Gio maintenant.
@@ -1280,6 +1457,18 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
         contexte_mp = multiprocessing.get_context("spawn")
         pool_kw: dict = {}
         chargement = None
+        garable = _pool_garable()
+        cle = _cle_pool() if garable else ()
+        entree = _prendre_pool_chaud(n_workers, cle) if garable else None
+        if entree is not None:
+            # Arbitrage 2026-11-17 : pool chaud (modèles chargés) — les permis en
+            # trop sont rendus, le pool garde sa taille.
+            while acquis > entree.taille:
+                _GLOBAL_WORKERS_SEMAPHORE.release()
+                acquis -= 1
+            n_workers = acquis
+            window = n_workers * 2
+        prets = servis = None
         if _pool_reel():
             # C-1 : chaque worker incrémente ce compteur une fois SON modèle chargé ;
             # tant qu'un worker attendu charge encore, le délai des blocs ne court pas
@@ -1288,8 +1477,11 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
             # (`servis`, incrémenté au début du chargement), pas à un nombre figé : un
             # worker ne charge qu'à sa 1re tâche, et `_limite()` (direct actif) peut ne
             # jamais en servir certains — l'échéance resterait repoussée à tort.
-            prets = contexte_mp.Value("i", 0)
-            servis = contexte_mp.Value("i", 0)
+            if entree is not None:
+                prets, servis = entree.prets, entree.servis
+            else:
+                prets = contexte_mp.Value("i", 0)
+                servis = contexte_mp.Value("i", 0)
             # Re-revue 3.2 (M2) : la borne court depuis le début de l'ÉPISODE de
             # chargement (pool démarré, puis chaque instant où un worker servi
             # n'est pas encore prêt), pas depuis le démarrage du pool — un 2e worker
@@ -1313,8 +1505,19 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
                     raise TranscriptionBloqueeError(
                         message_chargement_trop_long(CHARGEMENT_MODELE_TIMEOUT_S))
                 return True
-        with ProcessPoolExecutor(max_workers=n_workers, mp_context=contexte_mp,
-                                 **pool_kw) as executor:
+        gestionnaire = None
+        if entree is not None:
+            executor = entree.executor
+        else:
+            # Contexte ouvert à la main (et non `with`) : à la sortie, le pool est
+            # soit garé, soit fermé comme le faisait le `with` (`__exit__`).
+            gestionnaire = ProcessPoolExecutor(max_workers=n_workers, mp_context=contexte_mp,
+                                               **pool_kw)
+            executor = gestionnaire.__enter__()
+        arrete = False
+        a_garer = False
+        sortie: tuple = (None, None, None)
+        try:
             def _submit(i: int) -> None:
                 futures[i] = executor.submit(
                     _transcribe_pcm_chunk, (blocks[i], CPU_THREADS_PER_WORKER)
@@ -1329,6 +1532,7 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
                     text = _attendre_resultat(futures.pop(index), index, total, chargement)
                 except TranscriptionBloqueeError:
                     _arreter_workers(executor, futures)
+                    arrete = True
                     raise
                 while submitted < total and len(futures) < _limite():
                     _submit(submitted)
@@ -1340,7 +1544,23 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
                     # lira les blocs en vol — arrêter les workers au lieu d'attendre
                     # qu'ils finissent dans `shutdown(wait=True)`.
                     _arreter_workers(executor, futures)
+                    arrete = True
                     raise
+            a_garer = garable
+        except BaseException as exc:
+            sortie = (type(exc), exc, exc.__traceback__)
+            a_garer = garable and not arrete and _sortie_saine(exc, executor)
+            raise
+        finally:
+            if a_garer and _attendre_taches_en_vol(futures) and _pool_sain(executor):
+                _garer_pool(entree if entree is not None else _PoolChaud(
+                    executor, n_workers, prets, servis, cle))
+            elif a_garer:              # tâches en vol figées : arrêt net
+                _arreter_workers(executor, futures)
+            elif gestionnaire is not None:
+                gestionnaire.__exit__(*sortie)  # ce que faisait la sortie du `with`
+            else:
+                executor.shutdown(wait=True)
     finally:
         for _ in range(acquis):
             _GLOBAL_WORKERS_SEMAPHORE.release()

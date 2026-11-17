@@ -867,3 +867,148 @@ def test_b3_modele_worker_compte_servis_et_rend_sur_echec(monkeypatch):
     assert at._modele_worker(1) is not None
     assert essais == [1, 1]                                    # compté PENDANT le chargement
     assert (servis.value, prets.value) == (1, 1)
+
+
+# --------------------------------------------------------------------------- #
+# Arbitrage utilisateur 2026-11-17 (AC3.2.1, 2e clause) : pool chaud réutilisé
+# --------------------------------------------------------------------------- #
+_FAUX_FASTER_WHISPER_COMPTE = '''
+import os, pathlib, time, uuid
+
+
+class _Segment:
+    def __init__(self, text):
+        self.text = text
+
+
+class WhisperModel:
+    def __init__(self, *args, **kwargs):
+        d = pathlib.Path(os.environ["S32_COMPTE_DIR"])
+        (d / f"charge-{os.getpid()}-{uuid.uuid4().hex}").write_text("x")
+
+    def transcribe(self, pcm, **kwargs):
+        d = pathlib.Path(os.environ["S32_COMPTE_DIR"])
+        n = len(pcm)
+        if n == int(os.environ.get("S32_ECHEC_LEN", "-1")) and not (d / "echoue").exists():
+            (d / "echoue").write_text("x")
+            raise RuntimeError("echec transitoire du bloc")
+        if n == int(os.environ.get("S32_FIGE_LEN", "-1")) and not (d / "fige").exists():
+            (d / "fige").write_text("x")
+            time.sleep(120)                      # worker figé
+        return [_Segment(f"bloc-{n}")], None
+'''
+
+
+@pytest.fixture
+def faux_fw_compte(tmp_path, monkeypatch):
+    """Faux `faster_whisper` importé par les workers `spawn` : chaque construction
+    du modèle laisse un fichier `charge-*` dans `compte`."""
+    at.fermer_pool_chaud()
+    paquet = tmp_path / "fauxfw"
+    paquet.mkdir()
+    (paquet / "faster_whisper.py").write_text(_FAUX_FASTER_WHISPER_COMPTE, encoding="utf-8")
+    compte = tmp_path / "compte"
+    compte.mkdir()
+    monkeypatch.syspath_prepend(str(paquet))
+    monkeypatch.setenv("S32_COMPTE_DIR", str(compte))
+    monkeypatch.setattr(at, "memoire_disponible", lambda: 64 * 1024 ** 3)
+    monkeypatch.setattr(at, "BATTEMENT_ATTENTE_S", 0.1)
+    monkeypatch.setattr(at, "CHARGEMENT_MODELE_TIMEOUT_S", 20.0)
+    yield compte
+    at.fermer_pool_chaud()
+
+
+def _chargements(compte) -> int:
+    return len(list(compte.glob("charge-*")))
+
+
+def test_arb1117_deux_essais_du_job_sur_pool_chaud_chargent_le_modele_une_fois(
+        faux_fw_compte, monkeypatch):
+    """Job réel, pool RÉEL d'un worker. Essai 1 : le bloc 0 échoue dans le worker
+    (échec transitoire, worker vivant), le repli séquentiel échoue aussi — le job
+    rejoue (niveau job). Essai 2 : le pool garé est repris, le modèle n'est PAS
+    rechargé. Avant : un pool neuf par essai, 2 chargements."""
+    monkeypatch.setenv("S32_ECHEC_LEN", str(60 * 16000))
+    monkeypatch.setattr(at, "MAX_PARALLEL_WORKERS", 1)
+    monkeypatch.setattr(at, "BLOC_RETRY_PAUSE_S", 0.0)
+    monkeypatch.setattr(audio_file_jobs, "BLOC_RETRY_DELAY_S", 0.0)
+    monkeypatch.setattr(at, "_decode_to_pcm16k",
+                        lambda content: np.zeros(60 * 16000 + 8000, dtype=np.float32))
+
+    def _sequentiel_en_echec(*args, **kwargs):
+        raise at.TranscriptionError(at.ECHEC_TRANSCRIPTION)
+
+    monkeypatch.setattr(at, "_transcrire_bloc_sequentiel", _sequentiel_en_echec)
+    job_id = _job("pool-chaud")
+    audio_file_jobs.run_audio_file_job(job_id)
+    job = _relire(job_id)
+    assert job.status == "done", (job.status, job.error)
+    assert job.blocks == [f"bloc-{60 * 16000}", "bloc-8000"]
+    assert (faux_fw_compte / "echoue").exists()            # l'essai 1 a bien échoué
+    assert _chargements(faux_fw_compte) == 1
+
+
+def test_arb1117_worker_fige_arrete_le_pool_et_le_suivant_est_neuf(faux_fw_compte, monkeypatch):
+    """Un worker figé n'est jamais garé : pool arrêté (aucun processus restant),
+    l'appel suivant démarre un pool neuf et recharge le modèle."""
+    import multiprocessing
+
+    monkeypatch.setenv("S32_FIGE_LEN", "1600")
+    monkeypatch.setattr(at, "BLOC_RESULTAT_TIMEOUT_S", 1.0)
+    with pytest.raises(at.TranscriptionBloqueeError):
+        list(at._drain_parallel(_blocs_s32(1), 0, 1, 1))
+    assert at._POOL_CHAUD is None
+    assert multiprocessing.active_children() == []
+    assert list(at._drain_parallel(_blocs_s32(1), 0, 1, 1)) == [(0, "bloc-1600")]
+    assert _chargements(faux_fw_compte) == 2
+    assert at._POOL_CHAUD is not None                       # pool sain : garé
+    at.fermer_pool_chaud()
+    assert multiprocessing.active_children() == []
+
+
+def _pool_gare_factice(taille: int = 2):
+    executor = at.ProcessPoolExecutor(max_workers=taille)    # aucun processus lancé
+    entree = at._PoolChaud(executor, taille, None, None, at._cle_pool())
+    at._garer_pool(entree)
+    return executor
+
+
+def test_arb1117_pool_garé_arrete_apres_inactivite(monkeypatch):
+    at.fermer_pool_chaud()
+    monkeypatch.setattr(at, "POOL_CHAUD_INACTIF_S", 0.2)
+    executor = _pool_gare_factice()
+    assert at._POOL_CHAUD is not None
+    fin = time.monotonic() + 5
+    while at._POOL_CHAUD is not None and time.monotonic() < fin:
+        time.sleep(0.05)
+    assert at._POOL_CHAUD is None
+    assert executor._shutdown_thread
+
+
+class _PoolInterdit(at.ProcessPoolExecutor):
+    def __init__(self, *args, **kwargs):
+        raise AssertionError("aucun pool ne doit démarrer sous pression mémoire")
+
+
+def test_arb1117_pool_garé_arrete_sous_pression_memoire(monkeypatch):
+    at.fermer_pool_chaud()
+    monkeypatch.setattr(at, "POOL_CHAUD_INACTIF_S", 60.0)
+    executor = _pool_gare_factice()
+    # Aucun worker ne tient, même en récupérant le pool garé (marge démesurée) :
+    # jamais de pool réel démarré ici, donc jamais le vrai modèle chargé.
+    monkeypatch.setattr(at, "memoire_disponible", lambda: 0)
+    monkeypatch.setattr(at, "MEMOIRE_MARGE_OCTETS", 10 ** 15)
+    monkeypatch.setattr(at, "_model", None)
+    monkeypatch.setattr(at, "ProcessPoolExecutor", _PoolInterdit)
+    with pytest.raises(at.TranscriptionMemoireInsuffisanteError):
+        list(at._drain_parallel(_blocs_s32(2), 0, 2, 2))
+    assert at._POOL_CHAUD is None
+    assert executor._shutdown_thread
+
+
+def test_arb1117_garde_memoire_compte_le_pool_garé_comme_recuperable(monkeypatch):
+    monkeypatch.setattr(at, "MEMOIRE_PAR_WORKER_OCTETS", 1024 ** 3)
+    monkeypatch.setattr(at, "MEMOIRE_MARGE_OCTETS", 0)
+    monkeypatch.setattr(at, "memoire_disponible", lambda: 1024 ** 3)
+    assert at._workers_selon_memoire(4) == 1
+    assert at._workers_selon_memoire(4, credit_workers=2) == 3

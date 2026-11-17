@@ -139,3 +139,31 @@ def test_ac324_direct_d_hallucinations_rend_no_speech(monkeypatch):
     with pytest.raises(at.NoSpeechError):
         at._transcribe_audio_live(b"x", 10.0)
     assert modele.kwargs[0]["condition_on_previous_text"] is False
+
+
+# --------------------------------------------------------------------------- #
+# Arbitrage utilisateur 2026-11-17 (AC3.2.4) : répétition hors liste, peu sûre
+# --------------------------------------------------------------------------- #
+def test_ac324_bloc_d_une_seule_phrase_repetee_peu_sure_hors_liste_est_vide():
+    # Sonde de l'arbitrage : « Bonjour bonjour. » x6, confiance moyenne, absente
+    # de `_PHRASES_SILENCE`. Avant : repliée sur une occurrence, bloc NON vide.
+    segs = [_Seg(" Bonjour bonjour.", no_speech_prob=0.2, avg_logprob=-0.9) for _ in range(6)]
+    assert at._texte_segments(segs) == ""
+
+
+def test_ac324_phrase_repetee_peu_sure_avec_autre_parole_reste_repliee():
+    # La règle ne vaut que pour un bloc fait de cette SEULE phrase.
+    segs = [_Seg(" Bonjour bonjour.", no_speech_prob=0.2, avg_logprob=-0.9) for _ in range(6)]
+    segs.append(_Seg(" On commence par le contexte."))
+    assert at._texte_segments(segs) == "Bonjour bonjour. On commence par le contexte."
+
+
+def test_ac324_phrase_repetee_moins_de_trois_fois_peu_sure_gardee():
+    segs = [_Seg(" Bonjour bonjour.", no_speech_prob=0.2, avg_logprob=-0.9) for _ in range(2)]
+    assert at._texte_segments(segs) == "Bonjour bonjour. Bonjour bonjour."
+
+
+def test_ac324_phrase_repetee_dont_une_occurrence_sure_reste_de_la_parole():
+    segs = [_Seg(" Bonjour bonjour.", no_speech_prob=0.2, avg_logprob=-0.9) for _ in range(5)]
+    segs.insert(0, _Seg(" Bonjour bonjour.", no_speech_prob=0.05, avg_logprob=-0.2))
+    assert at._texte_segments(segs) == "Bonjour bonjour."
