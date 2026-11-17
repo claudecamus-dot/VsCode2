@@ -420,13 +420,83 @@ function Get-AgeServeurS {
     return [math]::Max(0, ((Get-Date) - $plusRecent).TotalSeconds)
 }
 
-function Get-AgeWorkerS {
-    # Âge (s) du process serveur le plus jeune (racine ET descendance) de ce repo et de ce port.
-    param([int]$NumPort)
-    $creations = @(Get-ProcessusServeur -NumPort $NumPort | ForEach-Object { $_.CreationDate } | Where-Object { $_ })
-    if ($creations.Count -eq 0) { return $null }
-    $plusRecent = ($creations | Sort-Object -Descending | Select-Object -First 1)
+function Get-AgeDepuisCreations {
+    # Âge (s) de la création la plus RÉCENTE de la liste ; $null si aucune date lisible.
+    param([object[]]$Creations)
+    $dates = @($Creations | Where-Object { $_ })
+    if ($dates.Count -eq 0) { return $null }
+    $plusRecent = ($dates | Sort-Object -Descending | Select-Object -First 1)
     return [math]::Max(0, ((Get-Date) - $plusRecent).TotalSeconds)
+}
+
+function Select-WorkersUvicorn {
+    # (Story 3.1 re-review 2026-11-17, A2) Les workers UVICORN seuls, jamais toute
+    # la descendance : un enfant court (ffmpeg, worker spawn de transcription)
+    # remettait l'âge à ~0 et un serveur malade qui engendre encore des enfants
+    # n'atteignait jamais le plafond. Worker uvicorn = process spawn dont le
+    # `parent_pid=` désigne un process « uvicorn app.main » (le reloader). Sans
+    # --reload (aucun worker de ce type) : les process uvicorn eux-mêmes.
+    param([object[]]$Processus)
+    $uvicorn = @($Processus | Where-Object { $_.CommandLine -like "*uvicorn app.main*" })
+    $idsUvicorn = @($uvicorn | ForEach-Object { [int]$_.ProcessId })
+    $workers = @($Processus | Where-Object {
+        $_.CommandLine -like "*multiprocessing*" -and $_.CommandLine -match 'parent_pid=(\d+)(\D|$)' -and
+        ($idsUvicorn -contains [int]$Matches[1])
+    })
+    if ($workers.Count -gt 0) { return $workers }
+    return $uvicorn
+}
+
+function Get-InfoProcessus {
+    # Win32_Process d'un PID, ou $null s'il n'existe pas (ou n'est pas lisible).
+    param([int]$Id)
+    return (@(Get-CimInstance Win32_Process -Filter "ProcessId=$Id" -ErrorAction SilentlyContinue) |
+        Select-Object -First 1)
+}
+
+function Get-CreationProcessus {
+    # Date de création d'un PID : CIM d'abord, puis Get-Process (StartTime), $null sinon.
+    param([int]$Id, $Info = $null)
+    if ($Info -and $Info.CreationDate) { return $Info.CreationDate }
+    try {
+        $p = Get-Process -Id $Id -ErrorAction Stop
+        if ($p.StartTime) { return $p.StartTime }
+    } catch { }
+    return $null
+}
+
+function Get-AgeServeurParListener {
+    # (Story 3.1 re-review 2026-11-17, A1) Repli quand le filtre de racine ne
+    # trouve rien (racine/redirecteur mort avec un worker orphelin qui sert
+    # encore, ou ExecutablePath/CommandLine nuls pour un process élevé vu d'un
+    # shell non élevé) : on part du PID qui ÉCOUTE sur le port. Ses workers spawn
+    # (marqueur parent_pid=) s'il est mort, s'il est un reloader (--reload) ou si
+    # sa ligne de commande est illisible ; sinon le listener lui-même.
+    param([int]$NumPort)
+    $creations = @()
+    foreach ($c in @(Get-NetTCPConnection -LocalPort $NumPort -State Listen -ErrorAction SilentlyContinue)) {
+        $pidL = [int]$c.OwningProcess
+        if ($pidL -le 0) { continue }
+        $info = Get-InfoProcessus -Id $pidL
+        $cmd = if ($info) { [string]$info.CommandLine } else { "" }
+        if (-not $info -or -not $cmd -or $cmd -like "*--reload*") {
+            $dates = @(Get-WorkersDeParent -PidParent $pidL | ForEach-Object { $_.CreationDate } | Where-Object { $_ })
+            if ($dates.Count -gt 0) { $creations += $dates; continue }
+        }
+        $creation = Get-CreationProcessus -Id $pidL -Info $info
+        if ($creation) { $creations += $creation }
+    }
+    return (Get-AgeDepuisCreations -Creations $creations)
+}
+
+function Get-AgeWorkerS {
+    # Âge (s) du worker uvicorn le plus jeune de ce repo et de ce port (A2 : pas
+    # des enfants courts) ; repli sur le PID à l'écoute (A1). $null = illisible.
+    param([int]$NumPort)
+    $workers = @(Select-WorkersUvicorn -Processus @(Get-ProcessusServeur -NumPort $NumPort))
+    $age = Get-AgeDepuisCreations -Creations @($workers | ForEach-Object { $_.CreationDate })
+    if ($null -ne $age) { return $age }
+    return (Get-AgeServeurParListener -NumPort $NumPort)
 }
 
 function Get-CpuServeurS {
@@ -494,7 +564,12 @@ function Resolve-DecisionKeepIfFresh {
         $decision = Get-DecisionIndeterminee -AgeWorkerS $ageWorker -PlafondActif $PlafondActifS
         if ($decision -eq "purger") {
             Write-Historique "keepiffresh port=$NumPort decision=purger (indetermine, worker de $([int]$ageWorker) s >= plafond $PlafondActifS s)"
-            Write-Host "Indéterminé depuis plus de $PlafondActifS s (worker de $([int]$ageWorker) s, preuve de fraîcheur toujours non établie) : purge."
+            # (A3) The undetermined state may date from ONE probe: say what is known.
+            Write-Host "Serveur sans réponse probante et worker âgé de $([int]$ageWorker) s (>= $PlafondActifS s) : purge."
+        } elseif ($null -eq $ageWorker) {
+            # (A1) Unknown age: the ceiling cannot apply — say it, never silently.
+            Write-Historique "keepiffresh port=$NumPort decision=indetermine (age du serveur illisible)"
+            Write-Host "Âge du serveur illisible (aucun worker identifié, ni par le repo ni par le PID à l'écoute sur $NumPort) : plafond de $PlafondActifS s inapplicable, rien purgé."
         }
         return $decision
     }

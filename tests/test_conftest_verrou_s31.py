@@ -130,12 +130,79 @@ def test_open_process_refuse_veut_dire_vivant_pas_mort(monkeypatch):
 @pytest.mark.skipif(sys.platform != "win32", reason="OpenProcess : Windows seulement")
 def test_open_process_refuse_ne_vole_pas_le_verrou(detenteur_vivant, monkeypatch):
     """B1 through the real path: OpenProcess denied for the holder (both the
-    liveness and the start-time reads) must keep the lock."""
+    liveness and the start-time reads) keeps a lock younger than
+    _VERROU_PERIME_S (A4: the 12 h ceiling no longer applies to error 5)."""
     conftest, verrou, pid, debut = detenteur_vivant
     reel = conftest._ouvrir_processus
     monkeypatch.setattr(conftest, "_ouvrir_processus",
                         lambda p: (0, 5) if p == pid else reel(p))
+    verrou.write_text(f"{pid} {time.time() - 10 * 60} {debut}", encoding="utf-8")
+    with pytest.raises(RuntimeError, match=rf"PID {pid}"):
+        conftest._prendre_le_verrou()
+    assert verrou.read_text(encoding="utf-8").split()[0] == str(pid), "verrou vole"
+
+
+# --------------------------------------------------------------------------- #
+# Story 3.1 re-review (2026-11-17) — A4: only 87 means dead; 5 -> stale threshold
+# --------------------------------------------------------------------------- #
+@pytest.mark.skipif(sys.platform != "win32", reason="OpenProcess : Windows seulement")
+def test_open_process_erreur_8_detenteur_vivant_verrou_garde(detenteur_vivant, monkeypatch):
+    """A4: ERROR_NOT_ENOUGH_MEMORY (8) on OpenProcess says nothing about the
+    holder's death: alive-or-unknown, the lock of a 2 h suite is NOT stolen."""
+    conftest, verrou, pid, debut = detenteur_vivant
+    reel = conftest._ouvrir_processus
+    monkeypatch.setattr(conftest, "_ouvrir_processus",
+                        lambda p: (0, 8) if p == pid else reel(p))
+    assert conftest._detenteur_vivant(pid) is True
     verrou.write_text(f"{pid} {time.time() - 2 * 3600} {debut}", encoding="utf-8")
     with pytest.raises(RuntimeError, match=rf"PID {pid}"):
         conftest._prendre_le_verrou()
     assert verrou.read_text(encoding="utf-8").split()[0] == str(pid), "verrou vole"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="OpenProcess : Windows seulement")
+@pytest.mark.parametrize("erreur, attendu", [(87, False), (8, True), (1450, True), (0, True), (5, True)])
+def test_seul_87_veut_dire_mort(monkeypatch, erreur, attendu):
+    import conftest
+
+    monkeypatch.setattr(conftest, "_ouvrir_processus", lambda pid: (0, erreur))
+    assert conftest._detenteur_vivant(4242) is attendu
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="OpenProcess : Windows seulement")
+def test_open_process_erreur_87_verrou_repris(detenteur_vivant, monkeypatch):
+    conftest, verrou, pid, debut = detenteur_vivant
+    reel = conftest._ouvrir_processus
+    monkeypatch.setattr(conftest, "_ouvrir_processus",
+                        lambda p: (0, 87) if p == pid else reel(p))
+    verrou.write_text(f"{pid} {time.time() - 60} {debut}", encoding="utf-8")
+    conftest._prendre_le_verrou()
+    assert verrou.read_text(encoding="utf-8").split()[0] == str(os.getpid())
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="OpenProcess : Windows seulement")
+def test_open_process_refuse_et_verrou_perime_est_repris(detenteur_vivant, monkeypatch):
+    """A4: error 5 is also what a PID recycled by a SYSTEM process returns, so
+    a lock older than _VERROU_PERIME_S is taken (not held until 12 h)."""
+    conftest, verrou, pid, debut = detenteur_vivant
+    reel = conftest._ouvrir_processus
+    monkeypatch.setattr(conftest, "_ouvrir_processus",
+                        lambda p: (0, 5) if p == pid else reel(p))
+    verrou.write_text(f"{pid} {time.time() - conftest._VERROU_PERIME_S - 60} {debut}",
+                      encoding="utf-8")
+    conftest._prendre_le_verrou()
+    assert verrou.read_text(encoding="utf-8").split()[0] == str(os.getpid())
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="OpenProcess : Windows seulement")
+def test_open_process_handle_non_tronque():
+    """A4: restype HANDLE — the live handle of our own process is usable."""
+    import conftest
+
+    handle, erreur = conftest._ouvrir_processus(os.getpid())
+    try:
+        assert handle and erreur == 0
+        assert conftest._noyau_windows().OpenProcess.restype is not None
+    finally:
+        if handle:
+            conftest._noyau_windows().CloseHandle(handle)

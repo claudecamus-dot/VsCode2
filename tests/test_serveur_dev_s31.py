@@ -368,7 +368,76 @@ def test_serveur_malade_qui_repond_encore_est_purge_apres_le_plafond() -> None:
     vieux = _ps(malade + "function Get-AgeWorkerS { param([int]$NumPort) 5000 }; "
                 "Resolve-DecisionKeepIfFresh -NumPort 8099")
     assert vieux.splitlines()[-1] == "purger", vieux
-    assert "depuis plus de 1800 s" in vieux and ": purge" in vieux, vieux
+    assert "probante et worker" in vieux and "(>= 1800 s) : purge" in vieux, vieux
     jeune = _ps(malade + "function Get-AgeWorkerS { param([int]$NumPort) 300 }; "
                 "Resolve-DecisionKeepIfFresh -NumPort 8099")
     assert jeune.splitlines()[-1] == "indetermine", jeune
+
+
+# --------------------------------------------------------------------------- #
+# Story 3.1 re-review (2026-11-17) — A1/A2/A3: the REAL Get-AgeWorkerS, with
+# stubbed process/port sources (no real server, no real port 8020)
+# --------------------------------------------------------------------------- #
+_MALADE = _VIEUX_QUI_REPOND + _ROUTE_200 + _HTTP_SANS_REPONSE
+
+
+def _proc(pid: int, cmd: str, age_s: int) -> str:
+    return (f"[pscustomobject]@{{ProcessId={pid}; CommandLine='{cmd}'; "
+            f"CreationDate=(Get-Date).AddSeconds(-{age_s})}}")
+
+
+def test_racine_introuvable_repli_sur_le_pid_a_l_ecoute_qui_purge() -> None:
+    """A1 (i): the repo-root filter finds nothing (dead redirector, or null
+    ExecutablePath seen from a non-elevated shell); the PID listening on the
+    port is 6000 s old -> the ceiling applies -> purge."""
+    stubs = ("function Get-ProcessusServeur { param([int]$NumPort) @() }; "
+             "function Get-NetTCPConnection { param($LocalPort, $State, $ErrorAction) "
+             "[pscustomobject]@{OwningProcess=4242} }; "
+             "function Get-CimInstance { param($ClassName, $Filter, $ErrorAction) "
+             f"if ($Filter -eq 'ProcessId=4242') {{ {_proc(4242, 'python server.py', 6000)} }} }}; ")
+    sortie = _ps(_MALADE + stubs + "Resolve-DecisionKeepIfFresh -NumPort 8099")
+    assert sortie.splitlines()[-1] == "purger", sortie
+    # A3: the message states what is known, not « indéterminé depuis plus de ».
+    assert "probante et worker" in sortie and "de 6000 s (>= 1800 s) : purge" in sortie, sortie
+    assert "depuis plus de" not in sortie, sortie
+
+
+def test_repli_listener_mort_prend_l_age_de_son_worker_orphelin() -> None:
+    """A1: dead listener (reloader gone), orphan worker found by its spawn
+    marker: the worker's age decides, not « unknown »."""
+    stubs = ("function Get-ProcessusServeur { param([int]$NumPort) @() }; "
+             "function Get-NetTCPConnection { param($LocalPort, $State, $ErrorAction) "
+             "[pscustomobject]@{OwningProcess=4242} }; "
+             "function Get-CimInstance { param($ClassName, $Filter, $ErrorAction) "
+             f"if (-not $Filter) {{ {_proc(4300, 'python -c from multiprocessing.spawn import spawn_main; parent_pid=4242', 7000)} }} }}; "
+             "function Get-Process { param($Id, $ErrorAction) throw 'mort' }; ")
+    sortie = _ps(_MALADE + stubs + "[int](Get-AgeWorkerS -NumPort 8099)")
+    assert sortie.splitlines()[-1] == "7000", sortie
+
+
+def test_age_illisible_reste_indetermine_et_le_dit() -> None:
+    """A1 (ii): neither the repo filter nor the listener lookup yields an age:
+    still « indetermine », but the message says the age is unreadable."""
+    stubs = ("function Get-ProcessusServeur { param([int]$NumPort) @() }; "
+             "function Get-NetTCPConnection { param($LocalPort, $State, $ErrorAction) }; ")
+    sortie = _ps(_MALADE + stubs + "Resolve-DecisionKeepIfFresh -NumPort 8099")
+    assert sortie.splitlines()[-1] == "indetermine", sortie
+    assert "du serveur illisible" in sortie, sortie
+
+
+def test_enfant_court_ne_rajeunit_pas_un_worker_malade() -> None:
+    """A2 (iii): a sick uvicorn worker of 5000 s that still spawns a 10 s old
+    child (ffmpeg / transcription spawn worker) reaches the ceiling -> purge."""
+    procs = ", ".join([
+        _proc(100, 'python -m uvicorn app.main:app --reload --port 8099', 9000),
+        _proc(101, 'python -c from multiprocessing.spawn import spawn_main; parent_pid=100', 5000),
+        _proc(102, 'python -c from multiprocessing.spawn import spawn_main; parent_pid=101', 10),
+        _proc(103, 'ffmpeg -i x.webm', 10),
+    ])
+    stubs = f"function Get-ProcessusServeur {{ param([int]$NumPort) @({procs}) }}; "
+    sortie = _ps(_MALADE + stubs + "Resolve-DecisionKeepIfFresh -NumPort 8099")
+    assert sortie.splitlines()[-1] == "purger", sortie
+    assert "de 5000 s (>= 1800 s) : purge" in sortie, sortie
+    # Without --reload (no uvicorn worker): the uvicorn process itself.
+    seul = f"function Get-ProcessusServeur {{ param([int]$NumPort) @({_proc(100, 'python -m uvicorn app.main:app --port 8099', 4000)}, {_proc(105, 'ffmpeg', 5)}) }}; "
+    assert _ps(seul + "[int](Get-AgeWorkerS -NumPort 8099)").splitlines()[-1] == "4000"

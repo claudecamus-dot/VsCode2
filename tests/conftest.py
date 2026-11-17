@@ -112,6 +112,7 @@ _VERROU_PLAFOND_VIVANT_S = 12 * 3600
 
 
 _ERROR_ACCESS_DENIED = 5
+_ERROR_INVALID_PARAMETER = 87
 _NOYAU = None
 
 
@@ -122,7 +123,17 @@ def _noyau_windows():
     if _NOYAU is None:
         import ctypes
 
-        _NOYAU = ctypes.WinDLL("kernel32", use_last_error=True)
+        from ctypes import wintypes
+
+        noyau = ctypes.WinDLL("kernel32", use_last_error=True)
+        # (re-review 2026-11-17, A4) Without restype the HANDLE was a C int:
+        # truncated on 64-bit, and a handle whose low 32 bits are 0 read as null.
+        noyau.OpenProcess.restype = wintypes.HANDLE
+        noyau.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        noyau.CloseHandle.argtypes = [wintypes.HANDLE]
+        noyau.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        noyau.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+        _NOYAU = noyau
     return _NOYAU
 
 
@@ -137,8 +148,8 @@ def _ouvrir_processus(pid: int):
     return handle, (0 if handle else ctypes.get_last_error())
 
 
-def _detenteur_vivant(pid: int) -> bool:
-    """Le processus `pid` tourne-t-il encore ? Sans dépendance externe.
+def _etat_detenteur(pid: int) -> str:
+    """« mort », « vivant » ou « refuse » (vivant, mais OpenProcess refusé : 5).
 
     Sur WINDOWS, `os.kill(pid, 0)` ne répond pas à la question : mesuré le
     2026-09-10, un PID inexistant y lève `OSError [WinError 87] Paramètre
@@ -154,16 +165,24 @@ def _detenteur_vivant(pid: int) -> bool:
     processus EXISTE mais nous est fermé (détenteur élevé, runner non élevé) —
     vivant, jamais « mort » (re-review 2026-11-17, B1 : le verrou était volé
     avant même le code F6a de `_detenteur_actif`).
+
+    (re-review 2026-11-17, A4) Seul ERROR_INVALID_PARAMETER (87) veut dire
+    « PID inexistant ». Toute autre erreur (8 mémoire, 1450 ressources, 0) dit
+    « vivant ou inconnu » : jamais un verrou volé à un détenteur vivant. Le 5 est
+    rendu à part (« refuse ») : un PID recyclé par un process SYSTEM le rend
+    aussi, l'appelant lui applique donc le seuil de péremption normal.
     """
     if pid <= 0:
-        return False
+        return "mort"
     if sys.platform == "win32":
         import ctypes
 
         noyau = _noyau_windows()
         handle, erreur = _ouvrir_processus(pid)
         if not handle:
-            return erreur == _ERROR_ACCESS_DENIED
+            if erreur == _ERROR_INVALID_PARAMETER:
+                return "mort"
+            return "refuse" if erreur == _ERROR_ACCESS_DENIED else "vivant"
         try:
             # `OpenProcess` ne suffit PAS : il réussit encore sur un processus
             # TERMINÉ tant qu'un handle reste ouvert quelque part (le shell
@@ -174,19 +193,24 @@ def _detenteur_vivant(pid: int) -> bool:
             # seul 259 (STILL_ACTIVE) veut dire « tourne encore ».
             code = ctypes.c_ulong()
             if not noyau.GetExitCodeProcess(handle, ctypes.byref(code)):
-                return True  # état indéterminable : ne pas voler le verrou
-            return code.value == 259
+                return "vivant"  # état indéterminable : ne pas voler le verrou
+            return "vivant" if code.value == 259 else "mort"
         finally:
             noyau.CloseHandle(handle)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
-        return False
+        return "mort"
     except PermissionError:
-        return True  # existe, mais appartient à quelqu'un d'autre
+        return "vivant"  # existe, mais appartient à quelqu'un d'autre
     except OSError:
-        return True  # doute : mieux vaut refuser un run de trop
-    return True
+        return "vivant"  # doute : mieux vaut refuser un run de trop
+    return "vivant"
+
+
+def _detenteur_vivant(pid: int) -> bool:
+    """Le processus `pid` tourne-t-il encore (ou ne peut-on pas l'exclure) ?"""
+    return _etat_detenteur(pid) != "mort"
 
 
 def _debut_processus(pid: int):
@@ -281,8 +305,14 @@ def _detenteur_actif(detenteur) -> bool:
         # seconde exécution du module dans le MÊME processus (importmode,
         # second rootdir) se refuserait l'entrée à elle-même.
         return False
-    if not _detenteur_vivant(pid):
+    etat = _etat_detenteur(pid)
+    if etat == "mort":
         return False
+    if etat == "refuse":
+        # (re-review 2026-11-17, A4) ERROR_ACCESS_DENIED: alive-but-closed OR a
+        # recycled PID now owned by SYSTEM — nothing identifies the holder, so
+        # the normal stale threshold applies, not the 12 h live-holder ceiling.
+        return age < _VERROU_PERIME_S
     if debut is not None:
         actuel = _debut_processus(pid)
         if actuel is not None and actuel != debut:
