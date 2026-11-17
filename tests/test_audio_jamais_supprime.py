@@ -176,6 +176,12 @@ def _verbe_destructeur(node: ast.Call, alias: dict[str, str] | None = None) -> s
             node.args[0].value, str
         ) and set(node.args[0].value) <= set("rwabxtU+"):
             positionnel = node.args[0]
+        elif len(node.args) == 1 and isinstance(node.args[0], ast.Name) and canonique != "av":
+            # Revue finale Story 3.4 (F8) : `chemin.open(mode)` (mode calculé)
+            # passait pour une source comme `av.open(flux)`. Un positionnel
+            # unique VARIABLE est un mode possible, sauf sur `av` (seul module
+            # connu dont l'unique positionnel est la source).
+            positionnel = node.args[0]
         else:
             positionnel = None
         mots = [k.value for k in node.keywords if k.arg == "mode"]
@@ -364,7 +370,10 @@ def test_le_detecteur_voit_les_verbes_que_l_ancienne_version_ratait() -> None:
                           ("wave.open(chemin, mode)", "Path.open(mode variable)"),
                           ("wave.open('x.wav', 'rb')", None),
                           ("wave.open('archive.wav')", None),
-                          ("av.open(io.BytesIO(octets))", None)):
+                          ("av.open(io.BytesIO(octets))", None),
+                          # Revue finale (F8) : mode calculé en positionnel unique.
+                          ("chemin.open(mode)", "Path.open(mode variable)"),
+                          ("av.open(flux)", None)):
         node = ast.parse(code, mode="eval").body
         assert _verbe_destructeur(node) == attendu, code
     for attendu, code in extraits.items():

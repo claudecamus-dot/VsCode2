@@ -332,8 +332,20 @@ def run_segment_job(job_id: int) -> None:
         job = db.get(InterviewSegmentJob, job_id)
         if job is None:
             return
-        job.status = "running"
+        # Revue finale Story 3.4 (F5) : passage à `running` CONDITIONNEL, comme
+        # `sauf_done` pour les échecs — une tâche qui démarre après qu'une autre
+        # (ou la récupération synchrone) a abouti la tranche n'écrase plus son
+        # `done`. Rien à refaire : la ligne porte déjà un résultat. Une tranche
+        # à retraiter a été repassée `pending` par la route qui la reprogramme.
+        if not db.execute(
+            update(InterviewSegmentJob)
+            .where(InterviewSegmentJob.id == job_id, InterviewSegmentJob.status != "done")
+            .values(status="running")
+        ).rowcount:
+            db.commit()
+            return
         db.commit()
+        db.refresh(job)
         # Le texte SUR LEQUEL on extrait, capturé avant l'appel IA : la route
         # de soumission peut le remplacer pendant qu'on travaille (le client
         # repose la même position avec une version plus longue, après une
@@ -503,7 +515,7 @@ def segment_jobs_status_light(
     total = db.scalar(
         select(func.count(InterviewSegmentJob.id)).where(
             InterviewSegmentJob.session_token == session_token,
-            *_filtre_kind(kind)
+            *_filtre_kind(kind),
         )
     ) or 0
     done = db.scalar(
@@ -528,7 +540,7 @@ def segment_jobs_status_light(
             .options(load_only(InterviewSegmentJob.id, InterviewSegmentJob.status, InterviewSegmentJob.created_at))
             .where(
                 InterviewSegmentJob.session_token == session_token,
-            *_filtre_kind(kind),
+                *_filtre_kind(kind),
                 InterviewSegmentJob.status.in_(("pending", "running")),
             )
         )
@@ -540,7 +552,7 @@ def segment_jobs_status_light(
             .options(load_only(*_MERGE_LIGHT_COLUMNS))
             .where(
                 InterviewSegmentJob.session_token == session_token,
-            *_filtre_kind(kind),
+                *_filtre_kind(kind),
                 InterviewSegmentJob.status == "done",
                 InterviewSegmentJob.position >= since_position,
             )
@@ -594,11 +606,13 @@ def recover_stalled_or_failed_jobs(db: Session, jobs: list[InterviewSegmentJob])
             continue
         if not job.text.strip():
             # Rien à traiter (job créé sans texte, cas dégénéré) : reste vide.
-            job.status = "failed"
-            job.error = job.error or "Aucun texte associé à ce job."
+            _marquer_echec(db, job, job.error or "Aucun texte associé à ce job.")
             continue
         if tentees >= _RECOVER_MIN_ESSAIS and time.monotonic() - debut >= _RECOVER_HARD_BUDGET_S:
             # Budget dur épuisé : aucun appel, la tranche reste rejouable.
+            # (Écriture ORM conservée ici : aucun essai n'a tourné pour CETTE
+            # tranche dans cette requête ; la fenêtre de course est celle des
+            # essais précédents. Limite connue, revue finale Story 3.4 F5.)
             job.status = "failed"
             job.error = _RECOVER_DIFFEREE_MSG
             db.commit()
@@ -615,8 +629,8 @@ def recover_stalled_or_failed_jobs(db: Session, jobs: list[InterviewSegmentJob])
             job.status = "done"
             job.error = None
         except _EXTRACT_ERRORS as exc:
-            job.status = "failed"
-            job.error = str(exc)
+            _marquer_echec(db, job, str(exc))
+            continue
         except Exception as exc:  # noqa: BLE001
             # Même garde-fou large que `run_segment_job` (revue adversariale
             # 2026-07-30) : cette récupération tourne DANS une requête HTTP,
@@ -625,12 +639,28 @@ def recover_stalled_or_failed_jobs(db: Session, jobs: list[InterviewSegmentJob])
             # avaient abouti. Une tranche perdue doit dégrader en « non aboutie »
             # (signalée à l'écran), jamais faire tomber la page.
             logger.exception("Échec inattendu de la récupération d'une tranche")
-            job.status = "failed"
             # Le TYPE seul, jamais le texte : ce champ remonte au navigateur
             # via le `detail` de la finalisation. Détail complet au journal
             # juste au-dessus (revue du 2026-09-10, 2e passe, N6).
-            job.error = f"Échec inattendu ({type(exc).__name__})."
+            _marquer_echec(db, job, f"Échec inattendu ({type(exc).__name__}).")
+            continue
         db.commit()
+
+
+def _marquer_echec(db: Session, job: InterviewSegmentJob, erreur: str) -> None:
+    """Revue finale Story 3.4 (F5) : l'échec de la récupération synchrone est un
+    UPDATE CONDITIONNEL (`status != 'done'`), plus une écriture ORM — la tâche de
+    fond peut avoir abouti la tranche pendant cet essai, et l'ORM réécrivait
+    `failed` par-dessus son `done` (même règle que `sauf_done`). L'objet est
+    ensuite relu : la fusion qui suit voit le `done` gagnant et son résultat."""
+    db.execute(
+        update(InterviewSegmentJob)
+        .where(InterviewSegmentJob.id == job.id, InterviewSegmentJob.status != "done")
+        .values(status="failed", error=erreur)
+        .execution_options(synchronize_session=False)
+    )
+    db.commit()
+    db.refresh(job)
 
 
 def merge_segment_turns(jobs: list[InterviewSegmentJob], tail_result: dict | None) -> dict:

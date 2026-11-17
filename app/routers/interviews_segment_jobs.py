@@ -259,9 +259,6 @@ def segment_jobs_turns_json(
     Un client qui ne le fournit pas (`since=0`, ancien frontend en cache) reçoit
     la fusion complète comme avant : compat inchangée. `record_libre.html`
     fournit désormais ce curseur et accumule les tours reçus."""
-    status = segment_jobs_status_light(
-        db, session_token, since_position=since, kind="libre_turns",
-    )
     # Story 3.4 (B-2) : une tranche finie HORS ORDRE (position 2 done pendant
     # que la 1 tourne encore) faisait avancer le curseur au-delà de la 1, qui
     # n'était plus jamais renvoyée. Le curseur s'arrête à la plus petite
@@ -281,6 +278,14 @@ def segment_jobs_turns_json(
             >= utc_naif() - timedelta(seconds=segment_job_stale_after_s()),
         )
     ) if jeton else None
+    # Revue finale Story 3.4 (F3) : la borne « première en vol » est lue AVANT
+    # les tranches finies. Dans l'ordre inverse (deux lectures sans transaction
+    # commune), une tranche passée `done` entre les deux n'était ni dans la liste
+    # chargée ni une borne : le curseur la sautait pour toujours. Lue d'abord,
+    # elle borne la liste même si elle finit entre-temps.
+    status = segment_jobs_status_light(
+        db, session_token, since_position=since, kind="libre_turns",
+    )
     jobs = [
         j for j in status["jobs"]
         if j.kind == "libre_turns"

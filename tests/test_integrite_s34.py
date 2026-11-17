@@ -215,7 +215,9 @@ def test_b3_jeton_long_status_et_retry_ne_rendent_pas_404(client: TestClient) ->
     assert r.status_code == 200
     r = client.post("/audio/transcribe-file/retry",
                     data={"job_id": job_id, "session_token": long_jeton})
-    assert r.status_code != 404
+    # Revue finale (F7) : le statut EXACT — un import en cours, retrouvé par son
+    # jeton long, n'est « pas en échec » (409), ni introuvable ni relancé.
+    assert r.status_code == 409, r.text
     # Un jeton étranger reste refusé.
     r = client.get("/audio/transcribe-file/status",
                    params={"job_id": job_id, "session_token": "y" * 100})
@@ -647,3 +649,200 @@ def test_revue7_b11_enregistrement_libre_ecarte_un_audio_anterieur(
     with SessionLocal() as db:
         itw = db.scalar(select(Interview).where(Interview.mission_id == mission_id))
     assert itw.audio_backup_path is None
+
+
+# --------------------------------------------------------------------------- #
+# Revue finale de la Story 3.4 (2026-11-17, F1-F7)
+# --------------------------------------------------------------------------- #
+def _jeton_rendu(page: str) -> str:
+    import re as _re
+
+    trouve = _re.search(r'name="session_token" value="([^"]*)"', page)
+    assert trouve is not None, "champ session_token absent de la page"
+    return trouve.group(1)
+
+
+def test_f1_retour_tours_repost_le_jeton_et_confirm_x2_un_seul_entretien(
+    client: TestClient,
+) -> None:
+    mission_id = _mission(client)
+    with SessionLocal() as db:
+        db.add(_job("f1-jeton", 0, "failed"))
+        db.commit()
+    base = f"/missions/{mission_id}/interviews/record-libre"
+    # Synthèse -> « Retour » : l'écran des tours doit REPOSTER le jeton.
+    page = client.post(f"{base}/retour-tours",
+                       data={"transcript": "Bonjour.", "session_token": "f1-jeton",
+                             **_TOURS}).text
+    jeton = _jeton_rendu(page)
+    assert jeton == "f1-jeton"
+    # La garde « aucun tour » de confirm le repost aussi.
+    page_vide = client.post(f"{base}/confirm",
+                            data={"transcript": "Bonjour.", "session_token": "f1-jeton"}).text
+    assert _jeton_rendu(page_vide) == "f1-jeton"
+    data = {"transcript": "Bonjour.", "session_token": jeton, **_TOURS}
+    r1 = client.post(f"{base}/confirm", data=data, follow_redirects=False)
+    r2 = client.post(f"{base}/confirm", data=data, follow_redirects=False)
+    assert r1.status_code == r2.status_code == 303
+    with SessionLocal() as db:
+        ids = list(db.scalars(select(Interview.id).where(Interview.mission_id == mission_id)))
+        restants = list(db.scalars(select(InterviewSegmentJob.id).where(
+            InterviewSegmentJob.session_token == "f1-jeton")))
+    assert len(ids) == 1
+    assert restants == []
+
+
+def test_f2_deux_confirm_concurrents_ne_dupliquent_pas_les_tours(client: TestClient) -> None:
+    from app.routers import interviews_libre
+
+    mission_id = _mission(client)
+    iid = _interview(mission_id, "a_transcrire", "", segment_token="f2-jeton",
+                     tranches_manquantes=2)
+    tours = [{"interlocuteur": "Alice", "question": None,
+              "remarque": "Un propos validé.", "section_title": None}]
+    # Entrelacement : les DEUX requêtes lisent « a_transcrire sans tour » avant
+    # que l'une n'écrive.
+    with SessionLocal() as a, SessionLocal() as b:
+        ea, eb = a.get(Interview, iid), b.get(Interview, iid)
+        assert ea.turns == [] and eb.turns == []
+        assert ea.structuration_status == eb.structuration_status == "a_transcrire"
+        ra = interviews_libre._confirm_sur_jeton_existant(
+            a, a.get(Mission, mission_id), ea, tours, "Bonjour.", "Résumé.", None)
+        rb = interviews_libre._confirm_sur_jeton_existant(
+            b, b.get(Mission, mission_id), eb, tours, "Bonjour.", "Résumé.", None)
+    assert ra.status_code == rb.status_code == 303
+    with SessionLocal() as db:
+        itw = db.get(Interview, iid)
+        assert [t.remarque for t in itw.turns] == ["Un propos validé."]
+        assert itw.structuration_status == "fait"
+        # Option conservatrice : le signal d'aperçu tronqué est GARDÉ.
+        assert itw.tranches_manquantes == 2
+
+
+def test_f7_completion_a_transcrire_consomme_les_jobs_de_tranche(client: TestClient) -> None:
+    mission_id = _mission(client)
+    _interview(mission_id, "a_transcrire", "", segment_token="f7-jeton")
+    with SessionLocal() as db:
+        db.add(_job("f7-jeton", 0, "failed"))
+        db.commit()
+    r = client.post(f"/missions/{mission_id}/interviews/record-libre/confirm",
+                    data={"transcript": "Bonjour.", "session_token": "f7-jeton", **_TOURS},
+                    follow_redirects=False)
+    assert r.status_code == 303
+    with SessionLocal() as db:
+        assert db.scalar(select(InterviewSegmentJob).where(
+            InterviewSegmentJob.session_token == "f7-jeton")) is None
+
+
+def test_f3_tranche_finie_entre_les_deux_lectures_n_est_pas_sautee(
+    client: TestClient, monkeypatch,
+) -> None:
+    from app.routers import interviews_segment_jobs as routeur
+
+    jeton = "f3-course"
+    with SessionLocal() as db:
+        db.add_all([_job(jeton, 0, "done", "t0"), _job(jeton, 1, "running"),
+                    _job(jeton, 2, "done", "t2")])
+        db.commit()
+    origine = routeur.segment_jobs_status_light
+
+    def _puis_la_tranche_1_finit(*a, **k):
+        resultat = origine(*a, **k)
+        with SessionLocal() as autre:
+            ligne = autre.scalar(select(InterviewSegmentJob).where(
+                InterviewSegmentJob.session_token == jeton,
+                InterviewSegmentJob.position == 1))
+            ligne.status = "done"
+            ligne.turns_result = {"turns": [{"interlocuteur": "A", "question": None,
+                                             "remarque": "t1", "section_title": None}],
+                                  "identity": {}}
+            autre.commit()
+        return resultat
+
+    monkeypatch.setattr(routeur, "segment_jobs_status_light", _puis_la_tranche_1_finit)
+    r1 = client.get("/interviews/segment-jobs/turns",
+                    params={"session_token": jeton, "since": 0}).json()
+    monkeypatch.setattr(routeur, "segment_jobs_status_light", origine)
+    r2 = client.get("/interviews/segment-jobs/turns",
+                    params={"session_token": jeton, "since": r1["next_since"]}).json()
+    vus = [t["remarque"] for t in r1["turns"] + r2["turns"]]
+    assert vus == ["t0", "t1", "t2"]
+
+
+def test_f5_run_segment_job_n_ecrase_pas_un_done(monkeypatch) -> None:
+    resultat = {"turns": [{"interlocuteur": "A", "question": None,
+                           "remarque": "déjà là", "section_title": None}], "identity": {}}
+    with SessionLocal() as db:
+        job = InterviewSegmentJob(session_token="f5-run", position=0, kind="libre_turns",
+                                  status="done", text="Bonjour.", turns_result=resultat)
+        db.add(job)
+        db.commit()
+        job_id = job.id
+    appels: list = []
+
+    def _extraction(db, job, *a, **k):
+        with SessionLocal() as autre:
+            appels.append(autre.get(InterviewSegmentJob, job_id).status)
+        return {"turns": [], "identity": {}}
+
+    monkeypatch.setattr(interview_segment_jobs, "_extract_with_retries", _extraction)
+    interview_segment_jobs.run_segment_job(job_id)
+    assert appels == []  # ni repassé `running`, ni ré-extrait
+    with SessionLocal() as db:
+        ligne = db.get(InterviewSegmentJob, job_id)
+        assert ligne.status == "done" and ligne.turns_result == resultat
+
+
+def test_f5_recuperation_synchrone_n_ecrase_pas_un_done(monkeypatch) -> None:
+    with SessionLocal() as db:
+        job = InterviewSegmentJob(session_token="f5-rec", position=0, kind="libre_turns",
+                                  status="pending", text="Bonjour.")
+        db.add(job)
+        db.commit()
+        job_id = job.id
+
+    def _fond_aboutit_puis_echec(db, job, *a, **k):
+        with SessionLocal() as autre:
+            ligne = autre.get(InterviewSegmentJob, job_id)
+            ligne.status = "done"
+            ligne.turns_result = {"turns": [], "identity": {}}
+            autre.commit()
+        raise InterviewLibreExtractAIError("IA indisponible")
+
+    monkeypatch.setattr(interview_segment_jobs, "_extract_with_retries",
+                        _fond_aboutit_puis_echec)
+    with SessionLocal() as db:
+        job = db.get(InterviewSegmentJob, job_id)
+        interview_segment_jobs.recover_stalled_or_failed_jobs(db, [job])
+        assert job.status == "done"  # l'objet relu, vu par la fusion qui suit
+    with SessionLocal() as db:
+        assert db.get(InterviewSegmentJob, job_id).status == "done"
+
+
+def test_f7_etat_audio_applique_la_garde_de_mission(monkeypatch, tmp_path) -> None:
+    from app.routers import interviews_libre
+
+    monkeypatch.setattr(interviews_libre, "RECORDINGS_DIR", tmp_path)
+    nom = "5_ancien.webm"
+    (tmp_path / nom).write_bytes(b"audio")
+    vieux = time.time() - 3 * 24 * 3600
+    os.utime(tmp_path / nom, (vieux, vieux))
+    mission = SimpleNamespace(id=5, created_at=datetime.now(timezone.utc).replace(tzinfo=None))
+    identite = {"audio_backup_path": nom, "audio_segments": "[]"}
+    # Fichier antérieur à la mission (id SQLite réutilisé) : ce n'est pas SON audio.
+    assert interviews_libre._etat_audio(mission, identite) == (False, 0)
+
+
+def test_f7_apercu_q_r_filtre_la_nature_des_tranches(client: TestClient) -> None:
+    jeton = "f7-kind"
+    with SessionLocal() as db:
+        db.add(_job(jeton, 0, "done", "un tour libre"))  # kind="libre_turns"
+        reponse = _job(jeton, 0, "failed")
+        reponse.kind = "answers"
+        db.add(reponse)
+        db.commit()
+    r = client.get("/interviews/segment-jobs/answers", params={"session_token": jeton})
+    assert r.status_code == 200
+    corps = r.json()
+    assert (corps["done"], corps["total"]) == (0, 1)
+    assert corps["answers"] == {}

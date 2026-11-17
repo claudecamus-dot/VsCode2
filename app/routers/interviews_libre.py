@@ -20,7 +20,7 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import RedirectResponse, Response
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -512,11 +512,18 @@ def record_libre_retour_tours(
     turn_question: list[str] = Form([]),
     turn_remarque: list[str] = Form([]),
     turn_section_title: list[str] = Form([]),
+    session_token: str = Form(""),
+    segment_tail: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Retour de l'étape 3 vers l'étape 2 SANS perdre les tours de parole
     (portés en champs cachés par l'écran de synthèse) — même logique que
-    `record_libre_retour`. Aucun appel IA."""
+    `record_libre_retour`. Aucun appel IA.
+
+    Le jeton de session et le reliquat sont REPOSTÉS (revue finale Story 3.4,
+    F1) : sans eux, `libre_turns_review.html` rendait `session_token=""`, et
+    synthèse -> Retour -> synthèse -> double confirmation créait deux entretiens
+    (l'index unique ne dédoublonne qu'un jeton non vide)."""
     mission = _get_mission(db, mission_id)
     return templates.TemplateResponse(
         request,
@@ -533,6 +540,8 @@ def record_libre_retour_tours(
                 interview_date=interview_date,
                 audio_backup_path=audio_backup_path,
                 audio_segments=audio_segments,
+                session_token=session_token,
+                segment_tail=segment_tail,
             ),
             "transcript": transcript,
         },
@@ -860,6 +869,7 @@ def record_libre_confirm(
     repartition_points_amelioration: str = Form(""),
     repartition_aspirations: str = Form(""),
     session_token: str = Form(""),
+    segment_tail: str = Form(""),
     db: Session = Depends(get_session),
 ):
     mission = _get_mission(db, mission_id)
@@ -885,6 +895,9 @@ def record_libre_confirm(
                     interview_date=interview_date,
                     audio_backup_path=audio_backup_path,
                     audio_segments=audio_segments,
+                    # Revue finale Story 3.4 (F1) : le jeton survit au réaffichage.
+                    session_token=session_token,
+                    segment_tail=segment_tail,
                 ),
                 "transcript": transcript,
                 "error": "Aucun tour de parole à enregistrer — corrige au moins un tour.",
@@ -972,6 +985,27 @@ def _confirm_sur_jeton_existant(db, mission, existant, turns, transcript, resume
     if existant.turns and _memes_tours(existant, turns):
         return _redirection_apres_enregistrement(mission, existant)
     if existant.structuration_status == "a_transcrire" and not existant.turns:
+        # Revue finale Story 3.4 (F2) : deux POST concurrents lisaient tous deux
+        # « a_transcrire sans tour » et inséraient chacun les tours (doublons).
+        # La transition est désormais un UPDATE CONDITIONNEL : seul le POST qui
+        # la gagne (rowcount == 1) insère ; le perdant relit et se comporte
+        # comme un double POST (redirection si mêmes tours, sinon 409).
+        gagne = db.execute(
+            update(Interview)
+            .where(Interview.id == existant.id,
+                   Interview.structuration_status == "a_transcrire")
+            .values(structuration_status="fait")
+        ).rowcount == 1
+        if not gagne:
+            db.rollback()
+            db.expire(existant)  # relit statut ET tours écrits par le gagnant
+            if existant.turns and _memes_tours(existant, turns):
+                return _redirection_apres_enregistrement(mission, existant)
+            raise HTTPException(
+                status_code=409,
+                detail="Un entretien de cette session existe déjà avec un autre contenu — "
+                "recharge la mission pour le consulter.",
+            )
         for position, turn in enumerate(turns):
             db.add(InterviewTurn(
                 interview_id=existant.id, position=position,
@@ -985,7 +1019,10 @@ def _confirm_sur_jeton_existant(db, mission, existant, turns, transcript, resume
         if repartition:
             existant.repartition = repartition
         existant.structuration_status = "fait"
-        existant.tranches_manquantes = 0
+        # `tranches_manquantes` n'est PLUS remis à 0 (F2, option conservatrice) :
+        # rien ne prouve que les tours postés couvrent les tranches que l'aperçu
+        # tronqué n'avait pas — le signal reste jusqu'à une retranscription
+        # complète (`interviews_retranscription`), seule à pouvoir le prouver.
         db.commit()
         delete_segment_jobs(db, existant.segment_token)
         return _redirection_apres_enregistrement(mission, existant)
