@@ -980,7 +980,11 @@ def test_arb1117_pool_garé_arrete_apres_inactivite(monkeypatch):
     executor = _pool_gare_factice()
     assert at._POOL_CHAUD is not None
     fin = time.monotonic() + 5
-    while at._POOL_CHAUD is not None and time.monotonic() < fin:
+    # La minuterie retire le pool du holder SOUS verrou, puis l'arrête HORS
+    # verrou : attendre les deux, sinon le test lit l'arrêt entre les deux
+    # étapes (rouge une fois sur la CI Linux, run #77 du 2026-11-17).
+    while (at._POOL_CHAUD is not None or not executor._shutdown_thread) \
+            and time.monotonic() < fin:
         time.sleep(0.05)
     assert at._POOL_CHAUD is None
     assert executor._shutdown_thread
