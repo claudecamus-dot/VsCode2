@@ -38,7 +38,7 @@
      il est bloqué et propose ses sorties, dont « structurer le texte disponible »
      après confirmation (POST /structurer avec texte_disponible=1). #}
   {% if sans_texte and (interview.raw_transcript or '').strip() %}
-  <div class="ai-error structuration-bloquee" role="alert" data-structuration-bloquee="1">
+  <div class="ai-error structuration-bloquee" role="status" data-structuration-bloquee="1">
     <p>⚠ Entretien bloqué en « transcription incomplète » : du texte a bien été transcrit, mais une partie de l'entretien n'a pas abouti alors que son audio est sur le serveur. Il n'est pas structuré d'office, pour ne pas produire un aperçu amputé sans le dire.</p>
     <p>Pour en sortir : relance les passages en échec ou la transcription depuis l'audio (ci-dessous), ou structure dès maintenant le texte disponible — la partie manquante restera absente de l'aperçu.</p>
     <form method="post" action="/interviews/{{ interview.id }}/structurer">
