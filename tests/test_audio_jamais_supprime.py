@@ -130,6 +130,11 @@ def _verbe_destructeur(node: ast.Call, alias: dict[str, str] | None = None) -> s
             return alias[node.func.id]
         if node.func.id != "open":
             return None
+        if len(node.args) < 2 and not any(k.arg == "mode" for k in node.keywords):
+            # AUCUN mode fourni : `open(chemin[, encoding=…])` ouvre en lecture
+            # (défaut "r"). Ce n'est pas un « mode variable » — faux positif levé
+            # quand ruff (UP015) a retiré un "r" redondant, CI du 2026-11-17.
+            return None
         modes = [a.value for a in node.args[1:2] if isinstance(a, ast.Constant)]
         modes += [
             k.value.value
@@ -373,7 +378,14 @@ def test_le_detecteur_voit_les_verbes_que_l_ancienne_version_ratait() -> None:
                           ("av.open(io.BytesIO(octets))", None),
                           # Revue finale (F8) : mode calculé en positionnel unique.
                           ("chemin.open(mode)", "Path.open(mode variable)"),
-                          ("av.open(flux)", None)):
+                          ("av.open(flux)", None),
+                          # Builtin `open` SANS mode : lecture par défaut (CI du
+                          # 2026-11-17, après le retrait ruff UP015 d'un "r").
+                          ("open('/proc/meminfo', encoding='ascii')", None),
+                          ("open(chemin)", None),
+                          # ... mais un mode fourni et calculé reste suspect.
+                          ("open(chemin, mode)", "open(mode variable)"),
+                          ("open(chemin, mode=m)", "open(mode variable)")):
         node = ast.parse(code, mode="eval").body
         assert _verbe_destructeur(node) == attendu, code
     for attendu, code in extraits.items():
