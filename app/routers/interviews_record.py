@@ -80,6 +80,12 @@ def _record_error(request, mission, identity, message):
     )
 
 
+FINALISATION_RATTRAPEE = (
+    "Finalisé avant la fin du suivi : les tranches restantes ont été "
+    "rattrapées côté serveur."
+)
+
+
 def _finalize_record_answers(
     db, request, mission, identity, transcript, session_token, segment_tail,
     incomplete: bool = False,
@@ -164,7 +170,7 @@ def _finalize_record_answers(
             detail = detail or str(exc)
         extracted = merge_segment_answers(status["jobs"], tail_result)
 
-    if not extracted and not manquantes and not incomplete:
+    if not extracted and not manquantes:
         # L'IA peut répondre sans lever d'exception mais sans répartir aucune
         # réponse (silence, transcription trop courte, jobs `done` au résultat
         # vide — non comptés par `still_ko`, qui ne filtre que sur le statut).
@@ -187,18 +193,16 @@ def _finalize_record_answers(
         # dans `identity["transcript"]` jusqu'à `import_interview_confirm`.
         delete_segment_jobs(db, session_token)
 
-    if incomplete:
-        # Finalisation MANUELLE depuis l'écran d'attente (Story 3.3, revue finale
-        # R2) : des tranches n'étaient pas terminées. Même règle que la route
-        # d'enregistrement direct (`_enregistrer_libre_direct` : une tranche
-        # manquante) — compté APRÈS la décision de nettoyage des jobs, qui ne
-        # dépend que de leur propre issue. Le compteur voyage dans
-        # `proposed_json` jusqu'à `Interview.tranches_manquantes`.
-        manquantes += 1
-        detail = detail or ("Finalisé avant la fin du traitement des tranches : "
-                            "une partie de l'entretien peut manquer de cette revue.")
-
     contexte = _build_review_context(mission, extracted, identity, manquantes)
+    if incomplete and not manquantes:
+        # Finalisation MANUELLE depuis l'écran d'attente (Story 3.3) : le drapeau
+        # ne COMPTE rien (re-revue 2026-11-17). Le texte entier est déjà côté
+        # serveur et la récupération synchrone ci-dessus a retraité chaque job
+        # pas `done` ; ce qui reste KO (ou non tenté) est déjà dans `still_ko`.
+        # Ajouter « +1 » persistait une tranche fantôme après nettoyage des jobs
+        # et rendait N+1 sur N échecs — l'analogie avec l'enregistrement direct
+        # (audio réellement perdu) ne tient pas ici. Message informatif seul.
+        contexte["finalisation_info"] = FINALISATION_RATTRAPEE
     if manquantes:
         contexte["tranches_manquantes"] = manquantes
         contexte["tranches_manquantes_detail"] = detail
@@ -410,10 +414,6 @@ def _finalize_libre_turns(
     # échec de répartition rendait la revue SANS le dire (bmad-code-review
     # 2026-09-04, finding F5).
     manquantes = extracted.get("tranches_manquantes", 0)
-    if incomplete:
-        # Finalisation MANUELLE depuis l'écran d'attente (Story 3.3, revue finale
-        # R1) : même règle que l'enregistrement direct — une tranche manquante.
-        manquantes += 1
     error = None
     if manquantes:
         pluriel = manquantes > 1
@@ -423,6 +423,10 @@ def _finalize_libre_turns(
             "en tours de parole par l'IA. Le texte, lui, est conservé dans la "
             "transcription."
         )
+    elif incomplete:
+        # Finalisation MANUELLE (Story 3.3) : informatif, ne compte rien — même
+        # raisonnement que `_finalize_record_answers` (re-revue 2026-11-17).
+        error = FINALISATION_RATTRAPEE
 
     return templates.TemplateResponse(
         request,

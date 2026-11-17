@@ -717,8 +717,9 @@ els['seg-exit-finalize'].h.click(); out.clic_ok = soumis;
 @pytest.mark.parametrize("ecran", ATTENTES, ids=lambda p: p.name)
 def test_finalisation_incomplete_atteint_le_serveur_par_l_action_rendue(ecran: Path, monkeypatch) -> None:
     """R1/R2 : le formulaire REELLEMENT rendu, poste vers SA propre action avec
-    transcription_incomplete=1, produit une revue qui le dit (une tranche manquante,
-    meme regle que l'enregistrement direct) ; sans le drapeau, rien n'est signale."""
+    transcription_incomplete=1, atteint le serveur : message INFORMATIF, jamais une
+    tranche comptee (re-revue 2026-11-17 : tout est rattrape cote serveur, le
+    compteur reste celui que le serveur mesure — ici 0) ; sans le drapeau, rien."""
     import html as _html
 
     from fastapi.testclient import TestClient
@@ -740,14 +741,82 @@ def test_finalisation_incomplete_atteint_le_serveur_par_l_action_rendue(ecran: P
         monkeypatch.setattr(interviews_record, "extract_answers_from_text",
                             lambda questions, texte: {999999: {"text": "Une reponse", "verbatims": []}})
     c = TestClient(app)
-    pages = {}
+    pages, infos = {}, {}
     for drapeau in ("", "1"):
         r = c.post(action, data={**champs, "transcription_incomplete": drapeau})
         assert r.status_code == 200, r.text[:300]
         pages[drapeau] = _html.unescape(r.text)
-    signal = "1 tranche n'a pas pu être structurée" if libre else '"tranches_manquantes": 1'
-    assert signal not in pages[""], "temoin : sans le drapeau, aucune tranche manquante"
-    assert signal in pages["1"], pages["1"][:3000]
+        infos[drapeau] = pages[drapeau] if libre else str(r.context.get("finalisation_info") or "")
+    info = interviews_record.FINALISATION_RATTRAPEE
+    assert info not in infos[""], "temoin : sans le drapeau, aucun message"
+    assert info in infos["1"], pages["1"][:3000]
+    for page in pages.values():
+        assert "tranche n'a pas pu être structurée" not in page, page[:3000]
+        if not libre:
+            assert '"tranches_manquantes": 0' in page, page[:3000]
+
+
+def test_finalisation_incomplete_n_echecs_compte_exactement_n(monkeypatch) -> None:
+    """Re-revue 2026-11-17 cas (b) : N tranches restees KO apres la recuperation
+    synchrone -> exactement N (pas N+1), jobs conserves ; meme compte sans le drapeau."""
+    import html as _html
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from app.routers import interviews_record
+
+    html, _mid = _rendre_attente("record_segment_wait.html")
+    action, champs = _formulaire_finalisation(html)
+    n = 3
+    jobs = [SimpleNamespace(status="failed", text=f"tranche {i}", error="KO", position=i)
+            for i in range(n)] + [SimpleNamespace(status="done", text="ok", error=None, position=n)]
+    monkeypatch.setattr(interviews_record, "segment_jobs_status", lambda db, tok: {
+        "jobs": jobs, "total": len(jobs), "done": 1, "failed": n, "stale": 0,
+        "all_done": False, "any_failed": True})
+    monkeypatch.setattr(interviews_record, "recover_stalled_or_failed_jobs", lambda db, js: None)
+    monkeypatch.setattr(interviews_record, "merge_segment_answers",
+                        lambda js, tail: {999999: {"text": "Une reponse", "verbatims": []}})
+    supprimes = []
+    monkeypatch.setattr(interviews_record, "delete_segment_jobs", lambda db, tok: supprimes.append(tok))
+    c = TestClient(app)
+    for drapeau in ("", "1"):
+        r = c.post(action, data={**champs, "segment_tail": "", "transcription_incomplete": drapeau})
+        assert r.status_code == 200, r.text[:300]
+        page = _html.unescape(r.text)
+        assert f'"tranches_manquantes": {n}' in page, page[:3000]
+        assert r.context.get("tranches_manquantes") == n
+        assert not r.context.get("finalisation_info")
+    assert supprimes == [], "jobs KO conserves pour un nouvel essai"
+
+
+def test_finalisation_incomplete_sans_reponse_garde_le_message_et_les_jobs(monkeypatch) -> None:
+    """Re-revue 2026-11-17 : extraction vide + drapeau -> le garde « aucune reponse
+    repartie » s'applique comme avant 3aeb63c (1 tranche signalee, jobs NON supprimes)."""
+    import html as _html
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from app.routers import interviews_record
+
+    html, _mid = _rendre_attente("record_segment_wait.html")
+    action, champs = _formulaire_finalisation(html)
+    jobs = [SimpleNamespace(status="done", text="ok", error=None, position=0)]
+    monkeypatch.setattr(interviews_record, "segment_jobs_status", lambda db, tok: {
+        "jobs": jobs, "total": 1, "done": 1, "failed": 0, "stale": 0,
+        "all_done": True, "any_failed": False})
+    monkeypatch.setattr(interviews_record, "merge_segment_answers", lambda js, tail: {})
+    supprimes = []
+    monkeypatch.setattr(interviews_record, "delete_segment_jobs", lambda db, tok: supprimes.append(tok))
+    r = TestClient(app).post(action, data={**champs, "segment_tail": "", "transcription_incomplete": "1"})
+    assert r.status_code == 200, r.text[:300]
+    page = _html.unescape(r.text)
+    assert "1 tranche" in page and "pas pu être" in page, page[:3000]
+    assert '"tranches_manquantes": 1' in page
+    assert supprimes == []
 
 
 @pytest.mark.parametrize("ecran", ATTENTES, ids=lambda p: p.name)
