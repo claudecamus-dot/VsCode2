@@ -109,3 +109,33 @@ def test_reprise_au_dela_du_plafond_est_signalee_avec_le_pid(detenteur_vivant):
     with pytest.warns(UserWarning, match=rf"PID {pid}.*taskkill /F /T /PID {pid}"):
         conftest._prendre_le_verrou()
     assert verrou.read_text(encoding="utf-8").split()[0] == str(os.getpid())
+
+
+# --------------------------------------------------------------------------- #
+# Story 3.1 re-review (2026-11-17) — B1: OpenProcess denied means ALIVE
+# --------------------------------------------------------------------------- #
+@pytest.mark.skipif(sys.platform != "win32", reason="OpenProcess : Windows seulement")
+def test_open_process_refuse_veut_dire_vivant_pas_mort(monkeypatch):
+    """B1: a null OpenProcess handle with ERROR_ACCESS_DENIED (elevated holder,
+    non-elevated runner) was read as « dead » and the lock was stolen before
+    the F6a code. Only a non-existent PID (87) is dead."""
+    import conftest
+
+    monkeypatch.setattr(conftest, "_ouvrir_processus", lambda pid: (0, 5))
+    assert conftest._detenteur_vivant(4242) is True
+    monkeypatch.setattr(conftest, "_ouvrir_processus", lambda pid: (0, 87))
+    assert conftest._detenteur_vivant(4242) is False
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="OpenProcess : Windows seulement")
+def test_open_process_refuse_ne_vole_pas_le_verrou(detenteur_vivant, monkeypatch):
+    """B1 through the real path: OpenProcess denied for the holder (both the
+    liveness and the start-time reads) must keep the lock."""
+    conftest, verrou, pid, debut = detenteur_vivant
+    reel = conftest._ouvrir_processus
+    monkeypatch.setattr(conftest, "_ouvrir_processus",
+                        lambda p: (0, 5) if p == pid else reel(p))
+    verrou.write_text(f"{pid} {time.time() - 2 * 3600} {debut}", encoding="utf-8")
+    with pytest.raises(RuntimeError, match=rf"PID {pid}"):
+        conftest._prendre_le_verrou()
+    assert verrou.read_text(encoding="utf-8").split()[0] == str(pid), "verrou vole"

@@ -141,12 +141,29 @@ def test_variable_d_environnement_l_emporte_sur_le_env(tmp_path) -> None:
 # Story 3.1 review round
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize("decision, attendu", [
-    ("indetermine", "la preuve de fra"),
     ("faute-de-frappe", "cision inconnue"),
+    ("stabilite", "rien purg"),
 ])
 def test_decision_non_purge_sort_en_0_sans_purger(decision, attendu) -> None:
+    # « indetermine » is NOT in this list any more: it exits 6 (re-review M2).
     sortie = _ps(f"Write-DecisionEtSortir -Decision '{decision}' -NumPort 8099; 'A_CONTINUE_VERS_LA_PURGE'")
     assert attendu in sortie and "A_CONTINUE_VERS_LA_PURGE" not in sortie, sortie
+
+
+def test_decision_indeterminee_sort_en_6_sur_stderr_sans_purger() -> None:
+    """Re-review M2: « indetermine » exited 0, so the VS Code task showed
+    success while the site could be dead. Distinct code 6, message on stderr."""
+    res = subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+         f". '{SCRIPT}' -Port 8099; Write-DecisionEtSortir -Decision 'indetermine' -NumPort 8099; "
+         "'A_CONTINUE_VERS_LA_PURGE'"],
+        cwd=RACINE, env=dict(os.environ, SERVEUR_DEV_FONCTIONS_SEULES="1", APP_AUTH_PASSWORD="x",
+                             SERVEUR_DEV_PYTHON=sys.executable),
+        capture_output=True, timeout=120)
+    sortie = (res.stdout + res.stderr).decode("utf-8", errors="replace")
+    assert res.returncode == 6, sortie
+    assert "la preuve de fra" in res.stderr.decode("utf-8", errors="replace"), sortie
+    assert "A_CONTINUE_VERS_LA_PURGE" not in sortie, sortie
 
 
 def test_decision_purger_continue_vers_la_purge() -> None:
@@ -325,3 +342,33 @@ def test_delai_python_non_numerique_ne_casse_pas_le_chargement() -> None:
     """F10: a non-numeric SERVEUR_DEV_DELAI_PYTHON_S falls back to 90 s."""
     assert _ps('"$script:DelaiPythonS"', {"SERVEUR_DEV_DELAI_PYTHON_S": "abc"}).splitlines()[-1] == "90"
     assert _ps('"$script:DelaiPythonS"', {"SERVEUR_DEV_DELAI_PYTHON_S": "7"}).splitlines()[-1] == "7"
+
+
+# --------------------------------------------------------------------------- #
+# Story 3.1 re-review (2026-11-17) — M1: the undetermined state is bounded
+# --------------------------------------------------------------------------- #
+def test_indetermine_borne_par_le_plafond_de_l_age_du_worker() -> None:
+    """M1: undetermined + worker older than the ceiling -> purge; young or
+    unknown worker -> nothing purged."""
+    def d(age: str, plafond: str = "1800") -> str:
+        return _ps(f"Get-DecisionIndeterminee -AgeWorkerS {age} -PlafondActif {plafond}").splitlines()[-1]
+    assert d("300") == "indetermine"
+    assert d("1799") == "indetermine"
+    assert d("$null") == "indetermine"
+    assert d("1800") == "purger"
+    assert d("90000") == "purger"
+    assert d("250", "200") == "purger"
+
+
+def test_serveur_malade_qui_repond_encore_est_purge_apres_le_plafond() -> None:
+    """M1 through Resolve-DecisionKeepIfFresh: `/` answers, the freshness
+    probes get no HTTP reply (thread pool saturated). Old worker -> purge with
+    a clear message; young worker -> still « indetermine »."""
+    malade = _VIEUX_QUI_REPOND + _ROUTE_200 + _HTTP_SANS_REPONSE
+    vieux = _ps(malade + "function Get-AgeWorkerS { param([int]$NumPort) 5000 }; "
+                "Resolve-DecisionKeepIfFresh -NumPort 8099")
+    assert vieux.splitlines()[-1] == "purger", vieux
+    assert "depuis plus de 1800 s" in vieux and ": purge" in vieux, vieux
+    jeune = _ps(malade + "function Get-AgeWorkerS { param([int]$NumPort) 300 }; "
+                "Resolve-DecisionKeepIfFresh -NumPort 8099")
+    assert jeune.splitlines()[-1] == "indetermine", jeune

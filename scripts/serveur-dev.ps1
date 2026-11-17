@@ -69,6 +69,17 @@
 #          [-Port 8020] [-StopOnly] [-KeepIfFresh] [-CheckOnly]
 #          [-GraceDemarrageS 900] [-StabiliteS 120] [-AttenteDemarrageS 300]
 #          [-VerrouAttenteS 60] [-PlafondActifS 1800]
+#
+# Codes de sortie :
+#   0  succès (serveur lancé, conservé sain/en démarrage/en stabilisation,
+#      -StopOnly fait, -CheckOnly OK, verrou tenu en -KeepIfFresh)
+#   1  panne (KO -CheckOnly, venv introuvable, serveur mort ou pas prêt au démarrage...)
+#   2  APP_AUTH_PASSWORD absent
+#   3  verrou tenu par une autre instance (lancement manuel, après -VerrouAttenteS)
+#   4  mot de passe indéterminé (python borné hors délai)
+#   5  lecture du mot de passe en échec (python a rendu un code non nul)
+#   6  -KeepIfFresh : état INDÉTERMINÉ (preuve de fraîcheur non établie, rien
+#      purgé tant que le worker a moins de -PlafondActifS s ; au-delà : purge)
 
 param(
     # 8020 : le port de l'utilisateur (arbitrage du 2026-09-29). Il était hanté
@@ -476,9 +487,29 @@ function Resolve-DecisionKeepIfFresh {
     # reply (timeout): only a definitive answer (bytes/fingerprint/code that
     # differ) may purge — the probes are short-circuited at the first « no ».
     if ($decision -eq "purger" -and ($script:pythonIndetermine -or $script:preuveIndeterminee -or $script:pythonEchec)) {
-        return "indetermine"
+        # (Story 3.1 re-review, M1) Bounded: a sick server that still answers `/`
+        # (thread pool saturated: async middleware OK, `def` routes time out)
+        # used to stay « indetermine » forever under the -KeepIfFresh auto-start.
+        $ageWorker = Get-AgeWorkerS -NumPort $NumPort
+        $decision = Get-DecisionIndeterminee -AgeWorkerS $ageWorker -PlafondActif $PlafondActifS
+        if ($decision -eq "purger") {
+            Write-Historique "keepiffresh port=$NumPort decision=purger (indetermine, worker de $([int]$ageWorker) s >= plafond $PlafondActifS s)"
+            Write-Host "Indéterminé depuis plus de $PlafondActifS s (worker de $([int]$ageWorker) s, preuve de fraîcheur toujours non établie) : purge."
+        }
+        return $decision
     }
     return $decision
+}
+
+function Get-DecisionIndeterminee {
+    # Décision PURE (testable) quand la preuve de fraîcheur n'a pas pu être
+    # établie (Story 3.1 re-review, M1). Ne rien purger tant que le worker (le
+    # process serveur le plus JEUNE, relancé à chaque reload) a moins de
+    # $PlafondActif s ; au-delà, l'indétermination n'est plus une charge passagère :
+    # purger. $AgeWorkerS = $null (inconnu) : pas de plafond, « indetermine ».
+    param($AgeWorkerS, [int]$PlafondActif = 1800)
+    if ($null -ne $AgeWorkerS -and [double]$AgeWorkerS -ge $PlafondActif) { return "purger" }
+    return "indetermine"
 }
 
 function Invoke-RetestAvantKill {
@@ -500,7 +531,7 @@ function Invoke-RetestAvantKill {
 }
 
 function Write-DecisionEtSortir {
-    # Les décisions qui ne purgent pas : message, puis exit 0.
+    # Les décisions qui ne purgent pas : message, puis exit 0 (« indetermine » : exit 6).
     param([string]$Decision, [int]$NumPort)
     switch ($Decision) {
         "sain" { Write-Host "OK : serveur déjà frais (statique + python) sur http://127.0.0.1:$NumPort — conservé (-KeepIfFresh)."; exit 0 }
@@ -515,8 +546,12 @@ function Write-DecisionEtSortir {
         }
         "indetermine" {
             Write-Historique "keepiffresh port=$NumPort decision=indetermine (sonde python en echec/hors delai ou HTTP sans reponse)"
-            Write-Host "État indéterminé : la preuve de fraîcheur n'a pas pu être établie (python en échec ou hors délai, ou requête HTTP sans réponse — machine chargée ?), rien purgé. La prochaine instance retestera."
-            exit 0
+            # (Story 3.1 re-review, M2) Not a success: the site may be dead. Distinct
+            # code 6 so the VS Code task does not show green; message on stderr too.
+            $msg = "État indéterminé : la preuve de fraîcheur n'a pas pu être établie (python en échec ou hors délai, ou requête HTTP sans réponse — machine chargée ?), rien purgé (purge si le worker dépasse $PlafondActifS s). La prochaine instance retestera."
+            Write-Host $msg
+            [Console]::Error.WriteLine($msg)
+            exit 6
         }
         "stabilite" { Write-Host "Serveur périmé mais app/ modifié il y a moins de $StabiliteS s : le --reload va rattraper, rien purgé. La prochaine instance retestera."; exit 0 }
         "purger" { return }

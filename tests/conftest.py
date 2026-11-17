@@ -111,6 +111,32 @@ _VERROU_PERIME_S = 45 * 60
 _VERROU_PLAFOND_VIVANT_S = 12 * 3600
 
 
+_ERROR_ACCESS_DENIED = 5
+_NOYAU = None
+
+
+def _noyau_windows():
+    """kernel32 chargé avec `use_last_error=True` : seul moyen fiable de lire
+    le GetLastError() d'un appel ctypes (`ctypes.get_last_error()`)."""
+    global _NOYAU
+    if _NOYAU is None:
+        import ctypes
+
+        _NOYAU = ctypes.WinDLL("kernel32", use_last_error=True)
+    return _NOYAU
+
+
+def _ouvrir_processus(pid: int):
+    """`OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` -> (handle, GetLastError).
+
+    Point unique (et substituable en test) : `_detenteur_vivant` doit
+    distinguer « PID inexistant » (87) de « accès refusé » (5)."""
+    import ctypes
+
+    handle = _noyau_windows().OpenProcess(0x1000, False, pid)
+    return handle, (0 if handle else ctypes.get_last_error())
+
+
 def _detenteur_vivant(pid: int) -> bool:
     """Le processus `pid` tourne-t-il encore ? Sans dépendance externe.
 
@@ -124,17 +150,20 @@ def _detenteur_vivant(pid: int) -> bool:
 
     `OpenProcess` tranche, lui : handle nul pour un PID mort, non nul sinon
     (0x1000 = PROCESS_QUERY_LIMITED_INFORMATION, le droit le plus faible, il
-    suffit à savoir qu'il existe).
+    suffit à savoir qu'il existe). Handle nul avec ERROR_ACCESS_DENIED (5) : le
+    processus EXISTE mais nous est fermé (détenteur élevé, runner non élevé) —
+    vivant, jamais « mort » (re-review 2026-11-17, B1 : le verrou était volé
+    avant même le code F6a de `_detenteur_actif`).
     """
     if pid <= 0:
         return False
     if sys.platform == "win32":
         import ctypes
 
-        noyau = ctypes.windll.kernel32
-        handle = noyau.OpenProcess(0x1000, False, pid)
+        noyau = _noyau_windows()
+        handle, erreur = _ouvrir_processus(pid)
         if not handle:
-            return False
+            return erreur == _ERROR_ACCESS_DENIED
         try:
             # `OpenProcess` ne suffit PAS : il réussit encore sur un processus
             # TERMINÉ tant qu'un handle reste ouvert quelque part (le shell
@@ -180,8 +209,8 @@ def _debut_processus(pid: int):
         import ctypes
         from ctypes import wintypes
 
-        noyau = ctypes.windll.kernel32
-        handle = noyau.OpenProcess(0x1000, False, pid)
+        noyau = _noyau_windows()
+        handle, _erreur = _ouvrir_processus(pid)
         if not handle:
             return None
         try:
@@ -260,10 +289,13 @@ def _detenteur_actif(detenteur) -> bool:
             return False  # PID recycled (different start): the lock is free
         # Same start: the holder is alive, and its lock holds WHATEVER ITS AGE
         # — a 2 h 35 suite (2026-10-20) had its lock stolen at 45 min, then
-        # WinError 32 (Story 3.1, D-2). Start time UNREADABLE on a LIVE pid
-        # (OpenProcess denied between an elevated and a non-elevated shell —
-        # final review F6a): nothing says it is someone else, so it is treated
-        # as the holder, never as a 45 min-old unknown (that was D-2 again).
+        # WinError 32 (Story 3.1, D-2). Start time UNREADABLE (`debut` stored
+        # but `actuel` None): OpenProcess denied between an elevated and a
+        # non-elevated shell (final review F6a). `_detenteur_vivant` answers
+        # « alive » on that ERROR_ACCESS_DENIED (re-review B1 — before, it said
+        # « dead » and the lock was stolen before reaching this line); here
+        # nothing says it is someone else, so it is treated as the holder,
+        # never as a 45 min-old unknown (that was D-2 again).
         if age < _VERROU_PLAFOND_VIVANT_S:
             return True
         # (F6b) Beyond the ceiling the lock is taken over — never silently.
