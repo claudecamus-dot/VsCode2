@@ -111,10 +111,17 @@ def segment_job_stale_after_s() -> int:
     raw = os.environ.get("SEGMENT_JOB_STALE_AFTER_S")
     if raw:
         try:
-            return int(raw)
+            # Borné (Story 3.4, B-13) : « 0 » ou négatif déclarait TOUTE tranche
+            # morte dès sa création (`any_failed`, finalisation prématurée) ; une
+            # valeur énorme ne libérait plus jamais un job réellement mort.
+            return min(max(int(raw), _STALE_MIN_S), _STALE_MAX_S)
         except ValueError:
             pass
     return 45 * 60
+
+
+_STALE_MIN_S = 60
+_STALE_MAX_S = 24 * 3600
 
 
 # Plafonds des réglages d'environnement de reprise (arbitrage utilisateur
@@ -261,7 +268,9 @@ def reconcile_running_on_startup() -> int:
         db.close()
 
 
-def _ecrire_si_texte_inchange(db, job_id: int, texte_attendu, valeurs: dict) -> bool:
+def _ecrire_si_texte_inchange(
+    db, job_id: int, texte_attendu, valeurs: dict, sauf_done: bool = False,
+) -> bool:
     """Écrit `valeurs` sur la tranche `job_id` SEULEMENT si son texte est
     encore celui sur lequel on a travaillé. Rend True si l'écriture a eu lieu.
 
@@ -272,23 +281,25 @@ def _ecrire_si_texte_inchange(db, job_id: int, texte_attendu, valeurs: dict) -> 
     version courante : il mentirait sur ce qui a réellement été extrait.
 
     `texte_attendu is None` = on n'a pas encore lu de texte (échec très
-    précoce) : l'écriture est alors inconditionnelle."""
-    if texte_attendu is None:
-        db.execute(
-            update(InterviewSegmentJob)
-            .where(InterviewSegmentJob.id == job_id)
-            .values(**valeurs)
-        )
-        db.commit()
-        return True
+    précoce) : l'écriture ne dépend alors pas du texte.
+
+    `sauf_done` (Story 3.4, B-6) : un ÉCHEC n'écrase jamais un `done`. La
+    récupération synchrone (`recover_stalled_or_failed_jobs`) peut aboutir une
+    tranche encore `running` en tâche de fond ; si la tâche d'origine échoue
+    ensuite, elle réécrivait `failed` par-dessus le `done` (texte inchangé)."""
+    conditions = [InterviewSegmentJob.id == job_id]
+    if texte_attendu is not None:
+        conditions.append(InterviewSegmentJob.text == texte_attendu)
+    if sauf_done:
+        conditions.append(InterviewSegmentJob.status != "done")
     touchees = db.execute(
         update(InterviewSegmentJob)
-        .where(
-            InterviewSegmentJob.id == job_id,
-            InterviewSegmentJob.text == texte_attendu,
-        )
+        .where(*conditions)
         .values(**valeurs)
     ).rowcount
+    if texte_attendu is None and not sauf_done:
+        db.commit()
+        return True
     db.commit()
     if not touchees:
         logger.info(
@@ -321,8 +332,20 @@ def run_segment_job(job_id: int) -> None:
         job = db.get(InterviewSegmentJob, job_id)
         if job is None:
             return
-        job.status = "running"
+        # Revue finale Story 3.4 (F5) : passage à `running` CONDITIONNEL, comme
+        # `sauf_done` pour les échecs — une tâche qui démarre après qu'une autre
+        # (ou la récupération synchrone) a abouti la tranche n'écrase plus son
+        # `done`. Rien à refaire : la ligne porte déjà un résultat. Une tranche
+        # à retraiter a été repassée `pending` par la route qui la reprogramme.
+        if not db.execute(
+            update(InterviewSegmentJob)
+            .where(InterviewSegmentJob.id == job_id, InterviewSegmentJob.status != "done")
+            .values(status="running")
+        ).rowcount:
+            db.commit()
+            return
         db.commit()
+        db.refresh(job)
         # Le texte SUR LEQUEL on extrait, capturé avant l'appel IA : la route
         # de soumission peut le remplacer pendant qu'on travaille (le client
         # repose la même position avec une version plus longue, après une
@@ -344,6 +367,7 @@ def run_segment_job(job_id: int) -> None:
             _ecrire_si_texte_inchange(
                 db, job_id, texte_extrait,
                 {"status": "failed", "error": str(exc)},
+                sauf_done=True,
             )
             return
         # Écriture CONDITIONNELLE et atomique, jamais un lire-puis-écrire : le
@@ -380,6 +404,7 @@ def run_segment_job(job_id: int) -> None:
                     "status": "failed",
                     "error": f"Échec inattendu ({type(exc).__name__}).",
                 },
+                sauf_done=True,
             )
         except Exception:
             logger.exception("Secours d'échec impossible (tranche %s) : statut peut-être figé", job_id)
@@ -449,8 +474,12 @@ _MERGE_LIGHT_COLUMNS = (
 )
 
 
+def _filtre_kind(kind: str | None) -> tuple:
+    return (InterviewSegmentJob.kind == kind,) if kind else ()
+
+
 def segment_jobs_status_light(
-    db: Session, session_token: str, since_position: int = 0
+    db: Session, session_token: str, since_position: int = 0, kind: str | None = None,
 ) -> dict:
     """Version allégée de `segment_jobs_status`, pour les endpoints de LECTURE
     SEULE `/segment-jobs/turns` et `/segment-jobs/answers` — sondés toutes les
@@ -473,7 +502,11 @@ def segment_jobs_status_light(
       début (les positions démarrent à 0).
     `total`/`done`/`failed`/`stale` restent calculés sur TOUTES les lignes de
     la session, par agrégats SQL (`func.count`), jamais faussés par le
-    curseur — seule la fusion des tours/réponses en profite."""
+    curseur — seule la fusion des tours/réponses en profite.
+
+    `kind` (Story 3.4, B-5) : compteurs ET fusion restreints à cette nature de
+    job — sans lui, une session portant des jobs des deux natures mélangeait
+    `libre_turns` et `answers` dans les deux aperçus."""
     session_token = normaliser_jeton(session_token)
     if not session_token:
         return {"jobs": [], "total": 0, "done": 0, "failed": 0, "stale": 0,
@@ -481,18 +514,21 @@ def segment_jobs_status_light(
     now = utc_naif()
     total = db.scalar(
         select(func.count(InterviewSegmentJob.id)).where(
-            InterviewSegmentJob.session_token == session_token
+            InterviewSegmentJob.session_token == session_token,
+            *_filtre_kind(kind),
         )
     ) or 0
     done = db.scalar(
         select(func.count(InterviewSegmentJob.id)).where(
             InterviewSegmentJob.session_token == session_token,
+            *_filtre_kind(kind),
             InterviewSegmentJob.status == "done",
         )
     ) or 0
     failed = db.scalar(
         select(func.count(InterviewSegmentJob.id)).where(
             InterviewSegmentJob.session_token == session_token,
+            *_filtre_kind(kind),
             InterviewSegmentJob.status == "failed",
         )
     ) or 0
@@ -504,6 +540,7 @@ def segment_jobs_status_light(
             .options(load_only(InterviewSegmentJob.id, InterviewSegmentJob.status, InterviewSegmentJob.created_at))
             .where(
                 InterviewSegmentJob.session_token == session_token,
+                *_filtre_kind(kind),
                 InterviewSegmentJob.status.in_(("pending", "running")),
             )
         )
@@ -515,6 +552,7 @@ def segment_jobs_status_light(
             .options(load_only(*_MERGE_LIGHT_COLUMNS))
             .where(
                 InterviewSegmentJob.session_token == session_token,
+                *_filtre_kind(kind),
                 InterviewSegmentJob.status == "done",
                 InterviewSegmentJob.position >= since_position,
             )
@@ -568,11 +606,13 @@ def recover_stalled_or_failed_jobs(db: Session, jobs: list[InterviewSegmentJob])
             continue
         if not job.text.strip():
             # Rien à traiter (job créé sans texte, cas dégénéré) : reste vide.
-            job.status = "failed"
-            job.error = job.error or "Aucun texte associé à ce job."
+            _marquer_echec(db, job, job.error or "Aucun texte associé à ce job.")
             continue
         if tentees >= _RECOVER_MIN_ESSAIS and time.monotonic() - debut >= _RECOVER_HARD_BUDGET_S:
             # Budget dur épuisé : aucun appel, la tranche reste rejouable.
+            # (Écriture ORM conservée ici : aucun essai n'a tourné pour CETTE
+            # tranche dans cette requête ; la fenêtre de course est celle des
+            # essais précédents. Limite connue, revue finale Story 3.4 F5.)
             job.status = "failed"
             job.error = _RECOVER_DIFFEREE_MSG
             db.commit()
@@ -589,8 +629,8 @@ def recover_stalled_or_failed_jobs(db: Session, jobs: list[InterviewSegmentJob])
             job.status = "done"
             job.error = None
         except _EXTRACT_ERRORS as exc:
-            job.status = "failed"
-            job.error = str(exc)
+            _marquer_echec(db, job, str(exc))
+            continue
         except Exception as exc:  # noqa: BLE001
             # Même garde-fou large que `run_segment_job` (revue adversariale
             # 2026-07-30) : cette récupération tourne DANS une requête HTTP,
@@ -599,12 +639,28 @@ def recover_stalled_or_failed_jobs(db: Session, jobs: list[InterviewSegmentJob])
             # avaient abouti. Une tranche perdue doit dégrader en « non aboutie »
             # (signalée à l'écran), jamais faire tomber la page.
             logger.exception("Échec inattendu de la récupération d'une tranche")
-            job.status = "failed"
             # Le TYPE seul, jamais le texte : ce champ remonte au navigateur
             # via le `detail` de la finalisation. Détail complet au journal
             # juste au-dessus (revue du 2026-09-10, 2e passe, N6).
-            job.error = f"Échec inattendu ({type(exc).__name__})."
+            _marquer_echec(db, job, f"Échec inattendu ({type(exc).__name__}).")
+            continue
         db.commit()
+
+
+def _marquer_echec(db: Session, job: InterviewSegmentJob, erreur: str) -> None:
+    """Revue finale Story 3.4 (F5) : l'échec de la récupération synchrone est un
+    UPDATE CONDITIONNEL (`status != 'done'`), plus une écriture ORM — la tâche de
+    fond peut avoir abouti la tranche pendant cet essai, et l'ORM réécrivait
+    `failed` par-dessus son `done` (même règle que `sauf_done`). L'objet est
+    ensuite relu : la fusion qui suit voit le `done` gagnant et son résultat."""
+    db.execute(
+        update(InterviewSegmentJob)
+        .where(InterviewSegmentJob.id == job.id, InterviewSegmentJob.status != "done")
+        .values(status="failed", error=erreur)
+        .execution_options(synchronize_session=False)
+    )
+    db.commit()
+    db.refresh(job)
 
 
 def merge_segment_turns(jobs: list[InterviewSegmentJob], tail_result: dict | None) -> dict:

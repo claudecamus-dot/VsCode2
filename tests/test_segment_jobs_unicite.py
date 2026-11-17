@@ -90,7 +90,9 @@ def _ia_muette(monkeypatch: pytest.MonkeyPatch) -> None:
         return {"turns": [{"speaker": "A", "text": texte.strip()}], "identity": {}}
 
     monkeypatch.setattr(
-        interview_segment_jobs, "extract_turns_from_text", _faux_extract, raising=False
+        # Sans `raising=False` (Story 3.4, D-11) : un renommage du symbole doit
+        # casser ce harnais bruyamment, pas désactiver le patch en silence.
+        interview_segment_jobs, "extract_turns_from_text", _faux_extract
     )
 
 

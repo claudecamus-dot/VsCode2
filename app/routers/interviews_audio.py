@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 from ..db import RECORDINGS_DIR, get_session
 from ..models import AudioFileJob, Mission
 from ..services import ai_common, audio_transcribe, mission_backups
+from ..services.interview_segment_jobs import normaliser_jeton
 from ..services.audio_file_jobs import (
     is_audio_file_job_stale,
     purge_stale_audio_file_jobs,
@@ -340,7 +341,10 @@ async def transcribe_file(
     try:
         purge_stale_audio_file_jobs(db)
         job = AudioFileJob(
-            session_token=session_token[:64],
+            # Story 3.4 (B-3) : MÊME normalisation qu'aux deux comparaisons
+            # (status, retry) — tronqué ici mais comparé entier, un jeton > 64
+            # car. rendait 404.
+            session_token=normaliser_jeton(session_token),
             filename=filename,
             status="pending",
             block_seconds=audio_transcribe.FILE_BLOCK_S,
@@ -390,7 +394,8 @@ def transcribe_file_retry(
     correspondre, sinon un `job_id` (séquentiel) relancerait l'import d'autrui.
     """
     job = db.get(AudioFileJob, job_id)
-    if job is None or not session_token.strip() or job.session_token != session_token:
+    jeton = normaliser_jeton(session_token)
+    if job is None or not jeton or job.session_token != jeton:
         return JSONResponse({"error": "Import introuvable."}, status_code=404)
     if job.status != "failed" and not is_audio_file_job_stale(job):
         # Rien à relancer : un job en cours finira, un job abouti n'a plus son
@@ -499,7 +504,8 @@ def transcribe_file_status(
     (redémarrage serveur) est rapporté `failed` plutôt que de faire poller
     l'écran indéfiniment."""
     job = db.get(AudioFileJob, job_id)
-    if job is None or not session_token or job.session_token != session_token:
+    jeton = normaliser_jeton(session_token)
+    if job is None or not jeton or job.session_token != jeton:
         raise HTTPException(status_code=404, detail="Import introuvable.")
     blocks = list(job.blocks or [])
     status, error = job.status, job.error or ""

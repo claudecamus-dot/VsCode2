@@ -66,7 +66,10 @@ def setup_module() -> None:
 # `_epoch_creation`, les prompts IA…) — et un test qui crie tout le temps finit
 # désarmé.
 _MODULE_VERBES = {
-    "os": ("remove", "unlink", "rmdir", "rename", "replace", "removedirs", "truncate"),
+    # `open` (Story 3.4, D-10b) : `os.open(chemin, O_WRONLY | O_TRUNC)` vide un
+    # fichier sans jamais écrire « open(…, 'w') » — invisible avant.
+    "os": ("remove", "unlink", "rmdir", "rename", "replace", "removedirs", "truncate",
+           "open"),
     # `copyfile`/`copy2` ÉCRASENT leur destination : recopier par-dessus un
     # enregistrement le détruit aussi sûrement qu'un `unlink`.
     "shutil": ("rmtree", "move", "copyfile", "copy2", "copy"),
@@ -82,7 +85,7 @@ _MODULES_AUDIO = ("audio", "backup", "record")
 _TOUJOURS_A_JUSTIFIER = (
     "unlink", "rmdir", "truncate",
     "os.remove", "os.unlink", "os.rmdir", "os.rename", "os.replace",
-    "os.removedirs", "os.truncate",
+    "os.removedirs", "os.truncate", "os.open",
     "shutil.rmtree", "shutil.move", "shutil.copyfile", "shutil.copy2", "shutil.copy",
     "open(écriture)", "open(mode variable)",
 )
@@ -159,6 +162,37 @@ def _verbe_destructeur(node: ast.Call, alias: dict[str, str] | None = None) -> s
             return f"{mod}.{attr}"
     if attr in ("replace", "rename") and nargs == 1 and nkw == 0:
         return f"Path.{attr}"
+    if attr == "open" and canonique != "os":
+        # `x.open(...)` (Story 3.4, D-10b, revue) : deux formes.
+        # - `Path.open(mode)` : UN positionnel, le mode ;
+        # - `module.open(source, mode)` (`wave.open`, `gzip.open`) : le mode est
+        #   le DEUXIÈME positionnel ; le premier est un chemin, jamais un mode.
+        # Mode variable en position de mode : traité comme destructeur
+        # (conservateur). Un seul positionnel non constant (`av.open(flux)`) :
+        # c'est une source, pas un mode.
+        if len(node.args) >= 2:
+            positionnel = node.args[1]
+        elif node.args and isinstance(node.args[0], ast.Constant) and isinstance(
+            node.args[0].value, str
+        ) and set(node.args[0].value) <= set("rwabxtU+"):
+            positionnel = node.args[0]
+        elif len(node.args) == 1 and isinstance(node.args[0], ast.Name) and canonique != "av":
+            # Revue finale Story 3.4 (F8) : `chemin.open(mode)` (mode calculé)
+            # passait pour une source comme `av.open(flux)`. Un positionnel
+            # unique VARIABLE est un mode possible, sauf sur `av` (seul module
+            # connu dont l'unique positionnel est la source).
+            positionnel = node.args[0]
+        else:
+            positionnel = None
+        mots = [k.value for k in node.keywords if k.arg == "mode"]
+        candidats = ([positionnel] if positionnel is not None else []) + mots
+        if any(not isinstance(c, ast.Constant) for c in candidats):
+            return "Path.open(mode variable)"
+        ecrit = any(
+            isinstance(c.value, str) and any(ch in c.value for ch in "wa+")
+            for c in candidats
+        )
+        return "Path.open(écriture)" if ecrit else None
     return None
 
 
@@ -327,7 +361,21 @@ def test_le_detecteur_voit_les_verbes_que_l_ancienne_version_ratait() -> None:
         "truncate": "poignee.truncate()",
         "unlink": "chemin.unlink()",
         "open(écriture)": "open(chemin, 'wb')",
+        # Story 3.4 (D-10b) : les deux ouvertures en écriture qui passaient.
+        "os.open": "os.open(chemin, os.O_WRONLY | os.O_TRUNC)",
+        "Path.open(écriture)": "chemin.open('wb')",
     }
+    # Revue Story 3.4 : `module.open(chemin, mode)` — le mode est le 2e positionnel.
+    for code, attendu in (("wave.open('x.wav', 'wb')", "Path.open(écriture)"),
+                          ("wave.open(chemin, mode)", "Path.open(mode variable)"),
+                          ("wave.open('x.wav', 'rb')", None),
+                          ("wave.open('archive.wav')", None),
+                          ("av.open(io.BytesIO(octets))", None),
+                          # Revue finale (F8) : mode calculé en positionnel unique.
+                          ("chemin.open(mode)", "Path.open(mode variable)"),
+                          ("av.open(flux)", None)):
+        node = ast.parse(code, mode="eval").body
+        assert _verbe_destructeur(node) == attendu, code
     for attendu, code in extraits.items():
         node = ast.parse(code, mode="eval").body
         assert isinstance(node, ast.Call)
@@ -338,7 +386,8 @@ def test_le_detecteur_voit_les_verbes_que_l_ancienne_version_ratait() -> None:
 
     # Et il ne crie PAS sur les homonymes, sans quoi il serait désarmé.
     for code in ("texte.replace('a', 'b')", "moment.replace(tzinfo=utc)",
-                 "elements.remove(x)", "open(chemin, 'rb')"):
+                 "elements.remove(x)", "open(chemin, 'rb')",
+                 "chemin.open()", "chemin.open('rb')"):
         node = ast.parse(code, mode="eval").body
         assert _verbe_destructeur(node) is None, f"faux positif sur `{code}`"
 
@@ -519,7 +568,10 @@ def test_le_statut_d_import_expose_le_nom_du_fichier() -> None:
     source = (RACINE / "app" / "routers" / "interviews_audio.py").read_text(
         encoding="utf-8"
     )
-    bloc = source[source.index("def transcribe_file_status") :][:4000]
+    # Borné au décorateur SUIVANT, pas à 4000 caractères (Story 3.4, D-11) : la
+    # découpe fixe débordait sur la route voisine ou tronquait celle-ci.
+    bloc = source[source.index("def transcribe_file_status") :]
+    bloc = bloc.split("\n@router.", 1)[0]
     assert '"filename"' in bloc, (
         "le statut d'import n'expose plus le nom du fichier : le client ne peut "
         "plus rattacher l'audio importé, qui redevient un orphelin injouable"
@@ -614,3 +666,41 @@ def test_la_purge_efface_les_lignes_de_base_mais_pas_l_audio(tmp_path, monkeypat
         )
     finally:
         db.close()
+
+
+# --------------------------------------------------------------------------- #
+# Story 3.4 (D-10b) — garantie COMPORTEMENTALE : l'audio importé survit au
+# succès ET à l'échec de son job (jusqu'ici seul le détecteur AST la portait).
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("issue", ["succes", "echec"])
+def test_l_audio_importe_survit_au_succes_et_a_l_echec_du_job(
+    issue: str, tmp_path, monkeypatch,
+) -> None:
+    from app.db import SessionLocal
+    from app.models import AudioFileJob
+    from app.services import audio_file_jobs
+
+    monkeypatch.setattr(audio_file_jobs, "RECORDINGS_DIR", tmp_path)
+    fichier = tmp_path / f"7_import_survie_{issue}.webm"
+    fichier.write_bytes(b"audio")
+
+    def _blocs(content, block_seconds, start_index=0, **_k):
+        if issue == "echec":
+            raise RuntimeError("transcription impossible")
+        yield 0, 1, "du texte"
+
+    # Jamais le vrai modèle Whisper : la transcription est remplacée.
+    monkeypatch.setattr(audio_file_jobs.audio_transcribe, "iter_transcribe_blocks", _blocs)
+    with SessionLocal() as db:
+        job = AudioFileJob(session_token=f"survie-{issue}", filename=fichier.name,
+                           status="pending", block_seconds=60, blocks=[])
+        db.add(job)
+        db.commit()
+        job_id = job.id
+
+    audio_file_jobs.run_audio_file_job(job_id)
+
+    with SessionLocal() as db:
+        statut = db.get(AudioFileJob, job_id).status
+    assert statut == ("done" if issue == "succes" else "failed")
+    assert fichier.is_file(), f"l'audio a disparu après le {issue} du job"

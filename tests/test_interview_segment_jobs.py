@@ -464,8 +464,8 @@ def test_turns_endpoint_since_cursor_only_returns_new_turns(
     jobs_lus = []
     original = interview_segment_jobs.segment_jobs_status_light
 
-    def _espion(db_arg, session_token, since_position=0):
-        result = original(db_arg, session_token, since_position=since_position)
+    def _espion(db_arg, session_token, since_position=0, **kw):  # `kind=` (Story 3.4, B-5)
+        result = original(db_arg, session_token, since_position=since_position, **kw)
         jobs_lus.append(list(result["jobs"]))
         return result
 
@@ -827,7 +827,9 @@ def test_record_libre_plafonne_la_recuperation_synchrone(
         data={"transcript": "un entretien long", "session_token": "plafond-tok", "segment_tail": ""},
     )
     assert resp.status_code == 200
-    assert len(appels) <= RECUP_TRANCHES_MAX, (
+    # `==` et non `<=` (Story 3.4, D-10c) : `<=` passait aussi avec ZÉRO appel,
+    # c'est-à-dire sans aucune récupération.
+    assert len(appels) == RECUP_TRANCHES_MAX, (
         f"{len(appels)} tranches retraitées dans un seul POST — le plafond "
         f"({RECUP_TRANCHES_MAX}) ne s'applique pas au chemin libre direct"
     )
@@ -1095,26 +1097,22 @@ def _erreur_ia(transitoire: bool):
     return exc
 
 
+# `with SessionLocal()` (Story 3.4, D-11) : session fermée même sur exception,
+# sans try/finally recopié à la main.
 def _lancer_tranche(token: str) -> int:
-    db = SessionLocal()
-    try:
+    with SessionLocal() as db:
         job = InterviewSegmentJob(session_token=token, position=0, status="pending", text="du texte")
         db.add(job)
         db.commit()
         job_id = job.id
-    finally:
-        db.close()
     interview_segment_jobs.run_segment_job(job_id)
     return job_id
 
 
 def _statut(job_id: int) -> tuple[str, str | None]:
-    db = SessionLocal()
-    try:
+    with SessionLocal() as db:
         job = db.get(InterviewSegmentJob, job_id)
         return job.status, job.error
-    finally:
-        db.close()
 
 
 def test_panne_transitoire_est_reessayee_puis_la_tranche_aboutit(monkeypatch):

@@ -20,7 +20,7 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import RedirectResponse, Response
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -36,10 +36,11 @@ from ..services.interview_libre_extract_ai import (
     InterviewLibreExtractAIError,
     generate_repartition_from_turns,
 )
-from ..services.interview_segment_jobs import normaliser_jeton
+from ..services.interview_segment_jobs import delete_segment_jobs, normaliser_jeton
 from ..services.mission_axes import axes_of
 from ..services.structuration_libre import (
     peut_relancer,
+    structurer_texte_disponible,
     planifier_structuration,
     relancer,
 )
@@ -110,6 +111,7 @@ def _entretien_libre(db, interview_id: int) -> Interview:
 def structurer_maintenant(
     interview_id: int,
     background_tasks: BackgroundTasks,
+    texte_disponible: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """« Structurer maintenant » / « Relancer » depuis la fiche. Idempotent :
@@ -118,7 +120,14 @@ def structurer_maintenant(
     Relançable aussi (F4) : un `en_cours` orphelin, un `fait` à 0 tour. Un
     refus se DIT sur la fiche (`?structuration=refusee`), plus de 303 muet."""
     interview = _entretien_libre(db, interview_id)
-    if not relancer(interview.id):
+    # Story 3.4 (B-1) : « Structurer le texte disponible » (après confirm() à
+    # l'écran) — seule sortie d'un `a_transcrire` qui porte du texte quand la
+    # relance des tranches / la retranscription ne produit rien.
+    if texte_disponible.strip():
+        ok = structurer_texte_disponible(interview.id)
+    else:
+        ok = relancer(interview.id)
+    if not ok:
         return RedirectResponse(
             f"/interviews/{interview.id}?structuration=refusee", status_code=303
         )
@@ -223,6 +232,7 @@ def _etat_audio(mission, identity, attendu: int = 0) -> tuple[bool, int]:
         identity.get("audio_backup_path"),
         _parse_audio_segments(identity.get("audio_segments", "[]")),
         RECORDINGS_DIR,
+        mission=mission,  # Story 3.4 (B-11) : même garde que la persistance
     )
     attendu = min(max(0, attendu), 1000)  # plafond de bon sens (champ client)
     if not segments:
@@ -246,8 +256,10 @@ def _refus_texte_vide(request, mission, identity, transcript, *, audio_suffit=Fa
     """Garde UNIQUE « aucun texte » des routes de finalisation libre. Rend l'écran
     d'erreur, ou None. Avec `audio_suffit` (« enregistrer sans attendre », 2026-10-19),
     seul « ni texte NI aucune référence audio » est refusé : un audio tronqué ne
-    refuse plus (décision du 2026-10-19), l'entretien est créé `a_transcrire` avec
-    `tranches_manquantes` posé et un avertissement visible sur la fiche."""
+    refuse plus (décision du 2026-10-19). L'état de l'entretien créé est décidé
+    par `_enregistrer_libre_direct` (`a_transcrire` si texte vide OU partiel avec
+    audio) ; la fiche explique ce blocage et propose ses sorties
+    (`_structuration_statut.html`, Story 3.4 / B-1)."""
     vide = not transcript.strip()
     if not audio_suffit:
         return _libre_turns_error(request, mission, identity, "Aucun texte transcrit.") if vide else None
@@ -326,13 +338,36 @@ def _enregistrer_libre_direct(
             and not existant.turns
             and len(texte) > len((existant.raw_transcript or "").strip())
         ):
-            existant.raw_transcript = texte
-            existant.tranches_manquantes = tranches  # retry incomplet : le compte suit le texte
-            relance = existant.structuration_status == "a_transcrire" and not sans_texte
+            valeurs = {
+                "raw_transcript": texte,
+                "tranches_manquantes": tranches,  # retry incomplet : le compte suit le texte
+            }
+            # Story 3.4 (B-13) : le reliquat suit le texte complété — sinon la
+            # structuration relancée repartait de l'ancien `segment_tail`.
+            if (segment_tail or "").strip():
+                valeurs["segment_tail"] = segment_tail
+            relance = not sans_texte
             if relance:
-                existant.structuration_status = "a_traiter"
+                valeurs["structuration_status"] = "a_traiter"
+            # Revue finale Story 3.4 (chemin voisin de F2) : la lecture
+            # « a_transcrire sans tour » ci-dessus peut être périmée si un
+            # `confirm` du même jeton vient de compléter l'entretien (statut
+            # `fait` + tours validés). UPDATE CONDITIONNEL : on n'écrase ni le
+            # statut ni le texte d'un entretien complété entre-temps, et la
+            # structuration n'est relancée que si la transition a eu lieu.
+            gagne = db.execute(
+                update(Interview)
+                .where(
+                    Interview.id == existant.id,
+                    Interview.structuration_status == "a_transcrire",
+                    ~select(InterviewTurn.id)
+                    .where(InterviewTurn.interview_id == Interview.id)
+                    .exists(),
+                )
+                .values(**valeurs)
+            ).rowcount == 1
             db.commit()
-            if relance:
+            if gagne and relance:
                 background_tasks.add_task(au_fond(planifier_structuration), existant.id)
         return _redirection_apres_enregistrement(mission, existant)
     if not sans_texte:
@@ -496,11 +531,18 @@ def record_libre_retour_tours(
     turn_question: list[str] = Form([]),
     turn_remarque: list[str] = Form([]),
     turn_section_title: list[str] = Form([]),
+    session_token: str = Form(""),
+    segment_tail: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Retour de l'étape 3 vers l'étape 2 SANS perdre les tours de parole
     (portés en champs cachés par l'écran de synthèse) — même logique que
-    `record_libre_retour`. Aucun appel IA."""
+    `record_libre_retour`. Aucun appel IA.
+
+    Le jeton de session et le reliquat sont REPOSTÉS (revue finale Story 3.4,
+    F1) : sans eux, `libre_turns_review.html` rendait `session_token=""`, et
+    synthèse -> Retour -> synthèse -> double confirmation créait deux entretiens
+    (l'index unique ne dédoublonne qu'un jeton non vide)."""
     mission = _get_mission(db, mission_id)
     return templates.TemplateResponse(
         request,
@@ -517,6 +559,8 @@ def record_libre_retour_tours(
                 interview_date=interview_date,
                 audio_backup_path=audio_backup_path,
                 audio_segments=audio_segments,
+                session_token=session_token,
+                segment_tail=segment_tail,
             ),
             "transcript": transcript,
         },
@@ -662,6 +706,8 @@ def _creer_interview_libre(
         identity.get("audio_backup_path"),
         _parse_audio_segments(identity.get("audio_segments", "[]")),
         RECORDINGS_DIR,
+        # Story 3.4 (B-11) : garde anti-réutilisation d'id SQLite.
+        mission=db.get(Mission, mission_id),
     )
     interview = Interview(
         mission_id=mission_id,
@@ -750,6 +796,7 @@ def record_libre_synthese(
     turn_question: list[str] = Form([]),
     turn_remarque: list[str] = Form([]),
     turn_section_title: list[str] = Form([]),
+    session_token: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Étape 2 (US9.16) : à partir des tours de parole validés à l'étape
@@ -764,6 +811,9 @@ def record_libre_synthese(
         interview_date=interview_date,
         audio_backup_path=audio_backup_path,
         audio_segments=audio_segments,
+        # Story 3.4 (B-9) : transmis à l'écran de synthèse, qui le reposte à
+        # `confirm` — l'index unique y dédoublonne un double POST.
+        session_token=session_token,
     )
     turns = _parse_turns_from_form(
         turn_interlocuteur, turn_question, turn_remarque, turn_section_title
@@ -837,6 +887,8 @@ def record_libre_confirm(
     repartition_forces_succes: str = Form(""),
     repartition_points_amelioration: str = Form(""),
     repartition_aspirations: str = Form(""),
+    session_token: str = Form(""),
+    segment_tail: str = Form(""),
     db: Session = Depends(get_session),
 ):
     mission = _get_mission(db, mission_id)
@@ -862,6 +914,9 @@ def record_libre_confirm(
                     interview_date=interview_date,
                     audio_backup_path=audio_backup_path,
                     audio_segments=audio_segments,
+                    # Revue finale Story 3.4 (F1) : le jeton survit au réaffichage.
+                    session_token=session_token,
+                    segment_tail=segment_tail,
                 ),
                 "transcript": transcript,
                 "error": "Aucun tour de parole à enregistrer — corrige au moins un tour.",
@@ -881,22 +936,117 @@ def record_libre_confirm(
 
     # Même filtrage que l'écran de synthèse (`_parse_turns_from_form`) : une
     # seule implémentation, plus deux règles à garder en phase.
-    interview = _creer_interview_libre(
-        db,
-        mission_id,
-        {
-            "interviewee_name": interviewee_name,
-            "interviewee_role": interviewee_role,
-            "interviewee_entity": interviewee_entity,
-            "interview_date": interview_date,
-            "audio_backup_path": audio_backup_path,
-            "audio_segments": audio_segments,
-        },
-        turns_to_save,
-        transcript,
-        resume,
-        repartition,
-    )
+    # Story 3.4 (B-9) : le jeton de session (posté par `libre_turns_review.html`)
+    # est enregistré sur l'entretien — l'index unique partiel (mission, jeton)
+    # refuse alors un double POST, qui redirige vers l'entretien déjà créé au
+    # lieu d'en créer un second. Sans jeton : comportement inchangé.
+    jeton = normaliser_jeton(session_token) or None
+    try:
+        interview = _creer_interview_libre(
+            db,
+            mission_id,
+            {
+                "interviewee_name": interviewee_name,
+                "interviewee_role": interviewee_role,
+                "interviewee_entity": interviewee_entity,
+                "interview_date": interview_date,
+                "audio_backup_path": audio_backup_path,
+                "audio_segments": audio_segments,
+            },
+            turns_to_save,
+            transcript,
+            resume,
+            repartition,
+            segment_token=jeton,
+        )
+    except IntegrityError:
+        db.rollback()
+        existant = db.scalar(
+            select(Interview).where(
+                Interview.mission_id == mission.id, Interview.segment_token == jeton,
+            )
+        ) if jeton else None
+        if existant is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Cet entretien n'a pas pu être enregistré (conflit) — "
+                "recharge la mission pour vérifier s'il existe déjà.",
+            ) from None
+        return _confirm_sur_jeton_existant(db, mission, existant, turns_to_save, transcript,
+                                           resume, repartition)
+    # Les jobs de tranche de la session sont CONSOMMÉS : les tours viennent d'être
+    # validés à la main. Gardés, un job en échec rendait l'entretien « relançable »
+    # (`peut_relancer`) et la relance aurait réécrit ces tours (Story 3.4, B-9).
+    if jeton:
+        delete_segment_jobs(db, jeton)
     return _redirection_apres_enregistrement(
         mission, interview, _date_illisible(interview_date),
+    )
+
+
+def _memes_tours(interview: Interview, turns: list[dict]) -> bool:
+    """Les tours en base sont-ils exactement ceux postés (double POST) ?"""
+    existants = sorted(interview.turns, key=lambda t: t.position or 0)
+    cles = ("interlocuteur", "question", "remarque", "section_title")
+    return len(existants) == len(turns) and all(
+        all((getattr(e, k) or None) == (t.get(k) or None) for k in cles)
+        for e, t in zip(existants, turns)
+    )
+
+
+def _confirm_sur_jeton_existant(db, mission, existant, turns, transcript, resume, repartition):
+    """Story 3.4 (B-9, revue) : `confirm` tombe sur un entretien qui porte déjà
+    le jeton de la session. Jamais de perte silencieuse du contenu validé :
+    - double POST (mêmes tours) : redirection vers l'entretien déjà créé ;
+    - entretien `a_transcrire` SANS tour (« enregistrer sans attendre » du même
+      jeton) : COMPLÉTÉ avec les tours, le résumé et la répartition validés ;
+    - sinon : 409 explicite."""
+    if existant.turns and _memes_tours(existant, turns):
+        return _redirection_apres_enregistrement(mission, existant)
+    if existant.structuration_status == "a_transcrire" and not existant.turns:
+        # Revue finale Story 3.4 (F2) : deux POST concurrents lisaient tous deux
+        # « a_transcrire sans tour » et inséraient chacun les tours (doublons).
+        # La transition est désormais un UPDATE CONDITIONNEL : seul le POST qui
+        # la gagne (rowcount == 1) insère ; le perdant relit et se comporte
+        # comme un double POST (redirection si mêmes tours, sinon 409).
+        gagne = db.execute(
+            update(Interview)
+            .where(Interview.id == existant.id,
+                   Interview.structuration_status == "a_transcrire")
+            .values(structuration_status="fait")
+        ).rowcount == 1
+        if not gagne:
+            db.rollback()
+            db.expire(existant)  # relit statut ET tours écrits par le gagnant
+            if existant.turns and _memes_tours(existant, turns):
+                return _redirection_apres_enregistrement(mission, existant)
+            raise HTTPException(
+                status_code=409,
+                detail="Un entretien de cette session existe déjà avec un autre contenu — "
+                "recharge la mission pour le consulter.",
+            )
+        for position, turn in enumerate(turns):
+            db.add(InterviewTurn(
+                interview_id=existant.id, position=position,
+                interlocuteur=turn["interlocuteur"], question=turn["question"],
+                remarque=turn["remarque"], section_title=turn["section_title"],
+            ))
+        texte = (transcript or "").strip()
+        if len(texte) > len((existant.raw_transcript or "").strip()):
+            existant.raw_transcript = texte
+        existant.resume = (resume or "").strip() or existant.resume
+        if repartition:
+            existant.repartition = repartition
+        existant.structuration_status = "fait"
+        # `tranches_manquantes` n'est PLUS remis à 0 (F2, option conservatrice) :
+        # rien ne prouve que les tours postés couvrent les tranches que l'aperçu
+        # tronqué n'avait pas — le signal reste jusqu'à une retranscription
+        # complète (`interviews_retranscription`), seule à pouvoir le prouver.
+        db.commit()
+        delete_segment_jobs(db, existant.segment_token)
+        return _redirection_apres_enregistrement(mission, existant)
+    raise HTTPException(
+        status_code=409,
+        detail="Un entretien de cette session existe déjà avec un autre contenu — "
+        "ouvre-le depuis la mission ; les tours validés ici n'ont PAS été enregistrés.",
     )

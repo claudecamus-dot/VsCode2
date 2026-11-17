@@ -189,19 +189,26 @@ def nom_fichier_sur(nom) -> bool:
     return Path(nom).name == nom
 
 
-def _reference_sure(nom, mission_id: int, recordings_dir: Path) -> bool:
+def _reference_sure(nom, mission_id: int, recordings_dir: Path, mission=None) -> bool:
     """Un nom de fichier venu du CLIENT désigne-t-il un enregistrement réel de
     cette mission ? Préfixe canonique `{mission_id}_` (`mission_id_du_fichier`),
-    aucun séparateur de chemin, et le fichier existe dans `recordings_dir`."""
+    aucun séparateur de chemin, et le fichier existe dans `recordings_dir`.
+    Avec `mission` (Story 3.4, B-11) : même garde anti-réutilisation d'id que
+    l'inventaire (`_anterieur_a_la_mission`) — un fichier écrit AVANT la mission
+    appartient à une mission supprimée dont l'id a été réattribué."""
     if not nom_fichier_sur(nom):
         return False
     if mission_id_du_fichier(nom) != mission_id:
         return False
-    return (recordings_dir / nom).is_file()
+    chemin = recordings_dir / nom
+    if not chemin.is_file():
+        return False
+    return mission is None or not _anterieur_a_la_mission(chemin, mission)
 
 
 def references_audio_sures(
     mission_id: int, audio_backup_path, audio_segments, recordings_dir: Path,
+    mission=None,
 ) -> tuple[str | None, list[dict]]:
     """Valide les références audio postées en champ caché avant de les persister.
 
@@ -214,7 +221,7 @@ def references_audio_sures(
     d'écriture (`_creer_interview_libre`, `import_interview_confirm`)."""
     chemin = (
         audio_backup_path
-        if _reference_sure(audio_backup_path, mission_id, recordings_dir)
+        if _reference_sure(audio_backup_path, mission_id, recordings_dir, mission)
         else None
     )
     # Chaque segment est RECONSTRUIT sur une liste blanche (F5) : aucune clé
@@ -223,7 +230,7 @@ def references_audio_sures(
     for seg in audio_segments if isinstance(audio_segments, list) else []:
         if not isinstance(seg, dict):
             continue
-        if not _reference_sure(seg.get("filename"), mission_id, recordings_dir):
+        if not _reference_sure(seg.get("filename"), mission_id, recordings_dir, mission):
             continue
         propre = {"filename": seg["filename"]}
         position = seg.get("position")
@@ -403,6 +410,10 @@ def lister_backups(mission, recordings_dir: Path) -> dict:
         # référencée par `audio_backup_path` seul.
         if interview.audio_backup_path and not any(n == interview.audio_backup_path for n, _ in noms):
             noms.append((interview.audio_backup_path, None))
+        # `position` exposé = RANG d'affichage (« Tranche 2/2 »), calculé ici :
+        # la base garde l'identité de la tranche, trou compris (Story 3.4, B-4).
+        noms = [(nom, rang if position is not None else None)
+                for rang, (nom, position) in enumerate(noms)]
         for nom, position in noms:
             chemin = recordings_dir / nom
             taille, mtime = _stat(chemin)
@@ -615,8 +626,12 @@ def lister_orphelins_globaux(recordings_dir: Path, db) -> dict:
             # `isdigit()` est vrai pour les chiffres Unicode (« ² »), que `int()`
             # refuse : la ValueError remontait jusqu'à la liste des missions et
             # la rendait en 500 (constat B2). `str.isascii()` ferme l'écart.
-            mission = (par_id.get(int(prefixe))
-                       if prefixe.isdigit() and prefixe.isascii() else None)
+            # Story 3.4 (B-10) : LA lecture canonique du préfixe. `int("007")`
+            # rendait 7 : le fichier passait pour visible dans l'onglet de la
+            # mission 7, qui ne le liste pas (`startswith("7_")`) — invisible
+            # partout. `mission_id_du_fichier` refuse la forme non canonique.
+            ident = mission_id_du_fichier(chemin.name)
+            mission = par_id.get(ident) if ident is not None else None
             if mission is not None and not _anterieur_a_la_mission(chemin, mission):
                 continue  # visible dans l'onglet Backup de cette mission
             taille, mtime = _stat(chemin)

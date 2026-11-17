@@ -43,7 +43,7 @@ def import_interview_confirm(
     keep: list[str] = Form([]),
     db: Session = Depends(get_session),
 ):
-    _get_mission(db, mission_id)
+    mission = _get_mission(db, mission_id)
     data, keep_ids = _lire_proposition(proposed, keep)
     identity = data.get("identity") or {}
 
@@ -58,6 +58,9 @@ def import_interview_confirm(
 
     audio_backup_path, _ = mission_backups.references_audio_sures(
         mission_id, identity.get("audio_backup_path"), [], RECORDINGS_DIR,
+        # Story 3.4 (B-11) : garde anti-réutilisation d'id SQLite (un fichier
+        # antérieur à la mission appartient à une mission supprimée).
+        mission=mission,
     )
     interview = Interview(
         mission_id=mission_id,

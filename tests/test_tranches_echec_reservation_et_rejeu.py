@@ -248,7 +248,7 @@ def test_sd_position_illisible_audio_complet_zero_manquante(monkeypatch):
     from types import SimpleNamespace
     from app.routers import interviews_libre
     monkeypatch.setattr(interviews_libre.mission_backups, "references_audio_sures",
-                        lambda m, c, segs, d: ("x.webm", segs))
+                        lambda m, c, segs, d, **_k: ("x.webm", segs))  # `mission=` (Story 3.4, B-11)
     ident = {"audio_backup_path": "x", "audio_segments": '[{"position": "abc"}, {"position": 1}]'}
     assert interviews_libre._etat_audio(SimpleNamespace(id=1), ident, 2) == (True, 0)
 

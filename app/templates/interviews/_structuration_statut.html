@@ -33,6 +33,21 @@
     {% elif st == 'echec' %}<span class="muted">— la structuration n'a pas abouti. La transcription est intacte : relance quand l'IA est disponible.</span>
     {% endif %}
   </p>
+  {# Story 3.4 (B-1) : la règle de blocage est CONSERVÉE (arbitrage utilisateur du
+     2026-11-16) — mais un entretien `a_transcrire` qui porte du texte dit POURQUOI
+     il est bloqué et propose ses sorties, dont « structurer le texte disponible »
+     après confirmation (POST /structurer avec texte_disponible=1). #}
+  {% if sans_texte and (interview.raw_transcript or '').strip() %}
+  <div class="ai-error structuration-bloquee" role="alert" data-structuration-bloquee="1">
+    <p>⚠ Entretien bloqué en « transcription incomplète » : du texte a bien été transcrit, mais une partie de l'entretien n'a pas abouti alors que son audio est sur le serveur. Il n'est pas structuré d'office, pour ne pas produire un aperçu amputé sans le dire.</p>
+    <p>Pour en sortir : relance les passages en échec ou la transcription depuis l'audio (ci-dessous), ou structure dès maintenant le texte disponible — la partie manquante restera absente de l'aperçu.</p>
+    <form method="post" action="/interviews/{{ interview.id }}/structurer">
+      <input type="hidden" name="texte_disponible" value="1">
+      <button class="btn btn-sm" type="submit"
+              onclick="return confirm('Structurer le texte disponible ?\n\nUne partie de l’entretien n’a pas été transcrite : elle sera absente de l’aperçu.');">Structurer le texte disponible</button>
+    </form>
+  </div>
+  {% endif %}
   {% if tranche_indisponible %}
   <p class="muted" role="status">Ce passage n'existe plus ou est déjà en cours de traitement.</p>
   {% endif %}
@@ -43,9 +58,9 @@
   <form method="post" action="/interviews/{{ interview.id }}/structurer">
     {# Relancer un `fait` partiel RÉÉCRIT l'aperçu : tranches réussies
        reprises telles quelles, mais les corrections faites à la main sur les tours
-       sont remplacées — d'où le confirm(). #}
+       sont remplacées — d'où le confirm(), qui le DIT (Story 3.4, B-7). #}
     <button class="btn btn-sm" type="submit"
-            {% if interview.turns %}onclick="return confirm('Relancer les passages en échec ?\n\nL’aperçu sera réécrit à partir des passages.');"{% endif %}>
+            {% if interview.turns %}onclick="return confirm('Relancer les passages en échec ?\n\nL’aperçu sera réécrit à partir des passages : les corrections faites à la main sur les tours seront perdues.');"{% endif %}>
       {%- if st in ('echec', 'en_cours') %}Relancer
       {%- elif st == 'fait' and not interview.turns %}Générer l'aperçu
       {%- elif st == 'fait' %}Relancer les passages en échec
@@ -67,14 +82,14 @@
     {% if echecs %}
     <form method="post" action="/interviews/{{ interview.id }}/tranches/relancer">
       <button class="btn btn-sm" type="submit"
-              {% if interview.turns %}onclick="return confirm('Relancer tous les passages en échec ?\n\nL’aperçu sera réécrit à partir des passages.');"{% endif %}>Relancer tous les passages en échec</button>
+              {% if interview.turns %}onclick="return confirm('Relancer tous les passages en échec ?\n\nL’aperçu sera réécrit à partir des passages : les corrections faites à la main sur les tours seront perdues.');"{% endif %}>Relancer tous les passages en échec</button>
     </form>
     <ul>
       {% for t in echecs %}
       <li>Passage {{ t.position + 1 }}{% if t.error %} <span class="muted">({{ t.error }})</span>{% endif %}
         <form method="post" action="/interviews/{{ interview.id }}/tranches/{{ t.id }}/relancer" style="display:inline">
           <button class="btn btn-sm" type="submit"
-                  {% if interview.turns %}onclick="return confirm('Relancer ce passage ?\n\nQuand plus aucun passage ne restera en échec, l’aperçu sera réécrit à partir des passages.');"{% endif %}>Relancer ce passage</button>
+                  {% if interview.turns %}onclick="return confirm('Relancer ce passage ?\n\nQuand plus aucun passage ne restera en échec, l’aperçu sera réécrit à partir des passages : les corrections faites à la main sur les tours seront perdues.');"{% endif %}>Relancer ce passage</button>
         </form>
       </li>
       {% endfor %}

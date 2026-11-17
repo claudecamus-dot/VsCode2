@@ -270,7 +270,7 @@ def test_b1_doublon_de_jeton_ne_reecrit_pas(statut, avec_tour):
 
 
 def test_b2_etat_audio_positions_hors_bornes(monkeypatch):
-    def faux_refs(_mid, _chemin, segments, _dir):
+    def faux_refs(_mid, _chemin, segments, _dir, **_k):  # `mission=` (Story 3.4, B-11)
         return "x.webm", segments
 
     monkeypatch.setattr(interviews_libre.mission_backups, "references_audio_sures", faux_refs)

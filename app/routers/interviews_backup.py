@@ -261,17 +261,13 @@ def delete_record_backup(
             seg for seg in (interview.audio_segments or []) if seg.get("filename") != filename
         ]
         if len(segments) != len(interview.audio_segments or []):
-            # Renumérotation : `position` est un RANG affiché (« Tranche 2/3 »
-            # sur l'onglet Backup et `libre_detail.html`), pas une identité.
-            # Sans elle, supprimer la tranche du milieu laissait les rangs 0 et
-            # 2 sur un entretien qui n'a plus que 2 tranches, soit « Tranche
-            # 3/2 » à l'écran (revue adversariale 2026-07-29).
-            segments = [
-                {**seg, "position": rang}
-                for rang, seg in enumerate(
-                    sorted(segments, key=lambda s: s.get("position") or 0)
-                )
-            ]
+            # PAS de renumérotation (Story 3.4, B-4) : `position` est l'IDENTITÉ
+            # de la tranche dans l'enregistrement. Renuméroter effaçait le trou
+            # (0, 2 -> 0, 1) et la confirmation de retranscription concluait
+            # « audio complet » sur une transcription amputée. Le rang affiché
+            # (« Tranche 2/2 » de l'onglet Backup) est calculé à l'affichage
+            # (`mission_backups.lister_backups`), plus jamais écrit en base.
+            segments = sorted(segments, key=lambda s: s.get("position") or 0)
             # Réassignation (pas une mutation en place) : SQLAlchemy ne détecte
             # pas la modification d'une liste JSON modifiée sur place.
             interview.audio_segments = segments
