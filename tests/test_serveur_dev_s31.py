@@ -394,7 +394,7 @@ def test_racine_introuvable_repli_sur_le_pid_a_l_ecoute_qui_purge() -> None:
              "function Get-NetTCPConnection { param($LocalPort, $State, $ErrorAction) "
              "[pscustomobject]@{OwningProcess=4242} }; "
              "function Get-CimInstance { param($ClassName, $Filter, $ErrorAction) "
-             f"if ($Filter -eq 'ProcessId=4242') {{ {_proc(4242, 'python server.py', 6000)} }} }}; ")
+             f"if ($Filter -eq 'ProcessId=4242') {{ {_proc(4242, 'python -m uvicorn app.main:app --port 8099', 6000)} }} }}; ")
     sortie = _ps(_MALADE + stubs + "Resolve-DecisionKeepIfFresh -NumPort 8099")
     assert sortie.splitlines()[-1] == "purger", sortie
     # A3: the message states what is known, not « indéterminé depuis plus de ».
@@ -402,17 +402,18 @@ def test_racine_introuvable_repli_sur_le_pid_a_l_ecoute_qui_purge() -> None:
     assert "depuis plus de" not in sortie, sortie
 
 
-def test_repli_listener_mort_prend_l_age_de_son_worker_orphelin() -> None:
-    """A1: dead listener (reloader gone), orphan worker found by its spawn
-    marker: the worker's age decides, not « unknown »."""
+def test_repli_listener_mort_ne_rend_aucun_age() -> None:
+    """(re-review 2026-11-17) Dead listener: nothing proves it was THIS repo's
+    uvicorn, so a worker carrying its parent_pid= marker gives no age ($null ->
+    « indetermine »), never a purgeable one."""
     stubs = ("function Get-ProcessusServeur { param([int]$NumPort) @() }; "
              "function Get-NetTCPConnection { param($LocalPort, $State, $ErrorAction) "
              "[pscustomobject]@{OwningProcess=4242} }; "
              "function Get-CimInstance { param($ClassName, $Filter, $ErrorAction) "
              f"if (-not $Filter) {{ {_proc(4300, 'python -c from multiprocessing.spawn import spawn_main; parent_pid=4242', 7000)} }} }}; "
              "function Get-Process { param($Id, $ErrorAction) throw 'mort' }; ")
-    sortie = _ps(_MALADE + stubs + "[int](Get-AgeWorkerS -NumPort 8099)")
-    assert sortie.splitlines()[-1] == "7000", sortie
+    sortie = _ps(_MALADE + stubs + "$null -eq (Get-AgeWorkerS -NumPort 8099)")
+    assert sortie.splitlines()[-1] == "True", sortie
 
 
 def test_age_illisible_reste_indetermine_et_le_dit() -> None:
@@ -441,3 +442,77 @@ def test_enfant_court_ne_rajeunit_pas_un_worker_malade() -> None:
     # Without --reload (no uvicorn worker): the uvicorn process itself.
     seul = f"function Get-ProcessusServeur {{ param([int]$NumPort) @({_proc(100, 'python -m uvicorn app.main:app --port 8099', 4000)}, {_proc(105, 'ffmpeg', 5)}) }}; "
     assert _ps(seul + "[int](Get-AgeWorkerS -NumPort 8099)").splitlines()[-1] == "4000"
+
+
+# --------------------------------------------------------------------------- #
+# Story 3.1 re-review (2026-11-17), last round — listener scope, no-reload
+# spawn children, WMI failure
+# --------------------------------------------------------------------------- #
+def _proc_exe(pid: int, cmd: str, age_s: int, exe: str, parent: int = 0) -> str:
+    return (f"[pscustomobject]@{{ProcessId={pid}; CommandLine='{cmd}'; ExecutablePath='{exe}'; "
+            f"ParentProcessId={parent}; CreationDate=(Get-Date).AddSeconds(-{age_s})}}")
+
+
+def _listener(*procs_par_filtre: tuple[str, str], pids: tuple[int, ...] = (4242,)) -> str:
+    connexions = ", ".join(f"[pscustomobject]@{{OwningProcess={p}}}" for p in pids)
+    branches = " ".join(f"if ($Filter -eq '{f}') {{ $script:lectures++; {proc} }}"
+                        for f, proc in procs_par_filtre)
+    return ("$script:lectures = 0; "
+            "function Get-ProcessusServeur { param([int]$NumPort) @() }; "
+            "function Get-NetTCPConnection { param($LocalPort, $State, $ErrorAction) "
+            f"@({connexions}) }}; "
+            "function Get-CimInstance { param($ClassName, $Filter, $ErrorAction) "
+            f"{branches} }}; ")
+
+
+@pytest.mark.parametrize("cmd, exe", [
+    ("python server.py", r"C:\Python314\python.exe"),
+    ("python -m uvicorn app.main:app --port 8099", r"C:\AutreRepo\.venv\Scripts\python.exe"),
+])
+def test_listener_tiers_ne_devient_jamais_purgeable(cmd, exe) -> None:
+    """A third-party python listener 7000 s old (another app, or a sibling
+    repo's uvicorn app.main) gives no age -> « indetermine », age unreadable."""
+    stubs = _listener(("ProcessId=4242", _proc_exe(4242, cmd, 7000, exe)))
+    assert _ps(stubs + "$null -eq (Get-AgeServeurParListener -NumPort 8099)").splitlines()[-1] == "True"
+    sortie = _ps(_MALADE + stubs + "Resolve-DecisionKeepIfFresh -NumPort 8099")
+    assert sortie.splitlines()[-1] == "indetermine", sortie
+    assert "du serveur illisible" in sortie, sortie
+
+
+def test_listener_ipv4_ipv6_meme_pid_lu_une_fois() -> None:
+    """Two listening sockets (IPv4 + IPv6) of the same PID: one listener."""
+    exe = str(RACINE / ".venv" / "Scripts" / "python.exe")
+    stubs = _listener(("ProcessId=4242", _proc_exe(4242, "python -m uvicorn app.main:app --port 8099", 6000, exe)),
+                      pids=(4242, 4242))
+    sortie = _ps(stubs + "$a = [int](Get-AgeServeurParListener -NumPort 8099); \"$a $script:lectures\"")
+    assert sortie.splitlines()[-1] == "6000 1", sortie
+
+
+def test_listener_uvicorn_du_repo_rend_son_age() -> None:
+    """This repo's uvicorn: executable under the repo .venv, or base python
+    whose parent (the .venv redirector) is under the repo -> its age."""
+    venv = str(RACINE / ".venv" / "Scripts" / "python.exe")
+    cmd = "python -m uvicorn app.main:app --port 8099"
+    direct = _listener(("ProcessId=4242", _proc_exe(4242, cmd, 6000, venv)))
+    assert _ps(direct + "[int](Get-AgeServeurParListener -NumPort 8099)").splitlines()[-1] == "6000"
+    base = _listener(("ProcessId=4242", _proc_exe(4242, cmd, 6000, r"C:\Python314\python.exe", 4100)),
+                     ("ProcessId=4100", _proc_exe(4100, cmd, 6001, venv)))
+    assert _ps(base + "[int](Get-AgeServeurParListener -NumPort 8099)").splitlines()[-1] == "6000"
+
+
+def test_sans_reload_un_enfant_spawn_n_est_pas_un_worker() -> None:
+    """Without --reload, a transcription spawn child carries parent_pid=<uvicorn>:
+    it is NOT a uvicorn worker, the uvicorn process (5000 s) decides."""
+    procs = ", ".join([
+        _proc(100, 'python -m uvicorn app.main:app --port 8099', 5000),
+        _proc(101, 'python -c from multiprocessing.spawn import spawn_main; parent_pid=100', 10),
+    ])
+    stubs = f"function Get-ProcessusServeur {{ param([int]$NumPort) @({procs}) }}; "
+    assert _ps(stubs + "[int](Get-AgeWorkerS -NumPort 8099)").splitlines()[-1] == "5000"
+
+
+def test_panne_wmi_workers_de_parent_vide_sans_avorter() -> None:
+    """A WMI failure under $ErrorActionPreference=Stop yields no worker, not an abort."""
+    stubs = "function Get-CimInstance { param($ClassName, $Filter, $ErrorAction) throw 'WMI en panne' }; "
+    sortie = _ps(stubs + "\"n=$(@(Get-WorkersDeParent -PidParent 4242).Count)\"")
+    assert sortie.splitlines()[-1] == "n=0", sortie

@@ -181,17 +181,31 @@ def test_open_process_erreur_87_verrou_repris(detenteur_vivant, monkeypatch):
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="OpenProcess : Windows seulement")
-def test_open_process_refuse_et_verrou_perime_est_repris(detenteur_vivant, monkeypatch):
-    """A4: error 5 is also what a PID recycled by a SYSTEM process returns, so
-    a lock older than _VERROU_PERIME_S is taken (not held until 12 h)."""
+def test_open_process_refuse_sans_debut_et_verrou_perime_est_repris(detenteur_vivant, monkeypatch):
+    """A4: error 5 is also what a PID recycled by a SYSTEM process returns; with
+    NO recorded start time a lock older than _VERROU_PERIME_S is taken."""
+    conftest, verrou, pid, _debut = detenteur_vivant
+    reel = conftest._ouvrir_processus
+    monkeypatch.setattr(conftest, "_ouvrir_processus",
+                        lambda p: (0, 5) if p == pid else reel(p))
+    verrou.write_text(f"{pid} {time.time() - conftest._VERROU_PERIME_S - 60}", encoding="utf-8")
+    conftest._prendre_le_verrou()
+    assert verrou.read_text(encoding="utf-8").split()[0] == str(os.getpid())
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="OpenProcess : Windows seulement")
+def test_open_process_refuse_avec_debut_garde_le_verrou_au_dela_de_45_min(detenteur_vivant, monkeypatch):
+    """(re-review 2026-11-17) An elevated full suite (up to 2 h 35) seen from a
+    non-elevated runner answers error 5; its lock records `debut`, so the F6a
+    12 h ceiling applies, not the 45 min stale threshold."""
     conftest, verrou, pid, debut = detenteur_vivant
     reel = conftest._ouvrir_processus
     monkeypatch.setattr(conftest, "_ouvrir_processus",
                         lambda p: (0, 5) if p == pid else reel(p))
-    verrou.write_text(f"{pid} {time.time() - conftest._VERROU_PERIME_S - 60} {debut}",
-                      encoding="utf-8")
-    conftest._prendre_le_verrou()
-    assert verrou.read_text(encoding="utf-8").split()[0] == str(os.getpid())
+    verrou.write_text(f"{pid} {time.time() - 2 * 3600} {debut}", encoding="utf-8")
+    with pytest.raises(RuntimeError, match=rf"PID {pid}"):
+        conftest._prendre_le_verrou()
+    assert verrou.read_text(encoding="utf-8").split()[0] == str(pid), "verrou vole"
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="OpenProcess : Windows seulement")
@@ -202,7 +216,10 @@ def test_open_process_handle_non_tronque():
     handle, erreur = conftest._ouvrir_processus(os.getpid())
     try:
         assert handle and erreur == 0
-        assert conftest._noyau_windows().OpenProcess.restype is not None
+        from ctypes import wintypes
+
+        # `is not None` passed without the fix: the default restype is c_int.
+        assert conftest._noyau_windows().OpenProcess.restype is wintypes.HANDLE
     finally:
         if handle:
             conftest._noyau_windows().CloseHandle(handle)

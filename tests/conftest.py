@@ -308,10 +308,12 @@ def _detenteur_actif(detenteur) -> bool:
     etat = _etat_detenteur(pid)
     if etat == "mort":
         return False
-    if etat == "refuse":
+    if etat == "refuse" and debut is None:
         # (re-review 2026-11-17, A4) ERROR_ACCESS_DENIED: alive-but-closed OR a
-        # recycled PID now owned by SYSTEM — nothing identifies the holder, so
-        # the normal stale threshold applies, not the 12 h live-holder ceiling.
+        # recycled PID now owned by SYSTEM. With NO recorded start time nothing
+        # identifies the holder: the normal stale threshold applies. With a
+        # recorded `debut`, fall through to the F6a ceiling below — an elevated
+        # 2 h 35 suite must not lose its lock to a non-elevated runner at 45 min.
         return age < _VERROU_PERIME_S
     if debut is not None:
         actuel = _debut_processus(pid)

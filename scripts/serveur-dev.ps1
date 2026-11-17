@@ -234,7 +234,10 @@ function Get-WorkersDeParent {
     # commande de l'enfant : un PID recyclé ne peut pas produire ce marqueur par
     # hasard, donc aucun risque de tuer le worker d'une appli tierce.
     param([int]$PidParent)
-    return @(Get-CimInstance Win32_Process |
+    # (re-review 2026-11-17) Une panne WMI ne doit pas faire avorter le script
+    # sous $ErrorActionPreference=Stop : aucun worker connu -> « indéterminé ».
+    try { $tous = @(Get-CimInstance Win32_Process -ErrorAction Stop) } catch { return @() }
+    return @($tous |
         Where-Object {
             $_.CommandLine -like "*multiprocessing*" -and
             # Fin de nombre OBLIGATOIRE : « *parent_pid=123* » matchait aussi
@@ -434,14 +437,18 @@ function Select-WorkersUvicorn {
     # la descendance : un enfant court (ffmpeg, worker spawn de transcription)
     # remettait l'âge à ~0 et un serveur malade qui engendre encore des enfants
     # n'atteignait jamais le plafond. Worker uvicorn = process spawn dont le
-    # `parent_pid=` désigne un process « uvicorn app.main » (le reloader). Sans
-    # --reload (aucun worker de ce type) : les process uvicorn eux-mêmes.
+    # `parent_pid=` désigne un process « uvicorn app.main --reload » (le
+    # reloader). Sans --reload, les enfants spawn de transcription portent
+    # parent_pid=<uvicorn> et ne sont PAS des workers uvicorn (A2 revenait) :
+    # on rend alors les process uvicorn eux-mêmes.
     param([object[]]$Processus)
     $uvicorn = @($Processus | Where-Object { $_.CommandLine -like "*uvicorn app.main*" })
-    $idsUvicorn = @($uvicorn | ForEach-Object { [int]$_.ProcessId })
+    $idsReloader = @($uvicorn | Where-Object { $_.CommandLine -like "*--reload*" } |
+        ForEach-Object { [int]$_.ProcessId })
     $workers = @($Processus | Where-Object {
+        $idParent = 0
         $_.CommandLine -like "*multiprocessing*" -and $_.CommandLine -match 'parent_pid=(\d+)(\D|$)' -and
-        ($idsUvicorn -contains [int]$Matches[1])
+        [int]::TryParse($Matches[1], [ref]$idParent) -and ($idsReloader -contains $idParent)
     })
     if ($workers.Count -gt 0) { return $workers }
     return $uvicorn
@@ -465,21 +472,42 @@ function Get-CreationProcessus {
     return $null
 }
 
+function Test-ListenerDuRepo {
+    # (re-review 2026-11-17) Le listener est-il l'uvicorn de CE repo ? Ligne de
+    # commande lisible « uvicorn app.main » sur ce port, ET — quand l'exécutable
+    # est lisible — exécutable sous la racine (ou son .venv), ligne de commande
+    # citant la racine, ou parent (le redirecteur du .venv) sous la racine : le
+    # vrai uvicorn tourne sous le python de BASE (cf. Get-ProcessusServeur).
+    param($Info, [int]$NumPort)
+    if (-not $Info) { return $false }
+    $cmd = [string]$Info.CommandLine
+    if ($cmd -notlike "*uvicorn app.main*" -or -not (Test-CommandeSurLePort -Commande $cmd -NumPort $NumPort)) {
+        return $false
+    }
+    $exe = [string]$Info.ExecutablePath
+    if (-not $exe) { return $true }
+    if ($exe -like "$racine\*" -or $cmd -like "*$racine\*") { return $true }
+    $parent = if ($Info.ParentProcessId) { Get-InfoProcessus -Id ([int]$Info.ParentProcessId) } else { $null }
+    return [bool]($parent -and ([string]$parent.ExecutablePath) -like "$racine\*")
+}
+
 function Get-AgeServeurParListener {
     # (Story 3.1 re-review 2026-11-17, A1) Repli quand le filtre de racine ne
     # trouve rien (racine/redirecteur mort avec un worker orphelin qui sert
     # encore, ou ExecutablePath/CommandLine nuls pour un process élevé vu d'un
-    # shell non élevé) : on part du PID qui ÉCOUTE sur le port. Ses workers spawn
-    # (marqueur parent_pid=) s'il est mort, s'il est un reloader (--reload) ou si
-    # sa ligne de commande est illisible ; sinon le listener lui-même.
+    # shell non élevé) : on part du PID qui ÉCOUTE sur le port, À CONDITION que
+    # ce soit l'uvicorn de CE repo (Test-ListenerDuRepo) — un listener tiers
+    # (python d'un autre repo, PID mort ou illisible) ne doit JAMAIS devenir
+    # purgeable par ce chemin : il rend $null (« indéterminé », âge illisible).
+    # Reloader (--reload) : l'âge de ses workers spawn ; sinon le listener.
     param([int]$NumPort)
     $creations = @()
-    foreach ($c in @(Get-NetTCPConnection -LocalPort $NumPort -State Listen -ErrorAction SilentlyContinue)) {
-        $pidL = [int]$c.OwningProcess
-        if ($pidL -le 0) { continue }
+    $pids = @(Get-NetTCPConnection -LocalPort $NumPort -State Listen -ErrorAction SilentlyContinue |
+        ForEach-Object { [int]$_.OwningProcess } | Where-Object { $_ -gt 0 } | Select-Object -Unique)  # IPv4 + IPv6
+    foreach ($pidL in $pids) {
         $info = Get-InfoProcessus -Id $pidL
-        $cmd = if ($info) { [string]$info.CommandLine } else { "" }
-        if (-not $info -or -not $cmd -or $cmd -like "*--reload*") {
+        if (-not (Test-ListenerDuRepo -Info $info -NumPort $NumPort)) { continue }
+        if ([string]$info.CommandLine -like "*--reload*") {
             $dates = @(Get-WorkersDeParent -PidParent $pidL | ForEach-Object { $_.CreationDate } | Where-Object { $_ })
             if ($dates.Count -gt 0) { $creations += $dates; continue }
         }
