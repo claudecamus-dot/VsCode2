@@ -525,3 +525,74 @@ def test_c4_tranche_tardive_inseree_a_sa_place_dans_l_apercu(
         assert texte.index("ZERO") < texte.index("Propos tranche UN") < texte.index("DEUX"), texte
         nav.drainer()
         assert not nav.erreurs_http(), nav.erreurs_http()
+
+
+# --------------------------------------------------------------------------- #
+# C5 — Story 3.5: deleting the LAST backup part leaves a visible trace
+# --------------------------------------------------------------------------- #
+_SEED_C5 = r"""
+import json
+from app.db import RECORDINGS_DIR, SessionLocal, init_db
+from app.models import Interview, InterviewTurn, Mission
+init_db()
+db = SessionLocal()
+m = Mission(name="E2E S3.5", is_draft=False)
+db.add(m); db.flush()
+noms = [f"{m.id}_e2e_s35_tranche{i}.webm" for i in range(3)]
+for nom in noms:
+    (RECORDINGS_DIR / nom).write_bytes(b"audio")
+iv = Interview(mission_id=m.id, mode="libre", status="done", interviewee_name="Témoin S35",
+               raw_transcript="Texte transcrit.", structuration_status="fait",
+               audio_segments=[{"filename": n, "position": i} for i, n in enumerate(noms)],
+               audio_backup_path=noms[-1])
+db.add(iv); db.flush()
+db.add(InterviewTurn(interview_id=iv.id, position=0, interlocuteur="Témoin S35",
+                     question=None, remarque="Un propos.", section_title=None))
+db.commit()
+print(json.dumps({"mid": m.id, "iid": iv.id, "noms": noms,
+                  "dossier": str(RECORDINGS_DIR)}))
+"""
+
+_LIRE_C5 = r"""
+import json, sys
+from app.db import SessionLocal
+from app.models import Interview
+db = SessionLocal()
+iv = db.get(Interview, int(sys.argv[1]))
+print(json.dumps({"supprimees": iv.parties_supprimees,
+                  "segments": [s["filename"] for s in iv.audio_segments or []]}))
+"""
+
+
+def test_c5_supprimer_la_derniere_partie_laisse_une_trace(
+    dossier: Path, nav: Navigateur,
+) -> None:
+    graine = json.loads(_python_sur_base(dossier, _SEED_C5))
+    mid, iid, noms = graine["mid"], graine["iid"], graine["noms"]
+    derniere = Path(graine["dossier"]) / noms[-1]
+    with serveur_uvicorn(dossier) as base:
+        nav.naviguer(f"{base}/interviews/{iid}")
+        assert not nav.evaluer("!!document.querySelector('[data-parties-supprimees]')"), (
+            "trace présente avant toute suppression")
+
+        nav.naviguer(f"{base}/missions/{mid}")
+        nav.cliquer(".tab[data-tab='backup']")
+        bouton = f"#backup form[action$='/{noms[-1]}/delete'] button[type=submit]"
+        assert nav.evaluer(f"!!document.querySelector(\"{bouton}\")"), nav.texte()[:600]
+        # Real click; the form's onsubmit confirm() is accepted by the driver.
+        nav.cliquer_et_attendre(bouton)
+        assert re.search(rf"/missions/{mid}(#backup)?$", nav.url()), nav.url()
+        nav.drainer()
+        assert not nav.erreurs_http(), nav.erreurs_http()  # CSRF/origin passed
+        assert not derniere.exists(), "fichier de la dernière partie encore sur disque"
+        etat = json.loads(_python_sur_base(dossier, _LIRE_C5, str(iid)))
+        assert etat == {"supprimees": 1, "segments": noms[:-1]}, etat
+
+        nav.naviguer(f"{base}/interviews/{iid}")
+        assert nav.evaluer(
+            "!!document.querySelector('[data-parties-supprimees=\"1\"]')"), nav.texte()[:800]
+        trace = nav.evaluer(
+            "document.querySelector('[data-parties-supprimees=\"1\"]').innerText")
+        assert "1 partie" in trace and "1 parties" not in trace, trace
+        nav.drainer()
+        assert not nav.erreurs_http(), nav.erreurs_http()
