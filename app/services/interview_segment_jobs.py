@@ -480,6 +480,7 @@ def _filtre_kind(kind: str | None) -> tuple:
 
 def segment_jobs_status_light(
     db: Session, session_token: str, since_position: int = 0, kind: str | None = None,
+    positions_tardives: list[int] | None = None,
 ) -> dict:
     """Version allégée de `segment_jobs_status`, pour les endpoints de LECTURE
     SEULE `/segment-jobs/turns` et `/segment-jobs/answers` — sondés toutes les
@@ -506,7 +507,13 @@ def segment_jobs_status_light(
 
     `kind` (Story 3.4, B-5) : compteurs ET fusion restreints à cette nature de
     job — sans lui, une session portant des jobs des deux natures mélangeait
-    `libre_turns` et `answers` dans les deux aperçus."""
+    `libre_turns` et `answers` dans les deux aperçus.
+
+    `positions_tardives` (triage B-2) : positions SOUS le curseur que le client
+    n'a jamais reçues (tranche `failed` puis relancée, ou périmée finie après
+    que le curseur l'a dépassée). Leurs lignes `done` sont chargées en plus de
+    celles à partir de `since_position` — sans quoi l'aperçu ne les voyait
+    jamais."""
     session_token = normaliser_jeton(session_token)
     if not session_token:
         return {"jobs": [], "total": 0, "done": 0, "failed": 0, "stale": 0,
@@ -554,7 +561,10 @@ def segment_jobs_status_light(
                 InterviewSegmentJob.session_token == session_token,
                 *_filtre_kind(kind),
                 InterviewSegmentJob.status == "done",
-                InterviewSegmentJob.position >= since_position,
+                or_(
+                    InterviewSegmentJob.position >= since_position,
+                    InterviewSegmentJob.position.in_(positions_tardives or []),
+                ),
             )
             .order_by(InterviewSegmentJob.position)
         )

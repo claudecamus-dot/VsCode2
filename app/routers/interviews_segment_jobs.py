@@ -243,7 +243,8 @@ def segment_jobs_status_json(
 
 @router.get("/interviews/segment-jobs/turns")
 def segment_jobs_turns_json(
-    session_token: str, since: int = 0, db: Session = Depends(get_session)
+    session_token: str, since: int = 0, manquantes: str = "",
+    db: Session = Depends(get_session),
 ):
     """Tours de parole DÉJÀ extraits (jobs terminés) d'une session — alimente
     l'aperçu live en lecture seule de l'onglet « Répartition » de
@@ -283,8 +284,20 @@ def segment_jobs_turns_json(
     # commune), une tranche passée `done` entre les deux n'était ni dans la liste
     # chargée ni une borne : le curseur la sautait pour toujours. Lue d'abord,
     # elle borne la liste même si elle finit entre-temps.
+    # Triage B-2 (décision utilisateur 2026-11-17) : le curseur dépasse une
+    # tranche `failed` (ou périmée) pour ne pas geler l'aperçu ; si elle finit
+    # `done` plus tard, elle est SOUS le curseur et n'était plus jamais
+    # renvoyée. Le client liste donc les positions sous `since` qu'il n'a pas
+    # reçues (`manquantes=1,4`, vide d'ordinaire) : leurs tranches `done` sont
+    # renvoyées UNE fois — reçues, le client ne les redemande plus. Entrées
+    # invalides ou hors [0, since) ignorées ; liste bornée.
+    tardives = sorted({
+        int(p) for p in manquantes.split(",")[:500]
+        if p.strip().isdecimal() and int(p) < since
+    })
     status = segment_jobs_status_light(
         db, session_token, since_position=since, kind="libre_turns",
+        positions_tardives=tardives,
     )
     jobs = [
         j for j in status["jobs"]
@@ -292,15 +305,25 @@ def segment_jobs_turns_json(
         and (premiere_en_vol is None or j.position < premiere_en_vol)
     ]
     merged = merge_segment_turns(jobs, None)
+    # Les tardives sont < since : elles ne font jamais avancer le curseur.
     next_since = max([since] + [j.position + 1 for j in jobs])
-    return JSONResponse(
-        {
-            "turns": merged["turns"],
-            "done": status["done"],
-            "total": status["total"],
-            "next_since": next_since,
-        }
-    )
+    corps = {
+        "turns": merged["turns"],
+        "done": status["done"],
+        "total": status["total"],
+        "next_since": next_since,
+    }
+    if jobs:
+        # Les mêmes tours, rangés par tranche : le client les range par
+        # POSITION (une tardive s'insère à sa place, pas en fin) et n'affiche
+        # jamais deux fois une position déjà reçue. Clé ABSENTE quand aucune
+        # tranche n'est renvoyée (le sondage courant) : forme d'avant inchangée.
+        corps["tranches"] = [
+            {"position": j.position,
+             "turns": (j.turns_result or {}).get("turns", [])}
+            for j in sorted(jobs, key=lambda j: j.position)
+        ]
+    return JSONResponse(corps)
 
 
 @router.get("/interviews/segment-jobs/answers")

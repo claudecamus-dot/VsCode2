@@ -3027,15 +3027,13 @@
     });
   }
 
-  function renderRepartition(turns, append) {
+  function renderRepartition(turns) {
     var container = document.getElementById('rec-repartition');
     var statusRep = document.getElementById('rec-repartition-status');
     var repPdfBtn = document.getElementById('rep-pdf');
-    var nouveaux = Array.isArray(turns) ? turns : [];
-    // `append` : accumule les tours NOUVEAUX renvoyés par le curseur `since`
-    // sur ceux déjà affichés, au lieu de les remplacer — `pollRepartition` ne
-    // reçoit plus jamais l'historique complet une fois le curseur avancé.
-    latestRepartitionTurns = append ? latestRepartitionTurns.concat(nouveaux) : nouveaux;
+    // Liste COMPLÈTE à afficher : `pollRepartition` la recompose à partir de
+    // `pollRepartition.tranches` (le serveur ne renvoie que les nouvelles).
+    latestRepartitionTurns = Array.isArray(turns) ? turns : [];
     if (repPdfBtn) repPdfBtn.disabled = !latestRepartitionTurns.length;
     if (!latestRepartitionTurns.length) {
       container.innerHTML = '';
@@ -3075,15 +3073,38 @@
     // clic arrive après, car elle réafficherait les tours de la session jetée.
     var tokenAuDepart = sessionToken;
     var sinceAuDepart = repartitionSincePosition;
+    // Triage B-2 : tours reçus rangés par POSITION de tranche, portés par la
+    // fonction comme `enVol` et propres à un jeton (changer de session vide la
+    // table). Une tranche finie APRÈS que le curseur l'a dépassée (échouée puis
+    // relancée, ou périmée) est redemandée via `manquantes` puis insérée à sa
+    // place ; une position déjà reçue n'est ni redemandée ni affichée deux fois.
+    if (pollRepartition.tranchesJeton !== tokenAuDepart) {
+      pollRepartition.tranches = {};
+      pollRepartition.tranchesJeton = tokenAuDepart;
+    }
+    var manquantes = [];  // positions sous le curseur jamais reçues (vide d'ordinaire)
+    for (var p = 0; p < sinceAuDepart; p++) {
+      if (!Object.prototype.hasOwnProperty.call(pollRepartition.tranches, p)) manquantes.push(p);
+    }
     recFetch('/interviews/segment-jobs/turns?session_token=' + encodeURIComponent(tokenAuDepart)
-        + '&since=' + sinceAuDepart, null, NET_TIMEOUT_MS)
+        + '&since=' + sinceAuDepart
+        + (manquantes.length ? '&manquantes=' + manquantes.join(',') : ''), null, NET_TIMEOUT_MS)
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
         if (!data || sessionToken !== tokenAuDepart) return;
-        // Accumule (append) seulement si le curseur envoyé est bien celui
-        // encore courant : un « Recommencer » pendant le vol de la requête
-        // a pu remettre `repartitionSincePosition` à 0 entretemps.
-        renderRepartition(data.turns, sinceAuDepart === repartitionSincePosition && sinceAuDepart > 0);
+        // Un « Recommencer » pendant le vol de la requête a pu remettre
+        // `repartitionSincePosition` à 0 : la table repart alors de zéro.
+        if (sinceAuDepart !== repartitionSincePosition) pollRepartition.tranches = {};
+        var table = pollRepartition.tranches;
+        (Array.isArray(data.tranches) ? data.tranches : []).forEach(function (t) {
+          table[t.position] = Array.isArray(t.turns) ? t.turns : [];
+        });
+        var tours = [];
+        // Tri NUMÉRIQUE (`a - b` convertit les clés) : '10' après '9'.
+        Object.keys(table)
+          .sort(function (a, b) { return a - b; })
+          .forEach(function (pos) { tours = tours.concat(table[pos]); });
+        renderRepartition(tours);
         if (typeof data.next_since === 'number') repartitionSincePosition = data.next_since;
       })
       .catch(function () { /* aperçu best-effort : un échec réseau ne casse rien */ })
