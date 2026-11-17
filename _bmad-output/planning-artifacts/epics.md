@@ -134,3 +134,15 @@ En tant que consultant, je veux que l'enregistrement, la structuration et les sa
 - AC3.4.4 — **Given** la suppression d'un segment de sauvegarde, **Then** un trou de positions reste détectable ; un fichier d'une mission supprimée n'est jamais rattaché après réutilisation d'id.
 - AC3.4.5 — **Given** une exception dans le fil de structuration ou une récupération concurrente d'un job, **Then** pas d'id bloqué « déjà en file », pas d'écrasement d'un statut `done` par `failed` ; relancer une structuration ne détruit pas des corrections manuelles sans avertissement.
 - AC3.4.6 — Chaque hypothèse B-5 à B-13 est vérifiée : corrigée avec son test si réelle, sinon documentée comme infirmée.
+
+### Story 3.5: Une partie d'entretien supprimée reste visible comme manquante
+
+En tant que consultant, je veux qu'un entretien dont j'ai supprimé une partie audio, y compris la dernière, se signale comme incomplet, pour ne jamais présenter comme complet un entretien amputé.
+
+**Statut : à faire.** Origine : revue finale de la Story 3.4 (F4, 2026-11-17) — supprimer la DERNIÈRE tranche (0,1,2 → 0,1) ne laisse aucun trou de positions, donc rien ne la détecte. Arbitrage utilisateur du 2026-11-17 : **colonne dédiée** (pas de marque dans `audio_segments`, lu à 75 endroits).
+
+- AC3.5.1 — **Given** un entretien avec des parties audio, **When** j'en supprime une (première, milieu ou DERNIÈRE), **Then** une colonne dédiée de l'entretien compte les parties supprimées, et la fiche affiche « N partie(s) supprimée(s) » ; ce compte ne se confond pas avec `tranches_manquantes` (transcription incomplète).
+- AC3.5.2 — **Given** une base existante, **When** l'app démarre, **Then** la migration ajoute la colonne (défaut 0, aucun entretien existant modifié) selon le mécanisme du projet : `data/app.db` n'est migrée QUE par `APP_DB_MIGRATE=1`, jamais au démarrage (`SchemaEnRetard` sinon) ; les bases de test migrent comme avant.
+- AC3.5.3 — **Given** une retranscription complète réussie depuis les parties restantes, **Then** le compte des parties supprimées n'est PAS remis à zéro (l'audio supprimé reste perdu).
+- AC3.5.4 — Les exports (PDF d'entretien, deck) et la complétude de la fiche signalent l'entretien comme incomplet quand le compte est non nul, avec un test par chemin touché.
+
