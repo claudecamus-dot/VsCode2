@@ -33,7 +33,7 @@ jamais arrêté en fin de séance. Après une édition sous `app/` : `-CheckOnly
 qu'il sert le code du disque, sinon le relancer (`-Port 8020`). Après un changement de
 schéma : migrer une fois (commande ci-dessus), PUIS le relancer — sinon il reste mort sur
 `SchemaEnRetard`. Le reload ne migre plus rien, il est donc sans danger pour la base.
-Le script a un garde de démarrage (2026-10-15) : en `-KeepIfFresh` il ne purge jamais un serveur jeune (< 900 s) ou actif (CPU qui progresse, tant que son worker a moins de 1800 s), et un verrou nommé évite deux instances.
+Le script a un garde de démarrage (2026-10-15, revu Story 3.1 le 2026-11-17) : en `-KeepIfFresh` il ne purge jamais un serveur jeune (< 120 s) ou actif (CPU qui progresse, tant que son worker a moins de `-PlafondActifS`, 1800 s) ; une sonde sans réponse donne « indéterminé » sans purge, sauf worker uvicorn ≥ 1800 s (arbitrage utilisateur). Codes de sortie : 0 ok, 1 panne, 2 mot de passe absent, 3 verrou, 4 mot de passe indéterminé, 5 lecture du mot de passe en échec, 6 indéterminé. Journaux : `data/logs/app.log` (rotatif) et `workers.log` (processus de transcription), ou `APP_LOG_DIR`.
 
 Sur Windows, ajouter `--basetemp` sur un dossier neuf si le teardown se plaint. Lancer
 l'app et regarder un écran : skill `run-dev-server` (un port vierge — un serveur sans
