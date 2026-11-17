@@ -68,7 +68,7 @@
 # Usage :  powershell -ExecutionPolicy Bypass -File scripts/serveur-dev.ps1
 #          [-Port 8020] [-StopOnly] [-KeepIfFresh] [-CheckOnly]
 #          [-GraceDemarrageS 900] [-StabiliteS 120] [-AttenteDemarrageS 300]
-#          [-VerrouAttenteS 60]
+#          [-VerrouAttenteS 60] [-PlafondActifS 1800]
 
 param(
     # 8020 : le port de l'utilisateur (arbitrage du 2026-09-29). Il était hanté
@@ -82,12 +82,17 @@ param(
     # démarrage qui tenait le port FERMÉ >= 8 min pendant le préchauffage Whisper.
     # Depuis le 2026-11-05 ce préchauffage part en fil d'arrière-plan : le port
     # s'ouvre après init_db + réconciliations. 120 s couvre ce démarrage sous
-    # charge (et le plafond « actif port fermé » = 2 x 120 s) sans épargner
+    # charge (le plafond « actif port fermé » est -PlafondActifS, 1800 s) sans épargner
     # 15 min un worker périmé.
     [int]$GraceDemarrageS = 120,
     [int]$StabiliteS = 120,
     [int]$AttenteDemarrageS = 300,
-    [int]$VerrouAttenteS = 60
+    [int]$VerrouAttenteS = 60,
+    # (Story 3.1 final review, F4) Ceiling of the « active, port closed » state,
+    # on the youngest server process (the worker). It used to be 2 x Grace, so
+    # lowering the grace 900 -> 120 s silently lowered it 1800 -> 240 s: a Whisper
+    # warm-up burning CPU before the port opens was purged after 4 min.
+    [int]$PlafondActifS = 1800
 )
 
 $ErrorActionPreference = "Stop"
@@ -101,6 +106,7 @@ $AttenteDemarrageS = Limiter-Entier $AttenteDemarrageS 1 86400
 $VerrouAttenteS = Limiter-Entier $VerrouAttenteS 0 3600
 $GraceDemarrageS = Limiter-Entier $GraceDemarrageS 0 86400
 $StabiliteS = Limiter-Entier $StabiliteS 0 86400
+$PlafondActifS = Limiter-Entier $PlafondActifS 0 86400
 $racine = Split-Path -Parent $PSScriptRoot   # scripts/ -> racine du repo
 $python = Join-Path $racine ".venv\Scripts\python.exe"
 # Interpréteur surchargeable (tests en copie du dépôt, sans .venv) ; usage normal : le venv.
@@ -113,7 +119,12 @@ if ($env:SERVEUR_DEV_HISTORIQUE) { $historique = $env:SERVEUR_DEV_HISTORIQUE }
 
 # Delay of the python probes (s); overridable for tests only (default 90).
 $script:DelaiPythonS = 90
-if ($env:SERVEUR_DEV_DELAI_PYTHON_S) { $script:DelaiPythonS = Limiter-Entier ([int]$env:SERVEUR_DEV_DELAI_PYTHON_S) 1 3600 }
+# (Story 3.1 final review, F10) Parsed defensively: `[int]'abc'` threw at load
+# under EAP Stop and the script died before doing anything.
+$delaiLu = 0
+if ($env:SERVEUR_DEV_DELAI_PYTHON_S -and [int]::TryParse($env:SERVEUR_DEV_DELAI_PYTHON_S, [ref]$delaiLu)) {
+    $script:DelaiPythonS = Limiter-Entier $delaiLu 1 3600
+}
 
 function Format-EtatPython {
     # (Story 3.1 review) A probe that timed out is « indéterminé », not False.
@@ -317,7 +328,15 @@ function Invoke-PythonBorne {
     $psi.CreateNoWindow = $true
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
-    $proc = [System.Diagnostics.Process]::Start($psi)
+    try { $proc = [System.Diagnostics.Process]::Start($psi) }
+    catch {
+        # (Story 3.1 final review, F5) Interpreter missing or not startable: under
+        # EAP Stop this threw out of the script (exit 1). It is a python FAILURE,
+        # never « absent » nor « périmé ».
+        Write-Host ("python introuvable ou non lançable ($python) : " + $_.Exception.Message)
+        $script:pythonEchec = $true; $script:pythonCode = "non lancé"
+        return $null
+    }
     $sortie = $proc.StandardOutput.ReadToEndAsync()
     $erreur = $proc.StandardError.ReadToEndAsync()
     if (-not $proc.WaitForExit($DelaiS * 1000)) {
@@ -360,15 +379,16 @@ function Get-DecisionKeepIfFresh {
     # $AgeServeurS / $AgeModifS : $null = inconnu (aucun process / aucun fichier).
     # $Actif : le CPU des process serveur PROGRESSE (worker vivant qui travaille,
     # p. ex. préchauffage Whisper) alors que le port est fermé -> ne pas purger.
-    param([bool]$Sain, $AgeServeurS, $AgeModifS, [bool]$Repond, [int]$Grace, [int]$Stabilite, [bool]$Actif = $false, $AgeWorkerS = $null)
+    param([bool]$Sain, $AgeServeurS, $AgeModifS, [bool]$Repond, [int]$Grace, [int]$Stabilite, [bool]$Actif = $false, $AgeWorkerS = $null, [int]$PlafondActif = 1800)
     if ($Repond -and $Sain) { return "sain" }
     if ($null -ne $AgeServeurS -and [double]$AgeServeurS -lt $Grace) { return "demarrage" }
     # Plafond sur l'âge du process serveur le PLUS JEUNE ($AgeWorkerS : le worker, relancé à chaque
     # reload), jamais sur $AgeServeurS = racine/reloader qui vit des jours : un worker en plein
-    # (re)démarrage est jeune ; un worker gelé qui brûle du CPU port fermé finit par dépasser 2 x $Grace.
+    # (re)démarrage est jeune ; un worker gelé qui brûle du CPU port fermé finit par dépasser
+    # $PlafondActif (1800 s, réglage PROPRE : plus 2 x $Grace — Story 3.1 final review, F4).
     # $AgeWorkerS = $null (inconnu) : pas de plafond, comportement d'origine.
     if (-not $Repond -and $Actif) {
-        if ($null -ne $AgeWorkerS -and [double]$AgeWorkerS -ge (2 * $Grace)) { return "purger" }
+        if ($null -ne $AgeWorkerS -and [double]$AgeWorkerS -ge $PlafondActif) { return "purger" }
         return "demarrage"
     }
     if ($Repond -and $null -ne $AgeModifS -and [double]$AgeModifS -lt $Stabilite) { return "stabilite" }
@@ -422,6 +442,10 @@ function Resolve-DecisionKeepIfFresh {
     # décision vieille de 2 min a tué un serveur devenu sain (2026-10-15).
     param([int]$NumPort)
     $script:pythonIndetermine = $false
+    # (Story 3.1 final review, F3) Every probe that could not ANSWER (python
+    # failed/timed out, HTTP timeout) sets this flag; reset both per decision.
+    $script:preuveIndeterminee = $false
+    $script:pythonEchec = $false
     $repond = Test-PortRepond -NumPort $NumPort
     $sain = $false
     if ($repond) {
@@ -442,13 +466,18 @@ function Resolve-DecisionKeepIfFresh {
         if (($apres - $avant) -gt 0.2) {
             $decision = Get-DecisionKeepIfFresh -Sain $sain -AgeServeurS $age -AgeModifS $modif `
                 -Repond $repond -Grace $GraceDemarrageS -Stabilite $StabiliteS -Actif $true `
-                -AgeWorkerS (Get-AgeWorkerS -NumPort $NumPort)
+                -AgeWorkerS (Get-AgeWorkerS -NumPort $NumPort) -PlafondActif $PlafondActifS
         }
     }
     # (Story 3.1, D-8) The freshness proof could not be computed (python timed
     # out under load): « périmé » would be a guess, and -KeepIfFresh purged a
     # healthy loaded server on that guess. Undetermined = nothing purged.
-    if ($decision -eq "purger" -and $script:pythonIndetermine) { return "indetermine" }
+    # (F3) Same for a python probe that FAILED and for an HTTP probe without any
+    # reply (timeout): only a definitive answer (bytes/fingerprint/code that
+    # differ) may purge — the probes are short-circuited at the first « no ».
+    if ($decision -eq "purger" -and ($script:pythonIndetermine -or $script:preuveIndeterminee -or $script:pythonEchec)) {
+        return "indetermine"
+    }
     return $decision
 }
 
@@ -485,8 +514,8 @@ function Write-DecisionEtSortir {
             exit 0
         }
         "indetermine" {
-            Write-Historique "keepiffresh port=$NumPort decision=indetermine (python borne hors delai)"
-            Write-Host "État indéterminé : la preuve de fraîcheur python n'a pas rendu dans le délai (machine chargée ?), rien purgé. La prochaine instance retestera."
+            Write-Historique "keepiffresh port=$NumPort decision=indetermine (sonde python en echec/hors delai ou HTTP sans reponse)"
+            Write-Host "État indéterminé : la preuve de fraîcheur n'a pas pu être établie (python en échec ou hors délai, ou requête HTTP sans réponse — machine chargée ?), rien purgé. La prochaine instance retestera."
             exit 0
         }
         "stabilite" { Write-Host "Serveur périmé mais app/ modifié il y a moins de $StabiliteS s : le --reload va rattraper, rien purgé. La prochaine instance retestera."; exit 0 }
@@ -512,7 +541,12 @@ function Test-ContenuFrais {
     foreach ($actif in @("app.css", "busy.js")) {
         $disque = Join-Path $racine "app\static\$actif"
         if (-not (Test-Path $disque)) { continue }
-        try { $servi = Get-OctetsHttp -Url "http://127.0.0.1:$NumPort/static/$actif" } catch { return $false }
+        try { $servi = Get-OctetsHttp -Url "http://127.0.0.1:$NumPort/static/$actif" }
+        catch {
+            # (F3) No HTTP reply at all (timeout under load) is not « stale ».
+            if (-not (Test-ReponseHttpRecue $_)) { $script:preuveIndeterminee = $true }
+            return $false
+        }
         $attendu = [System.IO.File]::ReadAllBytes($disque)
         if ($servi.Length -ne $attendu.Length) { return $false }
         for ($i = 0; $i -lt $servi.Length; $i++) {
@@ -573,10 +607,30 @@ function Get-CodeRouteProtegee {
         $req.Headers.Add("Authorization", "Bearer $Mdp")
         $rep = $req.GetResponse(); $code = [int]$rep.StatusCode; $rep.Close()
         return $code
-    } catch [System.Net.WebException] {
-        if ($_.Exception.Response) { return [int]$_.Exception.Response.StatusCode }
+    } catch {
+        $e = $_.Exception
+        while ($e) {
+            if ($e -is [System.Net.WebException] -and $e.Response) { return [int]$e.Response.StatusCode }
+            $e = $e.InnerException
+        }
+        # (F3) 0 = NO reply (timeout...): not an answer, the freshness verdict
+        # built on it is undetermined.
+        $script:preuveIndeterminee = $true
         return 0
-    } catch { return 0 }
+    }
+}
+
+function Test-ReponseHttpRecue {
+    # (F3) Did the failed request get an HTTP REPLY (4xx/5xx: a definitive
+    # answer) or none at all (timeout, reset: undetermined)? PowerShell wraps
+    # .NET exceptions (MethodInvocationException), hence the inner-chain walk.
+    param($Erreur)
+    $e = $Erreur.Exception
+    while ($e) {
+        if ($e -is [System.Net.WebException] -and $e.Response) { return $true }
+        $e = $e.InnerException
+    }
+    return $false
 }
 
 function Test-PythonFrais {
@@ -587,10 +641,19 @@ function Test-PythonFrais {
     param([int]$NumPort)
     try {
         $octets = Get-OctetsHttp -Url "http://127.0.0.1:$NumPort/__fraicheur" -Bearer $script:motDePasse
+    } catch {
+        # (F3) A 10 s timeout under load is not an answer; a 4xx/5xx reply is.
+        if (-not (Test-ReponseHttpRecue $_)) { $script:preuveIndeterminee = $true }
+        return $false
+    }
+    try {
         $servie = ([System.Text.Encoding]::UTF8.GetString($octets) | ConvertFrom-Json).empreinte
         $disque = Invoke-PythonBorne -Code "from app.main import empreinte_code; print(empreinte_code())" -DelaiS $script:DelaiPythonS
         if ($disque) { $disque = $disque.Trim() }
-        return ($servie -and $disque -and $servie -eq $disque)
+        # (F3) python failed (non-zero exit), timed out or printed nothing: the
+        # disk fingerprint is UNKNOWN — never read that as « stale ».
+        if (-not $disque) { $script:preuveIndeterminee = $true; return $false }
+        return ($servie -and $servie -eq $disque)
     } catch { return $false }
 }
 

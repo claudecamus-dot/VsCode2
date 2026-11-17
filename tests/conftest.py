@@ -11,6 +11,7 @@ import os
 import sys
 import tempfile
 import time
+import warnings
 from pathlib import Path
 
 import pytest
@@ -255,14 +256,27 @@ def _detenteur_actif(detenteur) -> bool:
         return False
     if debut is not None:
         actuel = _debut_processus(pid)
-        if actuel is not None:
-            # Identity ESTABLISHED (PID + start time). Different start: the PID
-            # was recycled, the lock is free. Same start: the holder is alive,
-            # and its lock holds WHATEVER ITS AGE — a 2 h 35 suite (2026-10-20)
-            # had its lock stolen at 45 min, then WinError 32 (Story 3.1, D-2).
-            return actuel == debut and age < _VERROU_PLAFOND_VIVANT_S
-    # Identity unknown (old-format lock, start time unreadable): age is the
-    # only remaining safety net against a lock outliving its owner.
+        if actuel is not None and actuel != debut:
+            return False  # PID recycled (different start): the lock is free
+        # Same start: the holder is alive, and its lock holds WHATEVER ITS AGE
+        # — a 2 h 35 suite (2026-10-20) had its lock stolen at 45 min, then
+        # WinError 32 (Story 3.1, D-2). Start time UNREADABLE on a LIVE pid
+        # (OpenProcess denied between an elevated and a non-elevated shell —
+        # final review F6a): nothing says it is someone else, so it is treated
+        # as the holder, never as a 45 min-old unknown (that was D-2 again).
+        if age < _VERROU_PLAFOND_VIVANT_S:
+            return True
+        # (F6b) Beyond the ceiling the lock is taken over — never silently.
+        warnings.warn(
+            f"Verrou de la base de test REPRIS a un detenteur VIVANT (PID {pid}, "
+            f"depuis {int(age)} s, au-dela du plafond de {_VERROU_PLAFOND_VIVANT_S} s) : "
+            f"{_BASE}. Si ce pytest tourne encore, deux runs partagent la base "
+            f"(cascade WinError 32) : taskkill /F /T /PID {pid}.",
+            stacklevel=2,
+        )
+        return False
+    # Identity unknown (old-format lock without start time): age is the only
+    # remaining safety net against a lock outliving its owner.
     return age < _VERROU_PERIME_S
 
 

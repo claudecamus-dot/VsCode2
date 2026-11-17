@@ -41,18 +41,55 @@ def _lancer(*args: str, mot_de_passe: str,
     )
 
 
+def _lancer_copie(racine: Path, *args: str, python: str) -> subprocess.CompletedProcess:
+    """Run a COPY of the script under `racine` (its <root>/.env is the one the
+    script reads), with APP_AUTH_PASSWORD absent from the environment.
+
+    (Story 3.1 final review, F5) `APP_AUTH_PASSWORD=""` is NOT an empty
+    variable for the script: .NET drops it from the environment it sees, so
+    Test-MotDePassePresent fell back to the REAL checkout's .env — which holds
+    the password on the main checkout. The test then exercised the python
+    probe instead of the « absent » refusal."""
+    (racine / "scripts").mkdir(parents=True, exist_ok=True)
+    copie = racine / "scripts" / "serveur-dev.ps1"
+    shutil.copyfile(SCRIPT, copie)
+    env = dict(os.environ, SERVEUR_DEV_PYTHON=python, TEMP=str(racine), TMP=str(racine),
+               SERVEUR_DEV_HISTORIQUE=str(racine / "hist.log"))
+    env.pop("APP_AUTH_PASSWORD", None)
+    return subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+         str(copie), "-Port", PORT_LIBRE, *args],
+        cwd=racine, env=env, capture_output=True, timeout=150,
+    )
+
+
 def test_sans_mot_de_passe_le_script_refuse_avant_toute_purge(tmp_path) -> None:
     # Story 3.1: « absent » is decided WITHOUT the python probe. Under load the
     # probe took 85 s against a 90 s limit, and a timeout is now reported as
     # « indéterminé » (exit 4) — so the interpreter given here does not exist:
     # if the script still asked python, it could not answer 2.
+    # Copy under a temporary root WITHOUT .env (F5): never the checkout's .env.
     t0 = time.monotonic()
-    res = _lancer(mot_de_passe="", python=str(tmp_path / "pas-de-python.exe"))
+    res = _lancer_copie(tmp_path / "racine", python=str(tmp_path / "pas-de-python.exe"))
     sortie = (res.stdout + res.stderr).decode("utf-8", errors="replace")
     assert res.returncode == 2, sortie
     assert time.monotonic() - t0 < 60, "le refus attend encore une sonde python"
     assert "APP_AUTH_PASSWORD" in sortie
     assert "Purge" not in sortie  # aucun serveur tué pour rien
+
+
+def test_mot_de_passe_dans_le_env_et_python_introuvable_sort_en_5_pas_en_1(tmp_path) -> None:
+    """F5: a root whose .env DOES hold the password (like the main checkout)
+    sends the script to the python probe; an interpreter that cannot even be
+    started made Process.Start throw under EAP Stop (exit 1). It is a python
+    FAILURE (exit 5), with nothing stopped."""
+    racine = tmp_path / "racine"
+    racine.mkdir()
+    (racine / ".env").write_text("APP_AUTH_PASSWORD=s3cret", encoding="utf-8")
+    res = _lancer_copie(racine, python=str(tmp_path / "pas-de-python.exe"))
+    sortie = (res.stdout + res.stderr).decode("utf-8", errors="replace")
+    assert res.returncode == 5, sortie
+    assert "introuvable ou non lan" in sortie and "Purge" not in sortie, sortie
 
 
 def test_check_only_ne_lance_rien_et_dit_ko_sur_un_port_muet() -> None:
@@ -467,7 +504,7 @@ def test_le_mutex_attrape_toute_erreur_d_ouverture_pas_seulement_unauthorized() 
 
 def test_actif_port_ferme_est_plafonne_sur_l_age_du_worker_pas_du_reloader() -> None:
     """S2 : racine/reloader vieux (5000 s) mais worker jeune -> « demarrage » (reload du 8020) ;
-    worker lui-même >= 2 x Grace -> « purger » ; âge worker inconnu -> comportement d'origine."""
+    worker lui-même >= -PlafondActif (1800 s par défaut, F4) -> « purger » ; âge worker inconnu -> comportement d'origine."""
     def d(worker: str) -> str:
         return _ps_fonctions(
             "Get-DecisionKeepIfFresh -Sain $false -AgeServeurS 5000 -AgeModifS 9999 "

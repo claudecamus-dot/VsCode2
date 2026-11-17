@@ -294,3 +294,69 @@ def test_un_e2e_rouge_sur_serveur_de_module_porte_la_fin_du_journal(tmp_path):
     sortie = r.stdout + r.stderr
     assert "1 failed" in sortie, sortie[-2000:]
     assert "journal uvicorn" in sortie and "ligne-temoin-du-serveur" in sortie, sortie[-2000:]
+
+
+# --------------------------------------------------------------------------- #
+# Story 3.1 final review — F2: app WARNING/ERROR still reach stderr
+# --------------------------------------------------------------------------- #
+_MARQUEUR_STDERR = getattr(journalisation, "_MARQUEUR_STDERR", "_stderr_app_s31")
+
+
+def _handlers_stderr():
+    return [h for h in logging.getLogger("app").handlers
+            if getattr(h, _MARQUEUR_STDERR, False)]
+
+
+@pytest.fixture
+def sans_stderr_app():
+    """Detach the session's app stderr handler (if any), restore it afterwards."""
+    racine = logging.getLogger("app")
+    anciens = _handlers_stderr()
+    for h in anciens:
+        racine.removeHandler(h)
+    yield
+    for h in _handlers_stderr():
+        racine.removeHandler(h)
+    for h in anciens:
+        racine.addHandler(h)
+
+
+def test_un_warning_et_une_exception_app_vont_sur_stderr_et_dans_le_journal(
+        journal_isole, sans_stderr_app, capfd):
+    """Once `app` has a file handler, logging.lastResort no longer applies:
+    without a stderr channel, app errors vanished from uvicorn's .err journal
+    and from the uvicorn.log tail attached to a red e2e."""
+    chemin = journalisation.configurer_journalisation()
+    journalisation.configurer_journalisation()  # reload / second lifespan
+    assert len(_handlers_stderr()) == 1, "chaque erreur serait ecrite deux fois sur stderr"
+    capfd.readouterr()
+    lg = logging.getLogger("app.x")
+    lg.info("info-f2-pas-sur-stderr")
+    lg.warning("alerte-f2 %d", 7)
+    try:
+        raise ValueError("boum-f2")
+    except ValueError:
+        lg.exception("echec-f2")
+    for h in _handlers_marques():
+        h.flush()
+    err = capfd.readouterr().err
+    assert re.search(r"\d\d:\d\d:\d\d,\d+ WARNING app\.x \[MainThread\] alerte-f2 7", err), err
+    assert "ERROR app.x" in err and "echec-f2" in err and "ValueError: boum-f2" in err, err
+    assert err.count("alerte-f2 7") == 1, err
+    assert "info-f2-pas-sur-stderr" not in err, err
+    texte = chemin.read_text(encoding="utf-8")
+    assert "alerte-f2 7" in texte and "ValueError: boum-f2" in texte and "info-f2-pas-sur-stderr" in texte
+
+
+def test_pas_de_second_canal_stderr_si_la_racine_ecrit_deja_sur_stderr(
+        journal_isole, sans_stderr_app):
+    import sys
+
+    racine_globale = logging.getLogger()
+    h_racine = logging.StreamHandler(sys.stderr)
+    racine_globale.addHandler(h_racine)
+    try:
+        journalisation.configurer_journalisation()
+        assert _handlers_stderr() == [], "chaque erreur app serait affichee deux fois"
+    finally:
+        racine_globale.removeHandler(h_racine)

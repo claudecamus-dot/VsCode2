@@ -223,3 +223,105 @@ def test_un_serveur_mort_au_demarrage_est_dit_mort_avec_son_err(tmp_path) -> Non
     assert "MORT au d" in sortie and "SchemaEnRetard" in sortie, sortie
     assert "lentement" not in sortie, sortie
     assert " mort port=8099 " in (tmp_path / "hist.log").read_text(encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- #
+# Story 3.1 final review
+# --------------------------------------------------------------------------- #
+# A server that RESPONDS, is old (5000 s) and whose app/ is untouched (9999 s):
+# only the freshness probes decide between « purger » and « indetermine ».
+_VIEUX_QUI_REPOND = (
+    "function Test-PortRepond { param([int]$NumPort) $true }; "
+    "function Get-AgeServeurS { param([int]$NumPort) 5000 }; "
+    "function Get-AgeModifAppS { 9999 }; "
+    "function Get-CpuServeurS { param([int]$NumPort) 1 }; "
+    "$script:motDePasse = 'x'; ")
+_STATIQUE_FRAIS = "function Test-ContenuFrais { param([int]$NumPort) $true }; "
+_ROUTE_200 = "function Get-CodeRouteProtegee { param([int]$NumPort, [string]$Mdp) 200 }; "
+_FRAICHEUR_ABC = ("function Get-OctetsHttp { param($Url, $Bearer) "
+                  "[System.Text.Encoding]::UTF8.GetBytes('{\"empreinte\":\"abc\"}') }; ")
+# A REAL .NET request that gets no HTTP reply (port 1: connection refused),
+# wrapped by PowerShell exactly like a timeout of Get-OctetsHttp.
+_HTTP_SANS_REPONSE = ("function Get-OctetsHttp { param($Url, $Bearer) "
+                      "$r = [System.Net.WebRequest]::Create('http://127.0.0.1:1/'); "
+                      "$r.Timeout = 3000; $r.GetResponse() }; ")
+
+
+def _decision(expression: str, env_sup: dict | None = None) -> str:
+    return _ps(expression + "Resolve-DecisionKeepIfFresh -NumPort 8099", env_sup).splitlines()[-1]
+
+
+def test_sonde_python_en_echec_ne_purge_pas(tmp_path) -> None:
+    """F3: python RAN and FAILED (exit 1, nothing on stdout) through the REAL
+    Invoke-PythonBorne: no fingerprint, so no verdict — not « périmé »."""
+    bat = tmp_path / "faux_python_echec.bat"
+    bat.write_text(_FAUX_PYTHON["echec"], encoding="ascii", newline="")
+    assert _decision(_VIEUX_QUI_REPOND + _STATIQUE_FRAIS + _ROUTE_200 + _FRAICHEUR_ABC,
+                     {"SERVEUR_DEV_PYTHON": str(bat)}) == "indetermine"
+
+
+def test_echec_python_d_une_decision_precedente_est_oublie() -> None:
+    """F3: pythonEchec is reset by each decision — a stale flag (password probe)
+    must not turn a definitive « stale » answer into « indetermine »."""
+    rend_autre = "function Invoke-PythonBorne { param($Code, $DelaiS) 'autre-empreinte' }; "
+    assert _decision("$script:pythonEchec = $true; " + _VIEUX_QUI_REPOND + _STATIQUE_FRAIS
+                     + _ROUTE_200 + _FRAICHEUR_ABC + rend_autre) == "purger"
+
+
+def test_fraicheur_http_sans_reponse_ne_purge_pas() -> None:
+    """F3: /__fraicheur without any HTTP reply (10 s timeout under load)."""
+    rend_abc = "function Invoke-PythonBorne { param($Code, $DelaiS) 'abc' }; "
+    assert _decision(_VIEUX_QUI_REPOND + _STATIQUE_FRAIS + _ROUTE_200 + _HTTP_SANS_REPONSE
+                     + rend_abc) == "indetermine"
+
+
+def test_statique_http_sans_reponse_ne_purge_pas() -> None:
+    """F3: same for the static-bytes probe (real Test-ContenuFrais)."""
+    assert _decision(_VIEUX_QUI_REPOND + _ROUTE_200 + _HTTP_SANS_REPONSE) == "indetermine"
+
+
+def test_route_protegee_sans_reponse_ne_purge_pas_mais_un_401_si() -> None:
+    """F3: the protected route without any reply (real Get-CodeRouteProtegee,
+    nothing listens on 8099) is undetermined; a real 401 reply still purges."""
+    rend_abc = "function Invoke-PythonBorne { param($Code, $DelaiS) 'abc' }; "
+    base = _VIEUX_QUI_REPOND + _STATIQUE_FRAIS + _FRAICHEUR_ABC + rend_abc
+    assert _decision(base) == "indetermine"
+    assert _decision(base + "function Get-CodeRouteProtegee { param([int]$NumPort, [string]$Mdp) 401 }; ") \
+        == "purger"
+
+
+def test_plafond_actif_port_ferme_decouple_de_la_grace() -> None:
+    """F4: grace 120 s must not lower the « active, port closed » ceiling to
+    240 s; it is its own setting (1800 s)."""
+    def d(worker: str) -> str:
+        return _ps("Get-DecisionKeepIfFresh -Sain $false -AgeServeurS 5000 -AgeModifS 9999 "
+                   f"-Repond $false -Grace 120 -Stabilite 120 -Actif $true -AgeWorkerS {worker}"
+                   ).splitlines()[-1]
+    assert d("300") == "demarrage"
+    assert d("1799") == "demarrage"
+    assert d("1800") == "purger"
+    assert _ps('"$GraceDemarrageS $PlafondActifS"').splitlines()[-1] == "120 1800"
+
+
+def test_plafond_actif_transmis_par_resolve() -> None:
+    """F4: Resolve-DecisionKeepIfFresh passes -PlafondActifS (port closed, old
+    root, CPU progressing, worker 300 s old)."""
+    actif = ("function Test-PortRepond { param([int]$NumPort) $false }; "
+             "function Get-AgeServeurS { param([int]$NumPort) 5000 }; "
+             "function Get-AgeModifAppS { 9999 }; "
+             "$script:cpu = 0; function Get-CpuServeurS { param([int]$NumPort) $script:cpu += 10; $script:cpu }; "
+             "function Get-AgeWorkerS { param([int]$NumPort) 300 }; ")
+    assert _ps(actif + "Resolve-DecisionKeepIfFresh -NumPort 8099").splitlines()[-1] == "demarrage"
+    sortie = subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command",
+         f". '{SCRIPT}' -Port 8099 -PlafondActifS 200; {actif}Resolve-DecisionKeepIfFresh -NumPort 8099"],
+        cwd=RACINE, env=dict(os.environ, SERVEUR_DEV_FONCTIONS_SEULES="1", APP_AUTH_PASSWORD="x",
+                             SERVEUR_DEV_PYTHON=sys.executable),
+        capture_output=True, timeout=120)
+    assert sortie.stdout.decode("utf-8", errors="replace").strip().splitlines()[-1] == "purger", sortie
+
+
+def test_delai_python_non_numerique_ne_casse_pas_le_chargement() -> None:
+    """F10: a non-numeric SERVEUR_DEV_DELAI_PYTHON_S falls back to 90 s."""
+    assert _ps('"$script:DelaiPythonS"', {"SERVEUR_DEV_DELAI_PYTHON_S": "abc"}).splitlines()[-1] == "90"
+    assert _ps('"$script:DelaiPythonS"', {"SERVEUR_DEV_DELAI_PYTHON_S": "7"}).splitlines()[-1] == "7"

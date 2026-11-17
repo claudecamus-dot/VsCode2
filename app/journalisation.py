@@ -44,6 +44,49 @@ def dossier_journaux() -> Path:
     return Path(DATA_DIR) / "logs"
 
 
+_MARQUEUR_STDERR = "_stderr_app_s31"
+
+
+class _StderrCourant(logging.StreamHandler):
+    """StreamHandler bound to the CURRENT `sys.stderr` at each emit (like
+    `logging.lastResort`): a stream captured at configure time goes stale when
+    something swaps `sys.stderr` later (pytest capture, a redirection)."""
+
+    def __init__(self, level: int = logging.NOTSET) -> None:
+        logging.Handler.__init__(self, level)
+
+    @property
+    def stream(self):  # type: ignore[override]
+        return sys.stderr
+
+
+def _ecrit_sur_stderr(h: logging.Handler) -> bool:
+    if isinstance(h, logging.FileHandler) or not isinstance(h, logging.StreamHandler):
+        return False
+    if isinstance(h, _StderrCourant):
+        return True
+    return getattr(h, "stream", None) in (sys.stderr, sys.__stderr__)
+
+
+def _attacher_stderr(racine: logging.Logger) -> None:
+    """(Story 3.1 final review, F2) Once `app` has ANY handler, Python no
+    longer uses `logging.lastResort`: WARNING+ records of app.* stopped
+    reaching stderr, so the uvicorn .err journal (8020) and the uvicorn.log
+    tail attached to a red e2e lost the app's errors. Re-add a stderr channel
+    at WARNING — once (reload, each TestClient lifespan), and not at all when
+    the root logger already writes to stderr (records propagate there: a
+    second handler would print every line twice). uvicorn's own dictConfig
+    configures only the `uvicorn*` loggers (propagate=False), never the root."""
+    if any(getattr(h, _MARQUEUR_STDERR, False) for h in racine.handlers):
+        return
+    if any(_ecrit_sur_stderr(h) for h in logging.getLogger().handlers):
+        return
+    handler = _StderrCourant(logging.WARNING)
+    handler.setFormatter(logging.Formatter(FORMAT))
+    setattr(handler, _MARQUEUR_STDERR, True)
+    racine.addHandler(handler)
+
+
 def configurer_journalisation() -> Path | None:
     """Attach the rotating file handler to the `app` logger (once) and enable
     faulthandler. Returns the log file path, or None if it could not be opened
@@ -54,6 +97,7 @@ def configurer_journalisation() -> Path | None:
         except (RuntimeError, ValueError, OSError):
             pass  # no usable stderr (pythonw): the file log still works
     racine = logging.getLogger("app")
+    _attacher_stderr(racine)
     for h in racine.handlers:
         if getattr(h, _MARQUEUR, False):
             return Path(h.baseFilename)
