@@ -1144,7 +1144,7 @@ def _arreter_workers(executor, futures: dict) -> None:
 # (`TranscriptionBloqueeError`), pool cassé (`BrokenProcessPool`), `MemoryError`,
 # consommateur parti (`GeneratorExit` : exécution supplantée, abandon), tâches en
 # vol qui ne finissent pas dans le délai d'un bloc, garde mémoire qui ne le laisse
-# plus tenir, appel incompatible (moins de permis que ses workers, autre modèle),
+# plus tenir, appel incompatible (autre nombre de workers, autre modèle),
 # inactivité au-delà de POOL_CHAUD_INACTIF_S, sortie du processus (`atexit`). Un
 # seul pool garé à la fois. Garé, il ne tient AUCUN permis : tout appel qui démarre
 # un pool commence par le reprendre ou l'arrêter, il ne s'ajoute donc pas à un
@@ -1201,23 +1201,36 @@ def _detruire_pool(entree: _PoolChaud) -> None:
         logger.warning("Arrêt du pool de transcription garé en échec.", exc_info=True)
 
 
-def _taille_pool_chaud() -> int:
+def _workers_charges(entree: _PoolChaud) -> int:
+    """Workers du pool garé VIVANTS et au modèle CHARGÉ. Re-revue 3.2 (P1) : un
+    pool `spawn` démarre ses processus à la demande — garé à la taille 4, il peut
+    n'en avoir lancé qu'un ; seule la mémoire de celui-là est déjà engagée."""
+    vivants = sum(1 for p in list((getattr(entree.executor, "_processes", None) or {}).values())
+                  if p.is_alive())
+    prets = entree.prets.value if entree.prets is not None else 0
+    return max(0, min(entree.taille, vivants, prets))
+
+
+def _credit_pool_chaud() -> int:
+    """Mémoire récupérable du pool garé, en workers (cf. `_workers_charges`)."""
     with _POOL_CHAUD_LOCK:
-        return _POOL_CHAUD.taille if _POOL_CHAUD is not None else 0
+        return _workers_charges(_POOL_CHAUD) if _POOL_CHAUD is not None else 0
 
 
 def _prendre_pool_chaud(n_workers: int, cle: tuple) -> _PoolChaud | None:
-    """Le pool garé s'il est sain, de même clé et d'au plus `n_workers` workers
-    (jamais plus de processus que de permis tenus) ; sinon il est arrêté."""
+    """Le pool garé s'il est sain, de même clé et d'EXACTEMENT `n_workers` workers ;
+    sinon il est arrêté. Re-revue 3.2 (P2) : les paliers descendent après un échec —
+    reprendre un pool plus petit figeait le parallélisme au plus petit palier pour
+    tous les jobs suivants (chaque garage réarmant l'inactivité)."""
     global _POOL_CHAUD
     with _POOL_CHAUD_LOCK:
         entree, _POOL_CHAUD = _POOL_CHAUD, None
-    if entree is None:
-        return None
-    if entree.cle == cle and 1 <= entree.taille <= n_workers and _pool_sain(entree.executor):
-        if entree.minuterie is not None:
+        if entree is not None and entree.minuterie is not None:
             entree.minuterie.cancel()
             entree.minuterie = None
+    if entree is None:
+        return None
+    if entree.cle == cle and entree.taille == n_workers and _pool_sain(entree.executor):
         logger.info("Transcription parallèle : pool chaud de %d worker(s) réutilisé "
                     "(modèles déjà chargés).", entree.taille)
         return entree
@@ -1227,20 +1240,26 @@ def _prendre_pool_chaud(n_workers: int, cle: tuple) -> _PoolChaud | None:
 
 
 def _garer_pool(entree: _PoolChaud) -> None:
+    """Gare `entree` (minuterie d'inactivité armée SOUS le verrou, l'ancienne
+    annulée). Re-revue 3.2 (B4) : inactivité <= 0 = ne pas garer — fermer après
+    coup pouvait arrêter le pool qu'un autre appel venait de garer."""
     global _POOL_CHAUD, _POOL_CHAUD_GENERATION
+    if POOL_CHAUD_INACTIF_S <= 0:
+        _detruire_pool(entree)
+        return
     with _POOL_CHAUD_LOCK:
         ancien, _POOL_CHAUD = _POOL_CHAUD, entree
         _POOL_CHAUD_GENERATION += 1
         entree.generation = _POOL_CHAUD_GENERATION
+        if entree.minuterie is not None:
+            entree.minuterie.cancel()
+        minuterie = threading.Timer(POOL_CHAUD_INACTIF_S, _expirer_pool_chaud,
+                                    args=(entree.generation,))
+        minuterie.daemon = True
+        entree.minuterie = minuterie
+        minuterie.start()
     if ancien is not None and ancien is not entree:
         _detruire_pool(ancien)
-    if POOL_CHAUD_INACTIF_S <= 0:
-        fermer_pool_chaud()
-        return
-    minuterie = threading.Timer(POOL_CHAUD_INACTIF_S, _expirer_pool_chaud, args=(entree.generation,))
-    minuterie.daemon = True
-    entree.minuterie = minuterie
-    minuterie.start()
 
 
 def _expirer_pool_chaud(generation: int) -> None:
@@ -1379,37 +1398,42 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
     acquis = 0
     # Jamais plus de permis que le plafond global : sinon attente éternelle.
     n_workers = max(1, min(n_workers, max(1, GLOBAL_MAX_PARALLEL_WORKERS)))
+    credit_gare = 0
+
+    def _repli_sans_worker():
+        # Pas même un worker. Modèle du serveur DÉJÀ chargé : repli séquentiel
+        # sur lui (aucune mémoire de plus), borné comme un bloc du pool. Pas
+        # chargé : échec immédiat plutôt que charger ~1,6 Gio maintenant.
+        if _model is None and _MODEL_LOAD_LOCK.locked():
+            # Revue finale 3.2 (F1) : attendre le préchauffage, borné comme
+            # `_get_model` — lever aussitôt faisait rejouer le job toutes les 2 s,
+            # chaque rejeu re-décodant le fichier entier (~900 décodages en 30 min).
+            attente = _ATTENTE_CHARGEMENT_MAX.get()
+            if attente is None:
+                attente = SEGMENT_LOCK_TIMEOUT_S if priority == LIVE else ATTENTE_CHARGEMENT_FOND_S
+            if _MODEL_LOAD_LOCK.acquire(timeout=attente):
+                _MODEL_LOAD_LOCK.release()
+        if _model is None:
+            if _MODEL_LOAD_LOCK.locked():
+                # Re-revue 3.2 (M3) : un préchauffage charge DÉJÀ le modèle (sa
+                # mémoire est engagée) — « occupé » réessayable, pas un échec
+                # définitif (même règle que `_garde_memoire_sequentielle`).
+                exc = TranscriptionChargementEnCoursError(
+                    "Chargement du modèle en cours, réessayez.")
+                exc.retry_after_s = estimer_retry_after()
+                raise exc
+            logger.warning("Mémoire insuffisante pour un worker et modèle non chargé : échec immédiat.")
+            raise TranscriptionMemoireInsuffisanteError(MESSAGE_MEMOIRE_INSUFFISANTE)
+        for index in range(start, total):
+            yield index, _sequentiel_borne(blocks[index], priority, index, total)
+
     if _pool_reel():
         # Story 2.2 : garde mémoire AVANT les permis et le pool (cf. MEMOIRE_PAR_WORKER_OCTETS).
-        n_workers = _workers_selon_memoire(
-            n_workers, _taille_pool_chaud() if _pool_garable() else 0)
+        credit_gare = _credit_pool_chaud() if _pool_garable() else 0
+        n_workers = _workers_selon_memoire(n_workers, credit_gare)
         if n_workers == 0:
             fermer_pool_chaud()      # mémoire insuffisante même en le récupérant
-            # Pas même un worker. Modèle du serveur DÉJÀ chargé : repli séquentiel
-            # sur lui (aucune mémoire de plus), borné comme un bloc du pool. Pas
-            # chargé : échec immédiat plutôt que charger ~1,6 Gio maintenant.
-            if _model is None and _MODEL_LOAD_LOCK.locked():
-                # Revue finale 3.2 (F1) : attendre le préchauffage, borné comme
-                # `_get_model` — lever aussitôt faisait rejouer le job toutes les 2 s,
-                # chaque rejeu re-décodant le fichier entier (~900 décodages en 30 min).
-                attente = _ATTENTE_CHARGEMENT_MAX.get()
-                if attente is None:
-                    attente = SEGMENT_LOCK_TIMEOUT_S if priority == LIVE else ATTENTE_CHARGEMENT_FOND_S
-                if _MODEL_LOAD_LOCK.acquire(timeout=attente):
-                    _MODEL_LOAD_LOCK.release()
-            if _model is None:
-                if _MODEL_LOAD_LOCK.locked():
-                    # Re-revue 3.2 (M3) : un préchauffage charge DÉJÀ le modèle (sa
-                    # mémoire est engagée) — « occupé » réessayable, pas un échec
-                    # définitif (même règle que `_garde_memoire_sequentielle`).
-                    exc = TranscriptionChargementEnCoursError(
-                        "Chargement du modèle en cours, réessayez.")
-                    exc.retry_after_s = estimer_retry_after()
-                    raise exc
-                logger.warning("Mémoire insuffisante pour un worker et modèle non chargé : échec immédiat.")
-                raise TranscriptionMemoireInsuffisanteError(MESSAGE_MEMOIRE_INSUFFISANTE)
-            for index in range(start, total):
-                yield index, _sequentiel_borne(blocks[index], priority, index, total)
+            yield from _repli_sans_worker()
             return
     window = min(window, n_workers * 2)
     try:
@@ -1457,15 +1481,21 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
         contexte_mp = multiprocessing.get_context("spawn")
         pool_kw: dict = {}
         chargement = None
-        garable = _pool_garable()
+        garable = _pool_garable() and POOL_CHAUD_INACTIF_S > 0   # B4 : <= 0, jamais garé
         cle = _cle_pool() if garable else ()
         entree = _prendre_pool_chaud(n_workers, cle) if garable else None
-        if entree is not None:
-            # Arbitrage 2026-11-17 : pool chaud (modèles chargés) — les permis en
-            # trop sont rendus, le pool garde sa taille.
-            while acquis > entree.taille:
+        if entree is None and credit_gare > 0:
+            # Re-revue 3.2 (P1) : le crédit du pool garé, lu AVANT l'attente des
+            # permis, ne vaut plus — un autre appel l'a repris, ou il vient d'être
+            # arrêté (ses processus sont attendus : mémoire rendue). Garde mémoire
+            # recalculée sans crédit ; permis en trop rendus.
+            retenus = _workers_selon_memoire(n_workers, 0)
+            while acquis > retenus:
                 _GLOBAL_WORKERS_SEMAPHORE.release()
                 acquis -= 1
+            if acquis == 0:
+                yield from _repli_sans_worker()
+                return
             n_workers = acquis
             window = n_workers * 2
         prets = servis = None

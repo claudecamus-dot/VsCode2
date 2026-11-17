@@ -23,6 +23,7 @@ import pytest
 from app.db import DB_PATH, RECORDINGS_DIR, SessionLocal, engine, init_db
 from app.models import AudioFileJob
 from app.services import audio_file_jobs, audio_transcribe as at
+from tests.conftest_pool_chaud import pool_chaud_isole  # noqa: F401  (autouse)
 
 _PREFIXE = "s22_memoire_test_"
 

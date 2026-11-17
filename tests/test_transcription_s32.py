@@ -23,6 +23,7 @@ import pytest
 from app.db import DB_PATH, RECORDINGS_DIR, SessionLocal, engine, init_db
 from app.models import AudioFileJob, Interview, InterviewSegmentJob, Mission
 from app.services import audio_file_jobs, audio_transcribe as at
+from tests.conftest_pool_chaud import pool_chaud_isole  # noqa: F401  (autouse)
 
 _PREFIXE = "s32_transcription_test_"
 
@@ -1012,3 +1013,143 @@ def test_arb1117_garde_memoire_compte_le_pool_garé_comme_recuperable(monkeypatc
     monkeypatch.setattr(at, "memoire_disponible", lambda: 1024 ** 3)
     assert at._workers_selon_memoire(4) == 1
     assert at._workers_selon_memoire(4, credit_workers=2) == 3
+
+
+# --------------------------------------------------------------------------- #
+# Re-revue 2026-11-17 du pool chaud (P1, P2, B4)
+# --------------------------------------------------------------------------- #
+class _ProcFactice:
+    pid = 0
+
+    def __init__(self, vivant: bool = True):
+        self._vivant = vivant
+
+    def is_alive(self):
+        return self._vivant
+
+    def terminate(self):
+        self._vivant = False
+
+    kill = terminate
+
+    def join(self, timeout=None):
+        pass
+
+
+class _ExecFactice:
+    """Exécuteur garé factice : aucun processus réel, `submit` absent (le
+    reprendre à tort fait échouer le test)."""
+
+    def __init__(self, vivants: int, morts: int = 0):
+        procs = [_ProcFactice(True) for _ in range(vivants)] + [_ProcFactice(False) for _ in range(morts)]
+        self._processes = dict(enumerate(procs))
+        self._broken = False
+        self._shutdown_thread = False
+
+    def shutdown(self, wait=True, cancel_futures=False):
+        self._shutdown_thread = True
+
+
+class _Compteur:
+    def __init__(self, value: int):
+        self.value = value
+
+
+def _garer_factice(taille: int, vivants: int, prets: int) -> _ExecFactice:
+    executor = _ExecFactice(vivants)
+    at._garer_pool(at._PoolChaud(executor, taille, _Compteur(prets), _Compteur(prets), at._cle_pool()))
+    return executor
+
+
+class _PoolEnLigne(at.ProcessPoolExecutor):
+    """Vraie sous-classe promue « pool réel » par le test : aucun processus, aucune
+    tâche exécutée (jamais le vrai modèle) — chaque bloc rend « ok »."""
+    demarres: list = []
+
+    def __init__(self, max_workers=None, mp_context=None, **kw):
+        _PoolEnLigne.demarres.append(max_workers)
+        super().__init__(max_workers=max_workers, mp_context=mp_context, **kw)
+
+    def submit(self, fn, *args, **kwargs):
+        f = Future()
+        f.set_result("ok")
+        return f
+
+
+@pytest.fixture
+def pool_en_ligne(monkeypatch):
+    _PoolEnLigne.demarres = []
+    monkeypatch.setattr(at, "ProcessPoolExecutor", _PoolEnLigne)
+    monkeypatch.setattr(at, "_POOL_REEL", _PoolEnLigne)          # garable + garde mémoire
+    monkeypatch.setattr(at, "POOL_CHAUD_INACTIF_S", 60.0)
+    monkeypatch.setattr(at, "GLOBAL_MAX_PARALLEL_WORKERS", 4)
+    monkeypatch.setattr(at, "_GLOBAL_WORKERS_SEMAPHORE", threading.Semaphore(4))
+    monkeypatch.setattr(at, "MEMOIRE_PAR_WORKER_OCTETS", 1024 ** 3)
+    monkeypatch.setattr(at, "MEMOIRE_MARGE_OCTETS", 0)
+    return _PoolEnLigne
+
+
+def test_rr_p1a_credit_memoire_ne_compte_que_les_workers_vivants_et_charges(monkeypatch):
+    """Pool garé de taille 4 dont `spawn` n'a lancé qu'UN processus : seule la
+    mémoire de ce worker chargé est récupérable (avant : 4 créditées)."""
+    monkeypatch.setattr(at, "POOL_CHAUD_INACTIF_S", 60.0)
+    _garer_factice(taille=4, vivants=1, prets=1)
+    assert at._credit_pool_chaud() == 1
+    at.fermer_pool_chaud()
+    _garer_factice(taille=4, vivants=2, prets=0)                # en chargement
+    assert at._credit_pool_chaud() == 0
+    at.fermer_pool_chaud()
+    assert at._credit_pool_chaud() == 0                         # rien de garé
+
+
+def test_rr_p1b_pool_gare_repris_par_un_autre_garde_memoire_recalculee(pool_en_ligne, monkeypatch):
+    """Le crédit du pool garé est lu avant l'attente des permis ; un autre appel le
+    reprend entre-temps (`_prendre_pool_chaud` rend None) : la garde est recalculée
+    SANS crédit — 1 Gio libre = 1 worker, pas 3."""
+    monkeypatch.setattr(at, "memoire_disponible", lambda: 1024 ** 3)
+    monkeypatch.setattr(at, "_credit_pool_chaud", lambda: 2)
+    rendus = list(at._drain_parallel(_blocs_s32(3), 0, 3, 3))
+    assert [i for i, _ in rendus] == [0, 1, 2]
+    assert pool_en_ligne.demarres == [1]
+    assert at._GLOBAL_WORKERS_SEMAPHORE._value == 4             # permis tous rendus
+
+
+def test_rr_p2_pool_gare_plus_petit_que_le_palier_est_remplace(pool_en_ligne, monkeypatch):
+    """Paliers descendants : un pool garé d'1 worker n'est pas repris par un appel
+    qui en demande 2 — il est arrêté, un pool de 2 démarre."""
+    monkeypatch.setattr(at, "MAX_PARALLEL_WORKERS", 2)
+    monkeypatch.setattr(at, "memoire_disponible", lambda: 64 * 1024 ** 3)
+    petit = _garer_factice(taille=1, vivants=1, prets=1)
+    rendus = list(at._drain_parallel(_blocs_s32(2), 0, 2, at.MAX_PARALLEL_WORKERS))
+    assert [i for i, _ in rendus] == [0, 1]
+    assert petit._shutdown_thread                                # arrêté
+    assert pool_en_ligne.demarres == [2]
+    assert at._POOL_CHAUD is not None and at._POOL_CHAUD.taille == 2
+
+
+def test_rr_p2_pool_gare_de_la_taille_demandee_est_repris(monkeypatch):
+    monkeypatch.setattr(at, "POOL_CHAUD_INACTIF_S", 60.0)
+    executor = _garer_factice(taille=2, vivants=2, prets=2)
+    entree = at._prendre_pool_chaud(2, at._cle_pool())
+    assert entree is not None and entree.executor is executor
+    assert entree.minuterie is None and not executor._shutdown_thread
+
+
+def test_rr_b4_inactivite_nulle_ne_gare_pas_et_ne_ferme_pas_le_pool_d_un_autre(monkeypatch):
+    monkeypatch.setattr(at, "POOL_CHAUD_INACTIF_S", 60.0)
+    autre = _garer_factice(taille=1, vivants=1, prets=1)
+    monkeypatch.setattr(at, "POOL_CHAUD_INACTIF_S", 0.0)
+    moi = _garer_factice(taille=1, vivants=1, prets=1)
+    assert moi._shutdown_thread                                  # jamais garé
+    assert at._POOL_CHAUD is not None and at._POOL_CHAUD.executor is autre
+    assert not autre._shutdown_thread
+
+
+def test_rr_b4_regarer_annule_la_minuterie_precedente(monkeypatch):
+    monkeypatch.setattr(at, "POOL_CHAUD_INACTIF_S", 60.0)
+    entree = at._PoolChaud(_ExecFactice(1), 1, _Compteur(1), _Compteur(1), at._cle_pool())
+    at._garer_pool(entree)
+    premiere = entree.minuterie
+    at._garer_pool(entree)
+    assert premiere.finished.is_set()                            # annulée
+    assert entree.minuterie is not premiere and entree.minuterie.is_alive()
