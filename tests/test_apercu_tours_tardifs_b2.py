@@ -156,7 +156,7 @@ def test_tranche_perimee_finie_apres_le_curseur_est_rattrapee(client: TestClient
     assert r["next_since"] == 3
 
 
-@pytest.mark.parametrize("brut", ["x", "-1", "²", "5", "1,,", " 1 "])
+@pytest.mark.parametrize("brut", ["x", "-1", "²", "5", "1,,", " 1 ", "9" * 5000])
 def test_manquantes_invalides_ou_hors_borne_ignorees(client: TestClient, brut: str) -> None:
     """Garbage never 500s; positions >= since are never fetched as 'late'."""
     jeton = "b2-tardive-garde-" + str(abs(hash(brut)))
@@ -166,6 +166,17 @@ def test_manquantes_invalides_ou_hors_borne_ignorees(client: TestClient, brut: s
     r = _poll(client, jeton, 3, brut)
     positions = [t["position"] for t in r.get("tranches", [])]
     assert positions == ([1, 5] if brut.strip(" ,") == "1" else [5])
+
+
+def test_manquantes_invalides_ne_consomment_pas_le_plafond(client: TestClient) -> None:
+    """Review 2026-11-17: the 500-entry cap is applied AFTER filtering, so junk
+    entries placed first cannot push a real late position out of the request."""
+    jeton = "b2-tardive-plafond"
+    with SessionLocal() as db:
+        db.add_all([_job(jeton, 1, "done", "t1"), _job(jeton, 5, "done", "t5")])
+        db.commit()
+    r = _poll(client, jeton, 3, ",".join(["x"] * 600 + ["1"]))
+    assert [t["position"] for t in r.get("tranches", [])] == [1, 5]
 
 
 def test_ecran_structure_inclut_une_tranche_finie_tardivement(client: TestClient) -> None:

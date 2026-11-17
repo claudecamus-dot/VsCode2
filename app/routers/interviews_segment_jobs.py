@@ -290,11 +290,14 @@ def segment_jobs_turns_json(
     # renvoyée. Le client liste donc les positions sous `since` qu'il n'a pas
     # reçues (`manquantes=1,4`, vide d'ordinaire) : leurs tranches `done` sont
     # renvoyées UNE fois — reçues, le client ne les redemande plus. Entrées
-    # invalides ou hors [0, since) ignorées ; liste bornée.
+    # invalides ou hors [0, since) ignorées ; liste bornée APRÈS filtrage (des
+    # entrées invalides ne consomment pas le plafond). Longueur bornée AVANT
+    # `int()` : au-delà de 4300 chiffres, `int()` lève (limite de conversion de
+    # Python) et la route rendait une 500 (revue B-2 du 2026-11-17).
     tardives = sorted({
-        int(p) for p in manquantes.split(",")[:500]
-        if p.strip().isdecimal() and int(p) < since
-    })
+        int(p) for p in (x.strip() for x in manquantes.split(","))
+        if 0 < len(p) <= 9 and p.isdecimal() and int(p) < since
+    })[:500]
     status = segment_jobs_status_light(
         db, session_token, since_position=since, kind="libre_turns",
         positions_tardives=tardives,
