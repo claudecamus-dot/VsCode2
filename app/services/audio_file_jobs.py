@@ -247,6 +247,14 @@ BLOC_RETRIES = 2
 BLOC_RETRY_DELAY_S = 2.0
 
 
+def _delai_rejeu_chargement(exc: BaseException) -> float:
+    """Pause avant de rejouer un « chargement en cours » (revue finale 3.2, F1) :
+    `retry_after_s` de l'exception (10..240 s, `estimer_retry_after`), plafonné à
+    ATTENTE_CHARGEMENT_FOND_S (un battement), jamais sous BLOC_RETRY_DELAY_S."""
+    annonce = getattr(exc, "retry_after_s", None) or 0.0
+    return max(BLOC_RETRY_DELAY_S, min(float(annonce), audio_transcribe.ATTENTE_CHARGEMENT_FOND_S))
+
+
 def _est_reessayable(exc: BaseException) -> bool:
     """Vrai pour un échec transitoire d'un bloc : `TranscriptionBusyError`
     (par classe) ou l'échec générique au message fixe. Les autres
@@ -431,7 +439,7 @@ def run_audio_file_job(job_id: int) -> None:
                             break
                         except audio_transcribe.NoSpeechError:
                             raise
-                        except audio_transcribe.TranscriptionChargementEnCoursError:
+                        except audio_transcribe.TranscriptionChargementEnCoursError as exc_charge:
                             # Story 3.2 (D-10 a) : le modèle du serveur se charge
                             # ailleurs (préchauffage) — rien n'a été tenté. Rejoué
                             # SANS consommer d'essai (un serveur qui chauffe n'est
@@ -463,7 +471,10 @@ def run_audio_file_job(job_id: int) -> None:
                             # battement, rien entre les deux — comme `_commit()`.
                             _verifier_proprietaire()
                             _battement(db, job)
-                            time.sleep(BLOC_RETRY_DELAY_S)
+                            # Revue finale 3.2 (F1) : chaque rejeu re-décode le fichier
+                            # entier — attendre le délai annoncé par l'exception
+                            # (plafonné à un battement), pas 2 s.
+                            time.sleep(_delai_rejeu_chargement(exc_charge))
                         except audio_transcribe.TranscriptionError as exc_bloc:
                             # Retry borné d'un échec de transcription d'un bloc
                             # (message fixe ECHEC_TRANSCRIPTION) : un échec

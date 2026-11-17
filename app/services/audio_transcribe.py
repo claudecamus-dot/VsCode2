@@ -690,8 +690,9 @@ def _modele_worker(threads: int):
 # 3. Phrases types de silence (FR/EN, `_PHRASES_SILENCE`, phrase entière)
 #    écartées seulement si RÉPÉTÉES dans le bloc ou PEU SÛRES (no_speech_prob >=
 #    SEUIL_PHRASE_NO_SPEECH ou avg_logprob < SEUIL_PHRASE_LOGPROB) : une vraie
-#    phrase prononcée avec assurance reste, même seule. Puis les suites d'au
-#    moins RUN_REPETITION_MIN segments identiques sont repliées.
+#    phrase prononcée avec assurance reste, même seule. Puis, dans une suite d'au
+#    moins RUN_REPETITION_MIN segments identiques, les redites PEU SÛRES (même
+#    critère) sont repliées sur la première ; les redites sûres restent.
 # Un bloc qui ne contient que cela rend "" : le direct lève alors `NoSpeechError`
 # (422 `no_speech`, sémantique inchangée) et le fond compte un bloc vide.
 OPTIONS_ANTI_HALLUCINATION = {"condition_on_previous_text": False}
@@ -721,9 +722,9 @@ _PHRASES_SILENCE = frozenset({
     "thank you for watching",
     "thanks for watching",
 })
-# Une suite d'au moins RUN_REPETITION_MIN segments identiques consécutifs est
-# repliée en un seul (boucle de décodage) ; deux « Oui. » d'affilée (deux
-# interlocuteurs) restent tous les deux.
+# Dans une suite d'au moins RUN_REPETITION_MIN segments identiques consécutifs
+# (boucle de décodage possible), les redites peu sûres sont repliées sur la
+# première ; des « Oui. » sûrs d'affilée (deux interlocuteurs) restent tous.
 RUN_REPETITION_MIN = 3
 
 
@@ -750,21 +751,29 @@ def _texte_segments(segments) -> str:
         candidats.append((texte, nsp, logp))
     occurrences = collections.Counter(_norm_phrase(t) for t, _, _ in candidats)
     retenus = [
-        t for t, nsp, logp in candidats
+        (t, nsp, logp) for t, nsp, logp in candidats
         if not (_est_phrase_silence(t) and (
-            occurrences[_norm_phrase(t)] >= 2
-            or nsp >= SEUIL_PHRASE_NO_SPEECH or logp < SEUIL_PHRASE_LOGPROB))
+            occurrences[_norm_phrase(t)] >= 2 or _peu_sur(nsp, logp)))
     ]
     gardes: list[str] = []
     i = 0
     while i < len(retenus):
         j = i
-        while j + 1 < len(retenus) and _norm_phrase(retenus[j + 1]) == _norm_phrase(retenus[i]):
+        while j + 1 < len(retenus) and _norm_phrase(retenus[j + 1][0]) == _norm_phrase(retenus[i][0]):
             j += 1
-        longueur = j - i + 1
-        gardes.extend(retenus[i:i + 1] if longueur >= RUN_REPETITION_MIN else retenus[i:j + 1])
+        suite = retenus[i:j + 1]
+        if len(suite) >= RUN_REPETITION_MIN:
+            # Revue finale 3.2 (F4) : seules les redites PEU SÛRES sont repliées ;
+            # « Oui. » x3 prononcé avec assurance (deux interlocuteurs) reste.
+            suite = suite[:1] + [s for s in suite[1:] if not _peu_sur(s[1], s[2])]
+        gardes.extend(t for t, _, _ in suite)
         i = j + 1
     return " ".join(gardes).strip()
+
+
+def _peu_sur(nsp: float, logp: float) -> bool:
+    """Critère « peu sûr » du filtre (phrases types et redites repliées)."""
+    return nsp >= SEUIL_PHRASE_NO_SPEECH or logp < SEUIL_PHRASE_LOGPROB
 
 
 def _transcribe_pcm_chunk(args: tuple) -> str:
@@ -1116,7 +1125,9 @@ def _sequentiel_borne(pcm, priority: int, index: int, total: int) -> str:
     Story 3.2 (C-2, C-10) : le délai du bloc ne court qu'une fois le verrou obtenu
     ET le modèle prêt (`_SIGNAL_MODELE_PRET`) ; l'attente du verrou garde sa borne
     (BACKGROUND_LOCK_TIMEOUT_S / SEGMENT_LOCK_TIMEOUT_S, levée par le fil), le
-    chargement la sienne (CHARGEMENT_MODELE_TIMEOUT_S en plus). Le fil s'exécute
+    chargement la sienne (CHARGEMENT_MODELE_TIMEOUT_S en plus). La borne totale
+    (`borne_totale`) est donc leur SOMME : jusqu'à 1800 + 1800 = 3600 s en fond avec
+    les valeurs par défaut, pas 1800 s. Le fil s'exécute
     dans une COPIE du contexte (contextvars : bornes du direct, battement). Après
     abandon du demandeur, un fil qui obtient le verrou saute le bloc."""
     future: Future = Future()
@@ -1200,6 +1211,15 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
             # Pas même un worker. Modèle du serveur DÉJÀ chargé : repli séquentiel
             # sur lui (aucune mémoire de plus), borné comme un bloc du pool. Pas
             # chargé : échec immédiat plutôt que charger ~1,6 Gio maintenant.
+            if _model is None and _MODEL_LOAD_LOCK.locked():
+                # Revue finale 3.2 (F1) : attendre le préchauffage, borné comme
+                # `_get_model` — lever aussitôt faisait rejouer le job toutes les 2 s,
+                # chaque rejeu re-décodant le fichier entier (~900 décodages en 30 min).
+                attente = _ATTENTE_CHARGEMENT_MAX.get()
+                if attente is None:
+                    attente = SEGMENT_LOCK_TIMEOUT_S if priority == LIVE else ATTENTE_CHARGEMENT_FOND_S
+                if _MODEL_LOAD_LOCK.acquire(timeout=attente):
+                    _MODEL_LOAD_LOCK.release()
             if _model is None:
                 if _MODEL_LOAD_LOCK.locked():
                     # Re-revue 3.2 (M3) : un préchauffage charge DÉJÀ le modèle (sa

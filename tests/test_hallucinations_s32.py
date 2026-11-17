@@ -2,8 +2,10 @@
 
 Filtre `_texte_segments` : segments à forte probabilité de non-parole ET faible
 confiance écartés (seuils de faster-whisper), phrases types de silence écartées
-quand isolées ou peu sûres, répétitions exactes repliées ; un bloc qui n'en
-contient que rend un texte vide (= « aucune parole »). Jamais le vrai modèle.
+quand RÉPÉTÉES dans le bloc ou peu sûres (une phrase type isolée et sûre reste),
+redites peu sûres d'une suite de répétitions exactes repliées (les sûres restent) ;
+un bloc qui n'en contient que rend un texte vide (= « aucune parole »). Jamais le
+vrai modèle.
 """
 from __future__ import annotations
 
@@ -76,10 +78,19 @@ def test_ac324_phrase_type_peu_sure_au_milieu_ecartee():
     assert at._texte_segments(segs) == "On a commencé le projet en mars. Ensuite on a recruté."
 
 
-def test_ac324_repetitions_exactes_repliees():
-    segs = [_Seg(" C'est important."), _Seg(" C'est important."), _Seg(" c'est important !"),
-            _Seg(" Autre chose.")]
+def test_ac324_repetitions_exactes_peu_sures_repliees():
+    # Revue finale 3.2 (F4) : redites PEU SÛRES (boucle de décodage) repliées.
+    peu_sur = {"no_speech_prob": 0.4, "avg_logprob": -0.9}
+    segs = [_Seg(" C'est important.", **peu_sur), _Seg(" C'est important.", **peu_sur),
+            _Seg(" c'est important !", **peu_sur), _Seg(" Autre chose.")]
     assert at._texte_segments(segs) == "C'est important. Autre chose."
+
+
+def test_ac324_repetitions_sures_gardees():
+    # Revue finale 3.2 (F4) : « Non. » x3 prononcé avec assurance (deux
+    # interlocuteurs qui alternent) est de la parole — jamais replié.
+    segs = [_Seg(" Non.", no_speech_prob=0.05, avg_logprob=-0.2) for _ in range(3)]
+    assert at._texte_segments(segs) == "Non. Non. Non."
 
 
 def test_ac324_deux_oui_de_deux_interlocuteurs_survivent():

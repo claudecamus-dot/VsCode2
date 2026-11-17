@@ -93,12 +93,20 @@ def delais_courts(monkeypatch):
 # AC3.2.1 — le délai du bloc ne court qu'une fois le modèle prêt
 # --------------------------------------------------------------------------- #
 def test_ac321_chargement_en_cours_repousse_l_echeance_du_bloc(delais_courts):
+    # Revue finale 3.2 (F8) : sans minuterie concurrente. Le chargement dure tant
+    # que 3x le délai du bloc (0,3 s) ne s'est pas écoulé ; le résultat arrive
+    # PENDANT le chargement, donc forcément après le délai d'origine — aucune
+    # course entre une minuterie et l'échéance, quelle que soit la charge.
     future: Future = Future()
     debut = time.monotonic()
-    threading.Timer(0.9, lambda: future.set_result("fini")).start()
-    # Modèle « prêt » à 0,7 s : bien au-delà du délai de bloc (0,3 s).
-    chargement = lambda: time.monotonic() - debut < 0.7   # noqa: E731
+
+    def chargement() -> bool:
+        if time.monotonic() - debut > 3 * at.BLOC_RESULTAT_TIMEOUT_S and not future.done():
+            future.set_result("fini")
+        return True
+
     assert at._attendre_resultat(future, 0, 1, chargement) == "fini"
+    assert time.monotonic() - debut > 3 * at.BLOC_RESULTAT_TIMEOUT_S
 
 
 def test_ac321_sans_chargement_le_delai_reste_borne(delais_courts):
@@ -374,7 +382,9 @@ def test_ac322_un_bloc_obtenu_remet_a_zero_l_episode_de_chargement(monkeypatch):
             raise at.TranscriptionChargementEnCoursError("Chargement du modèle en cours, réessayez.")
         if start_index == 0:
             yield 0, 2, "bloc 0."
-            time.sleep(0.35)        # nouvel épisode, après la borne comptée depuis le 1er
+            # Nouvel épisode, bien après la borne (0,3 s) comptée depuis le 1er :
+            # 0,2 + 1,0 s (F8 : marge x4, plus 0,35 contre 0,3).
+            time.sleep(1.0)
             raise at.TranscriptionChargementEnCoursError("Chargement du modèle en cours, réessayez.")
         yield 1, 2, "bloc 1."
 
@@ -589,6 +599,7 @@ def test_m3_aucun_worker_pendant_un_prechauffage_rend_un_occupe(monkeypatch):
     monkeypatch.setattr(at, "ProcessPoolExecutor", _PoolInitEnLigne)
     monkeypatch.setattr(at, "memoire_disponible", lambda: 0)
     monkeypatch.setattr(at, "_model", None)
+    monkeypatch.setattr(at, "ATTENTE_CHARGEMENT_FOND_S", 0.2)   # F1 : attente bornée, puis « occupé »
     monkeypatch.setattr(at, "_MODEL_LOAD_LOCK", threading.Lock())
     at._MODEL_LOAD_LOCK.acquire()
     try:
@@ -597,6 +608,152 @@ def test_m3_aucun_worker_pendant_un_prechauffage_rend_un_occupe(monkeypatch):
     finally:
         at._MODEL_LOAD_LOCK.release()
     assert audio_file_jobs._est_reessayable(e.value) is True
+
+
+# --------------------------------------------------------------------------- #
+# Revue finale 3.2 (2026-11-17)
+# --------------------------------------------------------------------------- #
+def test_f1_aucun_worker_attend_le_prechauffage_puis_transcrit(monkeypatch):
+    """F1 : aucun worker en mémoire, préchauffage en cours qui ABOUTIT pendant
+    l'attente — les blocs passent sur le modèle chargé au lieu d'un « occupé »
+    immédiat (qui faisait re-décoder tout le fichier toutes les 2 s)."""
+    monkeypatch.setattr(at, "ProcessPoolExecutor", _PoolInitEnLigne)
+    monkeypatch.setattr(at, "memoire_disponible", lambda: 0)
+    monkeypatch.setattr(at, "_model", None)
+    monkeypatch.setattr(at, "ATTENTE_CHARGEMENT_FOND_S", 10.0)
+    monkeypatch.setattr(at, "_sequentiel_borne", lambda pcm, prio, i, total: f"ok{i}")
+    monkeypatch.setattr(at, "_MODEL_LOAD_LOCK", threading.Lock())
+    at._MODEL_LOAD_LOCK.acquire()                               # préchauffage en cours…
+
+    def _fin_prechauffage():
+        at._model = object()                                    # …qui aboutit
+        at._MODEL_LOAD_LOCK.release()
+
+    minuterie = threading.Timer(0.3, _fin_prechauffage)
+    minuterie.start()
+    try:
+        assert list(at._drain_parallel(_blocs_s32(2), 0, 2, 2)) == [(0, "ok0"), (1, "ok1")]
+    finally:
+        minuterie.join(5)
+
+
+def test_f1_job_rejoue_un_chargement_au_rythme_annonce(monkeypatch):
+    """F1 : le job attend `retry_after_s` (plafonné) entre deux rejeux d'un
+    « chargement en cours », pas BLOC_RETRY_DELAY_S — chaque rejeu re-décode le
+    fichier entier. Sur 1,5 s de chargement : ~5 essais, pas ~75."""
+    monkeypatch.setattr(audio_file_jobs, "BLOC_RETRY_DELAY_S", 0.02)
+    monkeypatch.setattr(at, "CHARGEMENT_MODELE_TIMEOUT_S", 1.5)
+    appels = []
+
+    def _iter(content, block_s=None, start_index=0, stats=None):
+        appels.append(1)                                      # = un décodage complet
+        exc = at.TranscriptionChargementEnCoursError("Chargement du modèle en cours, réessayez.")
+        exc.retry_after_s = 0.4
+        raise exc
+        yield  # noqa: unreachable
+
+    monkeypatch.setattr(at, "iter_transcribe_blocks", _iter)
+    job_id = _job("chargement_rythme")
+    audio_file_jobs.run_audio_file_job(job_id)
+    job = _relire(job_id)
+    assert job.status == "failed"
+    assert "pas pu être prêt" in (job.error or "")
+    assert len(appels) <= 8, len(appels)
+
+
+def test_f1_delai_de_rejeu_plafonne_et_plancher():
+    exc = at.TranscriptionChargementEnCoursError("x")
+    exc.retry_after_s = 10_000.0
+    assert audio_file_jobs._delai_rejeu_chargement(exc) == at.ATTENTE_CHARGEMENT_FOND_S
+    assert audio_file_jobs._delai_rejeu_chargement(
+        at.TranscriptionChargementEnCoursError("x")) == audio_file_jobs.BLOC_RETRY_DELAY_S
+
+
+_FAUX_FASTER_WHISPER_TRANSCRIPTION_LENTE = '''
+import time
+
+
+class WhisperModel:
+    def __init__(self, *args, **kwargs):
+        pass                                    # chargement instantané
+
+    def transcribe(self, pcm, **kwargs):
+        time.sleep(120)                          # bloc figé (mémoire saturée)
+        return [], None
+'''
+
+
+def test_f6_pool_reel_modele_pret_bloc_fige_echoue_au_delai_du_bloc(tmp_path, monkeypatch):
+    """F6 : pool RÉEL, modèle prêt aussitôt, bloc figé. Le délai du BLOC (1 s) doit
+    jouer : échec « n'avance plus ». Si `_init_worker`/`_modele_worker` cessaient de
+    mettre à jour les compteurs, le parent croirait le modèle toujours en
+    chargement et n'échouerait qu'à la borne du chargement (« pas pu être prêt »).
+    La borne du chargement (10 s) couvre le démarrage `spawn` du worker, qui compte
+    dans l'épisode : à ~1 s elle ferait échouer aussi le code correct."""
+    paquet = tmp_path / "fauxfw"
+    paquet.mkdir()
+    (paquet / "faster_whisper.py").write_text(_FAUX_FASTER_WHISPER_TRANSCRIPTION_LENTE,
+                                              encoding="utf-8")
+    monkeypatch.syspath_prepend(str(paquet))
+    monkeypatch.setattr(at, "memoire_disponible", lambda: 64 * 1024 ** 3)
+    monkeypatch.setattr(at, "BLOC_RESULTAT_TIMEOUT_S", 1.0)
+    monkeypatch.setattr(at, "BATTEMENT_ATTENTE_S", 0.1)
+    monkeypatch.setattr(at, "CHARGEMENT_MODELE_TIMEOUT_S", 10.0)
+    with pytest.raises(at.TranscriptionBloqueeError) as e:
+        list(at._drain_parallel(_blocs_s32(1), 0, 1, 1))
+    assert "n'avance plus" in str(e.value), str(e.value)
+
+
+def test_f7_rejeux_du_pool_acquis_pendant_un_chargement(monkeypatch):
+    """F7 : un rejeu du pool signalé par un appel qui finit en « chargement en
+    cours » survit à la remise à zéro de `stats` par l'appel suivant."""
+    monkeypatch.setattr(audio_file_jobs, "BLOC_RETRY_DELAY_S", 0.0)
+    appels = []
+
+    def _iter(content, block_s=None, start_index=0, stats=None):
+        appels.append(1)
+        if stats is not None:
+            stats["blocs_rejoues"] = [0] if len(appels) == 1 else []   # remis à zéro
+        if len(appels) == 1:
+            raise at.TranscriptionChargementEnCoursError("Chargement du modèle en cours, réessayez.")
+        yield 0, 1, "bloc."
+
+    monkeypatch.setattr(at, "iter_transcribe_blocks", _iter)
+    job_id = _job("chargement_rejeu_pool")
+    audio_file_jobs.run_audio_file_job(job_id)
+    job = _relire(job_id)
+    assert job.status == "done", (job.status, job.error)
+    assert 0 in ((job.completude or {}).get("blocs_rejoues") or [])
+
+
+def test_f7_supplantee_avant_rejeu_d_une_tranche_connue_ne_la_rejoue_pas(monkeypatch):
+    """F7 : supplanté juste avant le rejeu d'une tranche connue non aboutie — la
+    tranche n'est pas rejouée (le garde passe AVANT `run_segment_job`)."""
+    job_id = _job("extraction_rejeu_avant", multi=True, interview_id=_interview_id())
+    jeton = _relire(job_id).session_token
+    with SessionLocal() as db:
+        db.add(InterviewSegmentJob(session_token=jeton, position=0, status="failed",
+                                   text="t1", kind="libre_turns",
+                                   interview_id=_relire(job_id).interview_id))
+        db.commit()
+    rejoues = []
+
+    def _iter(content, block_s=None, start_index=0, stats=None):
+        yield 0, 1, "un bloc."
+
+    def _tranches(blocs):
+        audio_file_jobs._prendre_job(job_id)       # reprise juste avant le rejeu
+        return ["t1", "t2"]
+
+    monkeypatch.setattr(at, "iter_transcribe_blocks", _iter)
+    monkeypatch.setattr(audio_file_jobs, "tranches_extraction", _tranches)
+    monkeypatch.setattr(audio_file_jobs, "run_segment_job", rejoues.append)
+    try:
+        audio_file_jobs.run_audio_file_job(job_id)
+        assert rejoues == []
+        assert _segments(jeton) == [0]
+    finally:
+        audio_file_jobs._PROPRIETAIRES.pop(job_id, None)
 
 
 class _PoolDeuxiemeWorkerTardif(at.ProcessPoolExecutor):
