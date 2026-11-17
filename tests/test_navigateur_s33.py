@@ -629,3 +629,27 @@ function signal() { return { aborted: false, ls: [], addEventListener: function 
 })();
 """)
     assert r == {"ok": 0, "ko": 0}
+
+
+@pytest.mark.parametrize("ecran", ATTENTES, ids=lambda p: p.name)
+def test_attente_session_expiree_collante_jusqu_au_200_authentifie(ecran: Path) -> None:
+    """Classe perte de donnees : 401 puis coupures reseau -> la raison change mais
+    « Finaliser » reste masque/desactive ; un 200 authentifie retablit les regles normales."""
+    r = _attente(ecran, "reponses.push({ status: 401, data: {} });"
+                 " for (let i = 0; i < 7; i++) reponses.push('reseau'); reponses.push(EN_COURS, EN_COURS);", """
+const fin = () => ({ cache: els['seg-exit-finalize'].hidden, inactif: els['seg-exit-finalize'].disabled,
+                     sortie: els['seg-exit'].hidden === false });
+out.session = fin();
+for (let i = 0; i < 7; i++) await suivant();
+out.coupures = fin(); out.message = annonce;
+els['seg-exit-finalize'].h.click(); out.clic_bloque = soumis;
+await suivant(); out.sain = fin();
+clock = 21 * 60 * 1000; await suivant(); out.borne = fin();
+els['seg-exit-finalize'].h.click(); out.clic_ok = soumis;
+""")
+    assert r["session"] == {"cache": True, "inactif": True, "sortie": True}
+    assert r["coupures"] == {"cache": True, "inactif": True, "sortie": True}, r
+    assert "session a expiré" in r["message"] and r["clic_bloque"] == 0, r
+    assert r["sain"] == {"cache": False, "inactif": False, "sortie": False}, r
+    assert r["borne"] == {"cache": False, "inactif": False, "sortie": True}, r
+    assert r["clic_ok"] == 1

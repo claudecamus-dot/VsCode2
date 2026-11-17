@@ -21,11 +21,20 @@
 
   window.segWaitExit = function (o) {
     var root = document.getElementById('seg-exit');
-    if (!root) return { proposer: rien, masquer: rien };
+    if (!root) return { proposer: rien, masquer: rien, authentifie: rien };
     var textEl = document.getElementById('seg-exit-text');
     var statusEl = document.getElementById('seg-exit-status');
     var finalizeBtn = document.getElementById('seg-exit-finalize');
     var cle = null;
+    // Session expirée COLLANTE : un 401 vu, « Finaliser » reste masqué/désactivé quelle
+    // que soit la raison suivante (coupure réseau, borne de temps…) jusqu'à ce qu'un
+    // poll authentifié réussisse (`authentifie()`). Sinon un 401 puis une coupure
+    // réoffraient un POST qui renverrait vers la connexion (perte de la page).
+    var sessionExpiree = false;
+    function majFinaliser() {
+      finalizeBtn.hidden = sessionExpiree;
+      finalizeBtn.disabled = sessionExpiree;
+    }
 
     function texte() {
       var champ = o.form.querySelector('input[name="transcript"]');
@@ -35,20 +44,27 @@
 
     function proposer(raison, session) {
       if (o.inactif && o.inactif()) return;
-      var nouvelle = raison + (session ? '|session' : '');
+      if (session) sessionExpiree = true;
+      var nouvelle = raison + (sessionExpiree ? '|session' : '');
       if (nouvelle === cle) return;
       cle = nouvelle;
-      textEl.textContent = raison;
-      finalizeBtn.hidden = !!session;
-      finalizeBtn.disabled = !!session;
+      textEl.textContent = raison + (sessionExpiree && !session
+        ? ' « Finaliser » reste désactivé : la session a expiré (reconnecte-toi dans un autre onglet).' : '');
+      majFinaliser();
       root.hidden = false;
     }
     function masquer() {
       if (cle === null) return;
       cle = null;
       root.hidden = true;
-      finalizeBtn.hidden = false;
-      finalizeBtn.disabled = false;
+      majFinaliser();
+    }
+    // Poll authentifié réussi (2xx) : la session est rétablie, règles normales.
+    function authentifie() {
+      if (!sessionExpiree) return;
+      sessionExpiree = false;
+      majFinaliser();
+      cle = cle === null ? null : '';  // la raison suivante réécrit le message sans la mention
     }
 
     document.getElementById('seg-exit-copy').addEventListener('click', function () {
@@ -69,10 +85,10 @@
       dire('Transcription brute téléchargée.');
     });
     finalizeBtn.addEventListener('click', function () {
-      if (finalizeBtn.disabled) return;
+      if (finalizeBtn.disabled || sessionExpiree) return;
       if (!confirm('Finaliser avec le texte disponible ? Les tranches encore en cours ne seront pas attendues.')) return;
       o.onFinalize();
     });
-    return { proposer: proposer, masquer: masquer };
+    return { proposer: proposer, masquer: masquer, authentifie: authentifie };
   };
 })();

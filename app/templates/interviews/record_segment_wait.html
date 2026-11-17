@@ -111,6 +111,7 @@
       })
       .then(function (s) {
         failedPolls = 0;
+        sortie.authentifie();  // 2xx authentifié : fin de l'état « session expirée »
         emptyPolls = (s.total > 0 || s.all_done || s.any_failed) ? 0 : emptyPolls + 1;
         progressEl.classList.remove('error');
         if (s.total > 0) {
