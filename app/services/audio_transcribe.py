@@ -644,10 +644,21 @@ _workers_servis = None
 
 def _init_worker(compteur, servis=None) -> None:
     """`initializer` du pool réel : mémorise les compteurs partagés (modèles prêts,
-    chargements commencés)."""
+    chargements commencés) et branche le journal du processus.
+
+    Story 3.1 (revue finale, finding 1) : sans ce branchement, un worker gelé
+    n'écrivait ses `logger.info` dans aucun fichier — exactement le cas D-1 que
+    `workers.log` doit éclairer. Jamais fatal : un journal indisponible ne doit
+    pas casser le pool de transcription."""
     global _workers_prets, _workers_servis
     _workers_prets = compteur
     _workers_servis = servis
+    try:
+        from ..journalisation import configurer_journalisation_processus
+
+        configurer_journalisation_processus()
+    except Exception:  # noqa: BLE001 — le journal ne doit jamais tuer le worker
+        pass
 
 
 def _ajouter(compteur, delta: int) -> None:
