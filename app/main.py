@@ -35,6 +35,7 @@ from .auth import (  # noqa: E402
 from .auth import router as auth_router
 from .csrf import verifier_origine  # noqa: E402
 from .db import init_db  # noqa: E402
+from .journalisation import configurer_journalisation  # noqa: E402
 from .entetes_securite import entetes_securite  # noqa: E402
 from .routers import (  # noqa: E402
     agents,
@@ -114,6 +115,8 @@ EMPREINTE_AU_CHARGEMENT = empreinte_code()
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    # Dated, rotating app log + faulthandler (Story 3.1, D-1). Idempotent.
+    configurer_journalisation()
     init_db()
     # Les trois réconciliations journalisent leur compte : sans cela, une
     # séance qui libère des travaux figés ne laisse aucune trace de ce qu'elle

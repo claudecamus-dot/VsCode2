@@ -11,6 +11,7 @@ import os
 import sys
 import tempfile
 import time
+import warnings
 from pathlib import Path
 
 import pytest
@@ -104,10 +105,51 @@ _VERROU = Path(_BASE + ".verrou")
 # pas d'une demi-journée : le filet ne sert que si `GetExitCodeProcess` échoue à
 # trancher, et un verrou qui survit une demi-heure de trop est déjà une gêne.
 _VERROU_PERIME_S = 45 * 60
+# Ceiling for a LIVE, identified holder (Story 3.1 review): without one, a hung
+# pytest would block every run forever. 12 h is far above any measured suite
+# (2 h 35 on 2026-10-20, 9 h 59 on 2026-10-14) and the refusal names the PID.
+_VERROU_PLAFOND_VIVANT_S = 12 * 3600
 
 
-def _detenteur_vivant(pid: int) -> bool:
-    """Le processus `pid` tourne-t-il encore ? Sans dépendance externe.
+_ERROR_ACCESS_DENIED = 5
+_ERROR_INVALID_PARAMETER = 87
+_NOYAU = None
+
+
+def _noyau_windows():
+    """kernel32 chargé avec `use_last_error=True` : seul moyen fiable de lire
+    le GetLastError() d'un appel ctypes (`ctypes.get_last_error()`)."""
+    global _NOYAU
+    if _NOYAU is None:
+        import ctypes
+
+        from ctypes import wintypes
+
+        noyau = ctypes.WinDLL("kernel32", use_last_error=True)
+        # (re-review 2026-11-17, A4) Without restype the HANDLE was a C int:
+        # truncated on 64-bit, and a handle whose low 32 bits are 0 read as null.
+        noyau.OpenProcess.restype = wintypes.HANDLE
+        noyau.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        noyau.CloseHandle.argtypes = [wintypes.HANDLE]
+        noyau.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        noyau.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+        _NOYAU = noyau
+    return _NOYAU
+
+
+def _ouvrir_processus(pid: int):
+    """`OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` -> (handle, GetLastError).
+
+    Point unique (et substituable en test) : `_detenteur_vivant` doit
+    distinguer « PID inexistant » (87) de « accès refusé » (5)."""
+    import ctypes
+
+    handle = _noyau_windows().OpenProcess(0x1000, False, pid)
+    return handle, (0 if handle else ctypes.get_last_error())
+
+
+def _etat_detenteur(pid: int) -> str:
+    """« mort », « vivant » ou « refuse » (vivant, mais OpenProcess refusé : 5).
 
     Sur WINDOWS, `os.kill(pid, 0)` ne répond pas à la question : mesuré le
     2026-09-10, un PID inexistant y lève `OSError [WinError 87] Paramètre
@@ -119,17 +161,28 @@ def _detenteur_vivant(pid: int) -> bool:
 
     `OpenProcess` tranche, lui : handle nul pour un PID mort, non nul sinon
     (0x1000 = PROCESS_QUERY_LIMITED_INFORMATION, le droit le plus faible, il
-    suffit à savoir qu'il existe).
+    suffit à savoir qu'il existe). Handle nul avec ERROR_ACCESS_DENIED (5) : le
+    processus EXISTE mais nous est fermé (détenteur élevé, runner non élevé) —
+    vivant, jamais « mort » (re-review 2026-11-17, B1 : le verrou était volé
+    avant même le code F6a de `_detenteur_actif`).
+
+    (re-review 2026-11-17, A4) Seul ERROR_INVALID_PARAMETER (87) veut dire
+    « PID inexistant ». Toute autre erreur (8 mémoire, 1450 ressources, 0) dit
+    « vivant ou inconnu » : jamais un verrou volé à un détenteur vivant. Le 5 est
+    rendu à part (« refuse ») : un PID recyclé par un process SYSTEM le rend
+    aussi, l'appelant lui applique donc le seuil de péremption normal.
     """
     if pid <= 0:
-        return False
+        return "mort"
     if sys.platform == "win32":
         import ctypes
 
-        noyau = ctypes.windll.kernel32
-        handle = noyau.OpenProcess(0x1000, False, pid)
+        noyau = _noyau_windows()
+        handle, erreur = _ouvrir_processus(pid)
         if not handle:
-            return False
+            if erreur == _ERROR_INVALID_PARAMETER:
+                return "mort"
+            return "refuse" if erreur == _ERROR_ACCESS_DENIED else "vivant"
         try:
             # `OpenProcess` ne suffit PAS : il réussit encore sur un processus
             # TERMINÉ tant qu'un handle reste ouvert quelque part (le shell
@@ -140,19 +193,24 @@ def _detenteur_vivant(pid: int) -> bool:
             # seul 259 (STILL_ACTIVE) veut dire « tourne encore ».
             code = ctypes.c_ulong()
             if not noyau.GetExitCodeProcess(handle, ctypes.byref(code)):
-                return True  # état indéterminable : ne pas voler le verrou
-            return code.value == 259
+                return "vivant"  # état indéterminable : ne pas voler le verrou
+            return "vivant" if code.value == 259 else "mort"
         finally:
             noyau.CloseHandle(handle)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
-        return False
+        return "mort"
     except PermissionError:
-        return True  # existe, mais appartient à quelqu'un d'autre
+        return "vivant"  # existe, mais appartient à quelqu'un d'autre
     except OSError:
-        return True  # doute : mieux vaut refuser un run de trop
-    return True
+        return "vivant"  # doute : mieux vaut refuser un run de trop
+    return "vivant"
+
+
+def _detenteur_vivant(pid: int) -> bool:
+    """Le processus `pid` tourne-t-il encore (ou ne peut-on pas l'exclure) ?"""
+    return _etat_detenteur(pid) != "mort"
 
 
 def _debut_processus(pid: int):
@@ -175,8 +233,8 @@ def _debut_processus(pid: int):
         import ctypes
         from ctypes import wintypes
 
-        noyau = ctypes.windll.kernel32
-        handle = noyau.OpenProcess(0x1000, False, pid)
+        noyau = _noyau_windows()
+        handle, _erreur = _ouvrir_processus(pid)
         if not handle:
             return None
         try:
@@ -247,14 +305,42 @@ def _detenteur_actif(detenteur) -> bool:
         # seconde exécution du module dans le MÊME processus (importmode,
         # second rootdir) se refuserait l'entrée à elle-même.
         return False
-    if not _detenteur_vivant(pid):
+    etat = _etat_detenteur(pid)
+    if etat == "mort":
         return False
+    if etat == "refuse" and debut is None:
+        # (re-review 2026-11-17, A4) ERROR_ACCESS_DENIED: alive-but-closed OR a
+        # recycled PID now owned by SYSTEM. With NO recorded start time nothing
+        # identifies the holder: the normal stale threshold applies. With a
+        # recorded `debut`, fall through to the F6a ceiling below — an elevated
+        # 2 h 35 suite must not lose its lock to a non-elevated runner at 45 min.
+        return age < _VERROU_PERIME_S
     if debut is not None:
         actuel = _debut_processus(pid)
         if actuel is not None and actuel != debut:
-            # Même PID, processus DIFFÉRENT : le détenteur est mort et son
-            # numéro a été réattribué. Le verrou est à prendre.
-            return False
+            return False  # PID recycled (different start): the lock is free
+        # Same start: the holder is alive, and its lock holds WHATEVER ITS AGE
+        # — a 2 h 35 suite (2026-10-20) had its lock stolen at 45 min, then
+        # WinError 32 (Story 3.1, D-2). Start time UNREADABLE (`debut` stored
+        # but `actuel` None): OpenProcess denied between an elevated and a
+        # non-elevated shell (final review F6a). `_detenteur_vivant` answers
+        # « alive » on that ERROR_ACCESS_DENIED (re-review B1 — before, it said
+        # « dead » and the lock was stolen before reaching this line); here
+        # nothing says it is someone else, so it is treated as the holder,
+        # never as a 45 min-old unknown (that was D-2 again).
+        if age < _VERROU_PLAFOND_VIVANT_S:
+            return True
+        # (F6b) Beyond the ceiling the lock is taken over — never silently.
+        warnings.warn(
+            f"Verrou de la base de test REPRIS a un detenteur VIVANT (PID {pid}, "
+            f"depuis {int(age)} s, au-dela du plafond de {_VERROU_PLAFOND_VIVANT_S} s) : "
+            f"{_BASE}. Si ce pytest tourne encore, deux runs partagent la base "
+            f"(cascade WinError 32) : taskkill /F /T /PID {pid}.",
+            stacklevel=2,
+        )
+        return False
+    # Identity unknown (old-format lock without start time): age is the only
+    # remaining safety net against a lock outliving its owner.
     return age < _VERROU_PERIME_S
 
 
@@ -270,6 +356,8 @@ def _refuser(pid: int, age: float, debut=None) -> None:
         "cascade de PermissionError (WinError 32) qui ne decrit aucun "
         "defaut du produit. Mesure les 2026-09-09 (10 erreurs) et "
         "2026-09-10 (20).\n"
+        f"Si ce run est BLOQUE : taskkill /F /T /PID {pid} (Windows) ou "
+        f"kill {pid}.\n"
         "Attendre la fin du run en cours, ou lancer celui-ci sur sa "
         "propre base : APP_DB_PATH=<autre chemin>. Pour desarmer ce "
         "verrou : PYTEST_SANS_VERROU=1."
@@ -417,6 +505,92 @@ def vider_recordings_de_test() -> None:
 def pytest_sessionstart(session):  # noqa: ARG001
     """Nettoyage au démarrage de la session."""
     vider_recordings_de_test()
+    _ouvrir_fichier_echecs()
+
+
+# --------------------------------------------------------------------------- #
+# Failures written AS THEY HAPPEN (Story 3.1, AC3.1.2 — finding D-3)
+#
+# In `-q`, failing nodeids only appear in the final summary: a run that hangs
+# or is killed after 2 h (2026-10-20: 2 h 35; 2026-10-14: 9 h 59) leaves no
+# name at all. Each failed/errored phase is appended and flushed immediately.
+# Path: `PYTEST_ECHECS_FICHIER`, else next to the test base
+# (`<APP_DB_PATH>.echecs.log`) — same isolation key as the lock above, so two
+# runners on two bases never mix their files, and the lock guarantees one run
+# per base (the file is truncated at session start).
+# --------------------------------------------------------------------------- #
+def chemin_fichier_echecs() -> Path:
+    return Path(os.environ.get("PYTEST_ECHECS_FICHIER") or (_BASE + ".echecs.log"))
+
+
+def _ouvrir_fichier_echecs() -> None:
+    """Run header; the file is TRUNCATED only when the lock guarantees we are
+    alone on this base. With `PYTEST_SANS_VERROU=1` another run may be writing
+    the same file: append, never erase its trail (Story 3.1 review)."""
+    if os.environ.get("PYTEST_XDIST_WORKER"):
+        return  # only the controller writes (it receives the workers' reports)
+    try:
+        chemin = chemin_fichier_echecs()
+        chemin.parent.mkdir(parents=True, exist_ok=True)
+        mode = "a" if os.environ.get("PYTEST_SANS_VERROU") == "1" else "w"
+        with open(chemin, mode, encoding="utf-8") as fh:
+            fh.write(f"# pytest PID {os.getpid()} started "
+                     f"{time.strftime('%Y-%m-%dT%H:%M:%S')}\n")
+    except OSError:
+        pass  # never fail a suite for its diagnostic file
+
+
+def pytest_report_header(config):  # noqa: ARG001
+    return f"failures written as they happen to: {chemin_fichier_echecs()}"
+
+
+def _ecrire_echec(nature: str, nodeid: str) -> None:
+    if os.environ.get("PYTEST_XDIST_WORKER"):
+        return  # the controller writes it once: no double line under xdist
+    try:
+        with open(chemin_fichier_echecs(), "a", encoding="utf-8") as fh:
+            fh.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {nature} pid={os.getpid()} "
+                     f"{nodeid}\n")
+            fh.flush()
+    except OSError:
+        pass
+
+
+def pytest_runtest_logreport(report):
+    if report.failed:
+        _ecrire_echec("FAILED" if report.when == "call" else f"ERROR({report.when})",
+                      report.nodeid)
+
+
+def pytest_collectreport(report):
+    # A module that fails to IMPORT is an error too, and the commonest one
+    # after a refactor (Story 3.1 review).
+    if report.failed:
+        _ecrire_echec("ERROR(collect)", report.nodeid)
+
+
+# --------------------------------------------------------------------------- #
+# e2e: the server log tail goes into the failure report (Story 3.1 review).
+# Most e2e files get their server from a MODULE-scoped fixture: pytest never
+# throws the test failure into that generator, so serveur_uvicorn's own
+# `add_note` cannot see it. This hook reads the registry of active servers
+# kept by tests/e2e_serveur.py and attaches each log tail as a report section.
+# --------------------------------------------------------------------------- #
+def sections_journaux_e2e() -> list[tuple[str, str]]:
+    module = sys.modules.get("e2e_serveur")
+    if module is None:
+        return []
+    return [(f"journal uvicorn {base} ({chemin})", module.fin_du_journal(chemin))
+            for base, chemin in list(module.SERVEURS_ACTIFS.items())]
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):  # noqa: ARG001
+    resultat = yield
+    rapport = resultat.get_result()
+    if rapport.failed:
+        for titre, texte in sections_journaux_e2e():
+            rapport.sections.append((titre, texte))
 
 
 @pytest.fixture(autouse=True)
