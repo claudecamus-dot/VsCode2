@@ -16,8 +16,8 @@ from fastapi import (
     HTTPException,
 )
 from fastapi.responses import JSONResponse
-from sqlalchemy import inspect as sa_inspect
 from sqlalchemy import func, select, update
+from sqlalchemy import inspect as sa_inspect
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
@@ -28,12 +28,12 @@ from ..models import (
 )
 from ..services.horloge import utc_naif
 from ..services.interview_segment_jobs import (
-    segment_job_stale_after_s,
     merge_segment_answers,
     merge_segment_turns,
     normaliser_jeton,
     purge_stale_segment_jobs,
     run_segment_job,
+    segment_job_stale_after_s,
     segment_jobs_status,
     segment_jobs_status_light,
 )

@@ -40,9 +40,9 @@ from ..services.interview_segment_jobs import delete_segment_jobs, normaliser_je
 from ..services.mission_axes import axes_of
 from ..services.structuration_libre import (
     peut_relancer,
-    structurer_texte_disponible,
     planifier_structuration,
     relancer,
+    structurer_texte_disponible,
 )
 from ..services.tranches_echec import relancer_tranches_en_fond, reserver_tranches
 from ..templating import templates
@@ -992,7 +992,7 @@ def _memes_tours(interview: Interview, turns: list[dict]) -> bool:
     cles = ("interlocuteur", "question", "remarque", "section_title")
     return len(existants) == len(turns) and all(
         all((getattr(e, k) or None) == (t.get(k) or None) for k in cles)
-        for e, t in zip(existants, turns)
+        for e, t in zip(existants, turns, strict=True)  # longueurs déjà égales
     )
 
 

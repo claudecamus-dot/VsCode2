@@ -35,8 +35,8 @@ from .auth import (  # noqa: E402
 from .auth import router as auth_router
 from .csrf import verifier_origine  # noqa: E402
 from .db import init_db  # noqa: E402
-from .journalisation import configurer_journalisation  # noqa: E402
 from .entetes_securite import entetes_securite  # noqa: E402
+from .journalisation import configurer_journalisation  # noqa: E402
 from .routers import (  # noqa: E402
     agents,
     entretiens,

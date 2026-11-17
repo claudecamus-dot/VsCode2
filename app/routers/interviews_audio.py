@@ -33,13 +33,13 @@ from sqlalchemy.orm import Session
 from ..db import RECORDINGS_DIR, get_session
 from ..models import AudioFileJob, Mission
 from ..services import ai_common, audio_transcribe, mission_backups
-from ..services.interview_segment_jobs import normaliser_jeton
 from ..services.audio_file_jobs import (
     is_audio_file_job_stale,
     purge_stale_audio_file_jobs,
     reprendre_job_echoue_ou_perime,
     run_audio_file_job,
 )
+from ..services.interview_segment_jobs import normaliser_jeton
 from ..services.segment_dedupe import REGISTRE, cle_segment
 from ..uploads import UploadTropVolumineux, ecrire_audio_borne, lire_upload_audio_borne
 

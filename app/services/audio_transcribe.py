@@ -1035,7 +1035,7 @@ def memoire_disponible() -> int | None:
             if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(etat)):
                 return int(etat.ullAvailPhys)
             return None
-        with open("/proc/meminfo", "r", encoding="ascii") as f:
+        with open("/proc/meminfo", encoding="ascii") as f:
             for ligne in f:
                 if ligne.startswith("MemAvailable:"):
                     return int(ligne.split()[1]) * 1024

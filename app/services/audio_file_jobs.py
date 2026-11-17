@@ -454,7 +454,8 @@ def run_audio_file_job(job_id: int) -> None:
                                   > audio_transcribe.CHARGEMENT_MODELE_TIMEOUT_S):
                                 raise audio_transcribe.TranscriptionBloqueeError(
                                     audio_transcribe.message_chargement_trop_long(
-                                        audio_transcribe.CHARGEMENT_MODELE_TIMEOUT_S))
+                                        audio_transcribe.CHARGEMENT_MODELE_TIMEOUT_S)
+                                ) from exc_charge
                             logger.info("Modèle en cours de chargement : bloc rejoué sans essai consommé.")
                             # Rejeux du pool de CET appel : acquis (comme la branche
                             # TranscriptionError ci-dessous) avant la remise à zéro de
