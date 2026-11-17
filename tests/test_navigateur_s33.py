@@ -746,7 +746,8 @@ def test_finalisation_incomplete_atteint_le_serveur_par_l_action_rendue(ecran: P
         r = c.post(action, data={**champs, "transcription_incomplete": drapeau})
         assert r.status_code == 200, r.text[:300]
         pages[drapeau] = _html.unescape(r.text)
-        infos[drapeau] = pages[drapeau] if libre else str(r.context.get("finalisation_info") or "")
+        # le message doit être VISIBLE dans la page rendue, dans les deux modes
+        infos[drapeau] = pages[drapeau]
     info = interviews_record.FINALISATION_RATTRAPEE
     assert info not in infos[""], "temoin : sans le drapeau, aucun message"
     assert info in infos["1"], pages["1"][:3000]
