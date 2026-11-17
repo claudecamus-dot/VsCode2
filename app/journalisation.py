@@ -75,3 +75,40 @@ def configurer_journalisation() -> Path | None:
     if racine.level == logging.NOTSET or racine.level > logging.INFO:
         racine.setLevel(logging.INFO)
     return chemin
+
+
+NOM_FICHIER_WORKERS = "workers.log"
+_MARQUEUR_WORKER = "_journal_worker_s31"
+
+
+def configurer_journalisation_processus() -> Path | None:
+    """For a CHILD process (e.g. a transcription pool initializer): idempotent,
+    no lifespan, no app import beyond app.db's path. Writes to `workers.log`
+    (same directory as app.log) with the process name in each line. Plain
+    append, NO rotation: several processes rotating one file race on Windows
+    (a rename fails while another process holds it open)."""
+    if not faulthandler.is_enabled():
+        try:
+            faulthandler.enable()
+        except (RuntimeError, ValueError, OSError):
+            pass
+    racine = logging.getLogger("app")
+    for h in racine.handlers:
+        if getattr(h, _MARQUEUR_WORKER, False):
+            return Path(h.baseFilename)
+    chemin = dossier_journaux() / NOM_FICHIER_WORKERS
+    try:
+        chemin.parent.mkdir(parents=True, exist_ok=True)
+        handler = logging.FileHandler(chemin, mode="a", encoding="utf-8", delay=True)
+    except OSError as exc:
+        print(f"[app.journalisation] worker log unavailable ({chemin}): {exc}",
+              file=sys.stderr, flush=True)
+        return None
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s [%(processName)s/%(threadName)s] %(message)s"))
+    handler.setLevel(logging.INFO)
+    setattr(handler, _MARQUEUR_WORKER, True)
+    racine.addHandler(handler)
+    if racine.level == logging.NOTSET or racine.level > logging.INFO:
+        racine.setLevel(logging.INFO)
+    return chemin

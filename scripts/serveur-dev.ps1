@@ -111,6 +111,17 @@ $journal = Join-Path $env:TEMP ("uvicorn_dev_" + $Port + ".log")
 $historique = Join-Path $env:TEMP ("serveur-dev_" + $Port + ".history.log")
 if ($env:SERVEUR_DEV_HISTORIQUE) { $historique = $env:SERVEUR_DEV_HISTORIQUE }
 
+# Delay of the python probes (s); overridable for tests only (default 90).
+$script:DelaiPythonS = 90
+if ($env:SERVEUR_DEV_DELAI_PYTHON_S) { $script:DelaiPythonS = Limiter-Entier ([int]$env:SERVEUR_DEV_DELAI_PYTHON_S) 1 3600 }
+
+function Format-EtatPython {
+    # (Story 3.1 review) A probe that timed out is « indéterminé », not False.
+    param($Frais)
+    if (-not $Frais -and $script:pythonIndetermine) { return "indéterminé (python hors délai)" }
+    return "$Frais"
+}
+
 function Get-FinJournalErr {
     # Last lines of a .err journal, read SHARED (the dead process may still hold it).
     param([string]$Chemin, [int]$NbLignes = 20)
@@ -326,6 +337,9 @@ function Invoke-PythonBorne {
         return $null
     }
     $proc.WaitForExit()
+    # (Story 3.1 review) python RAN and FAILED (ImportError...): neither a
+    # timeout nor an answer — callers must not read it as « absent ».
+    if ($proc.ExitCode -ne 0) { $script:pythonEchec = $true; $script:pythonCode = $proc.ExitCode }
     $lignes = @(($sortie.Result -split "`r?`n") | Where-Object { $_.Trim() })
     if ($lignes.Count -eq 0) {
         # Show python's stderr instead of failing silently (D-8).
@@ -476,6 +490,14 @@ function Write-DecisionEtSortir {
             exit 0
         }
         "stabilite" { Write-Host "Serveur périmé mais app/ modifié il y a moins de $StabiliteS s : le --reload va rattraper, rien purgé. La prochaine instance retestera."; exit 0 }
+        "purger" { return }
+        default {
+            # (Story 3.1 review) Safe default: an unknown decision (typo, new
+            # state) must NEVER fall through into the purge.
+            Write-Historique "keepiffresh port=$NumPort decision_inconnue=$Decision"
+            Write-Host "Décision inconnue « $Decision » : rien purgé (par prudence). La prochaine instance retestera."
+            exit 0
+        }
     }
 }
 
@@ -509,7 +531,7 @@ function Get-MotDePasseApp {
     $code = "import base64,sys; from pathlib import Path; from dotenv import load_dotenv; " +
             "load_dotenv(Path(r'$racine') / '.env'); from app.auth import mot_de_passe; " +
             "sys.stdout.write(base64.b64encode((mot_de_passe() or '').encode('utf-8')).decode('ascii'))"
-    $b64 = Invoke-PythonBorne -Code $code -DelaiS 90
+    $b64 = Invoke-PythonBorne -Code $code -DelaiS $script:DelaiPythonS
     if (-not $b64) { return $null }
     return [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($b64.Trim()))
 }
@@ -519,16 +541,21 @@ function Test-MotDePassePresent {
     # Env variable SET (even empty) decides, as python-dotenv never overrides it;
     # otherwise the last `APP_AUTH_PASSWORD=` line of <Racine>/.env (optional
     # `export `, quotes, inline ` #` comment on unquoted values).
+    # Returns $true / $false, or $null = UNKNOWN (.env unreadable, e.g. locked):
+    # the caller then falls back to the python probe instead of guessing.
     param([string]$Racine)
     $env_val = [Environment]::GetEnvironmentVariable("APP_AUTH_PASSWORD")
     if ($null -ne $env_val) { return ($env_val -ne "") }
     $fichier = Join-Path $Racine ".env"
     if (-not (Test-Path -LiteralPath $fichier)) { return $false }
+    try { $lignes = [System.IO.File]::ReadAllLines($fichier) } catch { return $null }
     $valeur = $null
-    foreach ($ligne in [System.IO.File]::ReadAllLines($fichier)) {
+    foreach ($ligne in $lignes) {
         if ($ligne -match '^\s*(?:export\s+)?APP_AUTH_PASSWORD\s*=\s*(.*)$') {
             $v = $Matches[1].Trim()
-            if ($v -match '^"(.*)"$' -or $v -match "^'(.*)'$") { $v = $Matches[1] }
+            # Quoted value: python-dotenv drops what follows the closing quote
+            # (`"x" # c`, `""  # c`).
+            if ($v -match '^"([^"]*)"(\s.*)?$' -or $v -match "^'([^']*)'(\s.*)?$") { $v = $Matches[1] }
             else { $v = ($v -replace '\s+#.*$', '').Trim() }
             $valeur = $v
         }
@@ -561,7 +588,7 @@ function Test-PythonFrais {
     try {
         $octets = Get-OctetsHttp -Url "http://127.0.0.1:$NumPort/__fraicheur" -Bearer $script:motDePasse
         $servie = ([System.Text.Encoding]::UTF8.GetString($octets) | ConvertFrom-Json).empreinte
-        $disque = Invoke-PythonBorne -Code "from app.main import empreinte_code; print(empreinte_code())" -DelaiS 90
+        $disque = Invoke-PythonBorne -Code "from app.main import empreinte_code; print(empreinte_code())" -DelaiS $script:DelaiPythonS
         if ($disque) { $disque = $disque.Trim() }
         return ($servie -and $disque -and $servie -eq $disque)
     } catch { return $false }
@@ -580,7 +607,8 @@ if (-not $StopOnly) {
     # fix made a truly absent password depend on that same probe (85 s measured
     # under load against a 90 s limit). Same rule as the app: an env variable,
     # even empty, wins over .env (python-dotenv never overrides it).
-    if (-not (Test-MotDePassePresent -Racine $racine)) {
+    $script:pythonEchec = $false
+    if ($false -eq (Test-MotDePassePresent -Racine $racine)) {
         Write-Historique "refus port=$Port APP_AUTH_PASSWORD absent"
         $host.UI.WriteErrorLine(("APP_AUTH_PASSWORD absent (ni variable d'environnement ni .env) : le site " +
                      "rendrait 503 sur toute page hors /connexion. Poser la ligne " +
@@ -593,6 +621,13 @@ if (-not $StopOnly) {
         Write-Historique "refus port=$Port mot de passe indetermine (python borne hors delai)"
         $host.UI.WriteErrorLine("Mot de passe de l'app INDÉTERMINÉ : python n'a pas rendu dans le délai (machine chargée ?). Rien n'a été arrêté ; réessayer.")
         exit 4
+    }
+    if (-not $script:motDePasse -and $script:pythonEchec) {
+        # (Story 3.1 review) python ran and FAILED (ImportError, broken venv...):
+        # the password is declared, python is what is broken — not « absent ».
+        Write-Historique "refus port=$Port lecture du mot de passe en echec (python code $script:pythonCode)"
+        $host.UI.WriteErrorLine("Lecture du mot de passe de l'app en ÉCHEC : python a rendu le code $script:pythonCode (voir son stderr ci-dessus ; venv ou import cassé ?). APP_AUTH_PASSWORD est déclaré. Rien n'a été arrêté.")
+        exit 5
     }
     if (-not $script:motDePasse) {
         # Pas Write-Error : sous EAP Stop il TERMINE le script en code 1, avant
@@ -612,14 +647,16 @@ if ($CheckOnly) {
     }
     $codeProtege = Get-CodeRouteProtegee -NumPort $Port -Mdp $script:motDePasse
     $frais = Test-ContenuFrais -NumPort $Port
+    $script:pythonIndetermine = $false
     $fraisPy = Test-PythonFrais -NumPort $Port
+    $etatPy = Format-EtatPython -Frais $fraisPy
     if ($codeProtege -eq 200 -and $frais -and $fraisPy) {
         Write-Host "OK : http://127.0.0.1:$Port sert /missions authentifié (200), statique ET python frais."
         exit 0
     }
     Write-Error ("KO : /missions authentifié -> $codeProtege (503 = le SERVEUR n'a pas le mot de passe, " +
                  "à relancer ; 401 = mot de passe du serveur différent du .env), statique frais: $frais, " +
-                 "python frais: $fraisPy.")
+                 "python frais: $etatPy.")
     exit 1
 }
 
@@ -794,14 +831,16 @@ if (-not $pret) {
 # C'est LA preuve que le --reload n'a pas servi du code périmé (diagnostic
 # superviseur 2026-07-23 — la preuve octets ne couvrait que le statique).
 $frais = Test-ContenuFrais -NumPort $Port
+$script:pythonIndetermine = $false
 $fraisPy = Test-PythonFrais -NumPort $Port
+$etatPy = Format-EtatPython -Frais $fraisPy
 $codeProtege = Get-CodeRouteProtegee -NumPort $Port -Mdp $script:motDePasse
 $nbEcoute = @(Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
     Select-Object -ExpandProperty OwningProcess -Unique).Count
 if ($frais -and $fraisPy -and $codeProtege -eq 200 -and $nbEcoute -eq 1) {
     Write-Host "OK : serveur FRAIS sur http://127.0.0.1:$Port (1 seul listener, statique ET python servis = disque, /missions authentifié = 200)."
 } else {
-    Write-Error "Serveur lancé mais suspect (listeners uniques: $nbEcoute, statique frais: $frais, python frais: $fraisPy, /missions authentifié: $codeProtege) — ne pas s'en servir tel quel."
+    Write-Error "Serveur lancé mais suspect (listeners uniques: $nbEcoute, statique frais: $frais, python frais: $etatPy, /missions authentifié: $codeProtege) — ne pas s'en servir tel quel."
     exit 1
 }
 

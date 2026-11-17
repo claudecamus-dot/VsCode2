@@ -41,3 +41,24 @@ def test_un_detenteur_vivant_garde_son_verrou_au_dela_de_45_min(monkeypatch, tmp
     finally:
         vivant.kill()
         vivant.wait(timeout=30)
+
+
+def test_un_detenteur_vivant_mais_bloque_depuis_13h_est_repris_et_nomme(monkeypatch, tmp_path):
+    """A hung pytest must not block every run forever: 12 h ceiling, and the
+    refusal names the PID to kill."""
+    import conftest
+
+    verrou = tmp_path / "pendu.db.verrou"
+    monkeypatch.setattr(conftest, "_VERROU", verrou)
+    vivant = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        debut = conftest._debut_processus(vivant.pid)
+        if debut is None:
+            pytest.skip("instant de demarrage indeterminable sur cette plateforme")
+        verrou.write_text(f"{vivant.pid} {time.time() - 13 * 3600} {debut}", encoding="utf-8")
+        assert conftest._detenteur_actif(conftest._lire_le_verrou()) is False
+        with pytest.raises(RuntimeError, match=rf"taskkill /F /T /PID {vivant.pid}"):
+            conftest._refuser(vivant.pid, 60.0)
+    finally:
+        vivant.kill()
+        vivant.wait(timeout=30)

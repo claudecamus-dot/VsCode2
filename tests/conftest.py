@@ -104,6 +104,10 @@ _VERROU = Path(_BASE + ".verrou")
 # pas d'une demi-journée : le filet ne sert que si `GetExitCodeProcess` échoue à
 # trancher, et un verrou qui survit une demi-heure de trop est déjà une gêne.
 _VERROU_PERIME_S = 45 * 60
+# Ceiling for a LIVE, identified holder (Story 3.1 review): without one, a hung
+# pytest would block every run forever. 12 h is far above any measured suite
+# (2 h 35 on 2026-10-20, 9 h 59 on 2026-10-14) and the refusal names the PID.
+_VERROU_PLAFOND_VIVANT_S = 12 * 3600
 
 
 def _detenteur_vivant(pid: int) -> bool:
@@ -256,7 +260,7 @@ def _detenteur_actif(detenteur) -> bool:
             # was recycled, the lock is free. Same start: the holder is alive,
             # and its lock holds WHATEVER ITS AGE — a 2 h 35 suite (2026-10-20)
             # had its lock stolen at 45 min, then WinError 32 (Story 3.1, D-2).
-            return actuel == debut
+            return actuel == debut and age < _VERROU_PLAFOND_VIVANT_S
     # Identity unknown (old-format lock, start time unreadable): age is the
     # only remaining safety net against a lock outliving its owner.
     return age < _VERROU_PERIME_S
@@ -274,6 +278,8 @@ def _refuser(pid: int, age: float, debut=None) -> None:
         "cascade de PermissionError (WinError 32) qui ne decrit aucun "
         "defaut du produit. Mesure les 2026-09-09 (10 erreurs) et "
         "2026-09-10 (20).\n"
+        f"Si ce run est BLOQUE : taskkill /F /T /PID {pid} (Windows) ou "
+        f"kill {pid}.\n"
         "Attendre la fin du run en cours, ou lancer celui-ci sur sa "
         "propre base : APP_DB_PATH=<autre chemin>. Pour desarmer ce "
         "verrou : PYTEST_SANS_VERROU=1."
@@ -440,15 +446,18 @@ def chemin_fichier_echecs() -> Path:
 
 
 def _ouvrir_fichier_echecs() -> None:
+    """Run header; the file is TRUNCATED only when the lock guarantees we are
+    alone on this base. With `PYTEST_SANS_VERROU=1` another run may be writing
+    the same file: append, never erase its trail (Story 3.1 review)."""
     if os.environ.get("PYTEST_XDIST_WORKER"):
-        return  # the master truncated it; workers only append
+        return  # only the controller writes (it receives the workers' reports)
     try:
         chemin = chemin_fichier_echecs()
         chemin.parent.mkdir(parents=True, exist_ok=True)
-        chemin.write_text(
-            f"# pytest PID {os.getpid()} started {time.strftime('%Y-%m-%dT%H:%M:%S')}\n",
-            encoding="utf-8",
-        )
+        mode = "a" if os.environ.get("PYTEST_SANS_VERROU") == "1" else "w"
+        with open(chemin, mode, encoding="utf-8") as fh:
+            fh.write(f"# pytest PID {os.getpid()} started "
+                     f"{time.strftime('%Y-%m-%dT%H:%M:%S')}\n")
     except OSError:
         pass  # never fail a suite for its diagnostic file
 
@@ -457,16 +466,53 @@ def pytest_report_header(config):  # noqa: ARG001
     return f"failures written as they happen to: {chemin_fichier_echecs()}"
 
 
-def pytest_runtest_logreport(report):
-    if not report.failed:
-        return
-    nature = "FAILED" if report.when == "call" else f"ERROR({report.when})"
+def _ecrire_echec(nature: str, nodeid: str) -> None:
+    if os.environ.get("PYTEST_XDIST_WORKER"):
+        return  # the controller writes it once: no double line under xdist
     try:
         with open(chemin_fichier_echecs(), "a", encoding="utf-8") as fh:
-            fh.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {nature} {report.nodeid}\n")
+            fh.write(f"{time.strftime('%Y-%m-%dT%H:%M:%S')} {nature} pid={os.getpid()} "
+                     f"{nodeid}\n")
             fh.flush()
     except OSError:
         pass
+
+
+def pytest_runtest_logreport(report):
+    if report.failed:
+        _ecrire_echec("FAILED" if report.when == "call" else f"ERROR({report.when})",
+                      report.nodeid)
+
+
+def pytest_collectreport(report):
+    # A module that fails to IMPORT is an error too, and the commonest one
+    # after a refactor (Story 3.1 review).
+    if report.failed:
+        _ecrire_echec("ERROR(collect)", report.nodeid)
+
+
+# --------------------------------------------------------------------------- #
+# e2e: the server log tail goes into the failure report (Story 3.1 review).
+# Most e2e files get their server from a MODULE-scoped fixture: pytest never
+# throws the test failure into that generator, so serveur_uvicorn's own
+# `add_note` cannot see it. This hook reads the registry of active servers
+# kept by tests/e2e_serveur.py and attaches each log tail as a report section.
+# --------------------------------------------------------------------------- #
+def sections_journaux_e2e() -> list[tuple[str, str]]:
+    module = sys.modules.get("e2e_serveur")
+    if module is None:
+        return []
+    return [(f"journal uvicorn {base} ({chemin})", module.fin_du_journal(chemin))
+            for base, chemin in list(module.SERVEURS_ACTIFS.items())]
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):  # noqa: ARG001
+    resultat = yield
+    rapport = resultat.get_result()
+    if rapport.failed:
+        for titre, texte in sections_journaux_e2e():
+            rapport.sections.append((titre, texte))
 
 
 @pytest.fixture(autouse=True)

@@ -124,17 +124,23 @@ jobs:
   # exercised the ctypes test-DB lock (OpenProcess / GetProcessTimes), the
   # PowerShell 5.1 script serveur-dev.ps1, nor the supervision dispositif on
   # the platform it runs on. LIMITED on purpose (cheap, no browser, no e2e):
-  # an explicit file list, not the whole suite.
+  # an explicit file list, not the whole suite. Every test file holding a
+  # Windows-only skip must be listed: tests/test_journalisation_s31.py
+  # (test_les_fichiers_propres_a_windows_tournent_dans_le_job_windows) fails
+  # if one is forgotten.
   test-windows:
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Setup Python 3.14
+      # 3.12 like the Linux job (Story 3.1 review): 3.14's mkdir(0o700) ACL
+      # trap on elevated runners would make this job red for reasons the
+      # local fixtures (tmp_path_git) already handle elsewhere.
+      - name: Setup Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          python-version: '3.14'
+          python-version: '3.12'
 
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
@@ -147,3 +153,5 @@ jobs:
           tests/test_agent_prompt_injection.py
           tests/test_conftest_verrou.py tests/test_conftest_verrou_s31.py
           tests/test_journalisation_s31.py tests/test_serveur_dev_script.py
+          tests/test_serveur_dev_s31.py tests/test_conftest_vider_recordings.py
+          tests/test_migration_opt_in.py tests/test_navigateur_cdp.py

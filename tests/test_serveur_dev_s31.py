@@ -135,3 +135,91 @@ def test_variable_d_environnement_l_emporte_sur_le_env(tmp_path) -> None:
     (tmp_path / ".env").write_text("APP_AUTH_PASSWORD=\n", encoding="utf-8")
     assert _ps(f"Test-MotDePassePresent -Racine '{tmp_path}'",
                {"APP_AUTH_PASSWORD": "depuis-l-env"}).splitlines()[-1] == "True"
+
+
+# --------------------------------------------------------------------------- #
+# Story 3.1 review round
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("decision, attendu", [
+    ("indetermine", "la preuve de fra"),
+    ("faute-de-frappe", "cision inconnue"),
+])
+def test_decision_non_purge_sort_en_0_sans_purger(decision, attendu) -> None:
+    sortie = _ps(f"Write-DecisionEtSortir -Decision '{decision}' -NumPort 8099; 'A_CONTINUE_VERS_LA_PURGE'")
+    assert attendu in sortie and "A_CONTINUE_VERS_LA_PURGE" not in sortie, sortie
+
+
+def test_decision_purger_continue_vers_la_purge() -> None:
+    sortie = _ps("Write-DecisionEtSortir -Decision 'purger' -NumPort 8099; 'A_CONTINUE_VERS_LA_PURGE'")
+    assert sortie.splitlines()[-1] == "A_CONTINUE_VERS_LA_PURGE", sortie
+
+
+def test_preuve_python_hors_delai_affichee_indeterminee_pas_false() -> None:
+    sortie = _ps("$script:pythonIndetermine = $true; Format-EtatPython -Frais $false; "
+                 "$script:pythonIndetermine = $false; Format-EtatPython -Frais $false")
+    lignes = sortie.splitlines()
+    assert "python hors d" in lignes[-2] and lignes[-1] == "False", sortie
+
+
+@pytest.mark.parametrize("contenu_env, attendu", [
+    ('APP_AUTH_PASSWORD="s3cret" # commentaire\n', "True"),
+    ('APP_AUTH_PASSWORD=""  # vide\n', "False"),
+    ("APP_AUTH_PASSWORD=''  # vide\n", "False"),
+])
+def test_commentaire_apres_guillemet_fermant(tmp_path, contenu_env, attendu) -> None:
+    (tmp_path / ".env").write_text(contenu_env, encoding="utf-8")
+    sortie = _ps(f"Remove-Item Env:APP_AUTH_PASSWORD; Test-MotDePassePresent -Racine '{tmp_path}'")
+    assert sortie.splitlines()[-1] == attendu, (contenu_env, sortie)
+
+
+def test_env_verrouille_donne_inconnu_sans_exception(tmp_path) -> None:
+    env_fichier = tmp_path / ".env"
+    env_fichier.write_text("APP_AUTH_PASSWORD=s3cret\n", encoding="utf-8")
+    sortie = _ps(f"Remove-Item Env:APP_AUTH_PASSWORD; "
+                 f"$fs = [System.IO.File]::Open('{env_fichier}', 'Open', 'ReadWrite', 'None'); "
+                 f"try {{ $r = Test-MotDePassePresent -Racine '{tmp_path}' }} finally {{ $fs.Close() }}; "
+                 "if ($null -eq $r) { 'INCONNU' } else { \"$r\" }")
+    assert sortie.splitlines()[-1] == "INCONNU", sortie
+
+
+_FAUX_PYTHON = {
+    # The script's interpreter, faked by a .bat (no real server, no app import).
+    "mort": ('@echo off\r\nif "%~1"=="-c" goto sonde\r\n'
+             'echo SchemaEnRetard: migrer avec APP_DB_MIGRATE=1 1>&2\r\nexit /b 3\r\n'
+             ':sonde\r\necho bWRwLWRlLXRlc3Q=\r\nexit /b 0\r\n'),
+    "echec": '@echo off\r\necho ImportError: No module named dotenv 1>&2\r\nexit /b 1\r\n',
+    "lent": '@echo off\r\nping -n 40 127.0.0.1 >nul\r\nexit /b 0\r\n',
+}
+
+
+def _lancer_script(tmp_path: Path, faux: str, *args: str, env_sup: dict | None = None):
+    bat = tmp_path / f"faux_python_{faux}.bat"
+    bat.write_text(_FAUX_PYTHON[faux], encoding="ascii", newline="")
+    env = dict(os.environ, APP_AUTH_PASSWORD="mdp-de-test", SERVEUR_DEV_PYTHON=str(bat),
+               TEMP=str(tmp_path), TMP=str(tmp_path),
+               SERVEUR_DEV_HISTORIQUE=str(tmp_path / "hist.log"), **(env_sup or {}))
+    res = subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(SCRIPT),
+         "-Port", "8099", "-AttenteDemarrageS", "20", *args],
+        cwd=RACINE, env=env, capture_output=True, timeout=150)
+    return res.returncode, (res.stdout + res.stderr).decode("utf-8", errors="replace")
+
+
+def test_lecture_du_mot_de_passe_en_echec_n_est_pas_absent(tmp_path) -> None:
+    code, sortie = _lancer_script(tmp_path, "echec")
+    assert code == 5, sortie
+    assert "CHEC : python a rendu le code 1" in sortie and "ImportError" in sortie and "absent (ni" not in sortie, sortie
+
+
+def test_lecture_du_mot_de_passe_hors_delai_sort_en_4(tmp_path) -> None:
+    code, sortie = _lancer_script(tmp_path, "lent", env_sup={"SERVEUR_DEV_DELAI_PYTHON_S": "2"})
+    assert code == 4, sortie
+    assert "de l'app IND" in sortie, sortie
+
+
+def test_un_serveur_mort_au_demarrage_est_dit_mort_avec_son_err(tmp_path) -> None:
+    code, sortie = _lancer_script(tmp_path, "mort")
+    assert code == 1, sortie
+    assert "MORT au d" in sortie and "SchemaEnRetard" in sortie, sortie
+    assert "lentement" not in sortie, sortie
+    assert " mort port=8099 " in (tmp_path / "hist.log").read_text(encoding="utf-8")

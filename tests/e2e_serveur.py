@@ -27,6 +27,8 @@ _RACINE = Path(__file__).resolve().parents[1]
 _DELAI_DEMARRAGE_S = float(os.environ.get("E2E_DELAI_DEMARRAGE_S", "60"))
 # Lines of the server log attached to a red e2e test (D-4).
 _LIGNES_JOURNAL = 80
+# base URL -> log path of every server currently up (read by tests/conftest.py).
+SERVEURS_ACTIFS: dict[str, Path] = {}
 
 
 def fin_du_journal(chemin: Path, nb_lignes: int = _LIGNES_JOURNAL) -> str:
@@ -112,6 +114,9 @@ def serveur_uvicorn(dossier: Path, **env_supplementaire: str):
             raise RuntimeError(
                 cause + " :\n" + chemin_journal.read_text(encoding="utf-8", errors="replace")
             )
+        # Registry read by tests/conftest.py (pytest_runtest_makereport): a
+        # MODULE-scoped server never sees the test failure in this generator.
+        SERVEURS_ACTIFS[base] = chemin_journal
         try:
             yield base
         except GeneratorExit:
@@ -127,5 +132,6 @@ def serveur_uvicorn(dossier: Path, **env_supplementaire: str):
             )
             raise
     finally:
+        SERVEURS_ACTIFS.pop(base, None)
         _arreter(proc)
         journal.close()
