@@ -543,12 +543,13 @@ def test_record_libre_from_jobs_merges_done_turns(
     assert resp.status_code == 200
     assert "Question issue du job" in resp.text
     assert "Question du reliquat" in resp.text
-    # Jobs consommés puis supprimés.
+    # Story 3.6 : jobs GARDÉS jusqu'à record_libre_confirm (qui les supprime),
+    # pour que le serveur relise les tranches manquantes à l'enregistrement.
     db = SessionLocal()
     remaining = db.scalars(
         select(InterviewSegmentJob).where(InterviewSegmentJob.session_token == "merge-tok")
     ).all()
-    assert remaining == []
+    assert len(remaining) == 1
     db.close()
 
 
@@ -781,13 +782,13 @@ def test_record_libre_bloque_quand_une_tranche_reste_en_echec(
     # Ce qui a abouti est là, malgré l'échec de la tranche 1.
     assert "Q0" in resp.text
 
-    # Les jobs sont consommés : leur texte vit dans la transcription postée par
-    # l'écran, que l'enregistrement conserve en entier (`raw_transcript`).
+    # Story 3.6 : les jobs survivent à l'étape 2 (supprimés au confirm), le serveur
+    # relit ainsi la tranche en échec à l'enregistrement.
     db = SessionLocal()
     restants = db.scalars(
         select(InterviewSegmentJob).where(InterviewSegmentJob.session_token == "partiel-tok")
     ).all()
-    assert restants == []
+    assert len(restants) == 2
     db.close()
 
 
