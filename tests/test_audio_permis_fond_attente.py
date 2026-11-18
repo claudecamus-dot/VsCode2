@@ -46,6 +46,11 @@ def _attendre_un_permis_occupe(monkeypatch, rappel, tours: int = 10, pas_s: floa
     monkeypatch.setattr(
         at, "time", SimpleNamespace(monotonic=lambda: horloge["t"], sleep=_sleep)
     )
+    # Story 3.9 (AC3.9.3) : le pool est le VRAI `ProcessPoolExecutor`, donc la garde
+    # mémoire de `_drain_parallel` lit la mémoire RÉELLE de la machine — sous charge
+    # elle ne permettait aucun worker : repli « mémoire insuffisante » avant même
+    # l'attente du permis (4 tests sur 5 rouges). Mémoire simulée (64 Gio), aucun pool lancé.
+    monkeypatch.setattr(at, "memoire_disponible", lambda: 64 * 1024 ** 3)
     pris = 0
     while at._GLOBAL_WORKERS_SEMAPHORE.acquire(blocking=False):
         pris += 1

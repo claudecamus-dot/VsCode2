@@ -506,21 +506,52 @@ def _get_model():
     bornée : au-delà, refus « occupé » rejouable (comme l'attente de `_MODEL_LOCK`)."""
     global _model
     if _model is None:
+        # Story 3.9 : le contrôle mémoire n'est posé QUE par le chemin séquentiel du
+        # FOND (`_transcrire_bloc_sequentiel`) ; un appelant direct (LIVE) n'arrête
+        # donc jamais de pool garé ici — ses ~80 s de joins ne précèdent jamais son
+        # attente bornée (re-revue 2, point 2b).
+        controle = _CONTROLE_MEMOIRE_AU_CHARGEMENT.get()
+        if controle and not _MODEL_LOAD_LOCK.locked():
+            # Re-revue 3.9 (M2) : arrêter le pool garé (joins) HORS du verrou de
+            # chargement. Re-revue 2 (2a) : pas pendant qu'un autre appelant charge
+            # déjà le modèle (on le réutilisera) ; `_model` est re-testé ensuite.
+            _arreter_pool_gare_si_memoire_courte()
         borne = _ATTENTE_CHARGEMENT_MAX.get()
-        if not _MODEL_LOAD_LOCK.acquire(timeout=-1 if borne is None else borne):
-            exc = TranscriptionChargementEnCoursError("Chargement du modèle en cours, réessayez.")
-            exc.retry_after_s = estimer_retry_after()
-            raise exc
-        try:
-            if _model is None:
-                if _CONTROLE_MEMOIRE_AU_CHARGEMENT.get():
-                    _exiger_memoire_pour_modele()
-                faster_whisper = _faster_whisper()
-                _model = faster_whisper.WhisperModel(
-                    MODEL_SIZE, device="cpu", compute_type="int8"
-                )
-        finally:
-            _MODEL_LOAD_LOCK.release()
+        for essai in range(2):
+            if _model is not None:
+                break
+            if not _MODEL_LOAD_LOCK.acquire(timeout=-1 if borne is None else borne):
+                exc = TranscriptionChargementEnCoursError("Chargement du modèle en cours, réessayez.")
+                exc.retry_after_s = estimer_retry_after()
+                raise exc
+            relancer = False
+            try:
+                if _model is None:
+                    if controle and not _memoire_couvre_un_modele(memoire_disponible()):
+                        if _credit_pool_chaud() <= 0:
+                            logger.warning("Mémoire insuffisante pour charger le modèle du "
+                                           "serveur : échec immédiat.")
+                            raise TranscriptionMemoireInsuffisanteError(MESSAGE_MEMOIRE_INSUFFISANTE)
+                        # Re-revue 2 (point 1) : un pool chargé a été garé entre
+                        # l'arrêt et le verrou. Sa mémoire est récupérable : pas un
+                        # échec définitif. Verrou rendu, pool arrêté, UN nouvel
+                        # essai ; au-delà, « occupé » réessayable.
+                        if essai > 0:
+                            exc = TranscriptionChargementEnCoursError(
+                                "Chargement du modèle en cours, réessayez.")
+                            exc.retry_after_s = estimer_retry_after()
+                            raise exc
+                        relancer = True
+                    else:
+                        faster_whisper = _faster_whisper()
+                        _model = faster_whisper.WhisperModel(
+                            MODEL_SIZE, device="cpu", compute_type="int8"
+                        )
+            finally:
+                _MODEL_LOAD_LOCK.release()
+            if not relancer:
+                break
+            _arreter_pool_gare_si_memoire_courte()
     return _model
 
 
@@ -1138,11 +1169,19 @@ def _arreter_workers(executor, futures: dict) -> None:
             arreter(wait=False, cancel_futures=True)
         for p in processus:
             p.terminate()
+    # Story 3.9 (B3) : jusqu'à 10 s de joins par processus, 8 workers = 80 s > un
+    # battement — le job signale qu'il vit dès l'entrée, puis au rythme
+    # BATTEMENT_ATTENTE_S.
+    _signaler_vivant()
+    prochain_battement = time.monotonic() + BATTEMENT_ATTENTE_S
     for p in processus:
         p.join(5)
         if p.is_alive():
             p.kill()
             p.join(5)
+        if time.monotonic() >= prochain_battement:
+            _signaler_vivant()
+            prochain_battement = time.monotonic() + BATTEMENT_ATTENTE_S
 
 
 # Arbitrage utilisateur 2026-11-17 (AC3.2.1, 2e clause) : « une relance ne repaie
@@ -1155,7 +1194,8 @@ def _arreter_workers(executor, futures: dict) -> None:
 # (`TranscriptionBloqueeError`), pool cassé (`BrokenProcessPool`), `MemoryError`,
 # consommateur parti (`GeneratorExit` : exécution supplantée, abandon), tâches en
 # vol qui ne finissent pas dans le délai d'un bloc, garde mémoire qui ne le laisse
-# plus tenir, appel incompatible (autre nombre de workers, autre modèle),
+# plus tenir, appel incompatible (pool plus petit que demandé, plus grand sans
+# mémoire pour sa taille entière — story 3.9 —, autre modèle),
 # inactivité au-delà de POOL_CHAUD_INACTIF_S, sortie du processus (`atexit`). Un
 # seul pool garé à la fois. Garé, il ne tient AUCUN permis : tout appel qui démarre
 # un pool commence par le reprendre ou l'arrêter, il ne s'ajoute donc pas à un
@@ -1228,11 +1268,17 @@ def _credit_pool_chaud() -> int:
         return _workers_charges(_POOL_CHAUD) if _POOL_CHAUD is not None else 0
 
 
-def _prendre_pool_chaud(n_workers: int, cle: tuple) -> _PoolChaud | None:
-    """Le pool garé s'il est sain, de même clé et d'EXACTEMENT `n_workers` workers ;
-    sinon il est arrêté. Re-revue 3.2 (P2) : les paliers descendent après un échec —
+def _prendre_pool_chaud(n_workers: int, cle: tuple, etendre=None) -> _PoolChaud | None:
+    """Le pool garé s'il est sain, de même clé et d'au moins `n_workers` workers
+    (exactement, ou plus grand si `etendre` l'accepte) ; sinon il est arrêté. Re-revue 3.2 (P2) : les paliers descendent après un échec —
     reprendre un pool plus petit figeait le parallélisme au plus petit palier pour
-    tous les jobs suivants (chaque garage réarmant l'inactivité)."""
+    tous les jobs suivants (chaque garage réarmant l'inactivité).
+
+    Story 3.9 (AC3.9.1) : un pool PLUS GRAND est aussi repris quand `etendre(entree)`
+    l'accepte — l'appelant y vérifie la garde mémoire pour la taille ENTIÈRE du pool
+    (sinon un fichier plus court qu'au précédent rechargeait tous les modèles). Sans
+    `etendre` : taille exacte seulement. Le pool est déjà retiré du holder quand
+    `etendre` s'exécute : s'il lève, le pool est arrêté (jamais orphelin)."""
     global _POOL_CHAUD
     with _POOL_CHAUD_LOCK:
         entree, _POOL_CHAUD = _POOL_CHAUD, None
@@ -1241,9 +1287,21 @@ def _prendre_pool_chaud(n_workers: int, cle: tuple) -> _PoolChaud | None:
             entree.minuterie = None
     if entree is None:
         return None
-    if entree.cle == cle and entree.taille == n_workers and _pool_sain(entree.executor):
-        logger.info("Transcription parallèle : pool chaud de %d worker(s) réutilisé "
-                    "(modèles déjà chargés).", entree.taille)
+    compatible = entree.cle == cle and _pool_sain(entree.executor)
+    etendu = False
+    if compatible and entree.taille > n_workers and etendre is not None:
+        try:
+            etendu = bool(etendre(entree))
+        except BaseException:
+            _detruire_pool(entree)       # re-revue 3.9 (M3) : jamais de processus orphelins
+            raise
+    if compatible and (entree.taille == n_workers or etendu):
+        if etendu:
+            logger.info("Transcription parallèle : pool chaud de %d worker(s) réutilisé pour "
+                        "%d worker(s) demandé(s) (modèles déjà chargés).", entree.taille, n_workers)
+        else:
+            logger.info("Transcription parallèle : pool chaud de %d worker(s) réutilisé "
+                        "(modèles déjà chargés).", entree.taille)
         return entree
     logger.info("Pool de transcription garé arrêté (incompatible ou hors d'usage).")
     _detruire_pool(entree)
@@ -1305,19 +1363,27 @@ def _sortie_saine(exc: BaseException, executor) -> bool:
 
 def _attendre_taches_en_vol(futures: dict) -> bool:
     """Annule les blocs en file et attend ceux déjà en cours, au plus le délai d'un
-    bloc : un pool garé ne porte rien de l'appel précédent. Faux au-delà."""
-    for f in futures.values():
+    bloc : un pool garé ne porte rien de l'appel précédent. Faux au-delà.
+    Story 3.9 (B1) : un battement toutes les BATTEMENT_ATTENTE_S pendant l'attente
+    (avant : jusqu'à BLOC_RESULTAT_TIMEOUT_S, 900 s, sans signe de vie). Seuls les
+    vrais `Future` sont annulés et attendus (doublures de test : rien en vol)."""
+    en_vol = [f for f in futures.values() if isinstance(f, Future)]
+    for f in en_vol:
         f.cancel()
     echeance = time.monotonic() + BLOC_RESULTAT_TIMEOUT_S
-    for f in futures.values():
-        if not isinstance(f, Future) or f.cancelled():
-            continue
-        try:
-            f.exception(timeout=max(0.0, echeance - time.monotonic()))
-        except FuturesTimeoutError:
-            return False
-        except BaseException:   # annulé entre-temps : rien en vol
-            pass
+    for f in en_vol:
+        while not f.cancelled():
+            reste = echeance - time.monotonic()
+            try:
+                f.exception(timeout=max(0.0, min(reste, BATTEMENT_ATTENTE_S)))
+            except FuturesTimeoutError:
+                if time.monotonic() >= echeance:
+                    return False
+                _signaler_vivant()
+                continue
+            except BaseException:   # annulé entre-temps : rien en vol
+                pass
+            break
     return True
 
 
@@ -1402,7 +1468,8 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
     def _limite() -> int:
         # Fond : cède dès qu'un direct est actif (relu à chaque soumission).
         if priority != LIVE and direct_actif():
-            return max(1, BACKGROUND_WORKERS_WHEN_LIVE)
+            # Re-revue 3.9 (2) : jamais au-dessus de la fenêtre (permis tenus).
+            return min(window, max(1, BACKGROUND_WORKERS_WHEN_LIVE))
         return window
 
     futures: dict[int, object] = {}
@@ -1494,7 +1561,43 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
         chargement = None
         garable = _pool_garable() and POOL_CHAUD_INACTIF_S > 0   # B4 : <= 0, jamais garé
         cle = _cle_pool() if garable else ()
-        entree = _prendre_pool_chaud(n_workers, cle) if garable else None
+
+        def _etendre(gare: _PoolChaud) -> bool:
+            # Story 3.9 (AC3.9.1), RÈGLE arbitrée par l'utilisateur (re-revue 2) :
+            # plafond global de processus STRICT — chaque processus d'un pool en
+            # usage tient un permis, lancé ou non, chargé ou non. Un pool garé PLUS
+            # GRAND n'est repris que si :
+            #  - aucun direct n'est actif quand le job est de fond (il ne prend pas
+            #    les permis dont le direct a besoin) ;
+            #  - la mémoire couvre sa taille ENTIÈRE (workers chargés en crédit :
+            #    ses processus peuvent tous recevoir un bloc et charger un modèle) ;
+            #  - les permis qui manquent pour sa taille entière sont libres TOUT DE
+            #    SUITE (pris sans attendre, rendus à la sortie comme les autres).
+            # Sinon il est arrêté avant tout pool neuf (un pool garé ne tient aucun
+            # permis : il ne doit jamais coexister avec un pool en usage).
+            nonlocal acquis
+            if priority != LIVE and direct_actif():
+                return False
+            if _workers_selon_memoire(gare.taille, _workers_charges(gare)) < gare.taille:
+                return False
+            manque = gare.taille - acquis
+            with _ACQUISITION_PERMIS_LOCK:
+                pris = 0
+                while pris < manque and _GLOBAL_WORKERS_SEMAPHORE.acquire(blocking=False):
+                    pris += 1
+                if pris < manque:
+                    for _ in range(pris):
+                        _GLOBAL_WORKERS_SEMAPHORE.release()
+                    return False
+                acquis += pris
+            return True
+
+        utiles = acquis
+        entree = _prendre_pool_chaud(n_workers, cle, _etendre) if garable else None
+        if entree is not None and entree.taille > utiles:
+            # Permis = processus du pool ; blocs en vol bornés aux workers UTILES
+            # (`n_workers` est déjà borné par le nombre de blocs en amont).
+            window = utiles * 2
         if entree is None and credit_gare > 0:
             # Re-revue 3.2 (P1) : le crédit du pool garé, lu AVANT l'attente des
             # permis, ne vaut plus — un autre appel l'a repris, ou il vient d'être
@@ -1598,10 +1701,23 @@ def _drain_parallel(blocks: list, start: int, total: int, n_workers: int,
                     executor, n_workers, prets, servis, cle))
             elif a_garer:              # tâches en vol figées : arrêt net
                 _arreter_workers(executor, futures)
-            elif gestionnaire is not None:
-                gestionnaire.__exit__(*sortie)  # ce que faisait la sortie du `with`
             else:
-                executor.shutdown(wait=True)
+                # Story 3.9 (B2) : sortie sur échec d'une tâche avec des blocs encore
+                # en vol, pool non garé — `shutdown(wait=True)` les attendait SANS
+                # borne ni battement (et exécutait même les blocs en file). Attente
+                # bornée au délai d'un bloc, avec battement ; au-delà, arrêt net.
+                if not arrete and futures and not _attendre_taches_en_vol(futures):
+                    _arreter_workers(executor, futures)
+                    arrete = True
+                # Re-revue 3.9 (m6) : après un arrêt net (`_arreter_workers` a déjà
+                # fermé l'exécuteur sans attendre et attendu ses processus), plus de
+                # `shutdown(wait=True)` — comme la branche `elif a_garer`.
+                if arrete:
+                    pass
+                elif gestionnaire is not None:
+                    gestionnaire.__exit__(*sortie)  # ce que faisait la sortie du `with`
+                else:
+                    executor.shutdown(wait=True)
     finally:
         for _ in range(acquis):
             _GLOBAL_WORKERS_SEMAPHORE.release()
@@ -1624,12 +1740,52 @@ def _garde_memoire_sequentielle() -> None:
     _exiger_memoire_pour_modele()
 
 
-def _exiger_memoire_pour_modele() -> None:
-    """Échec immédiat si la mémoire disponible ne couvre pas un modèle + la marge."""
+def _memoire_couvre_un_modele(dispo: int | None) -> bool:
+    return dispo is None or dispo - MEMOIRE_MARGE_OCTETS >= MEMOIRE_PAR_WORKER_OCTETS
+
+
+def _arreter_pool_gare_si_memoire_courte() -> bool:
+    """Story 3.9 (B5) : si la mémoire disponible ne couvre pas un modèle mais que les
+    workers CHARGÉS du pool garé la couvriraient, arrête ce pool (processus
+    attendus : mémoire rendue). Vrai si un pool a été arrêté. Re-revue 3.9 (M1) :
+    le pool est retiré du holder et jugé SOUS UN SEUL verrou — lire son crédit puis
+    le fermer en deux temps laissait un `_drain_parallel` le reprendre entre les
+    deux (fermeture sans effet, garde déclarée satisfaite). Jamais appelé sous
+    `_MODEL_LOAD_LOCK` (M2) : les joins durent jusqu'à ~80 s."""
+    global _POOL_CHAUD
     dispo = memoire_disponible()
-    if dispo is not None and dispo - MEMOIRE_MARGE_OCTETS < MEMOIRE_PAR_WORKER_OCTETS:
-        logger.warning("Mémoire insuffisante pour charger le modèle du serveur : échec immédiat.")
-        raise TranscriptionMemoireInsuffisanteError(MESSAGE_MEMOIRE_INSUFFISANTE)
+    if _memoire_couvre_un_modele(dispo):
+        return False
+    with _POOL_CHAUD_LOCK:
+        entree = _POOL_CHAUD
+        if entree is None:
+            return False
+        credit = _workers_charges(entree)
+        if credit <= 0 or not _memoire_couvre_un_modele(dispo + credit * MEMOIRE_PAR_WORKER_OCTETS):
+            return False                 # l'arrêter ne suffirait pas : il reste garé
+        _POOL_CHAUD = None
+        if entree.minuterie is not None:
+            entree.minuterie.cancel()
+            entree.minuterie = None
+    logger.info("Pool de transcription garé arrêté pour charger le modèle du serveur.")
+    _detruire_pool(entree)
+    return True
+
+
+def _exiger_memoire_pour_modele() -> None:
+    """Échec immédiat si la mémoire disponible ne couvre pas un modèle + la marge.
+
+    Story 3.9 (B5) : la mémoire d'un pool chaud GARÉ est récupérable — avant, elle
+    comptait comme prise et le chemin séquentiel refusait « mémoire insuffisante »
+    à cause d'un pool inactif. Ce pool est arrêté s'il suffit
+    (`_arreter_pool_gare_si_memoire_courte`), puis la mémoire réelle est RELUE —
+    jamais conclure sur le crédit seul (M1). Jamais appelé sous `_MODEL_LOAD_LOCK`
+    (M2) : `_get_model` fait sa propre mesure sous le verrou."""
+    _arreter_pool_gare_si_memoire_courte()
+    if _memoire_couvre_un_modele(memoire_disponible()):
+        return
+    logger.warning("Mémoire insuffisante pour charger le modèle du serveur : échec immédiat.")
+    raise TranscriptionMemoireInsuffisanteError(MESSAGE_MEMOIRE_INSUFFISANTE)
 
 
 def _noter_rejeu(stats: dict | None, index: int) -> None:

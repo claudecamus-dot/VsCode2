@@ -62,6 +62,10 @@ def audio_un_bloc(monkeypatch):
     monkeypatch.setattr(at, "BLOC_RETRY_PAUSE_S", 0.0)
     monkeypatch.setattr(audio_file_jobs, "BLOC_RETRY_DELAY_S", 0.0)
     monkeypatch.setattr(at, "BACKGROUND_LOCK_TIMEOUT_S", 0.01)
+    # Story 3.9 (AC3.9.3) : `_garde_memoire_sequentielle` lit la mémoire RÉELLE de la
+    # machine (modèle non chargé, chaîne réelle) — sous charge (< 2,6 Gio libres)
+    # le bloc échouait en « mémoire insuffisante » avant même le verrou : instable.
+    monkeypatch.setattr(at, "memoire_disponible", lambda: 64 * 1024 ** 3)
 
 
 def _job(nom: str) -> int:
