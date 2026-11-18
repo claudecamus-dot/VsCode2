@@ -377,7 +377,7 @@ def test_la_boucle_de_purge_appelle_le_retest_avant_stop_process(tmp_path: Path)
     assert _journal_boucle_de_purge(tmp_path) == ["RETEST", "STOP", "RETEST", "STOP"]
 
 
-def test_serveur_vieux_mais_actif_port_ferme_n_est_pas_purge_via_la_mesure_cpu() -> None:
+def test_serveur_vieux_mais_actif_port_ferme_n_est_pas_purge_via_la_mesure_cpu(tmp_path: Path) -> None:
     """Chemin réel de la panne du 8020 : Resolve-DecisionKeepIfFresh mesure le
     CPU (Get-CpuServeurS) d'un faux serveur VIEUX (-GraceDemarrageS 1, âge worker injecté sous le plafond) au port
     fermé. Actif (boucle CPU) -> demarrage ; inactif -> purger. Port factice
@@ -386,10 +386,24 @@ def test_serveur_vieux_mais_actif_port_ferme_n_est_pas_purge_via_la_mesure_cpu()
     process quand le dépôt est une copie) ; l'âge, la mesure CPU et la décision
     sont les VRAIES fonctions du script."""
     port = "8098"
-    for code, attendu in (("while True: pass", "demarrage"), ("import time; time.sleep(120)", "purger")):
-        faux = subprocess.Popen([sys.executable, "-c", code, "uvicorn app.main:app", "--port", port])
+    for code, attendu in (("exec('while True: pass')", "demarrage"), ("time.sleep(120)", "purger")):
+        # Story 3.9 (AC3.9.3): the fake signals READY once its interpreter start-up
+        # is over (a file), instead of a fixed 2 s sleep. Under load the start-up
+        # of the « idle » fake could still burn CPU inside the script's 3 s CPU
+        # window, which then read it as active.
+        pret = tmp_path / f"pret-{attendu}"
+        prologue = f"import pathlib, time; pathlib.Path(r'{pret}').write_text('x'); "
+        t0 = time.monotonic()
+        faux = subprocess.Popen([sys.executable, "-c", prologue + code,
+                                 "uvicorn app.main:app", "--port", port])
         try:
-            time.sleep(2)
+            fin = time.monotonic() + 60
+            while not pret.exists():
+                assert faux.poll() is None and time.monotonic() < fin, "faux serveur jamais prêt"
+                time.sleep(0.05)
+            # Age floor only (never a readiness guess): the decision needs a server
+            # older than -GraceDemarrageS 1.
+            time.sleep(max(0.0, 2.0 - (time.monotonic() - t0)))
             expr = ("function Get-ProcessusServeur { param([int]$NumPort) "
                     f"$r = @(Get-CimInstance Win32_Process -Filter 'ProcessId={faux.pid}'); "
                     "$r + @(Get-DescendantsProcessus -Racines @([int]$r[0].ProcessId)) }; "
