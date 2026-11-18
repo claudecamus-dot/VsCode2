@@ -27,7 +27,7 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from ..db import RECORDINGS_DIR, SessionLocal
-from ..models import AudioFileJob, Interview, InterviewSegmentJob
+from ..models import KIND_LIBRE_TURNS, AudioFileJob, Interview, InterviewSegmentJob
 from . import audio_transcribe
 from .ai_common import au_fond
 from .horloge import utc_naif
@@ -160,7 +160,8 @@ def _extraire_tours(db, job: AudioFileJob, garde=None) -> None:
         j.position: j
         for j in db.scalars(
             select(InterviewSegmentJob).where(
-                InterviewSegmentJob.session_token == job.session_token
+                InterviewSegmentJob.session_token == job.session_token,
+                InterviewSegmentJob.kind == KIND_LIBRE_TURNS,
             )
         )
     }

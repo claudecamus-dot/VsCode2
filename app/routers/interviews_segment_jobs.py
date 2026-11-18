@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from ..db import get_session
 from ..models import (
+    KIND_TOUS,
     SEGMENT_JOB_KINDS,
     InterviewSegmentJob,
 )
@@ -225,11 +226,12 @@ def create_segment_job(
 
 @router.get("/interviews/segment-jobs/status")
 def segment_jobs_status_json(
-    session_token: str, db: Session = Depends(get_session)
+    session_token: str, kind: str = KIND_TOUS, db: Session = Depends(get_session)
 ):
     """État agrégé des jobs d'une session, interrogé en boucle par l'écran
-    d'attente (`libre_segment_wait.html`)."""
-    status = segment_jobs_status(db, session_token)
+    d'attente (`libre_segment_wait.html`). `kind` (optionnel, défaut : toutes
+    natures, comportement historique) restreint à `libre_turns` / `answers`."""
+    status = segment_jobs_status(db, session_token, kind=kind)
     return JSONResponse(
         {
             "total": status["total"],

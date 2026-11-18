@@ -17,6 +17,8 @@ from sqlalchemy.orm import Session
 
 from ..db import get_session
 from ..models import (
+    KIND_ANSWERS,
+    KIND_LIBRE_TURNS,
     InterviewSegmentJob,
 )
 from ..services import audio_transcribe
@@ -128,7 +130,7 @@ def _finalize_record_answers(
             "transcription.",
         )
 
-    status = segment_jobs_status(db, session_token)
+    status = segment_jobs_status(db, session_token, kind=KIND_ANSWERS)
     manquantes = 0
     detail = ""
 
@@ -257,7 +259,7 @@ def record_interview(
     # Des tranches sont peut-être encore en traitement de fond : écran
     # d'attente (polling) plutôt qu'un retraitement synchrone — même logique
     # que le wizard libre.
-    status = segment_jobs_status(db, session_token)
+    status = segment_jobs_status(db, session_token, kind=KIND_ANSWERS)
     if status["total"] > 0 and not status["all_done"] and not status["any_failed"]:
         return templates.TemplateResponse(
             request,
@@ -483,7 +485,7 @@ def record_libre(
     # Palier 2 : des tranches de 30min sont peut-être encore en traitement de
     # fond. Si oui, on attend sur un écran de statut (polling) plutôt que de
     # retraiter tout l'entretien en synchrone.
-    status = segment_jobs_status(db, session_token)
+    status = segment_jobs_status(db, session_token, kind=KIND_LIBRE_TURNS)
     if status["total"] > 0 and not status["all_done"] and not status["any_failed"]:
         return _ecran_attente_tranches(
             request, mission, identity, transcript, session_token, segment_tail, status,

@@ -20,7 +20,7 @@ from sqlalchemy import delete, update
 from sqlalchemy.orm import object_session
 
 from .. import db as _db
-from ..models import Interview, InterviewTurn
+from ..models import KIND_LIBRE_TURNS, Interview, InterviewTurn
 from .ai_common import au_fond, avec_priorite
 from .interview_libre_extract_ai import (
     InterviewLibreExtractAIError,
@@ -112,7 +112,7 @@ def _extraire_tours_libre(db, transcript, session_token, segment_tail, supprimer
     sur sa seule tranche (~30min max), jamais sur la transcription complète —
     puis fusion de tous les tours (jobs + reliquat final). Coût borné au nombre
     de tranches à récupérer, pas à la durée totale de l'entretien."""
-    status = segment_jobs_status(db, session_token, kind="libre_turns")
+    status = segment_jobs_status(db, session_token, kind=KIND_LIBRE_TURNS)
 
     manquantes = 0
 
@@ -187,7 +187,7 @@ def _extraire_tours_libre(db, transcript, session_token, segment_tail, supprimer
     # `structurer_entretien` qui décide, selon l'issue, de les garder pour une
     # relance.
     if supprimer_jobs:
-        delete_segment_jobs(db, session_token)
+        delete_segment_jobs(db, session_token, kind=KIND_LIBRE_TURNS)
     extracted["tranches_manquantes"] = manquantes
     return extracted
 
@@ -215,7 +215,7 @@ def _tranches_en_vol(jeton: str) -> int:
     """Jobs encore `pending`/`running` du jeton — lus dans une session COURTE
     (aucune session tenue pendant l'attente)."""
     with _db.SessionLocal() as db:
-        jobs = segment_jobs_status(db, jeton, kind="libre_turns")["jobs"]
+        jobs = segment_jobs_status(db, jeton, kind=KIND_LIBRE_TURNS)["jobs"]
         return sum(1 for j in jobs if j.status in ("pending", "running"))
 
 
@@ -371,7 +371,7 @@ def _finir(interview_id: int, jeton: str) -> bool:
             # échec ici ne doit ni lever ni le faire passer pour raté — la
             # purge des 7 jours rattrapera les jobs.
             try:
-                delete_segment_jobs(db, jeton)
+                delete_segment_jobs(db, jeton, kind=KIND_LIBRE_TURNS)
             except Exception:
                 db.rollback()
                 logger.exception("Jobs de tranche %s non supprimés", jeton)
@@ -546,7 +546,7 @@ def nb_tranches_a_rattraper(interview: Interview) -> int:
     db = object_session(interview)
     if not jeton or db is None:
         return 0
-    return len(tranches_a_rattraper(segment_jobs_status(db, jeton, kind="libre_turns")["jobs"]))
+    return len(tranches_a_rattraper(segment_jobs_status(db, jeton, kind=KIND_LIBRE_TURNS)["jobs"]))
 
 
 def peut_relancer(interview: Interview) -> bool:

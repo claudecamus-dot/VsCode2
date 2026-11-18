@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from ..db import DATA_DIR, RECORDINGS_DIR, SessionLocal, get_session
 from ..models import (
+    KIND_LIBRE_TURNS,
     AudioFileJob,
     Interview,
     InterviewTurn,
@@ -475,7 +476,7 @@ def retranscrire_statut(interview_id: int, db: Session = Depends(get_session)):
         erreur = erreur or (
             "La retranscription ne répond plus (serveur redémarré ?) — relance-la."
         )
-    ia = segment_jobs_status(db, job.session_token, kind="libre_turns")
+    ia = segment_jobs_status(db, job.session_token, kind=KIND_LIBRE_TURNS)
     # Total RÉEL des tranches d'extraction, pas le nombre de jobs déjà créés :
     # `_extraire_tours` les crée un par un juste avant de les exécuter, donc
     # `ia["total"]` valait toujours « ce qui est fait + 1 » — la barre affichait
@@ -542,7 +543,7 @@ def retranscrire_appliquer(
     # sont 20 × (timeout + relance) dans un seul POST, soit des heures de
     # requête bloquée avant une page d'erreur. On en récupère quelques-unes, et
     # l'écran de revue signale explicitement ce qui manque encore.
-    status = segment_jobs_status(db, job.session_token, kind="libre_turns")
+    status = segment_jobs_status(db, job.session_token, kind=KIND_LIBRE_TURNS)
     # Fenêtre partagée (revue R3-M1/M3) : mêmes garanties anti-famine que les
     # deux chemins d'enregistrement.
     recover_stalled_or_failed_jobs(
