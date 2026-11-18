@@ -282,8 +282,9 @@ def finaliser_mission_form(
             "tranches_manquantes": tranches_manquantes,
             # Story 3.6 (AC3.6.2) : libellé unique des exports, un par entretien.
             "parties_supprimees_lacunes": [
-                {"interview": iv, "texte": texte_parties_supprimees(iv)}
-                for iv in mission.interviews if texte_parties_supprimees(iv)
+                {"interview": iv, "texte": t}
+                for iv, t in ((iv, texte_parties_supprimees(iv)) for iv in mission.interviews)
+                if t
             ],
         },
     )

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -139,8 +140,13 @@ def _sortie_copie_export_finalisation(nav: Navigateur, dossier: Path, suffixe: s
     _attendre(nav, lambda: nav.url().endswith(suffixe), 60, "finalisation")
     nav.emuler_latence(0)
     _attendre(nav, lambda: _posts_journal(dossier, suffixe) >= 1, 15, "POST journalisé")
-    nav.drainer()
-    assert _posts_journal(dossier, suffixe) == 1, "double soumission"
+    # Un second POST tardif doit aussi être vu : le compte reste 1 sur toute une fenêtre
+    # (latence émulée + marge), pas seulement à l'instant du premier.
+    fin = time.time() + 4.0
+    while time.time() < fin:
+        nav.drainer()
+        assert _posts_journal(dossier, suffixe) == 1, "double soumission"
+        time.sleep(0.25)
 
 
 def test_e3_page_d_attente_libre_meme_sortie(

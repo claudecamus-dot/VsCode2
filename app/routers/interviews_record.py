@@ -426,7 +426,12 @@ def _finalize_libre_turns(
     """Produit les tours de parole puis rend l'écran de revue (étape 2 du
     wizard historique — plus atteignable depuis l'écran d'enregistrement
     depuis le 2026-07-29, cf. `record_libre_enregistrer`, mais conservée)."""
-    extracted = _extraire_tours_libre(db, transcript, session_token, segment_tail)
+    # Story 3.6 : les jobs sont GARDÉS jusqu'à `record_libre_confirm` (qui les supprime),
+    # pour que le serveur relise les tranches manquantes à l'enregistrement. Abandon du
+    # wizard : `purge_stale_segment_jobs` (interview_segment_jobs.py:740, 7 jours).
+    extracted = _extraire_tours_libre(
+        db, transcript, session_token, segment_tail, supprimer_jobs=False,
+    )
     merged_identity = _identite_fusionnee(identity, extracted)
 
     # `_extraire_tours_libre` rend un COMPTEUR (`tranches_manquantes`), plus
@@ -466,6 +471,8 @@ def _finalize_libre_turns(
             # Story 3.6 (AC3.6.1) : le compteur affiché ci-dessus est reposté
             # jusqu'à `record_libre_confirm`, qui le persiste sur l'entretien.
             "tranches_manquantes": _entier_positif(manquantes),
+            # Le message `error` ci-dessus EST le signal de lacune : pas de bandeau double.
+            "erreur_est_lacune": bool(manquantes),
         },
     )
 

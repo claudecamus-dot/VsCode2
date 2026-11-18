@@ -199,25 +199,91 @@ _TOURS = {"turn_interlocuteur": "A", "turn_question": "Q", "turn_remarque": "",
           "turn_section_title": ""}
 
 
-def test_major1_le_serveur_relit_les_tranches_en_echec_du_jeton(client):
+def _jobs(mid, jeton, specs, kind="libre_turns", debut=0):
     from app.models import InterviewSegmentJob
 
-    mid = _mission()
     with SessionLocal() as db:
-        for pos, st in ((0, "done"), (1, "failed"), (2, "failed")):
-            db.add(InterviewSegmentJob(session_token="tok-s36-m1", kind="libre_turns",
-                                       mission_id=mid, position=pos, status=st, text="t"))
-        # une tranche en échec d'un AUTRE type ne compte pas
-        db.add(InterviewSegmentJob(session_token="tok-s36-m1", kind="answers",
-                                   mission_id=mid, position=0, status="failed", text="t"))
+        for pos, (st, texte) in enumerate(specs):
+            db.add(InterviewSegmentJob(session_token=jeton, kind=kind, mission_id=mid,
+                                       position=debut + pos, status=st, text=texte))
         db.commit()
+
+
+def _confirmer(client, mid, jeton, posted):
     r = client.post(f"/missions/{mid}/interviews/record-libre/confirm", data={
-        "transcript": "T", "session_token": "tok-s36-m1", "tranches_manquantes": "0",
+        "transcript": "T", "session_token": jeton, "tranches_manquantes": str(posted),
         **_TOURS}, follow_redirects=False)
     assert r.status_code == 303
     with SessionLocal() as db:
-        assert db.scalars(select(Interview).where(Interview.mission_id == mid)).one()\
-            .tranches_manquantes == 2
+        return db.scalars(select(Interview).where(Interview.mission_id == mid)).one()\
+            .tranches_manquantes
+
+
+def test_major1_flux_nominal_par_l_etape_2_les_jobs_survivent_jusqu_au_confirm(
+    client, monkeypatch,
+):
+    """record-libre (etape 2) -> retour-tours -> synthese -> confirm postant 0 : le
+    serveur relit les tranches en echec et persiste N ; les jobs sont alors consommes."""
+    from app.models import InterviewSegmentJob as J
+    from app.routers import interviews_libre
+    from app.services import structuration_libre
+
+    monkeypatch.setattr(structuration_libre, "recover_stalled_or_failed_jobs",
+                        lambda db, jobs: None)
+    monkeypatch.setattr(interviews_libre, "generate_repartition_from_turns",
+                        lambda turns, axes: {"repartition": {}, "resume": "r"})
+    mid = _mission()
+    jeton = "tok-s36-m1n"
+    with SessionLocal() as db:
+        db.add(J(session_token=jeton, kind="libre_turns", mission_id=mid, position=0,
+                 status="done", text="a",
+                 turns_result={"turns": [{"interlocuteur": "A", "question": "Q",
+                                          "remarque": None, "section_title": None}],
+                               "identity": {}}))
+        for pos in (1, 2):
+            db.add(J(session_token=jeton, kind="libre_turns", mission_id=mid, position=pos,
+                     status="failed", text="perdu"))
+        db.commit()
+    r = client.post(f"/missions/{mid}/interviews/record-libre",
+                    data={"transcript": "T", "session_token": jeton})
+    assert r.status_code == 200 and "2 tranches" in _html.unescape(r.text)
+    with SessionLocal() as db:   # jobs GARDES a l'etape 2
+        assert db.scalar(select(J.id).where(J.session_token == jeton).limit(1)) is not None
+    r = client.post(f"/missions/{mid}/interviews/record-libre/retour-tours", data={
+        "transcript": "T", "session_token": jeton, "tranches_manquantes": "0", **_TOURS})
+    assert r.status_code == 200
+    r = client.post(f"/missions/{mid}/interviews/record-libre/synthese", data={
+        "transcript": "T", "session_token": jeton, "tranches_manquantes": "0", **_TOURS})
+    assert r.status_code == 200
+    assert _confirmer(client, mid, jeton, 0) == 2
+    with SessionLocal() as db:   # consommes au confirm
+        assert db.scalar(select(J.id).where(J.session_token == jeton).limit(1)) is None
+
+
+@pytest.mark.parametrize("specs, attendu", [
+    ([("done", "t"), ("failed", "t"), ("failed", "t")], 2),
+    ([("pending", "t"), ("running", "t"), ("done", "t")], 2),     # pending/running manquent
+    ([("failed", "   "), ("failed", ""), ("done", "t")], 0),       # echec sans matiere : non
+])
+def test_major2_predicat_aligne_sur_still_ko(client, specs, attendu):
+    mid = _mission()
+    _jobs(mid, "tok-s36-m2", specs)
+    assert _confirmer(client, mid, "tok-s36-m2", 0) == attendu
+
+
+def test_major2_ignore_autre_jeton_autre_mission_autre_kind(client):
+    mid, autre = _mission(), _mission()
+    _jobs(mid, "tok-s36-m2b", [("failed", "t")])
+    _jobs(mid, "tok-s36-autre-jeton", [("failed", "t")] * 3)
+    _jobs(autre, "tok-s36-m2b", [("failed", "t")] * 4, debut=10)       # meme jeton, autre mission
+    _jobs(mid, "tok-s36-m2b", [("failed", "t")] * 5, kind="answers")
+    assert _confirmer(client, mid, "tok-s36-m2b", 0) == 1
+
+
+def test_major1_valeur_postee_superieure_conservee(client):
+    mid = _mission()
+    _jobs(mid, "tok-s36-m1p", [("failed", "t"), ("failed", "t")])
+    assert _confirmer(client, mid, "tok-s36-m1p", 5) == 5
 
 
 def test_major1_sans_jeton_la_valeur_postee_est_gardee(client):
@@ -242,7 +308,7 @@ def test_major2_valeur_geante_ne_leve_pas_et_est_plafonnee(client):
             .tranches_manquantes == PLAFOND_COMPTEUR
 
 
-def _voir(client, mid, chemin, extra=None, monkeypatch=None):
+def _voir(client, mid, chemin, extra=None):
     data = {"transcript": "T", "tranches_manquantes": "3", **(extra or {})}
     return client.post(f"/missions/{mid}/interviews/record-libre/{chemin}", data=data)
 
@@ -258,6 +324,7 @@ def test_major34_retour_tours_garde_le_bandeau_et_le_compteur(client):
 def test_major34_synthese_sans_tour_garde_le_compteur(client):
     mid = _mission()
     r = _voir(client, mid, "synthese")
+    assert r.status_code == 200
     assert 'name="tranches_manquantes" value="3"' in r.text
 
 
@@ -278,6 +345,7 @@ def test_major34_synthese_echec_ia_garde_le_compteur(client, monkeypatch):
 def test_major34_confirm_sans_tour_garde_le_compteur(client):
     mid = _mission()
     r = _voir(client, mid, "confirm")
+    assert r.status_code == 200
     assert 'name="tranches_manquantes" value="3"' in r.text
 
 
@@ -295,9 +363,58 @@ def test_minor5_double_post_ne_reduit_pas_le_compteur(client):
     mid = _mission()
     data = {"transcript": "T", "session_token": "tok-s36-m5", **_TOURS}
     client.post(f"/missions/{mid}/interviews/record-libre/confirm",
-                data={**data, "tranches_manquantes": "1"}, follow_redirects=False)
-    client.post(f"/missions/{mid}/interviews/record-libre/confirm",
                 data={**data, "tranches_manquantes": "3"}, follow_redirects=False)
+    client.post(f"/missions/{mid}/interviews/record-libre/confirm",
+                data={**data, "tranches_manquantes": "1"}, follow_redirects=False)
     with SessionLocal() as db:
         assert db.scalars(select(Interview).where(Interview.mission_id == mid)).one()\
             .tranches_manquantes == 3
+
+
+def test_medium4_un_post_refuse_409_ne_releve_pas_le_compteur(client):
+    mid = _mission()
+    base = {"transcript": "T", "session_token": "tok-s36-m4", "turn_interlocuteur": "A",
+            "turn_remarque": "", "turn_section_title": ""}
+    client.post(f"/missions/{mid}/interviews/record-libre/confirm",
+                data={**base, "turn_question": "Q1", "tranches_manquantes": "1"},
+                follow_redirects=False)
+    r = client.post(f"/missions/{mid}/interviews/record-libre/confirm",
+                    data={**base, "turn_question": "AUTRE", "tranches_manquantes": "9"},
+                    follow_redirects=False)
+    assert r.status_code == 409
+    with SessionLocal() as db:
+        assert db.scalars(select(Interview).where(Interview.mission_id == mid)).one()\
+            .tranches_manquantes == 1
+
+
+def test_medium3_banniere_visible_au_texte_sur_echec_ia_de_la_synthese(client, monkeypatch):
+    from app.routers import interviews_libre
+    from app.services.interview_libre_extract_ai import InterviewLibreExtractAIError
+
+    def boom(*a, **k):
+        raise InterviewLibreExtractAIError("IA KO")
+
+    monkeypatch.setattr(interviews_libre, "generate_repartition_from_turns", boom)
+    mid = _mission()
+    r = _voir(client, mid, "synthese", _TOURS)
+    page = " ".join(_html.unescape(r.text).split())
+    assert "IA KO" in page
+    assert "3 tranches n'ont pas pu être structurées" in page
+    assert 'data-tranches-manquantes="3"' in page
+
+
+def test_finaliser_nomme_l_entretien_avec_lien_dans_le_bandeau(client):
+    mid = _mission(is_draft=True)
+    with SessionLocal() as db:
+        a = Interview(mission_id=mid, mode="libre", status="done", interviewee_name="Zoé",
+                      parties_supprimees=1)
+        b = Interview(mission_id=mid, mode="libre", status="done", interviewee_name="",
+                      parties_supprimees=1)
+        db.add_all([a, b])
+        db.commit()
+        ia, ib = a.id, b.id
+    page = _html.unescape(client.get(f"/missions/{mid}/finaliser").text)
+    assert re.search(rf'data-parties-supprimees="1">\s*<a href="/interviews/{ia}">Zoé</a> :', page)
+    assert re.search(rf'data-parties-supprimees="1">\s*<a href="/interviews/{ib}">Sans nom</a> :',
+                     page)
+    assert "Entretien incomplet" in page

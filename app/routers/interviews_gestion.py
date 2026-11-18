@@ -30,9 +30,9 @@ from .interviews_commun import (
     _get_mission,
 )
 from .interviews_libre import (
-    _entier_positif,
     _lire_proposition,
 )
+from .interviews_record import _entier_positif
 
 router = APIRouter(tags=["interviews"])
 

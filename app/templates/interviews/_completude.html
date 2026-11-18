@@ -5,7 +5,8 @@
 {% if n_supprimees %}
 <p class="ai-error" role="status" data-parties-supprimees="{{ n_supprimees }}">
   {# Story 3.6 : `texte_parties` = libellé unique `texte_parties_supprimees` (revue, finalisation). #}
-  {% if texte_parties %}⚠ {{ texte_parties }}{% else %}⚠ Entretien incomplet : {{ n_supprimees }} partie{{ 's' if n_supprimees > 1 else '' }} supprimée{{ 's' if n_supprimees > 1 else '' }}
+  {% if lien_entretien %}<a href="/interviews/{{ interview.id }}">{{ interview.interviewee_name or "Sans nom" }}</a> : {% endif %}
+  {% if texte_parties %}⚠ <strong>Entretien incomplet</strong> — {{ texte_parties }}{% else %}⚠ Entretien incomplet : {{ n_supprimees }} partie{{ 's' if n_supprimees > 1 else '' }} supprimée{{ 's' if n_supprimees > 1 else '' }}
   de l'enregistrement audio (onglet Backup).{% endif %}
   Leur contenu n'est plus récupérable : une retranscription ne repart que des parties restantes.
 </p>

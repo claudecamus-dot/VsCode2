@@ -618,18 +618,20 @@ def _lire_proposition(proposed: str, keep: list[str]) -> tuple[dict, set[int]]:
     return data, keep_ids
 
 
-def _tranches_en_echec(db: Session, jeton: str | None) -> int:
-    """Tranches `libre_turns` en échec pour ce jeton, relues en base : le serveur ne
-    se fie pas au seul compteur posté par le formulaire (Story 3.6, revue)."""
+def _tranches_en_echec(db: Session, jeton: str | None, mission_id: int) -> int:
+    """Tranches `libre_turns` manquantes pour ce jeton, relues en base (le serveur ne
+    se fie pas au seul compteur posté). Même règle que `still_ko` de
+    `structuration_libre._extraire_tours_libre` : pas `done` ET du texte — donc
+    pending/running comptent, un échec sans matière non."""
     if not jeton:
         return 0
-    return min(PLAFOND_COMPTEUR, db.scalar(
-        select(func.count()).select_from(InterviewSegmentJob).where(
-            InterviewSegmentJob.session_token == jeton,
-            InterviewSegmentJob.kind == "libre_turns",
-            InterviewSegmentJob.status == "failed",
-        )
-    ) or 0)
+    jobs = db.scalars(select(InterviewSegmentJob).where(
+        InterviewSegmentJob.session_token == jeton,
+        InterviewSegmentJob.mission_id == mission_id,
+        InterviewSegmentJob.kind == "libre_turns",
+    ))
+    return min(PLAFOND_COMPTEUR,
+               sum(1 for j in jobs if j.status != "done" and (j.text or "").strip()))
 
 
 def _parse_audio_segments(raw: str) -> list[dict]:
@@ -957,7 +959,7 @@ def record_libre_confirm(
     # lieu d'en créer un second. Sans jeton : comportement inchangé.
     jeton = normaliser_jeton(session_token) or None
     # Story 3.6 : max(posté, relu en base) — jamais moins que ce que les jobs disent.
-    manquantes = max(manquantes, _tranches_en_echec(db, jeton))
+    manquantes = max(manquantes, _tranches_en_echec(db, jeton, mission_id))
     try:
         interview = _creer_interview_libre(
             db,
@@ -990,11 +992,8 @@ def record_libre_confirm(
                 detail="Cet entretien n'a pas pu être enregistré (conflit) — "
                 "recharge la mission pour vérifier s'il existe déjà.",
             ) from None
-        if manquantes > (existant.tranches_manquantes or 0):
-            existant.tranches_manquantes = manquantes
-            db.commit()
         return _confirm_sur_jeton_existant(db, mission, existant, turns_to_save, transcript,
-                                           resume, repartition)
+                                           resume, repartition, manquantes)
     # Les jobs de tranche de la session sont CONSOMMÉS : les tours viennent d'être
     # validés à la main. Gardés, un job en échec rendait l'entretien « relançable »
     # (`peut_relancer`) et la relance aurait réécrit ces tours (Story 3.4, B-9).
@@ -1015,7 +1014,21 @@ def _memes_tours(interview: Interview, turns: list[dict]) -> bool:
     )
 
 
-def _confirm_sur_jeton_existant(db, mission, existant, turns, transcript, resume, repartition):
+def _relever_compteur(db, interview_id: int, manquantes: int) -> None:
+    """Story 3.6 : relève `tranches_manquantes` sans jamais le baisser — UPDATE
+    atomique (pas de lecture-comparaison-écriture), sans commit (transaction de
+    l'appelant). Appelé seulement quand le POST est ACCEPTÉ."""
+    if manquantes > 0:
+        db.execute(
+            update(Interview)
+            .where(Interview.id == interview_id,
+                   func.coalesce(Interview.tranches_manquantes, 0) < manquantes)
+            .values(tranches_manquantes=manquantes)
+        )
+
+
+def _confirm_sur_jeton_existant(db, mission, existant, turns, transcript, resume, repartition,
+                                manquantes: int = 0):
     """Story 3.4 (B-9, revue) : `confirm` tombe sur un entretien qui porte déjà
     le jeton de la session. Jamais de perte silencieuse du contenu validé :
     - double POST (mêmes tours) : redirection vers l'entretien déjà créé ;
@@ -1023,6 +1036,8 @@ def _confirm_sur_jeton_existant(db, mission, existant, turns, transcript, resume
       jeton) : COMPLÉTÉ avec les tours, le résumé et la répartition validés ;
     - sinon : 409 explicite."""
     if existant.turns and _memes_tours(existant, turns):
+        _relever_compteur(db, existant.id, manquantes)
+        db.commit()
         return _redirection_apres_enregistrement(mission, existant)
     if existant.structuration_status == "a_transcrire" and not existant.turns:
         # Revue finale Story 3.4 (F2) : deux POST concurrents lisaient tous deux
@@ -1040,6 +1055,8 @@ def _confirm_sur_jeton_existant(db, mission, existant, turns, transcript, resume
             db.rollback()
             db.expire(existant)  # relit statut ET tours écrits par le gagnant
             if existant.turns and _memes_tours(existant, turns):
+                _relever_compteur(db, existant.id, manquantes)
+                db.commit()
                 return _redirection_apres_enregistrement(mission, existant)
             raise HTTPException(
                 status_code=409,
@@ -1063,6 +1080,7 @@ def _confirm_sur_jeton_existant(db, mission, existant, turns, transcript, resume
         # rien ne prouve que les tours postés couvrent les tranches que l'aperçu
         # tronqué n'avait pas — le signal reste jusqu'à une retranscription
         # complète (`interviews_retranscription`), seule à pouvoir le prouver.
+        _relever_compteur(db, existant.id, manquantes)
         db.commit()
         delete_segment_jobs(db, existant.segment_token)
         return _redirection_apres_enregistrement(mission, existant)

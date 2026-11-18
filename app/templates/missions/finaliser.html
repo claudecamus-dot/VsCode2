@@ -15,20 +15,12 @@
 {# Contrepartie du déblocage du 2026-09-04 : l'entretien est enregistré même
    quand l'IA n'a pas su structurer une tranche — mais jamais en silence. C'est
    l'écran d'arrivée quand la mission est un brouillon. #}
-{% if tranches_manquantes %}
-<p class="ai-error">
-  ⚠ {{ tranches_manquantes }} tranche{{ 's' if tranches_manquantes > 1 else '' }}
-  n'{{ 'ont' if tranches_manquantes > 1 else 'a' }} pas pu être structurée{{ 's' if tranches_manquantes > 1 else '' }}
-  en tours de parole par l'IA : leur texte est conservé dans la transcription de
-  l'entretien, mais absent de son tour de table. Depuis la fiche de l'entretien,
-  « ↻ Relancer la transcription (audio) » les rattrape.
-</p>
-{% endif %}
+{% include "interviews/_lacune_transcription.html" %}
 
 {# Story 3.6 (AC3.6.2) : parties audio supprimées — libellé unique des exports. #}
 {% for lacune in parties_supprimees_lacunes or [] %}
 {% set interview = lacune.interview %}{% set texte_parties = lacune.texte %}
-<p class="muted"><a href="/interviews/{{ interview.id }}">{{ interview.interviewee_name }}</a></p>
+{% set lien_entretien = true %}
 {% include "interviews/_completude.html" %}
 {% endfor %}
 
