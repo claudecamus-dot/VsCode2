@@ -20,7 +20,7 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import RedirectResponse, Response
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
@@ -627,7 +627,9 @@ def _tranches_en_echec(db: Session, jeton: str | None, mission_id: int) -> int:
         return 0
     jobs = db.scalars(select(InterviewSegmentJob).where(
         InterviewSegmentJob.session_token == jeton,
-        InterviewSegmentJob.mission_id == mission_id,
+        # audio_file_jobs crée des jobs `libre_turns` SANS mission_id (colonne nullable).
+        or_(InterviewSegmentJob.mission_id == mission_id,
+            InterviewSegmentJob.mission_id.is_(None)),
         InterviewSegmentJob.kind == "libre_turns",
     ))
     return min(PLAFOND_COMPTEUR,

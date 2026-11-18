@@ -280,6 +280,15 @@ def test_major2_ignore_autre_jeton_autre_mission_autre_kind(client):
     assert _confirmer(client, mid, "tok-s36-m2b", 0) == 1
 
 
+def test_major1_jobs_sans_mission_id_sont_recomptes(client):
+    # audio_file_jobs crée des jobs libre_turns sans mission_id : le recomptage serveur
+    # doit les voir (compteur posté absent), sans reprendre ceux d'une autre mission.
+    mid, autre = _mission(), _mission()
+    _jobs(None, "tok-s36-null", [("failed", "t"), ("failed", "t")])
+    _jobs(autre, "tok-s36-null", [("failed", "t")] * 4, debut=10)
+    assert _confirmer(client, mid, "tok-s36-null", 0) == 2
+
+
 def test_major1_valeur_postee_superieure_conservee(client):
     mid = _mission()
     _jobs(mid, "tok-s36-m1p", [("failed", "t"), ("failed", "t")])
@@ -418,3 +427,39 @@ def test_finaliser_nomme_l_entretien_avec_lien_dans_le_bandeau(client):
     assert re.search(rf'data-parties-supprimees="1">\s*<a href="/interviews/{ib}">Sans nom</a> :',
                      page)
     assert "Entretien incomplet" in page
+
+
+# --- Round 3, finding 2 : jobs gardes jusqu'a la confirmation (garde-fous, non-defaut) ---
+def test_jobs_gardes_un_second_passage_ne_rejoue_pas_les_tranches_done(client, monkeypatch):
+    from app.services import interview_segment_jobs as isj
+
+    appels = []
+
+    def faux(db, job, essais=None, **k):
+        appels.append(job.position)
+        return {"turns": [], "identity": {}}
+
+    monkeypatch.setattr(isj, "_extract_with_retries", faux)
+    mid = _mission()
+    _jobs(mid, "tok-s36-rejeu", [("done", "a"), ("failed", "b")])
+    for _ in range(2):
+        r = client.post(f"/missions/{mid}/interviews/record-libre",
+                        data={"transcript": "T", "session_token": "tok-s36-rejeu"})
+        assert r.status_code == 200
+    assert 0 not in appels  # la tranche `done` n'est jamais re-traitee
+    assert appels.count(1) <= 2
+
+
+def test_jobs_gardes_apres_wizard_abandonne_aucun_bandeau_relancer(client):
+    from app.services.tranches_echec import tranches_en_echec
+
+    mid = _mission()
+    _jobs(mid, "tok-s36-abandon", [("failed", "t")])
+    with SessionLocal() as db:
+        # le bandeau est indexe sur Interview.segment_token : sans entretien enregistre,
+        # les jobs orphelins ne sont proposes nulle part.
+        sans_jeton = Interview(mission_id=mid, interviewee_name="X", status="done")
+        db.add(sans_jeton)
+        db.flush()
+        assert tranches_en_echec(sans_jeton) == []
+        db.rollback()
