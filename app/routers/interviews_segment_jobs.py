@@ -308,6 +308,33 @@ def segment_jobs_turns_json(
         and (premiere_en_vol is None or j.position < premiere_en_vol)
     ]
     merged = merge_segment_turns(jobs, None)
+    # Story 3.7 (AC3.7.7, reste B-2) : deux informations pour le client, sans toucher
+    # au curseur. `revs` = empreinte (longueur du JSON) du résultat de chaque tranche
+    # `done` SOUS le curseur : une tranche ré-extraite après réception change
+    # d'empreinte, le client la redemande via `manquantes`. `sans_ligne` = positions
+    # demandées qui n'ont AUCUNE ligne (POST de tranche jamais arrivé) : le client
+    # cesse de les redemander à chaque sondage.
+    revs = {
+        pos: longueur for pos, longueur in db.execute(
+            select(InterviewSegmentJob.position,
+                   func.length(InterviewSegmentJob.turns_result)).where(
+                InterviewSegmentJob.session_token == jeton,
+                InterviewSegmentJob.kind == "libre_turns",
+                InterviewSegmentJob.status == "done",
+                InterviewSegmentJob.position < since,
+            )
+        ).all()
+    } if jeton else {}
+    sans_ligne = []
+    if jeton and tardives:
+        existantes = set(db.scalars(
+            select(InterviewSegmentJob.position).where(
+                InterviewSegmentJob.session_token == jeton,
+                InterviewSegmentJob.kind == "libre_turns",
+                InterviewSegmentJob.position.in_(tardives),
+            )
+        ).all())
+        sans_ligne = [p for p in tardives if p not in existantes]
     # Les tardives sont < since : elles ne font jamais avancer le curseur.
     next_since = max([since] + [j.position + 1 for j in jobs])
     corps = {
@@ -323,10 +350,26 @@ def segment_jobs_turns_json(
         # tranche n'est renvoyée (le sondage courant) : forme d'avant inchangée.
         corps["tranches"] = [
             {"position": j.position,
-             "turns": (j.turns_result or {}).get("turns", [])}
+             "turns": (j.turns_result or {}).get("turns", []),
+             "rev": _empreinte_tranche(db, jeton, j.position)}
             for j in sorted(jobs, key=lambda j: j.position)
         ]
+    if revs:
+        corps["revs"] = {str(p): v for p, v in revs.items()}
+    if sans_ligne:
+        corps["sans_ligne"] = sans_ligne
     return JSONResponse(corps)
+
+
+def _empreinte_tranche(db: Session, jeton: str, position: int) -> int | None:
+    """Même empreinte que `revs` (longueur du JSON du résultat), pour UNE tranche."""
+    return db.scalar(
+        select(func.length(InterviewSegmentJob.turns_result)).where(
+            InterviewSegmentJob.session_token == jeton,
+            InterviewSegmentJob.kind == "libre_turns",
+            InterviewSegmentJob.position == position,
+        )
+    )
 
 
 @router.get("/interviews/segment-jobs/answers")

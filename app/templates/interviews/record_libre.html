@@ -351,7 +351,11 @@
   var STATUT_ECHEC_MOTIFS = [
     'non supporté par ce navigateur', 'Relance impossible :',
     'Échec de la transcription', 'Rattachement impossible', 'Micro inaccessible',
-    'Transcription interrompue au passage'
+    'Transcription interrompue au passage',
+    // Story 3.7 (A-16) : « La suite automatique n’a pas pu démarrer » était un échec
+    // terminal absent de la liste. (« conservée suite à une erreur » et « PAS été
+    // transcrit » restent NEUTRES : décision figée par test_statut_echec_execution.py.)
+    'n’a pas pu démarrer'
   ];
   function statutEstEchec(texte) {
     return STATUT_ECHEC_MOTIFS.some(function (motif) { return texte.indexOf(motif) !== -1; });
@@ -505,6 +509,9 @@
   // mémoire de l'onglet disparu, peut manquer sans trou visible. Tant qu'elle n'est pas
   // réinitialisée, aucune « copie serveur » complète n'est affirmée.
   var sessionRestauree = false;
+  // Story 3.7 (A-14) : nombre de segments non transcrits d'une session RESTAURÉE (leur blob
+  // est perdu avec l'onglet, l'audio est sur le serveur : relance depuis la fiche).
+  var perdusRestaures = [];
   // Position chronologique de la prochaine tranche, attribuée AU MOMENT de
   // l'upload (les évènements `stop` du MediaRecorder sont sérialisés, donc
   // dans l'ordre) et non à la résolution du fetch — sinon deux uploads en vol
@@ -546,13 +553,18 @@
   var brouillonIndisponibleDit = false;
   function persistDraft() {
     if (typeof recDraft === 'undefined') return;
-    var ancien = recDraft.charger(MISSION_ID) || {};
+    var ancien = recDraft.chargerPropre(MISSION_ID) || {};
     var ok = recDraft.sauver(MISSION_ID, {
       transcript: transcriptSoFar,
       sessionToken: sessionToken,
       coveredLen: coveredLen,
       segmentJobPosition: segmentJobPosition,
       backupSegments: backupSegments,
+      // Story 3.7 (A-14) : métadonnées (JAMAIS le blob) des segments non transcrits —
+      // leur audio est déjà sur le serveur, ils se relancent depuis la fiche.
+      segmentsPerdus: perdusRestaures.concat(lostSegments.map(function (s) {
+        return { id: s.id, reason: s.reason, blocking: !!s.blocking, attente: !!s.attente, segId: s.segId || '' };
+      })),
       journal: ancien.journal || []
     });
     // Le filet peut être hors service sans qu'un mot ne le dise (F4) : on le
@@ -870,6 +882,9 @@
     if (titreOrigine === null) titreOrigine = document.title;
     document.title = prefixe + titreOrigine;
   }
+  // Story 3.7 (A-19) : source audio défaillante (contexte audio qui ne repart pas, piste
+  // micro `muted`) — texte posé par le rappel `issue` de rec_audio_source.js, '' = rien.
+  var sourceAvert = '';
   var partageErreur = '';      // échec d'un re-partage : annoncé en POLI, jamais dans le nœud role=alert
   // Alerte FIXÉE en haut du viewport (toujours visible), SOUS le bandeau démo s'il existe.
   // Recalculée à chaque rendu ET au redimensionnement/rotation tant qu'elle est affichée.
@@ -893,7 +908,7 @@
   // de re-partage vivent dans la région polie. Un re-partage réussi n'efface PAS l'alerte
   // « micro muet » : seul un segment porteur de parole la lève (Story 3.3, AC3.3.3).
   function rendreAlerte() {
-    var cle = partagePerdu ? 'partage' : (noSpeechActive ? 'muet' : null);
+    var cle = partagePerdu ? 'partage' : (noSpeechActive ? 'muet' : (sourceAvert ? 'source' : null));
     if (cle === null) {
       noSpeechBannerEl.hidden = true;
       noSpeechFixBtn.hidden = true;
@@ -911,11 +926,11 @@
     // proposer de « partager l'onglet de la réunion » (revue adversariale 2026-07-31).
     var reparable = remoteModeEl.checked && i2dAudioSource.supported() && !i2dAudioSource.tabActive();
     if (cle === 'muet') cle += reparable ? ':distance' : ':local';
-    noSpeechFixBtn.hidden = partagePerdu ? !i2dAudioSource.supported() : !reparable;
+    noSpeechFixBtn.hidden = cle === 'source' ? true : (partagePerdu ? !i2dAudioSource.supported() : !reparable);
     noSpeechBannerEl.hidden = false;
     if (alerteKind !== cle) {
       alerteKind = cle;
-      noSpeechTextEl.textContent = partagePerdu
+      noSpeechTextEl.textContent = cle === 'source' ? sourceAvert : partagePerdu
         ? "⚠ Le partage du son de la réunion s'est arrêté — la voix des participants n'est " +
           "plus enregistrée. Repartage l'onglet : l'enregistrement continue."
         : '⚠ Aucune parole détectée. ' + (reparable
@@ -953,7 +968,7 @@
     if (lostIdOrigine) return;
     noSpeechStreak = 0;
     noSpeechActive = false;
-    if (tout) { partagePerdu = false; partageErreur = ''; }
+    if (tout) { partagePerdu = false; partageErreur = ''; sourceAvert = ''; }
     rendreAlerte();
   }
 
@@ -974,6 +989,16 @@
   var remoteBypass = false;   // dérogation explicite : démarrer au micro seul
 
   i2dAudioSource.on({
+    // Story 3.7 (A-19) : libellé minimal, aligné sur les alertes voisines (à confirmer).
+    issue: function (kind) {
+      sourceAvert = kind === 'muted'
+        ? '⚠ Le micro est coupé (piste muette) — rien n’est enregistré tant qu’il l’est. Vérifie le bouton de mise en sourdine du micro ou du casque.'
+        : (kind === 'resume'
+          ? '⚠ Le son n’a pas pu redémarrer (contexte audio suspendu) — l’enregistrement peut être silencieux. Clique dans la page, sinon arrête puis redémarre.'
+          : '');
+      alerteKind = null;  // le texte change d'un type de source à l'autre : le réécrire
+      rendreAlerte();
+    },
     levels: function (mic, tab) {
       micMeterEl.style.width = Math.round(mic * 100) + '%';
       tabMeterEl.style.width = Math.round(tab * 100) + '%';
@@ -2803,7 +2828,7 @@
       backupPathHidden.value = '';
       backupSegments = [];
       backupPerdus = [];   // nouvelle session : les pertes de la précédente ne la concernent plus
-      nextBackupPosition = 0; backupConfirmes = 0; sessionRestauree = false;
+      nextBackupPosition = 0; backupConfirmes = 0; sessionRestauree = false; perdusRestaures = [];
       // Budget de relance des tranches d'extraction : par session (F2, cf. resetBtn).
       jobEchecsConsecutifs = 0;
       clearTimeout(jobRetryTimer);
@@ -2977,7 +3002,7 @@
     backupPathHidden.value = '';
     backupSegments = [];
     backupPerdus = [];   // « Recommencer » : repartir sans les pertes de la session jetée
-    nextBackupPosition = 0; backupConfirmes = 0; sessionRestauree = false;
+    nextBackupPosition = 0; backupConfirmes = 0; sessionRestauree = false; perdusRestaures = [];
     audioSegmentsHidden.value = '[]';
     // Palier 2 : repartir sur une session vierge (les jobs éventuels de la
     // session précédente deviennent des orphelins inoffensifs côté serveur).
@@ -3080,11 +3105,22 @@
     // place ; une position déjà reçue n'est ni redemandée ni affichée deux fois.
     if (pollRepartition.tranchesJeton !== tokenAuDepart) {
       pollRepartition.tranches = {};
+      pollRepartition.revRecue = {};      // Story 3.7 : empreinte de la tranche telle que reçue
+      pollRepartition.revServeur = {};    // dernière empreinte annoncée par le serveur
+      pollRepartition.absences = {};      // sondages consécutifs où la position n'a AUCUNE ligne
       pollRepartition.tranchesJeton = tokenAuDepart;
     }
     var manquantes = [];  // positions sous le curseur jamais reçues (vide d'ordinaire)
     for (var p = 0; p < sinceAuDepart; p++) {
-      if (!Object.prototype.hasOwnProperty.call(pollRepartition.tranches, p)) manquantes.push(p);
+      var recue = Object.prototype.hasOwnProperty.call(pollRepartition.tranches, p);
+      // Story 3.7 : sans ligne côté serveur depuis 3 sondages = POST de tranche jamais
+      // arrivé : on ne la redemande plus. Reçue mais RÉ-EXTRAITE (empreinte changée) :
+      // redemandée une fois, `rev` reçue la remet à jour.
+      var abandonnee = (pollRepartition.absences[p] || 0) >= 3;
+      var perimee = recue && pollRepartition.revServeur[p] !== undefined
+        && pollRepartition.revRecue[p] !== undefined
+        && pollRepartition.revServeur[p] !== pollRepartition.revRecue[p];
+      if ((!recue && !abandonnee) || perimee) manquantes.push(p);
     }
     recFetch('/interviews/segment-jobs/turns?session_token=' + encodeURIComponent(tokenAuDepart)
         + '&since=' + sinceAuDepart
@@ -3094,10 +3130,25 @@
         if (!data || sessionToken !== tokenAuDepart) return;
         // Un « Recommencer » pendant le vol de la requête a pu remettre
         // `repartitionSincePosition` à 0 : la table repart alors de zéro.
-        if (sinceAuDepart !== repartitionSincePosition) pollRepartition.tranches = {};
+        if (sinceAuDepart !== repartitionSincePosition) {
+          pollRepartition.tranches = {};
+          pollRepartition.revRecue = {}; pollRepartition.revServeur = {}; pollRepartition.absences = {};
+        }
         var table = pollRepartition.tranches;
         (Array.isArray(data.tranches) ? data.tranches : []).forEach(function (t) {
           table[t.position] = Array.isArray(t.turns) ? t.turns : [];
+          if (typeof t.rev === 'number') pollRepartition.revRecue[t.position] = t.rev;
+          delete pollRepartition.absences[t.position];
+        });
+        if (data.revs && typeof data.revs === 'object') {
+          Object.keys(data.revs).forEach(function (k) { pollRepartition.revServeur[k] = data.revs[k]; });
+        }
+        manquantes.forEach(function (p) {
+          var renvoyee = (Array.isArray(data.tranches) ? data.tranches : []).some(function (t) { return t.position === p; });
+          var sansLigne = Array.isArray(data.sans_ligne) && data.sans_ligne.indexOf(p) >= 0;
+          if (sansLigne) pollRepartition.absences[p] = (pollRepartition.absences[p] || 0) + 1;
+          else if (!renvoyee) pollRepartition.absences[p] = 0;  // ligne présente mais pas finie : on redemandera
+          if (renvoyee && pollRepartition.revServeur[p] !== undefined) pollRepartition.revRecue[p] = pollRepartition.revServeur[p];
         });
         var tours = [];
         // Tri NUMÉRIQUE (`a - b` convertit les clés) : '10' après '9'.
@@ -3203,6 +3254,7 @@
         sessionToken = brouillon.sessionToken;
         sessionTokenHidden.value = sessionToken;  // même geste que les trois sites qui génèrent un jeton
       }
+      perdusRestaures = Array.isArray(brouillon.segmentsPerdus) ? brouillon.segmentsPerdus : [];
       coveredLen = Math.min(brouillon.coveredLen || 0, transcriptSoFar.length);
       segmentJobPosition = brouillon.segmentJobPosition || 0;
       if (Array.isArray(brouillon.backupSegments) && brouillon.backupSegments.length) {
@@ -3220,13 +3272,17 @@
         refreshBackupList();
       }
       refreshSegmentTail();
+      // Story 3.7 (A-12) : le brouillon d'un autre onglet devient celui-ci (écrit d'abord,
+      // l'ancienne copie n'est retirée qu'ensuite).
+      persistDraft();
+      recDraft.adopter(MISSION_ID, brouillon);
       banner.hidden = true;
       statusEl.textContent = 'Session restaurée — tu peux l\'enregistrer telle quelle avec « Enregistrer l\'entretien ».';
       updateSubmitState();
     });
     document.getElementById('rec-draft-discard').addEventListener('click', function () {
       if (!confirm('Oublier définitivement cette session gardée en local ?')) return;
-      recDraft.effacer(MISSION_ID);
+      recDraft.effacer(MISSION_ID, brouillon && brouillon._cle);
       banner.hidden = true;
     });
   })();
@@ -3236,7 +3292,7 @@
     var nonTranscrits = lostSegments.filter(function (s) { return s.blocking; }).length;
     // + relances manuelles encore dans la closure du drain (hors celle déjà comptée en vol)
     var enVol = pendingSegments + pendingSegmentJobSubmits + Math.max(0, lostRetryActive - lowEnVol);
-    var aRelancer = nonTranscrits + waitingSegments.length;
+    var aRelancer = nonTranscrits + waitingSegments.length + perdusRestaures.length;
     if (sessionRestauree && !aRelancer && !enVol && !confirm('Session restaurée : l’audio de la session précédente peut être incomplet (sa dernière partie a pu être perdue). Enregistrer quand même ?')) {
       ev.preventDefault();
       return;
@@ -3258,11 +3314,11 @@
     if (!sessionToken) { sessionToken = newSessionToken(); sessionTokenHidden.value = sessionToken; }
     var dernier = backupSegments.length ? backupSegments[backupSegments.length - 1].position + 1 : 0;
     poser('audio_attendu', Math.max(nextBackupPosition, dernier));  // tranches de sauvegarde attendues (serveur : contiguïté)
-    poser('transcription_incomplete', (enVol + waitingSegments.length > 0
+    poser('transcription_incomplete', (enVol + waitingSegments.length + perdusRestaures.length > 0
       || lostSegments.some(function (s) { return s.blocking; })) ? '1' : '');
     envoiEnCours = true;
     submitBtn.disabled = true;  // un seul POST (double clic), le confirm() est accepté
-    if (typeof recDraft !== 'undefined') recDraft.marquerEnvoye(MISSION_ID, undefined, sessionToken);
+    if (typeof recDraft !== 'undefined') recDraft.marquerEnvoye(MISSION_ID, sessionToken);
   });
   // Retour arrière / bfcache après le 303 : la page revient avec le bouton figé à
   // disabled=true et envoiEnCours=true ; on réarme et on recalcule l'état réel.

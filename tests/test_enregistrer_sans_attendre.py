@@ -323,7 +323,7 @@ def test_nouvel_entretien_present_sur_la_fiche_avec_texte():
 
 
 def _node_draft(corps: str) -> str:
-    script = ("var s={};global.window={localStorage:{getItem:function(k){return k in s?s[k]:null},"
+    script = ("var s={};global.window={localStorage:{get length(){return Object.keys(s).length},key:function(i){return Object.keys(s)[i]||null},getItem:function(k){return k in s?s[k]:null},"
               "setItem:function(k,v){s[k]=String(v)},removeItem:function(k){delete s[k]}}};"
               "var d=require(%s);%s" % (json.dumps(str(REC_DRAFT)), corps))
     res = subprocess.run(["node", "-e", script], capture_output=True, text=True,
@@ -336,7 +336,7 @@ def test_purge_du_brouillon_seulement_s_il_est_envoye_et_meme_jeton():
     sortie = _node_draft(
         "d.sauver(7,{transcript:'a'});"
         "var a=d.effacerSiEnvoye(7,'tok'), restant=!!d.charger(7);"   # non envoyé : intact
-        "d.marquerEnvoye(7,undefined,'tok');"
+        "d.marquerEnvoye(7,'tok');"
         "var autre=d.effacerSiEnvoye(7,'ancien'), toujours=!!d.charger(7);"  # autre entretien : intact
         "var vide=d.effacerSiEnvoye(7,''), toujours2=!!d.charger(7);"
         "var b=d.effacerSiEnvoye(7,'tok'), apres=!!d.charger(7);"     # même jeton : purgé

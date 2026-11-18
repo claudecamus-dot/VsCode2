@@ -49,13 +49,35 @@
   var micNode = null, tabNode = null;
   var micAnalyser = null, tabAnalyser = null;
   var meterTimer = null;
-  var onTabLost = null, onLevels = null;
+  var onTabLost = null, onLevels = null, onIssue = null;
   var tabEnded = false;
   var partageEnCours = false;  // mutex : voir shareTab()
   // Story 3.3 (A-6) : jeton de génération, incrémenté par release(). Une demande
   // (sélecteur d'onglet, permission micro) résolue APRÈS « Arrêter » ne doit pas
   // réacquérir micro/onglet/AudioContext : ses pistes sont arrêtées et elle échoue.
   var generation = 0;
+  // Story 3.7 (A-19) : un contexte audio qui ne repart pas ou une piste micro
+  // `muted` donnent un enregistrement SILENCIEUX sans rien dire. L'appelant est
+  // prévenu par `on({ issue: fn(kind|null) })` ; null = rétabli.
+  var dernierIssue;
+  function signaler(kind) {
+    if (!onIssue || kind === dernierIssue) return;  // pas de doublon (statechange + ensureCtx)
+    dernierIssue = kind;
+    try { onIssue(kind); } catch (e) { /* un rappel défaillant ne casse pas la capture */ }
+  }
+  function reprendre() {
+    var p;
+    try { p = ctx.resume(); } catch (e) { signaler('resume'); return; }
+    if (p && typeof p.then === 'function') {
+      p.then(function () { signaler(null); }, function () { signaler('resume'); });
+    }
+  }
+  function surveillerPiste(piste) {
+    if (!piste || !piste.addEventListener) return;
+    if (piste.muted) signaler('muted');
+    piste.addEventListener('mute', function () { signaler('muted'); });
+    piste.addEventListener('unmute', function () { signaler(null); });
+  }
   function perimee(s) {
     if (s) s.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
     return new Error("Demande abandonnée : l'enregistrement a été arrêté entre-temps.");
@@ -75,12 +97,10 @@
       // exactement le bug qu'on corrige, une couche plus bas. On le relance,
       // et l'appelant est prévenu pour pouvoir alerter à l'écran.
       ctx.addEventListener('statechange', function () {
-        if (ctx && ctx.state === 'suspended') {
-          ctx.resume().catch(function () {});
-        }
+        if (ctx && ctx.state === 'suspended') reprendre();
       });
     }
-    if (ctx.state === 'suspended') ctx.resume().catch(function () {});
+    if (ctx.state === 'suspended') reprendre();
     return ctx;
   }
 
@@ -177,6 +197,7 @@
     return navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
       if (genDepart !== generation) throw perimee(s);
       micStream = s;
+      try { surveillerPiste(s.getAudioTracks()[0]); } catch (e) { /* flux atypique */ }
       return s;
     });
   }
@@ -307,6 +328,7 @@
     on: function (opts) {
       if (opts.tabLost) onTabLost = opts.tabLost;
       if (opts.levels) onLevels = opts.levels;
+      if (opts.issue) onIssue = opts.issue;
     }
   };
 })();

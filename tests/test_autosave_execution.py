@@ -196,6 +196,26 @@ emettre('htmx:responseError', { target: sf, xhr: { status: 401 } });
 fin3s();
 out.p401halted = etat(sf);
 
+// Story 3.7 (A-17) : 403/413/422, sendError et timeout restent affichés après 3 s tant que
+// rien n'est enregistré ; le succès de l'élément fautif les efface ; un 500 reste transitoire.
+function erreurPuisSucces(evt, detail) {
+  var s = new Elt('span'); s.classList.add('saved'); var src = {};
+  emettre(evt, Object.assign({ target: s, elt: src }, detail));
+  fin3s();
+  var e = etat(s);
+  emettre('htmx:afterRequest', { target: s, elt: src, successful: true, xhr: { status: 200 } });
+  e.apresSucces = etat(s);
+  return e;
+}
+out.s37 = {
+  r403: erreurPuisSucces('htmx:responseError', { xhr: { status: 403 } }),
+  r413: erreurPuisSucces('htmx:responseError', { xhr: { status: 413 } }),
+  r422: erreurPuisSucces('htmx:responseError', { xhr: { status: 422 } }),
+  sendError: erreurPuisSucces('htmx:sendError', {}),
+  timeout: erreurPuisSucces('htmx:timeout', {}),
+  r500: erreurPuisSucces('htmx:responseError', { xhr: { status: 500 } })
+};
+
 // 9c : le succès d'un AUTRE élément ne l'efface pas ; celui de l'élément en erreur, si.
 var eltA = {}, eltB = {};
 var s9 = new Elt('span'); s9.classList.add('saved');
@@ -392,3 +412,16 @@ def test_C_sans_isconnected_repli_document_contains(sortie: dict) -> None:
 
 def test_D_succes_sans_elt_ne_leve_pas_le_message_d_une_source_connectee(sortie: dict) -> None:
     assert _garde(sortie["dSansElt"]), sortie["dSansElt"]
+
+
+@pytest.mark.parametrize("cle", ["r403", "r413", "r422", "sendError", "timeout"])
+def test_37_erreurs_d_autosave_persistantes_jusqu_au_succes(sortie: dict, cle: str) -> None:
+    """Story 3.7 (AC3.7.5, A-17) : l'erreur reste affichee apres 3 s, puis part au succes."""
+    e = sortie["s37"][cle]
+    assert e["texte"].startswith("⚠") and "rien n'est enregistr" in e["texte"], e
+    assert e["erreur"] is True, "l'erreur a ete effacee au bout de 3 s alors que rien n'est enregistre"
+    assert e["apresSucces"]["texte"] == "" and e["apresSucces"]["erreur"] is False
+
+
+def test_37_un_500_reste_transitoire(sortie: dict) -> None:
+    assert sortie["s37"]["r500"]["texte"] == ""

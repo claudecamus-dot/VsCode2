@@ -37,8 +37,51 @@ var recDraft = (function () {
   var AGE_MAX_MS = 7 * 24 * 60 * 60 * 1000;
   var JOURNAL_MAX = 60;
 
+  // Story 3.7 (A-12) : UN brouillon par ONGLET et par mission. Avant, deux onglets de la
+  // même mission écrivaient la même clé et s'écrasaient. L'identifiant d'onglet vit dans
+  // sessionStorage (survit au F5, pas à un autre onglet) ; sans lui (stockage bloqué) un
+  // identifiant mémoire sert pour la vie de la page.
+  var ONGLET_CLE = 'i2d:brouillon-onglet';
+  var ongletMemoire = null;
+  function idOnglet() {
+    if (ongletMemoire) return ongletMemoire;
+    var id = null;
+    try {
+      var ss = (typeof window !== 'undefined') ? window.sessionStorage : null;
+      if (ss) {
+        id = ss.getItem(ONGLET_CLE);
+        if (!id) { id = nouvelId(); ss.setItem(ONGLET_CLE, id); }
+      }
+    } catch (e) { id = null; }
+    ongletMemoire = id || nouvelId();
+    return ongletMemoire;
+  }
+  function nouvelId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
+
   function cle(missionId) {
+    return PREFIXE + String(missionId) + ':' + idOnglet();
+  }
+  // Clé d'avant la 3.7 (sans onglet) : lue, jamais réécrite.
+  function cleHeritee(missionId) {
     return PREFIXE + String(missionId);
+  }
+  // Toutes les clés de brouillon de cette mission (onglet courant, autres onglets, héritée).
+  function clesMission(missionId) {
+    var s = stockage();
+    var out = [];
+    if (!s) return out;
+    var base = cleHeritee(missionId);
+    // Stockage sans énumération (doublure, navigateur exotique) : au moins nos deux clés.
+    if (typeof s.length !== 'number' || typeof s.key !== 'function') return [cle(missionId), base];
+    try {
+      for (var i = 0; i < s.length; i++) {
+        var k = s.key(i);
+        if (k === base || (k && k.indexOf(base + ':') === 0)) out.push(k);
+      }
+    } catch (e) { /* énumération impossible : on retombe sur la clé de l'onglet */ }
+    return out;
   }
 
   function stockage() {
@@ -59,12 +102,12 @@ var recDraft = (function () {
 
   // Le brouillon de cette mission, ou null (absent, illisible, périmé). Un
   // brouillon périmé est retiré au passage : il ne sera plus jamais proposé.
-  function charger(missionId, now) {
+  function lireCle(k, now) {
     var s = stockage();
     if (!s) return null;
     var brut;
     try {
-      brut = s.getItem(cle(missionId));
+      brut = s.getItem(k);
     } catch (e) {
       return null;
     }
@@ -73,15 +116,41 @@ var recDraft = (function () {
     try {
       etat = JSON.parse(brut);
     } catch (e) {
-      effacer(missionId);  // JSON corrompu : inutile de le garder
+      effacer(null, k);  // JSON corrompu : inutile de le garder
       return null;
     }
     if (!etat || typeof etat !== 'object') return null;
     if (typeof etat.savedAt === 'number' && maintenant(now) - etat.savedAt > AGE_MAX_MS) {
-      effacer(missionId);
+      effacer(null, k);
       return null;
     }
+    // Clé d'origine : non énumérable, donc jamais recopiée par `sauver`.
+    Object.defineProperty(etat, '_cle', { value: k, enumerable: false });
     return etat;
+  }
+
+  // Le brouillon de l'ONGLET courant seulement (écritures : journal, envoi).
+  function chargerPropre(missionId, now) {
+    return lireCle(cle(missionId), now);
+  }
+
+  // Le brouillon à PROPOSER en reprise : celui de l'onglet, sinon le plus récent
+  // d'un autre onglet (session orpheline après fermeture) ou de l'ancienne clé.
+  function charger(missionId, now) {
+    var propre = chargerPropre(missionId, now);
+    if (propre) return propre;
+    var meilleur = null;
+    clesMission(missionId).forEach(function (k) {
+      var e = lireCle(k, now);
+      if (e && (!meilleur || (e.savedAt || 0) > (meilleur.savedAt || 0))) meilleur = e;
+    });
+    return meilleur;
+  }
+
+  // Après une reprise : le brouillon d'un AUTRE onglet est désormais celui de cet onglet
+  // (réécrit par `sauver`) ; on retire l'ancienne copie pour ne pas la reproposer.
+  function adopter(missionId, brouillon) {
+    if (brouillon && brouillon._cle && brouillon._cle !== cle(missionId)) effacer(null, brouillon._cle);
   }
 
   // Écrit l'état complet (remplace). Rend false si rien n'a pu être écrit —
@@ -103,11 +172,12 @@ var recDraft = (function () {
     }
   }
 
-  function effacer(missionId) {
+  // `cleExacte` : clé d'un brouillon proposé (autre onglet) ; sinon celle de l'onglet courant.
+  function effacer(missionId, cleExacte) {
     var s = stockage();
     if (!s) return;
     try {
-      s.removeItem(cle(missionId));
+      s.removeItem(cleExacte || cle(missionId));
     } catch (e) {
       // rien à faire : au pire le brouillon reste, il sera proposé puis ignoré
     }
@@ -120,7 +190,7 @@ var recDraft = (function () {
   // premier effaçait précisément ceux-là (revue du 2026-09-08, F16).
   var JOURNAL_DEBUT = 20;
   function noter(missionId, evenement, now) {
-    var etat = charger(missionId, now) || {};
+    var etat = chargerPropre(missionId, now) || {};
     var journal = Array.isArray(etat.journal) ? etat.journal : [];
     var entree = { t: maintenant(now) };
     for (var k in evenement) {
@@ -139,8 +209,9 @@ var recDraft = (function () {
   // l'efface PAS : si la requête échoue après la redirection (serveur tombé,
   // 500), le texte serait perdu une seconde fois. Il reste disponible sept
   // jours, proposé de façon discrète (cf. `decision`).
-  function marquerEnvoye(missionId, now, jeton) {
-    var etat = charger(missionId, now);
+  // Story 3.7 (A-13) : (missionId, jeton, now), même ordre que `effacerSiEnvoye`.
+  function marquerEnvoye(missionId, jeton, now) {
+    var etat = chargerPropre(missionId, now);
     if (!etat) return false;
     etat.envoyeLe = maintenant(now);
     if (jeton) etat.envoiJeton = String(jeton);  // identifie l'entretien que ce POST doit créer
@@ -151,13 +222,20 @@ var recDraft = (function () {
   // enregistré s'affiche : l'envoi a abouti). Un brouillon non envoyé — autre
   // enregistrement en cours dans un autre onglet — n'est jamais touché.
   function effacerSiEnvoye(missionId, jeton, now) {
-    var etat = charger(missionId, now);
-    if (!etat || typeof etat.envoyeLe !== 'number') return false;
-    // Le jeton de l'entretien affiché doit être celui du POST : sinon (échec du
-    // POST puis ouverture d'un ANCIEN entretien) le texte seul copie survivante.
-    if (!jeton || !etat.envoiJeton || etat.envoiJeton !== String(jeton)) return false;
-    effacer(missionId);
-    return true;
+    // Tous les brouillons de la mission (l'entretien s'affiche parfois dans un autre
+    // onglet que celui qui a envoyé) : seul celui dont le jeton correspond est purgé.
+    if (!jeton) return false;
+    var purge = false;
+    clesMission(missionId).forEach(function (k) {
+      var etat = lireCle(k, now);
+      if (!etat || typeof etat.envoyeLe !== 'number') return;
+      // Le jeton de l'entretien affiché doit être celui du POST : sinon (échec du
+      // POST puis ouverture d'un ANCIEN entretien) le texte seul copie survivante.
+      if (!etat.envoiJeton || etat.envoiJeton !== String(jeton)) return;
+      effacer(null, k);
+      purge = true;
+    });
+    return purge;
   }
 
   function formaterDate(ts) {
@@ -209,6 +287,8 @@ var recDraft = (function () {
 
   return {
     charger: charger,
+    chargerPropre: chargerPropre,
+    adopter: adopter,
     sauver: sauver,
     effacer: effacer,
     noter: noter,

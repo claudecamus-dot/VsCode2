@@ -80,9 +80,10 @@
         // sinon « après 0 s », qui se lit comme un bug plutôt qu'un délai.
         var e = new Error('pas de réponse après ' + Math.max(1, Math.round(ms / 1000)) + ' s');
         // Étiquette structurée (revue R3-M5/M6 du 2026-08-31) : un appelant ne
-        // doit JAMAIS re-tenter automatiquement sur ce délai — il a déjà attendu
-        // la fenêtre généreuse entière, et renvoyer les mêmes octets doublerait
-        // la charge d'un serveur déjà noyé. Tester `err.recTimeout`, pas le
+        // re-tente pas aveuglément sur ce délai — il a déjà attendu la fenêtre
+        // généreuse entière, et renvoyer les mêmes octets doublerait la charge d'un
+        // serveur déjà noyé (record_libre.html : au plus UNE relance, cf.
+        // `decisionDelaiDepasse`, record.html : aucune). Tester `err.recTimeout`, pas le
         // texte du message (traduisible, illisible en programme).
         e.recTimeout = true;
         return e;

@@ -128,7 +128,9 @@ def test_tranche_echouee_puis_recuperee_renvoyee_une_fois(client: TestClient) ->
 
     _terminer(jeton, 1, {"turns": [_tour("t1")], "identity": {}})
     r = _poll(client, jeton, 3, "1")
-    assert r["tranches"] == [{"position": 1, "turns": [_tour("t1")]}]
+    # Story 3.7 : chaque tranche porte aussi son empreinte `rev` (entier).
+    assert [(t["position"], t["turns"]) for t in r["tranches"]] == [(1, [_tour("t1")])]
+    assert isinstance(r["tranches"][0]["rev"], int)
     assert _remarques(r) == ["t1"] and r["next_since"] == 3
 
     r = _poll(client, jeton, 3)

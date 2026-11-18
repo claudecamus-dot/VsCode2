@@ -22,9 +22,10 @@
 //   • 503 `code: "busy"`            -> HORS budget : file d'attente normale du
 //                                      verrou Whisper, bornée par `busyUntil`
 //                                      (900 s) côté appelant ;
-//   • délai maximal (`recTimeout`)  -> record.html : JAMAIS rejoué ; record_libre.html :
-//                                      `decisionDelaiDepasse` (2026-10-28). Avant : (rejouer les mêmes octets
-//                                      aggrave une file déjà noyée) ;
+//   • délai maximal (`recTimeout`)  -> record.html : JAMAIS rejoué (rejouer les mêmes
+//                                      octets aggrave une file déjà noyée) ; record_libre.html :
+//                                      `decisionDelaiDepasse` (2026-10-28) — 'attente' si la copie
+//                                      serveur est acquittée, sinon UNE relance puis 'perdu' ;
 //   • 422 `no_speech`               -> pas de retry, non bloquant ;
 //   • 413, tout autre 422 (sans code ou code inconnu) -> définitif.
 // BUDGET PARTAGÉ entre natures : `attempt` compte TOUTES les relances d'un même
@@ -215,13 +216,15 @@
   //     dépassera encore — rejouer deux fois coûtait ~45 min et alourdissait
   //     la file Whisper) ; `relancesApresDelai` = relances de ce type déjà
   //     faites pour CE blob. Au-delà -> 'perdu' (bloquant : seule copie).
+  // `numero`/`total` suivent la convention de `prochaineTentative` : « (2/2) » = 2e et
+  // dernière tentative (Story 3.7, A-16 ; c'était « (1/1) »).
   // Retour : { action: 'attente' } | { action: 'relance', delai, numero, total,
   //          prechauffer: true } | { action: 'perdu' }.
   var DELAI_RELANCE_APRES_DELAI_MS = 2000;
   function decisionDelaiDepasse(copieAcquittee, relancesApresDelai, relanceManuelle, attente) {
     if (copieAcquittee && (!relanceManuelle || attente)) return { action: 'attente' };
     if ((Number(relancesApresDelai) || 0) >= 1) return { action: 'perdu' };
-    return { action: 'relance', delai: DELAI_RELANCE_APRES_DELAI_MS, numero: 1, total: 1, prechauffer: true };
+    return { action: 'relance', delai: DELAI_RELANCE_APRES_DELAI_MS, numero: 2, total: 2, prechauffer: true };
   }
 
   // Alerte de RETARD de la transcription en direct : '' sous le seuil.
