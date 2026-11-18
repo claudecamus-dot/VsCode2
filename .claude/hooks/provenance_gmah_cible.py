@@ -295,7 +295,7 @@ def main():
             return 0
         kind = type_jeton(data.get("prompt"))
         session = str(data.get("session_id") or "")
-        if kind == "stop":
+        if kind == "stop" and _interactif(data):  # story 14.17: same proof as adopte
             emettre(_charger_gravite(), kind, session)
         elif kind in ("adopte", "adopte-augmente") and _interactif(data):
             activer(session=session, mode="augmente" if kind == "adopte-augmente" else "standard")
