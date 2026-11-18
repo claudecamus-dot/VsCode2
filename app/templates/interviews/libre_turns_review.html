@@ -29,6 +29,8 @@
 </form>
 {% endif %}
 
+{% include "interviews/_lacune_transcription.html" %}
+
 <form method="post" action="/missions/{{ mission.id }}/interviews/record-libre/synthese" class="card form"
       id="turns-review-form" data-busy-label="Génération de la synthèse en cours…">
   <input type="hidden" name="audio_backup_path" value="{{ identity.audio_backup_path or '' }}">

@@ -33,9 +33,8 @@
 {% endif %}
 
 {# Story 3.6 (AC3.6.2) : parties audio supprimées (perdues, non rattrapables). #}
-{% if parties_supprimees_texte %}
-<p class="ai-error" role="status" data-parties-supprimees-texte>⚠ {{ parties_supprimees_texte }}</p>
-{% endif %}
+{% set texte_parties = parties_supprimees_texte %}
+{% include "interviews/_completude.html" %}
 
 <form method="post" action="/interviews/{{ interview.id }}/retranscrire/confirmer" class="card form">
   {# Nom de l'interlocuteur porté par le formulaire pour le SEUL bouton d'export

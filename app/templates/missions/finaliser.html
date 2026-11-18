@@ -26,8 +26,10 @@
 {% endif %}
 
 {# Story 3.6 (AC3.6.2) : parties audio supprimées — libellé unique des exports. #}
-{% for t in parties_supprimees_textes or [] %}
-<p class="ai-error" role="status" data-parties-supprimees-texte>⚠ {{ t }}</p>
+{% for lacune in parties_supprimees_lacunes or [] %}
+{% set interview = lacune.interview %}{% set texte_parties = lacune.texte %}
+<p class="muted"><a href="/interviews/{{ interview.id }}">{{ interview.interviewee_name }}</a></p>
+{% include "interviews/_completude.html" %}
 {% endfor %}
 
 <section class="card">

@@ -20,13 +20,14 @@ from fastapi import (
     Request,
 )
 from fastapi.responses import RedirectResponse, Response
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from ..db import RECORDINGS_DIR, get_session
 from ..models import (
     Interview,
+    InterviewSegmentJob,
     InterviewTurn,
     Mission,
 )
@@ -55,6 +56,8 @@ from .interviews_creation import (
     _build_identity,
 )
 from .interviews_record import (
+    PLAFOND_COMPTEUR,
+    _entier_positif,
     _finalize_libre_turns,
     _libre_turns_error,
 )
@@ -615,17 +618,18 @@ def _lire_proposition(proposed: str, keep: list[str]) -> tuple[dict, set[int]]:
     return data, keep_ids
 
 
-def _entier_positif(valeur, defaut: int = 0) -> int:
-    """Entier d'un champ venu du JSON de formulaire, jamais une 500.
-
-    `int(data.get("tranches_manquantes") or 0)` levait sur une valeur non
-    numérique — même chemin, même conséquence que ci-dessus, pour un compteur
-    d'affichage. Ici le repli silencieux est le bon : ce champ n'alimente qu'un
-    bandeau d'information, le perdre ne perd aucun contenu d'entretien."""
-    try:
-        return max(defaut, int(valeur or defaut))
-    except (TypeError, ValueError):
-        return defaut
+def _tranches_en_echec(db: Session, jeton: str | None) -> int:
+    """Tranches `libre_turns` en échec pour ce jeton, relues en base : le serveur ne
+    se fie pas au seul compteur posté par le formulaire (Story 3.6, revue)."""
+    if not jeton:
+        return 0
+    return min(PLAFOND_COMPTEUR, db.scalar(
+        select(func.count()).select_from(InterviewSegmentJob).where(
+            InterviewSegmentJob.session_token == jeton,
+            InterviewSegmentJob.kind == "libre_turns",
+            InterviewSegmentJob.status == "failed",
+        )
+    ) or 0)
 
 
 def _parse_audio_segments(raw: str) -> list[dict]:
@@ -952,6 +956,8 @@ def record_libre_confirm(
     # refuse alors un double POST, qui redirige vers l'entretien déjà créé au
     # lieu d'en créer un second. Sans jeton : comportement inchangé.
     jeton = normaliser_jeton(session_token) or None
+    # Story 3.6 : max(posté, relu en base) — jamais moins que ce que les jobs disent.
+    manquantes = max(manquantes, _tranches_en_echec(db, jeton))
     try:
         interview = _creer_interview_libre(
             db,
@@ -984,6 +990,9 @@ def record_libre_confirm(
                 detail="Cet entretien n'a pas pu être enregistré (conflit) — "
                 "recharge la mission pour vérifier s'il existe déjà.",
             ) from None
+        if manquantes > (existant.tranches_manquantes or 0):
+            existant.tranches_manquantes = manquantes
+            db.commit()
         return _confirm_sur_jeton_existant(db, mission, existant, turns_to_save, transcript,
                                            resume, repartition)
     # Les jobs de tranche de la session sont CONSOMMÉS : les tours viennent d'être

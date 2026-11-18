@@ -134,7 +134,7 @@ def test_ac362_finaliser_sans_partie_supprimee_ne_dit_rien(client):
         db.add(Interview(mission_id=mid, mode="libre", status="done", interviewee_name="Zoé"))
         db.commit()
     r = client.get(f"/missions/{mid}/finaliser")
-    assert "data-parties-supprimees-texte" not in r.text
+    assert "data-parties-supprimees" not in r.text
 
 
 @pytest.mark.parametrize("supprimees", [0, 1])
@@ -163,7 +163,7 @@ def test_ac362_revue_de_retranscription(client, monkeypatch, supprimees):
     if supprimees:
         assert attendu in _html.unescape(r.text)
     else:
-        assert "data-parties-supprimees-texte" not in r.text
+        assert "data-parties-supprimees" not in r.text
 
 
 # --------------------------------------------------------------------------- #
@@ -190,3 +190,114 @@ def test_ac363_confirmation_incomplet_seulement_pour_un_fichier_rattache(
     assert set(par_fichier) == {rattache, orphelin}, list(par_fichier)
     assert "INCOMPLET" in par_fichier[rattache]
     assert "INCOMPLET" not in par_fichier[orphelin]
+
+
+# --------------------------------------------------------------------------- #
+# Revue 3.6 : majeurs 1-4
+# --------------------------------------------------------------------------- #
+_TOURS = {"turn_interlocuteur": "A", "turn_question": "Q", "turn_remarque": "",
+          "turn_section_title": ""}
+
+
+def test_major1_le_serveur_relit_les_tranches_en_echec_du_jeton(client):
+    from app.models import InterviewSegmentJob
+
+    mid = _mission()
+    with SessionLocal() as db:
+        for pos, st in ((0, "done"), (1, "failed"), (2, "failed")):
+            db.add(InterviewSegmentJob(session_token="tok-s36-m1", kind="libre_turns",
+                                       mission_id=mid, position=pos, status=st, text="t"))
+        # une tranche en échec d'un AUTRE type ne compte pas
+        db.add(InterviewSegmentJob(session_token="tok-s36-m1", kind="answers",
+                                   mission_id=mid, position=0, status="failed", text="t"))
+        db.commit()
+    r = client.post(f"/missions/{mid}/interviews/record-libre/confirm", data={
+        "transcript": "T", "session_token": "tok-s36-m1", "tranches_manquantes": "0",
+        **_TOURS}, follow_redirects=False)
+    assert r.status_code == 303
+    with SessionLocal() as db:
+        assert db.scalars(select(Interview).where(Interview.mission_id == mid)).one()\
+            .tranches_manquantes == 2
+
+
+def test_major1_sans_jeton_la_valeur_postee_est_gardee(client):
+    mid = _mission()
+    client.post(f"/missions/{mid}/interviews/record-libre/confirm", data={
+        "transcript": "T", "tranches_manquantes": "4", **_TOURS}, follow_redirects=False)
+    with SessionLocal() as db:
+        assert db.scalars(select(Interview).where(Interview.mission_id == mid)).one()\
+            .tranches_manquantes == 4
+
+
+def test_major2_valeur_geante_ne_leve_pas_et_est_plafonnee(client):
+    from app.routers.interviews_record import PLAFOND_COMPTEUR
+
+    mid = _mission()
+    r = client.post(f"/missions/{mid}/interviews/record-libre/confirm", data={
+        "transcript": "T", "tranches_manquantes": str(10**30), **_TOURS},
+        follow_redirects=False)
+    assert r.status_code == 303
+    with SessionLocal() as db:
+        assert db.scalars(select(Interview).where(Interview.mission_id == mid)).one()\
+            .tranches_manquantes == PLAFOND_COMPTEUR
+
+
+def _voir(client, mid, chemin, extra=None, monkeypatch=None):
+    data = {"transcript": "T", "tranches_manquantes": "3", **(extra or {})}
+    return client.post(f"/missions/{mid}/interviews/record-libre/{chemin}", data=data)
+
+
+def test_major34_retour_tours_garde_le_bandeau_et_le_compteur(client):
+    mid = _mission()
+    r = _voir(client, mid, "retour-tours", _TOURS)
+    assert r.status_code == 200
+    assert 'name="tranches_manquantes" value="3"' in r.text
+    assert 'data-tranches-manquantes="3"' in r.text
+
+
+def test_major34_synthese_sans_tour_garde_le_compteur(client):
+    mid = _mission()
+    r = _voir(client, mid, "synthese")
+    assert 'name="tranches_manquantes" value="3"' in r.text
+
+
+def test_major34_synthese_echec_ia_garde_le_compteur(client, monkeypatch):
+    from app.routers import interviews_libre
+    from app.services.interview_libre_extract_ai import InterviewLibreExtractAIError
+
+    def boom(*a, **k):
+        raise InterviewLibreExtractAIError("IA KO")
+
+    monkeypatch.setattr(interviews_libre, "generate_repartition_from_turns", boom)
+    mid = _mission()
+    r = _voir(client, mid, "synthese", _TOURS)
+    assert "IA KO" in r.text
+    assert 'name="tranches_manquantes" value="3"' in r.text
+
+
+def test_major34_confirm_sans_tour_garde_le_compteur(client):
+    mid = _mission()
+    r = _voir(client, mid, "confirm")
+    assert 'name="tranches_manquantes" value="3"' in r.text
+
+
+def test_major3_bandeau_a_l_etape_3(client, monkeypatch):
+    from app.routers import interviews_libre
+
+    monkeypatch.setattr(interviews_libre, "generate_repartition_from_turns",
+                        lambda turns, axes: {"repartition": {}, "resume": "r"})
+    mid = _mission()
+    r = _voir(client, mid, "synthese", _TOURS)
+    assert 'data-tranches-manquantes="3"' in r.text
+
+
+def test_minor5_double_post_ne_reduit_pas_le_compteur(client):
+    mid = _mission()
+    data = {"transcript": "T", "session_token": "tok-s36-m5", **_TOURS}
+    client.post(f"/missions/{mid}/interviews/record-libre/confirm",
+                data={**data, "tranches_manquantes": "1"}, follow_redirects=False)
+    client.post(f"/missions/{mid}/interviews/record-libre/confirm",
+                data={**data, "tranches_manquantes": "3"}, follow_redirects=False)
+    with SessionLocal() as db:
+        assert db.scalars(select(Interview).where(Interview.mission_id == mid)).one()\
+            .tranches_manquantes == 3

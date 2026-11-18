@@ -4,8 +4,9 @@
 {% set n_supprimees = interview.parties_supprimees or 0 %}
 {% if n_supprimees %}
 <p class="ai-error" role="status" data-parties-supprimees="{{ n_supprimees }}">
-  ⚠ Entretien incomplet : {{ n_supprimees }} partie{{ 's' if n_supprimees > 1 else '' }} supprimée{{ 's' if n_supprimees > 1 else '' }}
-  de l'enregistrement audio (onglet Backup).
+  {# Story 3.6 : `texte_parties` = libellé unique `texte_parties_supprimees` (revue, finalisation). #}
+  {% if texte_parties %}⚠ {{ texte_parties }}{% else %}⚠ Entretien incomplet : {{ n_supprimees }} partie{{ 's' if n_supprimees > 1 else '' }} supprimée{{ 's' if n_supprimees > 1 else '' }}
+  de l'enregistrement audio (onglet Backup).{% endif %}
   Leur contenu n'est plus récupérable : une retranscription ne repart que des parties restantes.
 </p>
 {% endif %}

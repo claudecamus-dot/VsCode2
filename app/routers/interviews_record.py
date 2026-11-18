@@ -401,6 +401,24 @@ def _identite_fusionnee(identity: dict, extracted: dict) -> dict:
     return merged
 
 
+# Story 3.6 : un compteur posté par le client reste borné (un entier géant
+# levait OverflowError au flush SQLite, donc une 500).
+PLAFOND_COMPTEUR = 10_000
+
+
+def _entier_positif(valeur, defaut: int = 0) -> int:
+    """Entier d'un champ venu du JSON de formulaire, jamais une 500.
+
+    `int(data.get("tranches_manquantes") or 0)` levait sur une valeur non
+    numérique — même chemin, même conséquence que ci-dessus, pour un compteur
+    d'affichage. Ici le repli silencieux est le bon : ce champ n'alimente qu'un
+    bandeau d'information, le perdre ne perd aucun contenu d'entretien."""
+    try:
+        return min(PLAFOND_COMPTEUR, max(defaut, int(valeur or defaut)))
+    except (TypeError, ValueError):
+        return defaut
+
+
 def _finalize_libre_turns(
     db, request, mission, identity, transcript, session_token, segment_tail,
     incomplete: bool = False,
@@ -447,7 +465,7 @@ def _finalize_libre_turns(
             "info": info,
             # Story 3.6 (AC3.6.1) : le compteur affiché ci-dessus est reposté
             # jusqu'à `record_libre_confirm`, qui le persiste sur l'entretien.
-            "tranches_manquantes": int(manquantes or 0),
+            "tranches_manquantes": _entier_positif(manquantes),
         },
     )
 

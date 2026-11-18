@@ -16,6 +16,8 @@
   l'étape suivante.
 </p>
 
+{% include "interviews/_lacune_transcription.html" %}
+
 <form method="post" action="/missions/{{ mission.id }}/interviews/record-libre/confirm" class="card form">
   <input type="hidden" name="audio_backup_path" value="{{ identity.audio_backup_path or '' }}">
   <input type="hidden" name="audio_segments" value="{{ identity.audio_segments or '[]' }}">
