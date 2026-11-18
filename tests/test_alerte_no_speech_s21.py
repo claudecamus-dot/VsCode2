@@ -40,7 +40,7 @@ def _scenario(corps: str, *, segment_ms: int = 60000, remote: bool = False,
     return _bac(code + r"""
 Object.assign(bac, {
   noSpeechStreak: 0, NOSPEECH_ALERT_AFTER: 2, titreOrigine: null, noSpeechActive: false,
-  partagePerdu: false, alerteKind: null, partageErreur: '', swapSource: function () {},
+  partagePerdu: false, alerteKind: null, partageErreur: '', sourceAvert: '', swapSource: function () {},
   NOSPEECH_TITLE_PREFIX: %(pref)s, PARTAGE_TITLE_PREFIX: %(part)s,
   SEGMENT_MS: %(seg)d, recordingActive: true,
   noSpeechBannerEl: el('b'), noSpeechTextEl: el('t'), noSpeechFixBtn: el('f'),
