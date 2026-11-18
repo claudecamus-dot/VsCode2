@@ -424,8 +424,9 @@ def normaliser_jeton(brut) -> str:
 
 
 def _filtre_kind(kind: str | None) -> tuple:
-    """Clause de filtre ; `None` (historique de `_light`) et `KIND_TOUS` : aucune."""
-    return (InterviewSegmentJob.kind == kind,) if kind and kind != KIND_TOUS else ()
+    """Clause de filtre : SEUL `KIND_TOUS` lit toutes les natures ; `None` ou `""`
+    ne correspondent à aucun job (jamais « toutes » par omission)."""
+    return () if kind == KIND_TOUS else (InterviewSegmentJob.kind == kind,)
 
 
 def segment_jobs_status(db: Session, session_token: str, *, kind: str) -> dict:
@@ -785,12 +786,11 @@ def tranches_a_rattraper(jobs: list[InterviewSegmentJob]) -> list[InterviewSegme
     return [j for j in jobs if j.status != "done" and j.text.strip()]
 
 
-def delete_segment_jobs(
-    db: Session, session_token: str, *, kind: str = KIND_TOUS,
-) -> None:
+def delete_segment_jobs(db: Session, session_token: str, *, kind: str) -> None:
     """Supprime les jobs d'une session une fois consommés (à la finalisation) —
     ils ne servent qu'à alimenter l'écran de revue des tours, inutiles ensuite.
-    `kind` (Story 3.8) : ne supprime que cette nature (défaut : toutes)."""
+    `kind` (Story 3.8) : obligatoire, ne supprime que cette nature ; `KIND_TOUS`
+    pour tout purger, de façon explicite."""
     session_token = normaliser_jeton(session_token)
     if not session_token:
         return

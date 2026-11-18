@@ -88,6 +88,26 @@ def test_kind_est_obligatoire_et_par_mot_cle(jeton) -> None:
         interview_segment_jobs.segment_jobs_status(db, jeton, KIND_ANSWERS)
 
 
+def test_kind_vide_ou_inconnu_ne_lit_jamais_toutes_les_natures(jeton) -> None:
+    _mixte(jeton)
+    st = interview_segment_jobs.segment_jobs_status
+    with SessionLocal() as db:
+        assert st(db, jeton, kind=None)["total"] == 0  # MUTANT: None ne doit pas valoir « tous »
+        assert st(db, jeton, kind="")["total"] == 0
+    r = TestClient(app).get(f"/interviews/segment-jobs/status?session_token={jeton}&kind=bidon")
+    assert r.status_code == 422
+
+
+def test_delete_segment_jobs_kind_obligatoire(jeton) -> None:
+    with SessionLocal() as db, pytest.raises(TypeError):
+        interview_segment_jobs.delete_segment_jobs(db, jeton)
+    _mixte(jeton)
+    with SessionLocal() as db:
+        interview_segment_jobs.delete_segment_jobs(db, jeton, kind=KIND_TOUS)
+        assert db.scalar(select(InterviewSegmentJob.id).where(
+            InterviewSegmentJob.session_token == jeton)) is None
+
+
 def test_route_status_filtre_sur_kind(jeton) -> None:
     _mixte(jeton)
     c = TestClient(app)
@@ -210,9 +230,10 @@ def test_lister_backups_segment_sans_position_a_cote_de_zero(tmp_path: Path) -> 
     # rang d'affichage calculé sur l'ordre des positions (None d'abord), quel
     # que soit l'ordre d'entrée ou l'ordre chronologique de la liste rendue
     assert par_nom[nn]["position"] is None  # jamais de rang fabriqué
-    assert par_nom[n0]["position"] == 1
-    assert par_nom[n1]["position"] == 2
-    assert all(r["nb_tranches"] == 3 for r in lignes)
+    # le rang ne compte que les tranches à position réelle : « 1/2 », « 2/2 »
+    assert par_nom[n0]["position"] == 0
+    assert par_nom[n1]["position"] == 1
+    assert all(r["nb_tranches"] == 2 for r in lignes)
 
 
 def test_delete_backup_garde_la_vraie_derniere_tranche(monkeypatch, tmp_path: Path) -> None:

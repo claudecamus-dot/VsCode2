@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from ..db import RECORDINGS_DIR, get_session
 from ..models import (
+    KIND_LIBRE_TURNS,
     Interview,
     InterviewTurn,
     Mission,
@@ -981,7 +982,7 @@ def record_libre_confirm(
     # validés à la main. Gardés, un job en échec rendait l'entretien « relançable »
     # (`peut_relancer`) et la relance aurait réécrit ces tours (Story 3.4, B-9).
     if jeton:
-        delete_segment_jobs(db, jeton)
+        delete_segment_jobs(db, jeton, kind=KIND_LIBRE_TURNS)
     return _redirection_apres_enregistrement(
         mission, interview, _date_illisible(interview_date),
     )
@@ -1046,7 +1047,7 @@ def _confirm_sur_jeton_existant(db, mission, existant, turns, transcript, resume
         # tronqué n'avait pas — le signal reste jusqu'à une retranscription
         # complète (`interviews_retranscription`), seule à pouvoir le prouver.
         db.commit()
-        delete_segment_jobs(db, existant.segment_token)
+        delete_segment_jobs(db, existant.segment_token, kind=KIND_LIBRE_TURNS)
         return _redirection_apres_enregistrement(mission, existant)
     raise HTTPException(
         status_code=409,

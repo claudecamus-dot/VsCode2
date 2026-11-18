@@ -322,7 +322,7 @@ def _oublier_job_retranscription(db: Session, job: AudioFileJob) -> None:
     """Retire un job de retranscription et les tranches d'extraction qu'il a
     créées. Le fichier audio, lui, appartient à l'entretien : jamais supprimé —
     depuis 2026-09-01 aucun chemin automatique du dépôt n'efface d'audio."""
-    delete_segment_jobs(db, job.session_token)
+    delete_segment_jobs(db, job.session_token, kind=KIND_LIBRE_TURNS)
     db.delete(job)
     db.commit()
 
@@ -722,7 +722,7 @@ def retranscrire_confirmer(
                 )
         raise
     if jeton:
-        delete_segment_jobs(db, jeton)
+        delete_segment_jobs(db, jeton, kind=KIND_LIBRE_TURNS)
 
     if job is not None:
         _oublier_job_retranscription(db, job)

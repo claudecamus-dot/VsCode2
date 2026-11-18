@@ -196,7 +196,7 @@ def _finalize_record_answers(
         # finding F3 : c'est exactement le mur que le plafond existe pour
         # éviter). Le texte lui-même n'est pas en jeu ici : il voyage déjà
         # dans `identity["transcript"]` jusqu'à `import_interview_confirm`.
-        delete_segment_jobs(db, session_token)
+        delete_segment_jobs(db, session_token, kind=KIND_ANSWERS)
 
     contexte = _build_review_context(mission, extracted, identity, manquantes)
     if incomplete and not manquantes:
@@ -271,6 +271,7 @@ def record_interview(
                 "session_token": session_token,
                 "segment_tail": segment_tail,
                 "status": status,
+                "segment_kind": KIND_ANSWERS,
             },
         )
 
@@ -366,6 +367,7 @@ def _ecran_attente_tranches(
             "status": status,
             "finalize_action": finalize_action,
             "suite_label": suite_label,
+            "segment_kind": KIND_LIBRE_TURNS,
         },
     )
 

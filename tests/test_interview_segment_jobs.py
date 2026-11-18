@@ -206,7 +206,7 @@ def test_delete_segment_jobs() -> None:
     db = SessionLocal()
     db.add(InterviewSegmentJob(session_token="tok-del", position=0, status="done"))
     db.commit()
-    interview_segment_jobs.delete_segment_jobs(db, "tok-del")
+    interview_segment_jobs.delete_segment_jobs(db, "tok-del", kind="*")
     remaining = db.scalars(
         select(InterviewSegmentJob).where(InterviewSegmentJob.session_token == "tok-del")
     ).all()

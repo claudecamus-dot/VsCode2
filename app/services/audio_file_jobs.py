@@ -804,6 +804,6 @@ def purge_stale_audio_file_jobs(db: Session, max_age_days: int = 7) -> None:
         # base ses tranches, chacune porteuse de ~5 min de propos d'entretien :
         # exactement ce que la purge existe pour éviter (revue adversariale
         # 2026-07-30).
-        delete_segment_jobs(db, job.session_token)
+        delete_segment_jobs(db, job.session_token, kind=KIND_LIBRE_TURNS)
         db.delete(job)
     db.commit()
