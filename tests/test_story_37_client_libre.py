@@ -81,10 +81,12 @@ function onglet(opts) {
   opts = opts || {};
   const ss = Object.assign({}, opts.ss || {}); const win = { localStorage: local, sessionStorage: {
     getItem: function (k) { return k in ss ? ss[k] : null; }, setItem: function (k, v) { ss[k] = String(v); } },
-    performance: { getEntriesByType: function () { return [{ type: opts.nav || 'navigate' }]; } } };
+    performance: { getEntriesByType: function () { return [{ type: opts.nav || 'navigate' }]; } },
+    addEventListener: function (n, f) { (win._l[n] = win._l[n] || []).push(f); }, _l: {},
+    document: { visibilityState: 'visible', _l: {}, addEventListener: function (n, f) { (win.document._l[n] = win.document._l[n] || []).push(f); } } };
   delete require.cache[require.resolve(%(chemin)s)];
   const m = require(%(chemin)s);
-  const enveloppe = { _ss: ss };
+  const enveloppe = { _ss: ss, _win: win };
   Object.keys(m).forEach(function (n) {
     enveloppe[n] = typeof m[n] === 'function'
       ? function () { global.window = win; return m[n].apply(null, arguments); } : m[n];
@@ -101,13 +103,13 @@ out.b_garde_le_sien = B.chargerPropre(7, T0 + 2000).transcript;
 out.deux_cles = Object.keys(store).filter(function (k) { return k.indexOf('i2d:brouillon-libre:7') === 0; }).length;
 // onglet neuf : propose le plus recent des autres onglets
 out.vivants_non_proposes = C.charger(7, T0 + 2000) === null;   // A et B battent encore
-const orphelin = C.charger(7, T0 + 60000);
+const orphelin = C.charger(7, T0 + 120000);
 out.orphelin = orphelin && orphelin.transcript;
 out.orphelin_pas_dans_sauver = C.sauver(7, orphelin, T0 + 3000) && !('_cle' in JSON.parse(store[Object.keys(store).filter(function (k) { return k.indexOf('i2d:brouillon-libre:7') === 0; }).pop()]));
 C.adopter(7, orphelin);
-out.b_retire_apres_adoption = B.chargerPropre(7, T0 + 60000) === null;
-out.a_intact = A.chargerPropre(7, T0 + 60000).transcript;
-out.est_propre = [C.estPropre(7, orphelin), C.estPropre(7, C.chargerPropre(7, T0 + 60000))];
+out.b_retire_apres_adoption = B.chargerPropre(7, T0 + 120000) === null;
+out.a_intact = A.chargerPropre(7, T0 + 120000).transcript;
+out.est_propre = [C.estPropre(7, orphelin), C.estPropre(7, C.chargerPropre(7, T0 + 120000))];
 // M3 : onglet DUPLIQUE (sessionStorage copie, battement frais) -> identifiant neuf ; rechargement -> meme
 const Z = onglet(); Z.battre();
 const idZ = Z._ss['i2d:brouillon-onglet'];
@@ -115,6 +117,17 @@ const D = onglet({ ss: Z._ss, nav: 'navigate' }); D.battre();
 out.dup_navigate = D._ss['i2d:brouillon-onglet'] !== idZ;
 const R = onglet({ ss: Z._ss, nav: 'reload' }); R.battre();
 out.reload_garde_l_id = R._ss['i2d:brouillon-onglet'] === idZ;
+// F1 : retour dans le MEME onglet par un lien (pagehide puis navigate) -> meme identifiant
+const Q = onglet(); Q.battre(T0);
+const idQ = Q._ss['i2d:brouillon-onglet'];
+global.window = Q._win; Q._win._l.pagehide.forEach(function (f) { f(); });
+const Q2 = onglet({ ss: Q._ss, nav: 'navigate' }); Q2.battre(T0 + 5000);
+out.retour_meme_onglet = Q2._ss['i2d:brouillon-onglet'] === idQ;
+// F2 : onglet masque (minuteur bride a ~1/min) toujours vivant a 60 s ; visibilitychange bat aussitot
+out.vivant_60s = Q2.VIVANT_MS >= 90000;
+const k = 'i2d:onglet-vivant:' + idQ; store[k] = String(T0);
+global.window = Q2._win; Q2._win.document._l.visibilitychange.forEach(function (f) { f(); });
+out.visibilite_bat = Number(store[k]) > T0;
 // elagage : au plus 5 brouillons d'autres onglets conserves
 for (let i = 0; i < 8; i++) onglet().sauver(21, { transcript: 'o' + i }, T0 + i);
 onglet().sauver(21, { transcript: 'propre' }, T0 + 100);
@@ -552,3 +565,48 @@ console.log(JSON.stringify(out));
 """)
     assert sortie["erreur"] is None, sortie["erreur"]
     assert not any("segment(s) à relancer" in m for m in sortie["messages"]), sortie["messages"]
+
+
+def test_37_f1_retour_dans_le_meme_onglet_garde_son_identifiant(draft: dict) -> None:
+    assert draft["retour_meme_onglet"] is True
+
+
+def test_37_f2_onglet_masque_reste_vivant_et_bat_a_la_visibilite(draft: dict) -> None:
+    assert draft["vivant_60s"] is True and draft["visibilite_bat"] is True
+
+
+def test_37_f3_le_rev_recu_avec_la_tranche_fait_foi() -> None:
+    js = r"""
+(async () => {
+  const out = { erreur: erreur, urls: [] };
+  out.urls.push(await sonder({ turns: [], next_since: 1, tranches: [{ position: 0, turns: [tour('t0')], rev: 'a' }] }));
+  out.urls.push(await sonder({ turns: [], next_since: 1, revs: { '0': 'z' } }));
+  out.urls.push(await sonder({ turns: [], next_since: 1, revs: { '0': 'z2' },
+    tranches: [{ position: 0, turns: [tour('t0b')], rev: 'z' }] }));
+  out.urls.push(await sonder({ turns: [], next_since: 1, revs: { '0': 'z2' } }));
+  console.log(JSON.stringify(out));
+})();
+"""
+    r = _jouer_apercu(js)
+    assert r["erreur"] is None, r["erreur"]
+    u = r["urls"]
+    assert "manquantes=0" in u[2], u
+    # la tranche recue (rev z) est deja perimee face a z2 : redemandee, pas declaree a jour
+    assert "manquantes=0" in u[3], u
+
+
+def test_37_f4_la_date_preremplie_est_remplacee_par_celle_du_brouillon() -> None:
+    import re
+    js = script_inline(LIBRE)
+    m = re.search(r"function poserIdentite\(id\) \{.*?\n  \}\n", js, re.S)
+    assert m, "poserIdentite introuvable"
+    r = _node("""
+const IDENT_CHAMPS = ['interview_date', 'interviewee_name'];
+const champs = { interview_date: { value: '2026-11-18', defaultValue: '2026-11-18' },
+  interviewee_name: { value: 'Saisi', defaultValue: '' } };
+const document = { querySelector: function (sel) { return champs[/name="(.*?)"/.exec(sel)[1]]; } };
+""" + m.group(0) + """
+poserIdentite({ interview_date: '2026-10-01', interviewee_name: 'Brouillon' });
+console.log(JSON.stringify({ date: champs.interview_date.value, nom: champs.interviewee_name.value }));
+""")
+    assert r == {"date": "2026-10-01", "nom": "Saisi"}

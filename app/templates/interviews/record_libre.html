@@ -574,7 +574,8 @@
     IDENT_CHAMPS.forEach(function (n) {
       var c = document.querySelector('#record-form input[name="' + n + '"]');
       // Jamais d'écrasement d'une saisie déjà faite dans cet onglet.
-      if (c && !c.value && typeof id[n] === 'string') c.value = id[n];
+      // ...sauf un champ encore à sa valeur par défaut (ex. date préremplie du jour).
+      if (c && (!c.value || c.value === c.defaultValue) && typeof id[n] === 'string' && id[n]) c.value = id[n];
     });
   }
   function persistDraft() {
@@ -3185,7 +3186,10 @@
           var sansLigne = Array.isArray(data.sans_ligne) && data.sans_ligne.indexOf(p) >= 0;
           if (sansLigne) pollRepartition.absences[p] = (pollRepartition.absences[p] || 0) + 1;
           else if (!renvoyee) pollRepartition.absences[p] = 0;  // ligne présente mais pas finie : on redemandera
-          if (renvoyee && pollRepartition.revServeur[p] !== undefined) pollRepartition.revRecue[p] = pollRepartition.revServeur[p];
+          // Le rev reçu avec la tranche fait foi ; l'empreinte serveur n'est reprise que
+          // si la tranche est arrivée sans rev (sinon elle masquerait une tranche déjà périmée).
+          var recu = (Array.isArray(data.tranches) ? data.tranches : []).filter(function (t) { return t.position === p; })[0];
+          if (renvoyee && recu && recu.rev === undefined && pollRepartition.revServeur[p] !== undefined) pollRepartition.revRecue[p] = pollRepartition.revServeur[p];
         });
         var tours = [];
         // Tri NUMÉRIQUE (`a - b` convertit les clés) : '10' après '9'.

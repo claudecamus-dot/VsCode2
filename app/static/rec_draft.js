@@ -46,7 +46,9 @@ var recDraft = (function () {
   // Un onglet est « vivant » tant que son battement (`battre`) a moins de 30 s : le
   // brouillon d'un onglet vivant n'est JAMAIS proposé à un autre (même jeton de session,
   // tranches mélangées). Un battement toutes les 10 s laisse deux battements de marge.
-  var VIVANT_MS = 30000;
+  // 90 s (et non 30) : Chrome bride les minuteurs d'un onglet masqué à ~1 par minute ;
+  // un onglet d'enregistrement en arrière-plan ne doit pas être jugé mort (F2).
+  var VIVANT_MS = 90000;
   var BROUILLONS_ETRANGERS_MAX = 5;
   var ongletMemoire = null;
   function typeNavigation() {
@@ -77,9 +79,34 @@ var recDraft = (function () {
   }
 
   // Battement de l'onglet (à appeler toutes les ~10 s tant que l'écran est ouvert).
+  var ecouteursPoses = false;
+  function quitter() {
+    // Page quittée : le battement tombe tout de suite, pour que le RETOUR dans le même
+    // onglet (lien, < 30 s) ne soit pas pris pour un onglet dupliqué (F1).
+    var s = stockage();
+    if (!s) return;
+    try { s.removeItem(VIVANT_PREFIXE + idOnglet()); } catch (e) { /* best-effort */ }
+  }
+  function poserEcouteurs() {
+    if (ecouteursPoses) return;
+    ecouteursPoses = true;
+    try {
+      var w = (typeof window !== 'undefined') ? window : null;
+      if (!w || typeof w.addEventListener !== 'function') return;
+      w.addEventListener('pagehide', quitter);
+      w.addEventListener('pageshow', function () { battre(); });
+      if (w.document && typeof w.document.addEventListener === 'function') {
+        // Onglet qui redevient visible : battement immédiat sans attendre le minuteur bridé.
+        w.document.addEventListener('visibilitychange', function () {
+          if (w.document.visibilityState !== 'hidden') battre();
+        });
+      }
+    } catch (e) { /* best-effort */ }
+  }
   function battre(now) {
     var s = stockage();
     if (!s) return false;
+    poserEcouteurs();
     try { s.setItem(VIVANT_PREFIXE + idOnglet(), String(maintenant(now))); return true; } catch (e) { return false; }
   }
   function vivant(id, now) {
