@@ -423,9 +423,18 @@ def normaliser_jeton(brut) -> str:
     return (brut or "").strip()[:JETON_MAX]
 
 
-def segment_jobs_status(db: Session, session_token: str) -> dict:
+def _filtre_kind(kind: str | None) -> tuple:
+    return (InterviewSegmentJob.kind == kind,) if kind else ()
+
+
+def segment_jobs_status(
+    db: Session, session_token: str, kind: str | None = None,
+) -> dict:
     """État agrégé des jobs d'une session (pour l'écran de statut et la
-    décision de finalisation)."""
+    décision de finalisation).
+
+    `kind` (Story 3.8, B-5) : restreint compteurs ET liste à cette nature de
+    job (`libre_turns` / `answers`) ; sans `kind`, toutes natures."""
     # Jeton normalisé partout (F5) : création, lecture, purge, entretien.
     session_token = normaliser_jeton(session_token)
     if not session_token:
@@ -434,7 +443,10 @@ def segment_jobs_status(db: Session, session_token: str) -> dict:
     jobs = list(
         db.scalars(
             select(InterviewSegmentJob)
-            .where(InterviewSegmentJob.session_token == session_token)
+            .where(
+                InterviewSegmentJob.session_token == session_token,
+                *_filtre_kind(kind),
+            )
             .order_by(InterviewSegmentJob.position)
         )
     )
@@ -472,10 +484,6 @@ _MERGE_LIGHT_COLUMNS = (
     InterviewSegmentJob.turns_result,
     InterviewSegmentJob.created_at,
 )
-
-
-def _filtre_kind(kind: str | None) -> tuple:
-    return (InterviewSegmentJob.kind == kind,) if kind else ()
 
 
 def segment_jobs_status_light(

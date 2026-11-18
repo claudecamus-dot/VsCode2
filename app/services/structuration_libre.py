@@ -112,7 +112,7 @@ def _extraire_tours_libre(db, transcript, session_token, segment_tail, supprimer
     sur sa seule tranche (~30min max), jamais sur la transcription complète —
     puis fusion de tous les tours (jobs + reliquat final). Coût borné au nombre
     de tranches à récupérer, pas à la durée totale de l'entretien."""
-    status = segment_jobs_status(db, session_token)
+    status = segment_jobs_status(db, session_token, kind="libre_turns")
 
     manquantes = 0
 
@@ -215,7 +215,7 @@ def _tranches_en_vol(jeton: str) -> int:
     """Jobs encore `pending`/`running` du jeton — lus dans une session COURTE
     (aucune session tenue pendant l'attente)."""
     with _db.SessionLocal() as db:
-        jobs = segment_jobs_status(db, jeton)["jobs"]
+        jobs = segment_jobs_status(db, jeton, kind="libre_turns")["jobs"]
         return sum(1 for j in jobs if j.status in ("pending", "running"))
 
 
@@ -546,7 +546,7 @@ def nb_tranches_a_rattraper(interview: Interview) -> int:
     db = object_session(interview)
     if not jeton or db is None:
         return 0
-    return len(tranches_a_rattraper(segment_jobs_status(db, jeton)["jobs"]))
+    return len(tranches_a_rattraper(segment_jobs_status(db, jeton, kind="libre_turns")["jobs"]))
 
 
 def peut_relancer(interview: Interview) -> bool:

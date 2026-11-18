@@ -45,6 +45,7 @@ from ..services.structuration_libre import (
     structurer_texte_disponible,
 )
 from ..services.tranches_echec import relancer_tranches_en_fond, reserver_tranches
+from ..services.tri_position import cle_position
 from ..templating import templates
 from .interviews_commun import (
     REPARTITION_KEYS,
@@ -988,7 +989,7 @@ def record_libre_confirm(
 
 def _memes_tours(interview: Interview, turns: list[dict]) -> bool:
     """Les tours en base sont-ils exactement ceux postés (double POST) ?"""
-    existants = sorted(interview.turns, key=lambda t: t.position or 0)
+    existants = sorted(interview.turns, key=lambda t: cle_position(t.position))
     cles = ("interlocuteur", "question", "remarque", "section_title")
     return len(existants) == len(turns) and all(
         all((getattr(e, k) or None) == (t.get(k) or None) for k in cles)

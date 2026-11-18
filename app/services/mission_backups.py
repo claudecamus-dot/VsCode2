@@ -28,6 +28,8 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import load_only
 
+from .tri_position import cle_position
+
 logger = logging.getLogger(__name__)
 
 # Un « orphelin » plus jeune que ce seuil peut appartenir à un enregistrement
@@ -403,7 +405,7 @@ def lister_backups(mission, recordings_dir: Path) -> dict:
     for interview in mission.interviews:
         segments = sorted(
             (s for s in (interview.audio_segments or []) if s.get("filename")),
-            key=lambda s: s.get("position") or 0,
+            key=lambda s: cle_position(s.get("position")),
         )
         noms = [(s["filename"], s.get("position")) for s in segments]
         # Entretien d'avant la segmentation (2026-07-20) : une seule sauvegarde,

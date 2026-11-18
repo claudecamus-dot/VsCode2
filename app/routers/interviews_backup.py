@@ -28,6 +28,7 @@ from ..models import (
     Mission,
 )
 from ..services import mission_backups
+from ..services.tri_position import cle_position
 from ..uploads import (
     UploadTropVolumineux,
     UploadVide,
@@ -274,7 +275,7 @@ def delete_record_backup(
             # « audio complet » sur une transcription amputée. Le rang affiché
             # (« Tranche 2/2 » de l'onglet Backup) est calculé à l'affichage
             # (`mission_backups.lister_backups`), plus jamais écrit en base.
-            segments = sorted(segments, key=lambda s: s.get("position") or 0)
+            segments = sorted(segments, key=lambda s: cle_position(s.get("position")))
             # Réassignation (pas une mutation en place) : SQLAlchemy ne détecte
             # pas la modification d'une liste JSON modifiée sur place.
             interview.audio_segments = segments
