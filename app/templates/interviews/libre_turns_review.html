@@ -29,6 +29,8 @@
 </form>
 {% endif %}
 
+{% include "interviews/_lacune_transcription.html" %}
+
 <form method="post" action="/missions/{{ mission.id }}/interviews/record-libre/synthese" class="card form"
       id="turns-review-form" data-busy-label="Génération de la synthèse en cours…">
   <input type="hidden" name="audio_backup_path" value="{{ identity.audio_backup_path or '' }}">
@@ -38,6 +40,8 @@
      rouvert perdait le jeton des tranches et le reliquat (revue 2026-10-06, m3). #}
   <input type="hidden" name="session_token" value="{{ identity.session_token or '' }}">
   <input type="hidden" name="segment_tail" value="{{ identity.segment_tail or '' }}">
+  {# Story 3.6 (AC3.6.1) : transcription incomplète persistée à l'enregistrement. #}
+  <input type="hidden" name="tranches_manquantes" value="{{ tranches_manquantes or 0 }}">
 
   {# Identité : pavé repliable DANS le tour de table (demande utilisateur
      2026-07-27) — il vivait dans un onglet séparé, dont le libellé était la

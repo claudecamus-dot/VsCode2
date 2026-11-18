@@ -1,0 +1,11 @@
+{# Story 3.6 (AC3.6.1) : transcription incomplète (tranches non structurées) — rendue
+   aux étapes 2 et 3 du wizard libre tant que le compteur n'est pas enregistré. #}
+{% if tranches_manquantes and not erreur_est_lacune %}
+<p class="ai-error" role="status" data-tranches-manquantes="{{ tranches_manquantes }}">
+  ⚠ {{ tranches_manquantes }} tranche{{ 's' if tranches_manquantes > 1 else '' }}
+  n'{{ 'ont' if tranches_manquantes > 1 else 'a' }} pas pu être structurée{{ 's' if tranches_manquantes > 1 else '' }}
+  en tours de parole par l'IA : leur texte est conservé dans la transcription de
+  l'entretien, mais absent de son tour de table. Depuis la fiche de l'entretien,
+  « ↻ Relancer la transcription (audio) » les rattrape.
+</p>
+{% endif %}

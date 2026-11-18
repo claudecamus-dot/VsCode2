@@ -405,6 +405,24 @@ def _identite_fusionnee(identity: dict, extracted: dict) -> dict:
     return merged
 
 
+# Story 3.6 : un compteur posté par le client reste borné (un entier géant
+# levait OverflowError au flush SQLite, donc une 500).
+PLAFOND_COMPTEUR = 10_000
+
+
+def _entier_positif(valeur, defaut: int = 0) -> int:
+    """Entier d'un champ venu du JSON de formulaire, jamais une 500.
+
+    `int(data.get("tranches_manquantes") or 0)` levait sur une valeur non
+    numérique — même chemin, même conséquence que ci-dessus, pour un compteur
+    d'affichage. Ici le repli silencieux est le bon : ce champ n'alimente qu'un
+    bandeau d'information, le perdre ne perd aucun contenu d'entretien."""
+    try:
+        return min(PLAFOND_COMPTEUR, max(defaut, int(valeur or defaut)))
+    except (TypeError, ValueError):
+        return defaut
+
+
 def _finalize_libre_turns(
     db, request, mission, identity, transcript, session_token, segment_tail,
     incomplete: bool = False,
@@ -412,7 +430,12 @@ def _finalize_libre_turns(
     """Produit les tours de parole puis rend l'écran de revue (étape 2 du
     wizard historique — plus atteignable depuis l'écran d'enregistrement
     depuis le 2026-07-29, cf. `record_libre_enregistrer`, mais conservée)."""
-    extracted = _extraire_tours_libre(db, transcript, session_token, segment_tail)
+    # Story 3.6 : les jobs sont GARDÉS jusqu'à `record_libre_confirm` (qui les supprime),
+    # pour que le serveur relise les tranches manquantes à l'enregistrement. Abandon du
+    # wizard : `purge_stale_segment_jobs` (interview_segment_jobs.py:740, 7 jours).
+    extracted = _extraire_tours_libre(
+        db, transcript, session_token, segment_tail, supprimer_jobs=False,
+    )
     merged_identity = _identite_fusionnee(identity, extracted)
 
     # `_extraire_tours_libre` rend un COMPTEUR (`tranches_manquantes`), plus
@@ -449,6 +472,11 @@ def _finalize_libre_turns(
             "transcript": transcript,
             "error": error,
             "info": info,
+            # Story 3.6 (AC3.6.1) : le compteur affiché ci-dessus est reposté
+            # jusqu'à `record_libre_confirm`, qui le persiste sur l'entretien.
+            "tranches_manquantes": _entier_positif(manquantes),
+            # Le message `error` ci-dessus EST le signal de lacune : pas de bandeau double.
+            "erreur_est_lacune": bool(manquantes),
         },
     )
 

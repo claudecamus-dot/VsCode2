@@ -16,12 +16,16 @@
   l'étape suivante.
 </p>
 
+{% include "interviews/_lacune_transcription.html" %}
+
 <form method="post" action="/missions/{{ mission.id }}/interviews/record-libre/confirm" class="card form">
   <input type="hidden" name="audio_backup_path" value="{{ identity.audio_backup_path or '' }}">
   <input type="hidden" name="audio_segments" value="{{ identity.audio_segments or '[]' }}">
   <input type="hidden" name="transcript" value="{{ transcript or '' }}">
   {# Story 3.4 (B-9) : jeton de session reposté à `confirm` (double POST = un seul entretien). #}
   <input type="hidden" name="session_token" value="{{ identity.session_token or '' }}">
+  {# Story 3.6 (AC3.6.1) : transcription incomplète persistée à l'enregistrement. #}
+  <input type="hidden" name="tranches_manquantes" value="{{ tranches_manquantes or 0 }}">
   {% for turn in turns %}
   <input type="hidden" name="turn_interlocuteur" value="{{ turn.interlocuteur }}">
   <input type="hidden" name="turn_question" value="{{ turn.question or '' }}">
