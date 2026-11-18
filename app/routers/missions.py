@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, load_only, selectinload
 from ..db import RECORDINGS_DIR, get_session
 from ..models import Answer, Interview, InterviewTurn, Mission, Theme, Trame
 from ..services import mission_backups
+from ..services.interview_export import texte_parties_supprimees
 from ..services.mode import est_mode_demo
 from ..templating import templates
 
@@ -279,6 +280,10 @@ def finaliser_mission_form(
             "mission": mission,
             "eligible": eligible,
             "tranches_manquantes": tranches_manquantes,
+            # Story 3.6 (AC3.6.2) : libellé unique des exports, un par entretien.
+            "parties_supprimees_textes": [
+                t for t in (texte_parties_supprimees(iv) for iv in mission.interviews) if t
+            ],
         },
     )
 

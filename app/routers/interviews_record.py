@@ -445,6 +445,9 @@ def _finalize_libre_turns(
             "transcript": transcript,
             "error": error,
             "info": info,
+            # Story 3.6 (AC3.6.1) : le compteur affiché ci-dessus est reposté
+            # jusqu'à `record_libre_confirm`, qui le persiste sur l'entretien.
+            "tranches_manquantes": int(manquantes or 0),
         },
     )
 

@@ -22,6 +22,8 @@
   <input type="hidden" name="transcript" value="{{ transcript or '' }}">
   {# Story 3.4 (B-9) : jeton de session reposté à `confirm` (double POST = un seul entretien). #}
   <input type="hidden" name="session_token" value="{{ identity.session_token or '' }}">
+  {# Story 3.6 (AC3.6.1) : transcription incomplète persistée à l'enregistrement. #}
+  <input type="hidden" name="tranches_manquantes" value="{{ tranches_manquantes or 0 }}">
   {% for turn in turns %}
   <input type="hidden" name="turn_interlocuteur" value="{{ turn.interlocuteur }}">
   <input type="hidden" name="turn_question" value="{{ turn.question or '' }}">

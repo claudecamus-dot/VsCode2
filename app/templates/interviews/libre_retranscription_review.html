@@ -32,6 +32,11 @@
 </div>
 {% endif %}
 
+{# Story 3.6 (AC3.6.2) : parties audio supprimées (perdues, non rattrapables). #}
+{% if parties_supprimees_texte %}
+<p class="ai-error" role="status" data-parties-supprimees-texte>⚠ {{ parties_supprimees_texte }}</p>
+{% endif %}
+
 <form method="post" action="/interviews/{{ interview.id }}/retranscrire/confirmer" class="card form">
   {# Nom de l'interlocuteur porté par le formulaire pour le SEUL bouton d'export
      PDF (`/interviews/turns/export-pdf`, qui le lit en `Form`) : sans lui le PDF

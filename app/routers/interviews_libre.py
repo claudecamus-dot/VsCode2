@@ -535,6 +535,7 @@ def record_libre_retour_tours(
     turn_section_title: list[str] = Form([]),
     session_token: str = Form(""),
     segment_tail: str = Form(""),
+    tranches_manquantes: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Retour de l'étape 3 vers l'étape 2 SANS perdre les tours de parole
@@ -565,6 +566,7 @@ def record_libre_retour_tours(
                 segment_tail=segment_tail,
             ),
             "transcript": transcript,
+            "tranches_manquantes": _entier_positif(tranches_manquantes),
         },
     )
 
@@ -799,6 +801,7 @@ def record_libre_synthese(
     turn_remarque: list[str] = Form([]),
     turn_section_title: list[str] = Form([]),
     session_token: str = Form(""),
+    tranches_manquantes: str = Form(""),
     db: Session = Depends(get_session),
 ):
     """Étape 2 (US9.16) : à partir des tours de parole validés à l'étape
@@ -830,6 +833,7 @@ def record_libre_synthese(
                 "turns": [],
                 "identity": identity,
                 "transcript": transcript,
+                "tranches_manquantes": _entier_positif(tranches_manquantes),
                 "error": "Aucun tour de parole à synthétiser — corrige au moins un tour.",
             },
         )
@@ -845,6 +849,7 @@ def record_libre_synthese(
                 "turns": turns,
                 "identity": identity,
                 "transcript": transcript,
+                "tranches_manquantes": _entier_positif(tranches_manquantes),
                 "error": str(exc),
             },
         )
@@ -860,6 +865,7 @@ def record_libre_synthese(
             "resume": synth["resume"],
             "identity": identity,
             "transcript": transcript,
+            "tranches_manquantes": _entier_positif(tranches_manquantes),
         },
     )
 
@@ -891,9 +897,11 @@ def record_libre_confirm(
     repartition_aspirations: str = Form(""),
     session_token: str = Form(""),
     segment_tail: str = Form(""),
+    tranches_manquantes: str = Form(""),
     db: Session = Depends(get_session),
 ):
     mission = _get_mission(db, mission_id)
+    manquantes = _entier_positif(tranches_manquantes)
 
     turns_to_save = _parse_turns_from_form(
         turn_interlocuteur, turn_question, turn_remarque, turn_section_title
@@ -921,6 +929,7 @@ def record_libre_confirm(
                     segment_tail=segment_tail,
                 ),
                 "transcript": transcript,
+                "tranches_manquantes": manquantes,
                 "error": "Aucun tour de parole à enregistrer — corrige au moins un tour.",
             },
         )
@@ -959,6 +968,7 @@ def record_libre_confirm(
             transcript,
             resume,
             repartition,
+            tranches_manquantes=manquantes,
             segment_token=jeton,
         )
     except IntegrityError:

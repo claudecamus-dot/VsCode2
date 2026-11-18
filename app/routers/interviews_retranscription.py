@@ -40,6 +40,7 @@ from ..services.audio_file_jobs import (
     tranches_extraction,
 )
 from ..services.interview_export import (
+    texte_parties_supprimees,
     transcript_of,
 )
 from ..services.interview_segment_jobs import (
@@ -605,6 +606,8 @@ def retranscrire_appliquer(
             "ancien_reconstitue": ancien_reconstitue,
             "nb_tours_actuels": len(interview.turns),
             "avertissements": avertissements,
+            # Story 3.6 (AC3.6.2) : libellé unique `texte_parties_supprimees`.
+            "parties_supprimees_texte": texte_parties_supprimees(interview),
         },
     )
 

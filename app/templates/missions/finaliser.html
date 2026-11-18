@@ -25,6 +25,11 @@
 </p>
 {% endif %}
 
+{# Story 3.6 (AC3.6.2) : parties audio supprimées — libellé unique des exports. #}
+{% for t in parties_supprimees_textes or [] %}
+<p class="ai-error" role="status" data-parties-supprimees-texte>⚠ {{ t }}</p>
+{% endfor %}
+
 <section class="card">
   <h2>Nouvelle mission</h2>
   <form method="post" action="/missions/{{ mission.id }}/finaliser" class="form">
