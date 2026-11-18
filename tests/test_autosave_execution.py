@@ -212,9 +212,18 @@ out.s37 = {
   r413: erreurPuisSucces('htmx:responseError', { xhr: { status: 413 } }),
   r422: erreurPuisSucces('htmx:responseError', { xhr: { status: 422 } }),
   sendError: erreurPuisSucces('htmx:sendError', {}),
-  timeout: erreurPuisSucces('htmx:timeout', {}),
   r500: erreurPuisSucces('htmx:responseError', { xhr: { status: 500 } })
 };
+
+// Story 3.7 (M) : deux sources en erreur sur le MEME slot ; le succes de l'une n'efface pas l'autre.
+var sdeux = new Elt('span'); sdeux.classList.add('saved'); var srcA = {}, srcB = {};
+emettre('htmx:responseError', { target: sdeux, elt: srcA, xhr: { status: 404 } });
+emettre('htmx:sendError', { target: sdeux, elt: srcB });
+fin3s();
+emettre('htmx:afterRequest', { target: sdeux, elt: srcA, successful: true, xhr: { status: 200 } });
+out.deuxSources = { apresA: etat(sdeux) };
+emettre('htmx:afterRequest', { target: sdeux, elt: srcB, successful: true, xhr: { status: 200 } });
+out.deuxSources.apresB = etat(sdeux);
 
 // 9c : le succès d'un AUTRE élément ne l'efface pas ; celui de l'élément en erreur, si.
 var eltA = {}, eltB = {};
@@ -414,7 +423,7 @@ def test_D_succes_sans_elt_ne_leve_pas_le_message_d_une_source_connectee(sortie:
     assert _garde(sortie["dSansElt"]), sortie["dSansElt"]
 
 
-@pytest.mark.parametrize("cle", ["r403", "r413", "r422", "sendError", "timeout"])
+@pytest.mark.parametrize("cle", ["r403", "r413", "r422", "sendError"])
 def test_37_erreurs_d_autosave_persistantes_jusqu_au_succes(sortie: dict, cle: str) -> None:
     """Story 3.7 (AC3.7.5, A-17) : l'erreur reste affichee apres 3 s, puis part au succes."""
     e = sortie["s37"][cle]
@@ -425,3 +434,9 @@ def test_37_erreurs_d_autosave_persistantes_jusqu_au_succes(sortie: dict, cle: s
 
 def test_37_un_500_reste_transitoire(sortie: dict) -> None:
     assert sortie["s37"]["r500"]["texte"] == ""
+
+
+def test_37_le_succes_d_une_source_n_efface_pas_l_erreur_d_une_autre(sortie: dict) -> None:
+    d = sortie["deuxSources"]
+    assert d["apresA"]["erreur"] is True and d["apresA"]["texte"] != "", d
+    assert d["apresB"]["erreur"] is False and d["apresB"]["texte"] == "", d

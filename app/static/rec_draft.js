@@ -42,7 +42,19 @@ var recDraft = (function () {
   // sessionStorage (survit au F5, pas à un autre onglet) ; sans lui (stockage bloqué) un
   // identifiant mémoire sert pour la vie de la page.
   var ONGLET_CLE = 'i2d:brouillon-onglet';
+  var VIVANT_PREFIXE = 'i2d:onglet-vivant:';
+  // Un onglet est « vivant » tant que son battement (`battre`) a moins de 30 s : le
+  // brouillon d'un onglet vivant n'est JAMAIS proposé à un autre (même jeton de session,
+  // tranches mélangées). Un battement toutes les 10 s laisse deux battements de marge.
+  var VIVANT_MS = 30000;
+  var BROUILLONS_ETRANGERS_MAX = 5;
   var ongletMemoire = null;
+  function typeNavigation() {
+    try {
+      var nav = window.performance.getEntriesByType('navigation')[0];
+      return nav ? nav.type : '';
+    } catch (e) { return ''; }
+  }
   function idOnglet() {
     if (ongletMemoire) return ongletMemoire;
     var id = null;
@@ -50,6 +62,10 @@ var recDraft = (function () {
       var ss = (typeof window !== 'undefined') ? window.sessionStorage : null;
       if (ss) {
         id = ss.getItem(ONGLET_CLE);
+        // Onglet DUPLIQUÉ : sessionStorage est copié, l'identifiant aussi. Si le
+        // battement de cet identifiant est frais alors que la page n'est ni un
+        // rechargement ni un retour arrière, un autre onglet le porte : on en prend un neuf.
+        if (id && vivant(id, null) && ['reload', 'back_forward'].indexOf(typeNavigation()) < 0) id = null;
         if (!id) { id = nouvelId(); ss.setItem(ONGLET_CLE, id); }
       }
     } catch (e) { id = null; }
@@ -58,6 +74,25 @@ var recDraft = (function () {
   }
   function nouvelId() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+  }
+
+  // Battement de l'onglet (à appeler toutes les ~10 s tant que l'écran est ouvert).
+  function battre(now) {
+    var s = stockage();
+    if (!s) return false;
+    try { s.setItem(VIVANT_PREFIXE + idOnglet(), String(maintenant(now))); return true; } catch (e) { return false; }
+  }
+  function vivant(id, now) {
+    var s = stockage();
+    if (!s) return false;
+    try {
+      var t = Number(s.getItem(VIVANT_PREFIXE + id));
+      return isFinite(t) && t > 0 && maintenant(now) - t < VIVANT_MS;
+    } catch (e) { return false; }
+  }
+  function idDeCle(missionId, k) {
+    var base = cleHeritee(missionId) + ':';
+    return k.indexOf(base) === 0 ? k.slice(base.length) : null;
   }
 
   function cle(missionId) {
@@ -141,6 +176,8 @@ var recDraft = (function () {
     if (propre) return propre;
     var meilleur = null;
     clesMission(missionId).forEach(function (k) {
+      var autre = idDeCle(missionId, k);
+      if (autre && vivant(autre, now)) return;  // onglet encore ouvert : pas à nous d'y toucher
       var e = lireCle(k, now);
       if (e && (!meilleur || (e.savedAt || 0) > (meilleur.savedAt || 0))) meilleur = e;
     });
@@ -151,6 +188,24 @@ var recDraft = (function () {
   // (réécrit par `sauver`) ; on retire l'ancienne copie pour ne pas la reproposer.
   function adopter(missionId, brouillon) {
     if (brouillon && brouillon._cle && brouillon._cle !== cle(missionId)) effacer(null, brouillon._cle);
+  }
+
+  // Ce brouillon est-il celui de CET onglet ? (sinon : copie d'un onglet fermé)
+  function estPropre(missionId, brouillon) {
+    return !!brouillon && brouillon._cle === cle(missionId);
+  }
+
+  // Borne le nombre de brouillons d'AUTRES onglets (fermés) : on garde les plus récents.
+  function elaguer(missionId, now) {
+    var propre = cle(missionId);
+    var autres = [];
+    clesMission(missionId).forEach(function (k) {
+      if (k === propre) return;
+      var e = lireCle(k, now);   // retire au passage un périmé / corrompu
+      if (e) autres.push({ k: k, t: e.savedAt || 0 });
+    });
+    autres.sort(function (a, b) { return b.t - a.t; });
+    autres.slice(BROUILLONS_ETRANGERS_MAX).forEach(function (x) { effacer(null, x.k); });
   }
 
   // Écrit l'état complet (remplace). Rend false si rien n'a pu être écrit —
@@ -166,6 +221,8 @@ var recDraft = (function () {
     copie.savedAt = maintenant(now);
     try {
       s.setItem(cle(missionId), JSON.stringify(copie));
+      battre(now);
+      elaguer(missionId, now);
       return true;
     } catch (e) {
       return false;
@@ -289,6 +346,9 @@ var recDraft = (function () {
     charger: charger,
     chargerPropre: chargerPropre,
     adopter: adopter,
+    battre: battre,
+    estPropre: estPropre,
+    VIVANT_MS: VIVANT_MS,
     sauver: sauver,
     effacer: effacer,
     noter: noter,

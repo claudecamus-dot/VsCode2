@@ -70,7 +70,7 @@ var window = { addEventListener: function (n, f) { handlers['win:' + n] = f; } }
 var msgs = [], lostRetryActive = 0, lowEnVol = 0;
 function confirm(m) { confirmes++; msgs.push(m); return %s; }
 var lostSegments = %s, lostRetryBlocking = 0, pendingSegments = %d, pendingSegmentJobSubmits = 0, waitingSegments = new Array(%d).fill({});
-var sessionRestauree = %s, recordingActive = false, pendingBackups = 0, backupPerdusLocaux = [], perdusRestaures = [],
+var sessionRestauree = %s, recordingActive = false, pendingBackups = 0, backupPerdusLocaux = [], perdusRestaures = [], perdusBloquants = function () { return 0; },
     backupLocalAcquitte = false, envoiEnCours = false;
 var sessionToken = 'tok', sessionTokenHidden = {}, newSessionToken = function () { return 'n'; };
 var backupSegments = [{position: 0}, {position: 1}], nextBackupPosition = 2, MISSION_ID = 1;

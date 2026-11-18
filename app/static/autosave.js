@@ -111,7 +111,15 @@
     // il ne remplace pas un 404/401 plus précis déjà affiché.
     // Un message persistant (404/401) n'est jamais remplacé par un transitoire
     // (500/réseau) : il s'effacerait à 3 s alors que rien n'est enregistré.
-    if ((!opts.persistant || opts.secondaire) && persistants.has(target)) return;
+    if (opts.secondaire && persistants.has(target)) {
+      // Pas de remplacement du message, mais la SOURCE est suivie : le succès d'un autre
+      // élément n'efface pas cette erreur-là.
+      var deja = persistants.get(target);
+      var src2 = evt.detail.elt || null;
+      if (deja.indexOf(src2) < 0) deja.push(src2);
+      return;
+    }
+    if (!opts.persistant && persistants.has(target)) return;
     marquerLive(target);
     var existing = timers.get(target);
     if (existing) { clearTimeout(existing); timers.delete(target); }
@@ -187,7 +195,7 @@
   document.body.addEventListener("htmx:sendError", function (evt) {
     showError(evt, "⚠ connexion perdue — rien n'est enregistré", { persistant: true, secondaire: true });
   });
-  document.body.addEventListener("htmx:timeout", function (evt) {
-    showError(evt, "⚠ pas de réponse du serveur — rien n'est enregistré", { persistant: true, secondaire: true });
-  });
+  // `htmx:timeout` n'est volontairement PAS écouté : `htmx.config.timeout` vaut 0 (jamais) et
+  // le relever globalement couperait les requêtes IA longues ; sans délai configuré
+  // l'évènement n'arrive jamais. Une requête qui n'aboutit pas finit en `sendError`.
 })();

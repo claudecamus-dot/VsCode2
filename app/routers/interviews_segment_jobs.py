@@ -6,6 +6,8 @@ ordre d'enregistrement des routes et nom de logger inchangés.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import timedelta
 
 from fastapi import (
@@ -243,7 +245,7 @@ def segment_jobs_status_json(
 
 @router.get("/interviews/segment-jobs/turns")
 def segment_jobs_turns_json(
-    session_token: str, since: int = 0, manquantes: str = "",
+    session_token: str, since: int = 0, manquantes: str = "", verif: str = "",
     db: Session = Depends(get_session),
 ):
     """Tours de parole DÉJÀ extraits (jobs terminés) d'une session — alimente
@@ -308,23 +310,27 @@ def segment_jobs_turns_json(
         and (premiere_en_vol is None or j.position < premiere_en_vol)
     ]
     merged = merge_segment_turns(jobs, None)
-    # Story 3.7 (AC3.7.7, reste B-2) : deux informations pour le client, sans toucher
-    # au curseur. `revs` = empreinte (longueur du JSON) du résultat de chaque tranche
-    # `done` SOUS le curseur : une tranche ré-extraite après réception change
-    # d'empreinte, le client la redemande via `manquantes`. `sans_ligne` = positions
-    # demandées qui n'ont AUCUNE ligne (POST de tranche jamais arrivé) : le client
-    # cesse de les redemander à chaque sondage.
-    revs = {
-        pos: longueur for pos, longueur in db.execute(
-            select(InterviewSegmentJob.position,
-                   func.length(InterviewSegmentJob.turns_result)).where(
+    # Story 3.7 (AC3.7.7, reste B-2) : deux informations pour le client, sans toucher au
+    # curseur ni au schéma. `revs` = empreinte (SHA-1 du résultat, calculée ici) des seules
+    # tranches `done` que le client demande de VÉRIFIER (`verif=`, <= 20 par sondage, il les
+    # fait tourner) : une tranche ré-extraite après réception change d'empreinte et le client
+    # la redemande via `manquantes`. Lecture bornée : jamais toutes les tranches à chaque
+    # sondage. `sans_ligne` = positions demandées qui n'ont AUCUNE ligne (POST jamais arrivé).
+    a_verifier = sorted({
+        int(p) for p in (x.strip() for x in verif.split(","))
+        if 0 < len(p) <= 9 and p.isdecimal() and int(p) < since
+    })[:VERIF_MAX]
+    revs = {}
+    if jeton and a_verifier:
+        for pos, resultat in db.execute(
+            select(InterviewSegmentJob.position, InterviewSegmentJob.turns_result).where(
                 InterviewSegmentJob.session_token == jeton,
                 InterviewSegmentJob.kind == "libre_turns",
                 InterviewSegmentJob.status == "done",
-                InterviewSegmentJob.position < since,
+                InterviewSegmentJob.position.in_(a_verifier),
             )
-        ).all()
-    } if jeton else {}
+        ).all():
+            revs[pos] = _empreinte(resultat)
     sans_ligne = []
     if jeton and tardives:
         existantes = set(db.scalars(
@@ -351,7 +357,7 @@ def segment_jobs_turns_json(
         corps["tranches"] = [
             {"position": j.position,
              "turns": (j.turns_result or {}).get("turns", []),
-             "rev": _empreinte_tranche(db, jeton, j.position)}
+             "rev": _empreinte(j.turns_result)}
             for j in sorted(jobs, key=lambda j: j.position)
         ]
     if revs:
@@ -361,15 +367,13 @@ def segment_jobs_turns_json(
     return JSONResponse(corps)
 
 
-def _empreinte_tranche(db: Session, jeton: str, position: int) -> int | None:
-    """Même empreinte que `revs` (longueur du JSON du résultat), pour UNE tranche."""
-    return db.scalar(
-        select(func.length(InterviewSegmentJob.turns_result)).where(
-            InterviewSegmentJob.session_token == jeton,
-            InterviewSegmentJob.kind == "libre_turns",
-            InterviewSegmentJob.position == position,
-        )
-    )
+VERIF_MAX = 20
+
+
+def _empreinte(resultat: dict | None) -> str:
+    """Empreinte stable d'un résultat de tranche (même contenu, même empreinte)."""
+    brut = json.dumps(resultat, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha1(brut.encode("utf-8")).hexdigest()[:12]
 
 
 @router.get("/interviews/segment-jobs/answers")

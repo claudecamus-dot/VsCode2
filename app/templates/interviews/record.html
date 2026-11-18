@@ -309,7 +309,7 @@
   var STATUT_ECHEC_MOTIFS = [
     'non supporté par ce navigateur', 'Relance impossible :',
     'Échec de la transcription', 'Rattachement impossible', 'Micro inaccessible',
-    'Transcription interrompue au passage'
+    'Transcription interrompue au passage', 'n’a pas pu démarrer'
   ];
   function statutEstEchec(texte) {
     return STATUT_ECHEC_MOTIFS.some(function (motif) { return texte.indexOf(motif) !== -1; });

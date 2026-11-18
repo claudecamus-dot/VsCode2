@@ -59,13 +59,30 @@ def test_c37_brouillon_par_onglet_dans_un_vrai_navigateur(
         propre = cles[0]
 
         # 2. brouillon d'un AUTRE onglet : cle etrangere, plus rien chez nous
-        nav.evaluer(f"localStorage.removeItem({json.dumps(propre)}); true")
+        nav.evaluer(f"""Object.keys(localStorage).filter(function (k) {{ return k.indexOf('i2d:brouillon-libre:{mid}') === 0; }}).forEach(function (k) {{ localStorage.removeItem(k); }}); true""")
         etrangere = f"i2d:brouillon-libre:{mid}:autre-onglet"
+        poser(etrangere, "Brouillon de l'autre onglet")
+        nav.naviguer(ecran)
+        _attendre(nav, lambda: nav.evaluer(
+            "!document.getElementById('rec-draft-banner').hidden"), 15, "bannière de reprise")
+        assert "autre onglet" in nav.evaluer("document.getElementById('rec-draft-text').textContent")
+        nav.capturer(Path("C:/tmp/w37/render/bandeau_reprise.png"), page_entiere=False)
+        # identite saisie : suit le brouillon (poste dans la copie etrangere, reprise au clic)
+        nav.evaluer(f"""(function () {{ var k = {json.dumps(etrangere)};
+          var b = JSON.parse(localStorage.getItem(k)); b.identite = {{interviewee_name: 'Alice E2E'}};
+          localStorage.setItem(k, JSON.stringify(b)); return true; }})()""")
+        nav.naviguer(ecran)   # le bandeau lit le brouillon au chargement
+        _attendre(nav, lambda: nav.evaluer(
+            "!document.getElementById('rec-draft-banner').hidden"), 15, "bannière (identité)")
+        nav.cliquer("#rec-draft-restore")
+        assert nav.evaluer("document.querySelector('#record-form input[name=interviewee_name]').value") == "Alice E2E"
+        nav.evaluer(f"""Object.keys(localStorage).filter(function (k) {{ return k.indexOf('i2d:brouillon-libre:{mid}') === 0; }}).forEach(function (k) {{ localStorage.removeItem(k); }}); true""")
         poser(etrangere, "Brouillon de l'autre onglet")
         reprendre()
         cles = _cles(nav, mid)
-        assert cles == [propre], f"copie etrangere non adoptee/retiree : {cles}"
-        assert "autre onglet" in nav.evaluer(f"localStorage.getItem({json.dumps(propre)})")
+        # (la navigation a changé l'identifiant d'onglet : M3, battement encore frais)
+        assert len(cles) == 1 and etrangere not in cles, f"copie etrangere non adoptee/retiree : {cles}"
+        assert "autre onglet" in nav.evaluer(f"localStorage.getItem({json.dumps(cles[0])})")
         assert nav.evaluer("document.getElementById('rec-transcript').value").startswith("Brouillon de l'autre")
         nav.drainer()
         assert not nav.erreurs_http(), nav.erreurs_http()

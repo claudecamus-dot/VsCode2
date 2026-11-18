@@ -512,6 +512,10 @@
   // Story 3.7 (A-14) : nombre de segments non transcrits d'une session RESTAURÉE (leur blob
   // est perdu avec l'onglet, l'audio est sur le serveur : relance depuis la fiche).
   var perdusRestaures = [];
+  // M9 : comme les segments vivants, seuls les perdus BLOQUANTS d'une session restaurée comptent.
+  function perdusBloquants() {
+    return perdusRestaures.filter(function (x) { return x && x.blocking; }).length;
+  }
   // Position chronologique de la prochaine tranche, attribuée AU MOMENT de
   // l'upload (les évènements `stop` du MediaRecorder sont sérialisés, donc
   // dans l'ordre) et non à la résolution du fetch — sinon deux uploads en vol
@@ -551,10 +555,33 @@
   // est conservé ; `envoyeLe` ne l'est pas : un nouveau texte est une nouvelle
   // session. Inerte si le stockage est indisponible.
   var brouillonIndisponibleDit = false;
+  // Story 3.7 (M4) : brouillon d'un AUTRE onglet en cours de reprise — son journal est
+  // repris tant que cet onglet n'a pas le sien (`envoyeLe` ne l'est pas, comme pour la clé
+  // propre : un texte repris est une nouvelle session).
+  var brouillonAdopte = null;
+  // Story 3.7 (A-14) : l'identité saisie (bloc `_identite_block.html`) suit le brouillon.
+  var IDENT_CHAMPS = ['interviewee_name', 'interviewee_role', 'interviewee_entity', 'interview_date'];
+  function lireIdentite() {
+    var out = {};
+    IDENT_CHAMPS.forEach(function (n) {
+      var c = document.querySelector('#record-form input[name="' + n + '"]');
+      if (c && typeof c.value === 'string') out[n] = c.value;
+    });
+    return out;
+  }
+  function poserIdentite(id) {
+    if (!id || typeof id !== 'object') return;
+    IDENT_CHAMPS.forEach(function (n) {
+      var c = document.querySelector('#record-form input[name="' + n + '"]');
+      // Jamais d'écrasement d'une saisie déjà faite dans cet onglet.
+      if (c && !c.value && typeof id[n] === 'string') c.value = id[n];
+    });
+  }
   function persistDraft() {
-    if (typeof recDraft === 'undefined') return;
-    var ancien = recDraft.chargerPropre(MISSION_ID) || {};
+    if (typeof recDraft === 'undefined') return true;
+    var ancien = recDraft.chargerPropre(MISSION_ID) || brouillonAdopte || {};
     var ok = recDraft.sauver(MISSION_ID, {
+      identite: lireIdentite(),
       transcript: transcriptSoFar,
       sessionToken: sessionToken,
       coveredLen: coveredLen,
@@ -577,6 +604,7 @@
           + '(navigation privée ou stockage bloqué) — ne ferme pas cet onglet avant d\'avoir enregistré.';
       }
     }
+    return ok;
   }
   function noterEvenement(evenement) {
     if (typeof recDraft !== 'undefined') recDraft.noter(MISSION_ID, evenement);
@@ -3110,13 +3138,21 @@
       pollRepartition.absences = {};      // sondages consécutifs où la position n'a AUCUNE ligne
       pollRepartition.tranchesJeton = tokenAuDepart;
     }
+    // Story 3.7 : sans ligne depuis ~70 s (14 sondages) — au-delà du calendrier de relance
+    // d'un POST de tranche (15 s puis 45 s) — la position est abandonnée.
+    var ABSENCES_MAX = 14;
+    // Fenêtre tournante de <= 20 tranches reçues dont le serveur vérifie l'empreinte.
+    var recues = Object.keys(pollRepartition.tranches).map(Number).filter(function (q) { return q < sinceAuDepart; }).sort(function (a, b) { return a - b; });
+    var debut = (pollRepartition.fenetre || 0) % Math.max(1, recues.length);
+    var verif = recues.slice(debut, debut + 20);
+    pollRepartition.fenetre = (pollRepartition.fenetre || 0) + 20;
     var manquantes = [];  // positions sous le curseur jamais reçues (vide d'ordinaire)
     for (var p = 0; p < sinceAuDepart; p++) {
       var recue = Object.prototype.hasOwnProperty.call(pollRepartition.tranches, p);
       // Story 3.7 : sans ligne côté serveur depuis 3 sondages = POST de tranche jamais
       // arrivé : on ne la redemande plus. Reçue mais RÉ-EXTRAITE (empreinte changée) :
       // redemandée une fois, `rev` reçue la remet à jour.
-      var abandonnee = (pollRepartition.absences[p] || 0) >= 3;
+      var abandonnee = (pollRepartition.absences[p] || 0) >= ABSENCES_MAX;
       var perimee = recue && pollRepartition.revServeur[p] !== undefined
         && pollRepartition.revRecue[p] !== undefined
         && pollRepartition.revServeur[p] !== pollRepartition.revRecue[p];
@@ -3124,7 +3160,8 @@
     }
     recFetch('/interviews/segment-jobs/turns?session_token=' + encodeURIComponent(tokenAuDepart)
         + '&since=' + sinceAuDepart
-        + (manquantes.length ? '&manquantes=' + manquantes.join(',') : ''), null, NET_TIMEOUT_MS)
+        + (manquantes.length ? '&manquantes=' + manquantes.join(',') : '')
+        + (verif.length ? '&verif=' + verif.join(',') : ''), null, NET_TIMEOUT_MS)
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (data) {
         if (!data || sessionToken !== tokenAuDepart) return;
@@ -3137,7 +3174,7 @@
         var table = pollRepartition.tranches;
         (Array.isArray(data.tranches) ? data.tranches : []).forEach(function (t) {
           table[t.position] = Array.isArray(t.turns) ? t.turns : [];
-          if (typeof t.rev === 'number') pollRepartition.revRecue[t.position] = t.rev;
+          if (t.rev !== undefined) pollRepartition.revRecue[t.position] = t.rev;
           delete pollRepartition.absences[t.position];
         });
         if (data.revs && typeof data.revs === 'object') {
@@ -3209,6 +3246,12 @@
   // qu'aucun enregistrement n'a démarré). Vanilla JS + JSON, comme l'écran
   // d'attente ; l'onglet 2 se remplit au fil des jobs 5 min terminés en fond.
   setInterval(pollRepartition, 5000);
+  // Story 3.7 (B2) : battement de vie de l'onglet — tant qu'il bat, son brouillon n'est
+  // jamais proposé à un autre onglet.
+  if (typeof recDraft !== 'undefined') {
+    recDraft.battre();
+    setInterval(function () { recDraft.battre(); }, 10000);
+  }
 
   // ---- Reprise d'une session locale (rec_draft.js, incident du 2026-09-08) ----
   // Proposée, jamais imposée : l'utilisateur choisit. Rien n'est proposé quand
@@ -3224,7 +3267,9 @@
     var brouillon = recDraft.charger(MISSION_ID);
     var dec = recDraft.decision(brouillon, Date.now());
     if (!dec) return;
-    document.getElementById('rec-draft-text').textContent = dec.libelle;
+    document.getElementById('rec-draft-text').textContent = dec.libelle
+      + (recDraft.estPropre(MISSION_ID, brouillon) ? ''
+        : ' Elle vient d’un autre onglet, aujourd’hui fermé : ses données sont reprises ici et la copie d’origine est retirée.');
     banner.classList.toggle('rec-draft-discret', dec.mode === 'discret');
     banner.hidden = false;
     // Story 3.3 (AC3.3.1, A-1) : la bannière est masquée par le démarrage RÉUSSI (suite
@@ -3274,8 +3319,10 @@
       refreshSegmentTail();
       // Story 3.7 (A-12) : le brouillon d'un autre onglet devient celui-ci (écrit d'abord,
       // l'ancienne copie n'est retirée qu'ensuite).
-      persistDraft();
-      recDraft.adopter(MISSION_ID, brouillon);
+      brouillonAdopte = brouillon;
+      poserIdentite(brouillon.identite);
+      // B1 : la copie de l'autre onglet n'est retirée QUE si la nôtre est bien écrite.
+      if (persistDraft() !== false) recDraft.adopter(MISSION_ID, brouillon);
       banner.hidden = true;
       statusEl.textContent = 'Session restaurée — tu peux l\'enregistrer telle quelle avec « Enregistrer l\'entretien ».';
       updateSubmitState();
@@ -3292,7 +3339,7 @@
     var nonTranscrits = lostSegments.filter(function (s) { return s.blocking; }).length;
     // + relances manuelles encore dans la closure du drain (hors celle déjà comptée en vol)
     var enVol = pendingSegments + pendingSegmentJobSubmits + Math.max(0, lostRetryActive - lowEnVol);
-    var aRelancer = nonTranscrits + waitingSegments.length + perdusRestaures.length;
+    var aRelancer = nonTranscrits + waitingSegments.length + perdusBloquants();
     if (sessionRestauree && !aRelancer && !enVol && !confirm('Session restaurée : l’audio de la session précédente peut être incomplet (sa dernière partie a pu être perdue). Enregistrer quand même ?')) {
       ev.preventDefault();
       return;
@@ -3314,7 +3361,7 @@
     if (!sessionToken) { sessionToken = newSessionToken(); sessionTokenHidden.value = sessionToken; }
     var dernier = backupSegments.length ? backupSegments[backupSegments.length - 1].position + 1 : 0;
     poser('audio_attendu', Math.max(nextBackupPosition, dernier));  // tranches de sauvegarde attendues (serveur : contiguïté)
-    poser('transcription_incomplete', (enVol + waitingSegments.length + perdusRestaures.length > 0
+    poser('transcription_incomplete', (enVol + waitingSegments.length + perdusBloquants() > 0
       || lostSegments.some(function (s) { return s.blocking; })) ? '1' : '');
     envoiEnCours = true;
     submitBtn.disabled = true;  // un seul POST (double clic), le confirm() est accepté

@@ -11,6 +11,7 @@ import os
 import shutil
 import subprocess
 import tempfile
+import time
 from pathlib import Path
 
 import pytest
@@ -76,12 +77,14 @@ const local = {
   setItem: function (k, v) { store[k] = String(v); },
   removeItem: function (k) { delete store[k]; }
 };
-function onglet() {
-  const ss = {}; const win = { localStorage: local, sessionStorage: {
-    getItem: function (k) { return k in ss ? ss[k] : null; }, setItem: function (k, v) { ss[k] = String(v); } } };
+function onglet(opts) {
+  opts = opts || {};
+  const ss = Object.assign({}, opts.ss || {}); const win = { localStorage: local, sessionStorage: {
+    getItem: function (k) { return k in ss ? ss[k] : null; }, setItem: function (k, v) { ss[k] = String(v); } },
+    performance: { getEntriesByType: function () { return [{ type: opts.nav || 'navigate' }]; } } };
   delete require.cache[require.resolve(%(chemin)s)];
   const m = require(%(chemin)s);
-  const enveloppe = {};
+  const enveloppe = { _ss: ss };
   Object.keys(m).forEach(function (n) {
     enveloppe[n] = typeof m[n] === 'function'
       ? function () { global.window = win; return m[n].apply(null, arguments); } : m[n];
@@ -97,12 +100,25 @@ out.a_garde_le_sien = A.chargerPropre(7, T0 + 2000).transcript;
 out.b_garde_le_sien = B.chargerPropre(7, T0 + 2000).transcript;
 out.deux_cles = Object.keys(store).filter(function (k) { return k.indexOf('i2d:brouillon-libre:7') === 0; }).length;
 // onglet neuf : propose le plus recent des autres onglets
-const orphelin = C.charger(7, T0 + 2000);
+out.vivants_non_proposes = C.charger(7, T0 + 2000) === null;   // A et B battent encore
+const orphelin = C.charger(7, T0 + 60000);
 out.orphelin = orphelin && orphelin.transcript;
 out.orphelin_pas_dans_sauver = C.sauver(7, orphelin, T0 + 3000) && !('_cle' in JSON.parse(store[Object.keys(store).filter(function (k) { return k.indexOf('i2d:brouillon-libre:7') === 0; }).pop()]));
 C.adopter(7, orphelin);
-out.b_retire_apres_adoption = B.chargerPropre(7, T0 + 4000) === null;
-out.a_intact = A.chargerPropre(7, T0 + 4000).transcript;
+out.b_retire_apres_adoption = B.chargerPropre(7, T0 + 60000) === null;
+out.a_intact = A.chargerPropre(7, T0 + 60000).transcript;
+out.est_propre = [C.estPropre(7, orphelin), C.estPropre(7, C.chargerPropre(7, T0 + 60000))];
+// M3 : onglet DUPLIQUE (sessionStorage copie, battement frais) -> identifiant neuf ; rechargement -> meme
+const Z = onglet(); Z.battre();
+const idZ = Z._ss['i2d:brouillon-onglet'];
+const D = onglet({ ss: Z._ss, nav: 'navigate' }); D.battre();
+out.dup_navigate = D._ss['i2d:brouillon-onglet'] !== idZ;
+const R = onglet({ ss: Z._ss, nav: 'reload' }); R.battre();
+out.reload_garde_l_id = R._ss['i2d:brouillon-onglet'] === idZ;
+// elagage : au plus 5 brouillons d'autres onglets conserves
+for (let i = 0; i < 8; i++) onglet().sauver(21, { transcript: 'o' + i }, T0 + i);
+onglet().sauver(21, { transcript: 'propre' }, T0 + 100);
+out.elagage = Object.keys(store).filter(function (k) { return k.indexOf('i2d:brouillon-libre:21') === 0; }).length;
 // cle d'avant 3.7 (sans onglet) toujours lue
 store['i2d:brouillon-libre:9'] = JSON.stringify({ transcript: 'heritage', savedAt: T0 });
 out.heritage = (onglet().charger(9, T0 + 1) || {}).transcript;
@@ -132,6 +148,8 @@ def test_37_1_deux_onglets_n_ecrasent_pas_leur_brouillon(draft: dict) -> None:
 
 
 def test_37_1_un_onglet_neuf_reprend_le_plus_recent_puis_l_adopte(draft: dict) -> None:
+    assert draft["vivants_non_proposes"] is True, "B2 : le brouillon d'un onglet vivant ne se propose pas"
+    assert draft["est_propre"] == [False, True]
     assert draft["orphelin"] == "texte B"
     assert draft["orphelin_pas_dans_sauver"] is True, "`_cle` ne doit pas etre ecrite dans le brouillon"
     assert draft["b_retire_apres_adoption"] is True
@@ -168,7 +186,7 @@ out.persistes = JSON.parse(store[cles[0]]).segmentsPerdus.length;
 console.log(JSON.stringify(out));
 """)
     assert sortie["erreur"] is None, sortie["erreur"]
-    assert any("2 segment(s) à relancer" in m for m in sortie["messages"]), sortie["messages"]
+    assert any("1 segment(s) à relancer" in m for m in sortie["messages"]), sortie["messages"]
     assert sortie["cles"] == 1 and sortie["persistes"] == 2, sortie
 
 
@@ -198,6 +216,7 @@ function piste(muted) {
     addEventListener: function (n, f) { (p._l[n] = p._l[n] || []).push(f); } };
   return p;
 }
+const clics = [];
 function monter(opts) {
   const issues = [];
   const pm = piste(opts.muted);
@@ -205,16 +224,21 @@ function monter(opts) {
   function Ctx() {
     this.state = 'suspended'; this._l = {};
     this.addEventListener = function () {};
-    this.resume = function () { return opts.resumeKo ? Promise.reject(new Error('refuse')) : Promise.resolve(); };
+    const ctxSelf = this;
+    this.resume = function () {
+      if (opts.resumePendant) return new Promise(function () {});
+      if (opts.resumeKo && !ctxSelf.clique) return Promise.reject(new Error('refuse'));
+      ctxSelf.state = 'running'; return Promise.resolve(); };
     const noeud = function () { return { connect: function () {}, fftSize: 0, getByteTimeDomainData: function () {} }; };
     this.createMediaStreamDestination = function () { return { stream: {} }; };
     this.createMediaStreamSource = noeud; this.createAnalyser = noeud;
     this.close = function () {};
   }
   const win = { AudioContext: Ctx };
-  const sandbox = { window: win, navigator: { mediaDevices: {
+  const sandbox = { window: win, document: { addEventListener: function (n, f) { if (n === 'click') clics.push(f); } }, navigator: { mediaDevices: {
       getDisplayMedia: function () {}, getUserMedia: function () { return Promise.resolve(flux); } } },
-    setInterval: function () { return 1; }, clearInterval: function () {}, setTimeout: setTimeout,
+    setInterval: function () { return 1; }, clearInterval: function () {},
+    setTimeout: function (f, ms) { return setTimeout(f, ms >= 5000 ? 10 : ms); }, clearTimeout: clearTimeout,
     console: console, Promise: Promise, Uint8Array: Uint8Array, Error: Error, Math: Math };
   vm.runInNewContext(fs.readFileSync(%(chemin)s, 'utf-8'), sandbox);
   win.i2dAudioSource.on({ issue: function (k) { issues.push(k); } });
@@ -235,6 +259,22 @@ function monter(opts) {
   await c.src.preflightMic();
   await new Promise(function (r) { setTimeout(r, 20); });
   out.resume_ok = c.issues.slice();
+  const d = monter({ muted: true, resumeKo: true });
+  await d.src.preflightMic();
+  await new Promise(function (r) { setTimeout(r, 20); });
+  out.deux_causes = d.issues.slice();
+  d.piste._l.unmute[0]();
+  out.muted_leve_resume_reste = d.issues.slice();
+  const e = monter({ muted: false, resumePendant: true });
+  await e.src.preflightMic();
+  await new Promise(function (r) { setTimeout(r, 60); });
+  out.resume_pendant = e.issues.slice();
+  e.src.release();
+  out.apres_release = e.issues.slice();
+  const f = monter({ muted: false, resumeKo: true });
+  await f.src.preflightMic();
+  await new Promise(function (r) { setTimeout(r, 20); });
+  out.avant_clic = f.issues.slice();
   console.log(JSON.stringify(out));
 })();
 """
@@ -245,7 +285,10 @@ def test_37_6_la_source_audio_signale_piste_muette_et_resume_en_echec() -> None:
     assert s["muet_au_depart"] == ["muted"]
     assert s["apres_unmute"] == ["muted", None] and s["remute"] == ["muted", None, "muted"]
     assert s["resume_ko"] == ["resume"]
-    assert s["resume_ok"] == [None], "un contexte qui repart doit lever l'alerte, pas la poser"
+    assert s["resume_ok"] == [], "un contexte qui repart sans incident ne signale rien"
+    assert s["deux_causes"] == ["muted"] and s["muted_leve_resume_reste"] == ["muted", "resume"]
+    assert s["resume_pendant"] == ["resume"] and s["apres_release"] == ["resume", None]
+    assert s["avant_clic"] == ["resume"], s["avant_clic"]
 
 
 # --------------------------------------------------------------------------- #
@@ -260,10 +303,13 @@ def _job(jeton: str, pos: int, statut: str, rem: str | None = None) -> Interview
                                text=f"t{pos}", turns_result={"turns": [_tour(rem)], "identity": {}} if rem else None)
 
 
-def _poll(client: TestClient, jeton: str, since: int, manq: str | None = None) -> dict:
+def _poll(client: TestClient, jeton: str, since: int, manq: str | None = None,
+          verif: str | None = None) -> dict:
     params = {"session_token": jeton, "since": since}
     if manq is not None:
         params["manquantes"] = manq
+    if verif is not None:
+        params["verif"] = verif
     r = client.get("/interviews/segment-jobs/turns", params=params)
     assert r.status_code == 200, r.text
     return r.json()
@@ -277,14 +323,15 @@ def test_37_7_le_serveur_annonce_l_empreinte_d_une_tranche_reextraite() -> None:
     r = _poll(client, jeton, 0)
     rev0 = {t["position"]: t["rev"] for t in r["tranches"]}
     assert set(rev0) == {0, 1} and "revs" not in r
-    r = _poll(client, jeton, 2)
+    assert "revs" not in _poll(client, jeton, 2), "pas de verif demandee : aucune relecture"
+    r = _poll(client, jeton, 2, verif="0,1")
     assert r["revs"] == {"0": rev0[0], "1": rev0[1]}
     with SessionLocal() as db:   # re-extraction : meme position, nouveau resultat
         job = db.scalar(select(InterviewSegmentJob).where(
             InterviewSegmentJob.session_token == jeton, InterviewSegmentJob.position == 0))
         job.turns_result = {"turns": [_tour("t0 reecrit apres coup")], "identity": {}}
         db.commit()
-    r = _poll(client, jeton, 2)
+    r = _poll(client, jeton, 2, verif="0,1")
     assert r["revs"]["0"] != rev0[0] and r["revs"]["1"] == rev0[1]
     r = _poll(client, jeton, 2, "0")
     assert [t["turns"][0]["remarque"] for t in r["tranches"]] == ["t0 reecrit apres coup"]
@@ -321,8 +368,8 @@ _SANS_LIGNE = r"""
 (async () => {
   const out = { erreur: erreur, urls: [] };
   out.urls.push(await sonder({ turns: [], next_since: 3, tranches: [
-    { position: 0, turns: [tour('t0')], rev: 10 }, { position: 2, turns: [tour('t2')], rev: 30 }] }));
-  for (let i = 0; i < 5; i++) out.urls.push(await sonder({ turns: [], tranches: [], next_since: 3, sans_ligne: [1] }));
+    { position: 0, turns: [tour('t0')], rev: 'a' }, { position: 2, turns: [tour('t2')], rev: 'c' }] }));
+  for (let i = 0; i < 17; i++) out.urls.push(await sonder({ turns: [], tranches: [], next_since: 3, sans_ligne: [1] }));
   console.log(JSON.stringify(out));
 })();
 """
@@ -330,13 +377,13 @@ _REEXTRAITE = r"""
 (async () => {
   const out = { erreur: erreur, urls: [] };
   out.urls.push(await sonder({ turns: [], next_since: 2, tranches: [
-    { position: 0, turns: [tour('ancien')], rev: 10 }, { position: 1, turns: [tour('t1')], rev: 20 }] }));
-  out.urls.push(await sonder({ turns: [], next_since: 2, revs: { '0': 10, '1': 20 } }));
-  out.urls.push(await sonder({ turns: [], next_since: 2, revs: { '0': 99, '1': 20 } }));
-  out.urls.push(await sonder({ turns: [], next_since: 2, revs: { '0': 99, '1': 20 },
-    tranches: [{ position: 0, turns: [tour('nouveau')], rev: 99 }] }));
+    { position: 0, turns: [tour('ancien')], rev: 'a' }, { position: 1, turns: [tour('t1')], rev: 'b' }] }));
+  out.urls.push(await sonder({ turns: [], next_since: 2, revs: { '0': 'a', '1': 'b' } }));
+  out.urls.push(await sonder({ turns: [], next_since: 2, revs: { '0': 'z', '1': 'b' } }));
+  out.urls.push(await sonder({ turns: [], next_since: 2, revs: { '0': 'z', '1': 'b' },
+    tranches: [{ position: 0, turns: [tour('nouveau')], rev: 'z' }] }));
   out.html = html();
-  out.urls.push(await sonder({ turns: [], next_since: 2, revs: { '0': 99, '1': 20 } }));
+  out.urls.push(await sonder({ turns: [], next_since: 2, revs: { '0': 'z', '1': 'b' } }));
   console.log(JSON.stringify(out));
 })();
 """
@@ -356,8 +403,9 @@ def _jouer_apercu(apres: str) -> dict:
 def test_37_7_une_position_sans_ligne_n_est_plus_redemandee_sans_fin() -> None:
     r = _jouer_apercu(_SANS_LIGNE)
     assert r["erreur"] is None, r["erreur"]
-    assert "manquantes=1" in r["urls"][1] and "manquantes=1" in r["urls"][2] and "manquantes=1" in r["urls"][3]
-    assert all("manquantes" not in u for u in r["urls"][4:]), r["urls"]
+    # M6 : toujours redemandee pendant ~70 s (POST relance a 15 s puis 45 s), puis abandonnee
+    assert all("manquantes=1" in u for u in r["urls"][1:15]), r["urls"]
+    assert all("manquantes" not in u for u in r["urls"][15:]), r["urls"]
 
 
 def test_37_7_une_tranche_reextraite_apres_reception_est_rafraichie_une_fois() -> None:
@@ -383,3 +431,124 @@ console.log(JSON.stringify({
   neutre: est('Enregistrement en cours…') }));
 """)
     assert r == {"suite": True, "neutre": False}
+
+
+def test_37_m3_onglet_duplique_prend_un_identifiant_neuf_pas_un_rechargement(draft: dict) -> None:
+    assert draft["dup_navigate"] is True and draft["reload_garde_l_id"] is True
+
+
+def test_37_elagage_borne_les_brouillons_des_autres_onglets(draft: dict) -> None:
+    assert draft["elagage"] <= 6, draft["elagage"]
+
+
+def test_37_m7_une_reextraction_de_meme_longueur_est_detectee() -> None:
+    client, jeton = TestClient(app), "s37-meme-longueur"
+    with SessionLocal() as db:
+        db.add(_job(jeton, 0, "done", "abcd"))
+        db.commit()
+    avant = _poll(client, jeton, 1, verif="0")["revs"]["0"]
+    with SessionLocal() as db:
+        job = db.scalar(select(InterviewSegmentJob).where(
+            InterviewSegmentJob.session_token == jeton, InterviewSegmentJob.position == 0))
+        job.turns_result = {"turns": [_tour("wxyz")], "identity": {}}   # meme longueur
+        db.commit()
+    apres = _poll(client, jeton, 1, verif="0")["revs"]["0"]
+    assert apres != avant
+
+
+def test_37_m8_la_verification_est_bornee_et_ignore_les_tranches_non_terminees() -> None:
+    client, jeton = TestClient(app), "s37-borne"
+    with SessionLocal() as db:
+        db.add_all([_job(jeton, i, "done", f"t{i}") for i in range(30)] + [_job(jeton, 30, "failed")])
+        db.commit()
+    r = _poll(client, jeton, 31, verif=",".join(str(i) for i in range(31)))
+    assert len(r["revs"]) <= 20, len(r["revs"])
+    assert "30" not in r["revs"]
+    assert "revs" not in _poll(TestClient(app), "", 5, verif="0,1"), "sans jeton : rien n'est lu"
+
+
+# --------------------------------------------------------------------------- #
+# B1, M4, identite : le script COMPLET (aucune doublure de persistDraft)
+# --------------------------------------------------------------------------- #
+_CHAMPS = r"""
+const champs = {};
+const _q = g.document.querySelector;
+g.document.querySelector = function (sel) {
+  const m = /name="([a-z_]+)"/.exec(String(sel));
+  if (m) { if (!champs[m[1]]) champs[m[1]] = { value: '' }; return champs[m[1]]; }
+  return doublure;
+};
+"""
+
+
+def _brouillon_etranger(**extra) -> str:
+    brouillon = {"transcript": "texte d'un autre onglet", "sessionToken": "tk", "savedAt": int(time.time() * 1000)}
+    brouillon.update(extra)
+    return ("jouer(" + json.dumps("window.localStorage.setItem('i2d:brouillon-libre:19:autre', "
+            + json.dumps(json.dumps(brouillon)) + ")") + ");")
+
+
+def test_37_b1_un_quota_plein_ne_supprime_pas_la_seule_copie() -> None:
+    avant = _brouillon_etranger()
+    sortie = jouer_ecran(LIBRE, avant=avant, apres=r"""
+const out = { erreur: erreur };
+const ecrire = bac.window.localStorage.setItem;
+bac.window.localStorage.setItem = function (k, v) {
+  if (k.indexOf('i2d:brouillon-libre') === 0) throw new Error('QuotaExceededError');
+  ecrire(k, v);
+};
+el('rec-draft-restore')._on.click();
+out.cles = Object.keys(store).filter(function (k) { return k.indexOf('i2d:brouillon-libre') === 0; });
+console.log(JSON.stringify(out));
+""")
+    assert sortie["erreur"] is None, sortie["erreur"]
+    assert sortie["cles"] == ["i2d:brouillon-libre:19:autre"], sortie["cles"]
+
+
+def test_37_m4_et_identite_l_adoption_garde_journal_et_identite() -> None:
+    avant = _brouillon_etranger(journal=[{"t": 5, "type": "backup-ko"}], identite={
+        "interviewee_name": "Alice", "interviewee_role": "DSI", "interviewee_entity": "ACME",
+        "interview_date": "2026-11-01"})
+    sortie = jouer_ecran(LIBRE, avant=avant, apres=_CHAMPS + r"""
+champs.interview_date = { value: '2026-11-18' };   // saisie deja faite : jamais ecrasee
+const out = { erreur: erreur };
+el('rec-draft-restore')._on.click();
+out.champs = { n: champs.interviewee_name.value, r: champs.interviewee_role.value,
+               e: champs.interviewee_entity.value, d: champs.interview_date.value };
+const cles = Object.keys(store).filter(function (k) { return k.indexOf('i2d:brouillon-libre') === 0; });
+out.cles = cles.length;
+const etat = JSON.parse(store[cles[0]]);
+out.journal = etat.journal; out.identite = etat.identite;
+console.log(JSON.stringify(out));
+""")
+    assert sortie["erreur"] is None, sortie["erreur"]
+    assert sortie["champs"] == {"n": "Alice", "r": "DSI", "e": "ACME", "d": "2026-11-18"}, sortie
+    assert sortie["cles"] == 1
+    assert sortie["journal"] == [{"t": 5, "type": "backup-ko"}], sortie["journal"]
+    assert sortie["identite"]["interviewee_name"] == "Alice"
+
+
+def test_37_oublier_une_copie_d_un_autre_onglet_la_retire_et_le_texte_le_dit() -> None:
+    sortie = jouer_ecran(LIBRE, avant=_brouillon_etranger(), apres=r"""
+const out = { erreur: erreur, texte: el('rec-draft-text').textContent };
+el('rec-draft-discard')._on.click();
+out.cles = Object.keys(store).filter(function (k) { return k.indexOf('i2d:brouillon-libre') === 0; });
+console.log(JSON.stringify(out));
+""")
+    assert sortie["erreur"] is None, sortie["erreur"]
+    assert "autre onglet" in sortie["texte"], sortie["texte"]
+    assert sortie["cles"] == []
+
+
+def test_37_m9_seuls_les_perdus_bloquants_restaures_comptent() -> None:
+    avant = _brouillon_etranger(segmentsPerdus=[
+        {"id": 2, "reason": "d", "blocking": False, "attente": True, "segId": "s2"}])
+    sortie = jouer_ecran(LIBRE, avant=avant, apres=r"""
+const out = { erreur: erreur, messages: [] };
+el('rec-draft-restore')._on.click();
+bac.confirm = function (m) { out.messages.push(m); return false; };
+el('record-form')._on.submit({ target: el('record-form'), preventDefault: function () {} });
+console.log(JSON.stringify(out));
+""")
+    assert sortie["erreur"] is None, sortie["erreur"]
+    assert not any("segment(s) à relancer" in m for m in sortie["messages"]), sortie["messages"]
