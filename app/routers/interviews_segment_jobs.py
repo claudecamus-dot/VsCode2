@@ -23,6 +23,9 @@ from sqlalchemy.orm import Session
 
 from ..db import get_session
 from ..models import (
+    KIND_ANSWERS,
+    KIND_LIBRE_TURNS,
+    KIND_TOUS,
     SEGMENT_JOB_KINDS,
     InterviewSegmentJob,
 )
@@ -225,11 +228,14 @@ def create_segment_job(
 
 @router.get("/interviews/segment-jobs/status")
 def segment_jobs_status_json(
-    session_token: str, db: Session = Depends(get_session)
+    session_token: str, kind: str = KIND_TOUS, db: Session = Depends(get_session)
 ):
     """État agrégé des jobs d'une session, interrogé en boucle par l'écran
-    d'attente (`libre_segment_wait.html`)."""
-    status = segment_jobs_status(db, session_token)
+    d'attente (`libre_segment_wait.html`). `kind` (optionnel, défaut : toutes
+    natures, comportement historique) restreint à `libre_turns` / `answers`."""
+    if kind not in (*SEGMENT_JOB_KINDS, KIND_TOUS):
+        raise HTTPException(status_code=422, detail="Nature de job inconnue.")
+    status = segment_jobs_status(db, session_token, kind=kind)
     return JSONResponse(
         {
             "total": status["total"],
@@ -270,7 +276,7 @@ def segment_jobs_turns_json(
     premiere_en_vol = db.scalar(
         select(func.min(InterviewSegmentJob.position)).where(
             InterviewSegmentJob.session_token == jeton,
-            InterviewSegmentJob.kind == "libre_turns",
+            InterviewSegmentJob.kind == KIND_LIBRE_TURNS,
             InterviewSegmentJob.status.in_(("pending", "running")),
             InterviewSegmentJob.position >= since,
             # Revue : une tranche PÉRIMÉE (worker mort, `is_stale`) ne gèle pas
@@ -299,13 +305,12 @@ def segment_jobs_turns_json(
         if 0 < len(p) <= 9 and p.isdecimal() and int(p) < since
     })[:500]
     status = segment_jobs_status_light(
-        db, session_token, since_position=since, kind="libre_turns",
+        db, session_token, since_position=since, kind=KIND_LIBRE_TURNS,
         positions_tardives=tardives,
     )
     jobs = [
         j for j in status["jobs"]
-        if j.kind == "libre_turns"
-        and (premiere_en_vol is None or j.position < premiere_en_vol)
+        if premiere_en_vol is None or j.position < premiere_en_vol
     ]
     merged = merge_segment_turns(jobs, None)
     # Les tardives sont < since : elles ne font jamais avancer le curseur.
@@ -346,7 +351,7 @@ def segment_jobs_answers_json(
     déjà vues perdrait ces compléments. `segment_jobs_status_light` évite
     quand même le coût dominant mesuré (chargement de la colonne `text`, tout
     le texte source, à chaque sondage 5s)."""
-    status = segment_jobs_status_light(db, session_token, kind="answers")
+    status = segment_jobs_status_light(db, session_token, kind=KIND_ANSWERS)
     merged = merge_segment_answers(status["jobs"], None)
     return JSONResponse(
         {

@@ -37,7 +37,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session, load_only
 
 from ..db import SessionLocal
-from ..models import Interview, InterviewSegmentJob, Mission
+from ..models import KIND_TOUS, Interview, InterviewSegmentJob, Mission
 from .ai_common import au_fond
 from .horloge import utc_naif
 from .interview_extract_ai import (
@@ -423,9 +423,19 @@ def normaliser_jeton(brut) -> str:
     return (brut or "").strip()[:JETON_MAX]
 
 
-def segment_jobs_status(db: Session, session_token: str) -> dict:
+def _filtre_kind(kind: str | None) -> tuple:
+    """Clause de filtre : SEUL `KIND_TOUS` lit toutes les natures ; `None` ou `""`
+    ne correspondent à aucun job (jamais « toutes » par omission)."""
+    return () if kind == KIND_TOUS else (InterviewSegmentJob.kind == kind,)
+
+
+def segment_jobs_status(db: Session, session_token: str, *, kind: str) -> dict:
     """État agrégé des jobs d'une session (pour l'écran de statut et la
-    décision de finalisation)."""
+    décision de finalisation).
+
+    `kind` (Story 3.8, B-5) : restreint compteurs ET liste à cette nature de
+    job (`libre_turns` / `answers`), OBLIGATOIRE et par mot-clé : `KIND_TOUS`
+    (`"*"`) pour lire toutes les natures, de façon explicite."""
     # Jeton normalisé partout (F5) : création, lecture, purge, entretien.
     session_token = normaliser_jeton(session_token)
     if not session_token:
@@ -434,7 +444,10 @@ def segment_jobs_status(db: Session, session_token: str) -> dict:
     jobs = list(
         db.scalars(
             select(InterviewSegmentJob)
-            .where(InterviewSegmentJob.session_token == session_token)
+            .where(
+                InterviewSegmentJob.session_token == session_token,
+                *_filtre_kind(kind),
+            )
             .order_by(InterviewSegmentJob.position)
         )
     )
@@ -474,12 +487,8 @@ _MERGE_LIGHT_COLUMNS = (
 )
 
 
-def _filtre_kind(kind: str | None) -> tuple:
-    return (InterviewSegmentJob.kind == kind,) if kind else ()
-
-
 def segment_jobs_status_light(
-    db: Session, session_token: str, since_position: int = 0, kind: str | None = None,
+    db: Session, session_token: str, since_position: int = 0, *, kind: str,
     positions_tardives: list[int] | None = None,
 ) -> dict:
     """Version allégée de `segment_jobs_status`, pour les endpoints de LECTURE
@@ -777,15 +786,18 @@ def tranches_a_rattraper(jobs: list[InterviewSegmentJob]) -> list[InterviewSegme
     return [j for j in jobs if j.status != "done" and j.text.strip()]
 
 
-def delete_segment_jobs(db: Session, session_token: str) -> None:
+def delete_segment_jobs(db: Session, session_token: str, *, kind: str) -> None:
     """Supprime les jobs d'une session une fois consommés (à la finalisation) —
-    ils ne servent qu'à alimenter l'écran de revue des tours, inutiles ensuite."""
+    ils ne servent qu'à alimenter l'écran de revue des tours, inutiles ensuite.
+    `kind` (Story 3.8) : obligatoire, ne supprime que cette nature ; `KIND_TOUS`
+    pour tout purger, de façon explicite."""
     session_token = normaliser_jeton(session_token)
     if not session_token:
         return
     for job in db.scalars(
         select(InterviewSegmentJob).where(
-            InterviewSegmentJob.session_token == session_token
+            InterviewSegmentJob.session_token == session_token,
+            *_filtre_kind(kind),
         )
     ):
         db.delete(job)

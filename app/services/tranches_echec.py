@@ -21,7 +21,7 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session, object_session
 
 from .. import db as _db
-from ..models import Interview, InterviewSegmentJob
+from ..models import KIND_LIBRE_TURNS, Interview, InterviewSegmentJob
 from .ai_common import au_fond
 from .horloge import utc_naif
 from .interview_segment_jobs import (
@@ -65,7 +65,7 @@ def tranches_en_echec(interview: Interview) -> list[dict]:
         return []
     now = utc_naif()
     jobs = [
-        j for j in segment_jobs_status(db, jeton)["jobs"]
+        j for j in segment_jobs_status(db, jeton, kind=KIND_LIBRE_TURNS)["jobs"]
         if j.text.strip() and (j.status == "failed" or is_stale(j, now))
     ]
     return [
@@ -135,7 +135,9 @@ def relancer_tranches_en_fond(interview_id: int, job_ids: list[int]) -> None:
         if interview is None or not interview.segment_token:
             return
         restants = [
-            j for j in segment_jobs_status(db, interview.segment_token)["jobs"]
+            j for j in segment_jobs_status(
+                db, interview.segment_token, kind=KIND_LIBRE_TURNS
+            )["jobs"]
             if j.status != "done" and j.text.strip()
         ]
         statut = interview.structuration_status

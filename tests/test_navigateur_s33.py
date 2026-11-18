@@ -285,6 +285,11 @@ SEG_EXIT = LIBRE.parents[2] / "static" / "seg_wait_exit.js"
 _RENDUS: dict[str, tuple[str, int]] = {}
 
 
+def _kind_answers(kind: str) -> None:
+    """Le serveur doit lire le statut de la NATURE qu'il décide (Story 3.8)."""
+    assert kind == "answers", kind
+
+
 def _rendre_attente(nom: str) -> tuple[str, int]:
     """Revue finale 3.3 (R12) : la page d'attente REELLEMENT servie (TestClient),
     pas le gabarit brut aux `{{ }}` remplaces. Rend (html, mission_id)."""
@@ -736,7 +741,7 @@ def test_finalisation_incomplete_atteint_le_serveur_par_l_action_rendue(ecran: P
             "turns": [{"interlocuteur": "A", "question": "Bonjour", "remarque": None, "section_title": None}],
             "identity": {}, "tranches_manquantes": 0})
     else:
-        monkeypatch.setattr(interviews_record, "segment_jobs_status", lambda db, tok: {
+        monkeypatch.setattr(interviews_record, "segment_jobs_status", lambda db, tok, *, kind: _kind_answers(kind) or {
             "jobs": [], "total": 0, "done": 0, "failed": 0, "stale": 0, "all_done": False, "any_failed": False})
         monkeypatch.setattr(interviews_record, "extract_answers_from_text",
                             lambda questions, texte: {999999: {"text": "Une reponse", "verbatims": []}})
@@ -776,14 +781,14 @@ def test_finalisation_incomplete_n_echecs_compte_exactement_n(monkeypatch) -> No
     n = 3
     jobs = [SimpleNamespace(status="failed", text=f"tranche {i}", error="KO", position=i)
             for i in range(n)] + [SimpleNamespace(status="done", text="ok", error=None, position=n)]
-    monkeypatch.setattr(interviews_record, "segment_jobs_status", lambda db, tok: {
+    monkeypatch.setattr(interviews_record, "segment_jobs_status", lambda db, tok, *, kind: _kind_answers(kind) or {
         "jobs": jobs, "total": len(jobs), "done": 1, "failed": n, "stale": 0,
         "all_done": False, "any_failed": True})
     monkeypatch.setattr(interviews_record, "recover_stalled_or_failed_jobs", lambda db, js: None)
     monkeypatch.setattr(interviews_record, "merge_segment_answers",
                         lambda js, tail: {999999: {"text": "Une reponse", "verbatims": []}})
     supprimes = []
-    monkeypatch.setattr(interviews_record, "delete_segment_jobs", lambda db, tok: supprimes.append(tok))
+    monkeypatch.setattr(interviews_record, "delete_segment_jobs", lambda db, tok, *, kind: supprimes.append((tok, kind)))
     c = TestClient(app)
     for drapeau in ("", "1"):
         r = c.post(action, data={**champs, "segment_tail": "", "transcription_incomplete": drapeau})
@@ -809,12 +814,12 @@ def test_finalisation_incomplete_sans_reponse_garde_le_message_et_les_jobs(monke
     html, _mid = _rendre_attente("record_segment_wait.html")
     action, champs = _formulaire_finalisation(html)
     jobs = [SimpleNamespace(status="done", text="ok", error=None, position=0)]
-    monkeypatch.setattr(interviews_record, "segment_jobs_status", lambda db, tok: {
+    monkeypatch.setattr(interviews_record, "segment_jobs_status", lambda db, tok, *, kind: _kind_answers(kind) or {
         "jobs": jobs, "total": 1, "done": 1, "failed": 0, "stale": 0,
         "all_done": True, "any_failed": False})
     monkeypatch.setattr(interviews_record, "merge_segment_answers", lambda js, tail: {})
     supprimes = []
-    monkeypatch.setattr(interviews_record, "delete_segment_jobs", lambda db, tok: supprimes.append(tok))
+    monkeypatch.setattr(interviews_record, "delete_segment_jobs", lambda db, tok, *, kind: supprimes.append((tok, kind)))
     r = TestClient(app).post(action, data={**champs, "segment_tail": "", "transcription_incomplete": "1"})
     assert r.status_code == 200, r.text[:300]
     page = _html.unescape(r.text)
@@ -913,3 +918,12 @@ out = { jeton: bac.sessionToken, segments: bac.backupSegments.map(function (s) {
         cache: el('rec-draft-banner').hidden, texte: bac.transcriptSoFar };
 """)
     assert r == {"jeton": "vivant", "segments": [], "cache": True, "texte": ""}, r
+
+
+@pytest.mark.parametrize("nom,kind", [("record_segment_wait.html", "answers"),
+                                      ("libre_segment_wait.html", "libre_turns")])
+def test_attente_sonde_le_statut_de_la_nature_decidee(nom, kind) -> None:
+    """Story 3.8 : l'écran d'attente sonde la MÊME nature que celle sur laquelle
+    le serveur décide (sinon boucle ou échec fantôme sur un jeton mixte)."""
+    html, _mid = _rendre_attente(nom)
+    assert f"/interviews/segment-jobs/status?kind={kind}&session_token=" in html

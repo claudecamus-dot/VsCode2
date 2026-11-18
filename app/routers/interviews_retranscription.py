@@ -27,6 +27,7 @@ from sqlalchemy.orm import Session
 
 from ..db import DATA_DIR, RECORDINGS_DIR, SessionLocal, get_session
 from ..models import (
+    KIND_LIBRE_TURNS,
     AudioFileJob,
     Interview,
     InterviewTurn,
@@ -48,6 +49,7 @@ from ..services.interview_segment_jobs import (
     recover_stalled_or_failed_jobs,
     segment_jobs_status,
 )
+from ..services.tri_position import cle_position
 from ..templating import templates
 from .interviews_analyse import (
     _get_interview_libre,
@@ -79,7 +81,7 @@ def _signature_contenu(interview: Interview) -> tuple:
         interview.raw_transcript or "",
         tuple(
             (t.interlocuteur, t.question, t.remarque, t.section_title)
-            for t in sorted(interview.turns, key=lambda t: (t.position or 0, t.id or 0))
+            for t in sorted(interview.turns, key=lambda t: cle_position(t.position, t.id))
         ),
     )
 
@@ -121,7 +123,7 @@ def _archiver_ancien_contenu(
                 "section": t.section_title,
                 "ordre": t.position,
             }
-            for t in sorted(interview.turns, key=lambda t: (t.position or 0, t.id or 0))
+            for t in sorted(interview.turns, key=lambda t: cle_position(t.position, t.id))
         ]
         ancien_texte = interview.raw_transcript or ""
         if not ancien_texte.strip() and not anciens:
@@ -320,7 +322,7 @@ def _oublier_job_retranscription(db: Session, job: AudioFileJob) -> None:
     """Retire un job de retranscription et les tranches d'extraction qu'il a
     créées. Le fichier audio, lui, appartient à l'entretien : jamais supprimé —
     depuis 2026-09-01 aucun chemin automatique du dépôt n'efface d'audio."""
-    delete_segment_jobs(db, job.session_token)
+    delete_segment_jobs(db, job.session_token, kind=KIND_LIBRE_TURNS)
     db.delete(job)
     db.commit()
 
@@ -474,7 +476,7 @@ def retranscrire_statut(interview_id: int, db: Session = Depends(get_session)):
         erreur = erreur or (
             "La retranscription ne répond plus (serveur redémarré ?) — relance-la."
         )
-    ia = segment_jobs_status(db, job.session_token)
+    ia = segment_jobs_status(db, job.session_token, kind=KIND_LIBRE_TURNS)
     # Total RÉEL des tranches d'extraction, pas le nombre de jobs déjà créés :
     # `_extraire_tours` les crée un par un juste avant de les exécuter, donc
     # `ia["total"]` valait toujours « ce qui est fait + 1 » — la barre affichait
@@ -541,7 +543,7 @@ def retranscrire_appliquer(
     # sont 20 × (timeout + relance) dans un seul POST, soit des heures de
     # requête bloquée avant une page d'erreur. On en récupère quelques-unes, et
     # l'écran de revue signale explicitement ce qui manque encore.
-    status = segment_jobs_status(db, job.session_token)
+    status = segment_jobs_status(db, job.session_token, kind=KIND_LIBRE_TURNS)
     # Fenêtre partagée (revue R3-M1/M3) : mêmes garanties anti-famine que les
     # deux chemins d'enregistrement.
     recover_stalled_or_failed_jobs(
@@ -720,7 +722,7 @@ def retranscrire_confirmer(
                 )
         raise
     if jeton:
-        delete_segment_jobs(db, jeton)
+        delete_segment_jobs(db, jeton, kind=KIND_LIBRE_TURNS)
 
     if job is not None:
         _oublier_job_retranscription(db, job)

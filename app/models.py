@@ -951,6 +951,10 @@ SEGMENT_JOB_STATUSES = ("pending", "running", "done", "failed")
 # (historique), ou répartition question/réponse sur la trame d'une mission
 # (mode structuré, `record.html` — extension 2026-07-25).
 SEGMENT_JOB_KINDS = ("libre_turns", "answers")
+KIND_LIBRE_TURNS, KIND_ANSWERS = SEGMENT_JOB_KINDS
+# Sentinelle de LECTURE « toutes natures » (jamais stockée) : usage explicite,
+# `kind` est obligatoire dans `segment_jobs_status*` (Story 3.8, B-5).
+KIND_TOUS = "*"
 
 
 class InterviewSegmentJob(Base):

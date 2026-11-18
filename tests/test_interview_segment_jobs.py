@@ -174,7 +174,7 @@ def test_segment_jobs_status_counts() -> None:
         db.add(InterviewSegmentJob(session_token="tok-status", position=pos, status=status))
     db.commit()
 
-    status = interview_segment_jobs.segment_jobs_status(db, "tok-status")
+    status = interview_segment_jobs.segment_jobs_status(db, "tok-status", kind="*")
     assert status["total"] == 3
     assert status["done"] == 2
     assert status["stale"] == 0  # job "running" tout frais -> pas périmé
@@ -188,7 +188,7 @@ def test_segment_jobs_status_all_done() -> None:
     for pos in range(2):
         db.add(InterviewSegmentJob(session_token="tok-alldone", position=pos, status="done"))
     db.commit()
-    status = interview_segment_jobs.segment_jobs_status(db, "tok-alldone")
+    status = interview_segment_jobs.segment_jobs_status(db, "tok-alldone", kind="*")
     assert status["all_done"] is True
     assert status["any_failed"] is False
     db.close()
@@ -196,7 +196,7 @@ def test_segment_jobs_status_all_done() -> None:
 
 def test_segment_jobs_status_empty_token() -> None:
     db = SessionLocal()
-    status = interview_segment_jobs.segment_jobs_status(db, "")
+    status = interview_segment_jobs.segment_jobs_status(db, "", kind="*")
     assert status["total"] == 0
     assert status["all_done"] is False
     db.close()
@@ -206,7 +206,7 @@ def test_delete_segment_jobs() -> None:
     db = SessionLocal()
     db.add(InterviewSegmentJob(session_token="tok-del", position=0, status="done"))
     db.commit()
-    interview_segment_jobs.delete_segment_jobs(db, "tok-del")
+    interview_segment_jobs.delete_segment_jobs(db, "tok-del", kind="*")
     remaining = db.scalars(
         select(InterviewSegmentJob).where(InterviewSegmentJob.session_token == "tok-del")
     ).all()
@@ -223,7 +223,7 @@ def test_segment_jobs_status_marks_old_running_job_as_stale() -> None:
                                 text="texte", created_at=_stale_created_at()))
     db.commit()
 
-    status = interview_segment_jobs.segment_jobs_status(db, "tok-stale")
+    status = interview_segment_jobs.segment_jobs_status(db, "tok-stale", kind="*")
     assert status["stale"] == 1
     # Un job périmé compte comme "any_failed" pour mettre fin à l'attente côté
     # écran de statut (poll) — sinon boucle infinie sur un job perdu.
@@ -237,7 +237,7 @@ def test_segment_jobs_status_fresh_pending_job_is_not_stale() -> None:
     db.add(InterviewSegmentJob(session_token="tok-fresh", position=0, status="pending",
                                 text="texte"))  # created_at = maintenant (défaut)
     db.commit()
-    status = interview_segment_jobs.segment_jobs_status(db, "tok-fresh")
+    status = interview_segment_jobs.segment_jobs_status(db, "tok-fresh", kind="*")
     assert status["stale"] == 0
     assert status["any_failed"] is False
     db.close()

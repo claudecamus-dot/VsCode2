@@ -191,7 +191,7 @@ def test_jeton_de_tranche_normalise_entre_creation_et_lecture(client: TestClient
                     data={"session_token": "  tok-f5  ", "position": 0, "text": "t"})
     assert r.status_code < 400
     with SessionLocal() as db:
-        assert segment_jobs_status(db, "tok-f5")["total"] == 1
+        assert segment_jobs_status(db, "tok-f5", kind="*")["total"] == 1
 
 def test_jeton_long_lie_l_entretien_a_ses_tranches(client: TestClient, monkeypatch) -> None:
     """G5. Échoue sur le code d'avant : la tranche était tronquée à 64
@@ -210,7 +210,7 @@ def test_jeton_long_lie_l_entretien_a_ses_tranches(client: TestClient, monkeypat
     with SessionLocal() as db:
         interview = db.scalars(select(Interview).where(Interview.mission_id == mission_id)).one()
         assert interview.segment_token == jeton[:64]
-        assert segment_jobs_status(db, interview.segment_token)["total"] == 1
+        assert segment_jobs_status(db, interview.segment_token, kind="*")["total"] == 1
 
 def test_reference_vers_fichier_supprime_du_disque_n_est_jamais_audio_complet(
     tmp_path, monkeypatch

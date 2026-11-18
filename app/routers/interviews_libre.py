@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from ..db import RECORDINGS_DIR, get_session
 from ..models import (
+    KIND_LIBRE_TURNS,
     Interview,
     InterviewTurn,
     Mission,
@@ -45,6 +46,7 @@ from ..services.structuration_libre import (
     structurer_texte_disponible,
 )
 from ..services.tranches_echec import relancer_tranches_en_fond, reserver_tranches
+from ..services.tri_position import cle_position
 from ..templating import templates
 from .interviews_commun import (
     REPARTITION_KEYS,
@@ -980,7 +982,7 @@ def record_libre_confirm(
     # validés à la main. Gardés, un job en échec rendait l'entretien « relançable »
     # (`peut_relancer`) et la relance aurait réécrit ces tours (Story 3.4, B-9).
     if jeton:
-        delete_segment_jobs(db, jeton)
+        delete_segment_jobs(db, jeton, kind=KIND_LIBRE_TURNS)
     return _redirection_apres_enregistrement(
         mission, interview, _date_illisible(interview_date),
     )
@@ -988,7 +990,7 @@ def record_libre_confirm(
 
 def _memes_tours(interview: Interview, turns: list[dict]) -> bool:
     """Les tours en base sont-ils exactement ceux postés (double POST) ?"""
-    existants = sorted(interview.turns, key=lambda t: t.position or 0)
+    existants = sorted(interview.turns, key=lambda t: cle_position(t.position))
     cles = ("interlocuteur", "question", "remarque", "section_title")
     return len(existants) == len(turns) and all(
         all((getattr(e, k) or None) == (t.get(k) or None) for k in cles)
@@ -1045,7 +1047,7 @@ def _confirm_sur_jeton_existant(db, mission, existant, turns, transcript, resume
         # tronqué n'avait pas — le signal reste jusqu'à une retranscription
         # complète (`interviews_retranscription`), seule à pouvoir le prouver.
         db.commit()
-        delete_segment_jobs(db, existant.segment_token)
+        delete_segment_jobs(db, existant.segment_token, kind=KIND_LIBRE_TURNS)
         return _redirection_apres_enregistrement(mission, existant)
     raise HTTPException(
         status_code=409,

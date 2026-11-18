@@ -28,6 +28,8 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import load_only
 
+from .tri_position import cle_position
+
 logger = logging.getLogger(__name__)
 
 # Un « orphelin » plus jeune que ce seuil peut appartenir à un enregistrement
@@ -403,7 +405,7 @@ def lister_backups(mission, recordings_dir: Path) -> dict:
     for interview in mission.interviews:
         segments = sorted(
             (s for s in (interview.audio_segments or []) if s.get("filename")),
-            key=lambda s: s.get("position") or 0,
+            key=lambda s: cle_position(s.get("position")),
         )
         noms = [(s["filename"], s.get("position")) for s in segments]
         # Entretien d'avant la segmentation (2026-07-20) : une seule sauvegarde,
@@ -412,8 +414,13 @@ def lister_backups(mission, recordings_dir: Path) -> dict:
             noms.append((interview.audio_backup_path, None))
         # `position` exposé = RANG d'affichage (« Tranche 2/2 »), calculé ici :
         # la base garde l'identité de la tranche, trou compris (Story 3.4, B-4).
-        noms = [(nom, rang if position is not None else None)
-                for rang, (nom, position) in enumerate(noms)]
+        # Le rang ne compte QUE les tranches à position réelle : une tranche sans
+        # position (None, triée en premier) n'a pas de rang et ne décale pas les
+        # autres (« 1/2 », « 2/2 », jamais « 2/3 » sans « 1/3 »).
+        nb_tranches = sum(1 for _, position in noms if position is not None)
+        rangs = iter(range(nb_tranches))
+        noms = [(nom, next(rangs) if position is not None else None)
+                for nom, position in noms]
         for nom, position in noms:
             chemin = recordings_dir / nom
             taille, mtime = _stat(chemin)
@@ -425,7 +432,7 @@ def lister_backups(mission, recordings_dir: Path) -> dict:
                 "existe": chemin.is_file(),
                 "interview": interview,
                 "position": position,
-                "nb_tranches": len(segments),
+                "nb_tranches": nb_tranches,
             })
 
     orphelins = []

@@ -17,6 +17,8 @@ from sqlalchemy.orm import Session
 
 from ..db import get_session
 from ..models import (
+    KIND_ANSWERS,
+    KIND_LIBRE_TURNS,
     InterviewSegmentJob,
 )
 from ..services import audio_transcribe
@@ -128,7 +130,7 @@ def _finalize_record_answers(
             "transcription.",
         )
 
-    status = segment_jobs_status(db, session_token)
+    status = segment_jobs_status(db, session_token, kind=KIND_ANSWERS)
     manquantes = 0
     detail = ""
 
@@ -194,7 +196,7 @@ def _finalize_record_answers(
         # finding F3 : c'est exactement le mur que le plafond existe pour
         # éviter). Le texte lui-même n'est pas en jeu ici : il voyage déjà
         # dans `identity["transcript"]` jusqu'à `import_interview_confirm`.
-        delete_segment_jobs(db, session_token)
+        delete_segment_jobs(db, session_token, kind=KIND_ANSWERS)
 
     contexte = _build_review_context(mission, extracted, identity, manquantes)
     if incomplete and not manquantes:
@@ -257,7 +259,7 @@ def record_interview(
     # Des tranches sont peut-être encore en traitement de fond : écran
     # d'attente (polling) plutôt qu'un retraitement synchrone — même logique
     # que le wizard libre.
-    status = segment_jobs_status(db, session_token)
+    status = segment_jobs_status(db, session_token, kind=KIND_ANSWERS)
     if status["total"] > 0 and not status["all_done"] and not status["any_failed"]:
         return templates.TemplateResponse(
             request,
@@ -269,6 +271,7 @@ def record_interview(
                 "session_token": session_token,
                 "segment_tail": segment_tail,
                 "status": status,
+                "segment_kind": KIND_ANSWERS,
             },
         )
 
@@ -364,6 +367,7 @@ def _ecran_attente_tranches(
             "status": status,
             "finalize_action": finalize_action,
             "suite_label": suite_label,
+            "segment_kind": KIND_LIBRE_TURNS,
         },
     )
 
@@ -483,7 +487,7 @@ def record_libre(
     # Palier 2 : des tranches de 30min sont peut-être encore en traitement de
     # fond. Si oui, on attend sur un écran de statut (polling) plutôt que de
     # retraiter tout l'entretien en synchrone.
-    status = segment_jobs_status(db, session_token)
+    status = segment_jobs_status(db, session_token, kind=KIND_LIBRE_TURNS)
     if status["total"] > 0 and not status["all_done"] and not status["any_failed"]:
         return _ecran_attente_tranches(
             request, mission, identity, transcript, session_token, segment_tail, status,

@@ -103,7 +103,7 @@
   }
 
   function poll() {
-    recFetch('/interviews/segment-jobs/status?session_token=' + encodeURIComponent(token),
+    recFetch('/interviews/segment-jobs/status?kind={{ segment_kind | urlencode }}&session_token=' + encodeURIComponent(token),
              null, POLL_TIMEOUT_MS)
       .then(function (res) {
         // Un 5xx n'est pas une « connexion perdue » — le distinguer via le catch
