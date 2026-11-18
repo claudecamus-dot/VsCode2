@@ -89,7 +89,7 @@ Source : revue approfondie du 2026-11-16, `.claude/triage/2026-11-16-revue-enreg
 
 En tant que mainteneur, je veux que l'application et la suite de tests laissent une trace datée de ce qui se passe, afin de diagnostiquer un job figé, une chute du serveur ou un test bloqué sans deviner.
 
-**Statut : à faire.** Constats : D-1 (=C-5), D-2, D-3, D-4, D-5, D-6, D-7, D-8, D-9, D-12.
+**Statut : fait** (fusionné dans main 0b01e80 + 542c2f1, poussé le 2026-11-17, CI verte). Constats : D-1 (=C-5), D-2, D-3, D-4, D-5, D-6, D-7, D-8, D-9, D-12.
 
 - AC3.1.1 — **Given** le serveur démarré, **When** un module `app.*` journalise en INFO ou plus, **Then** la ligne est écrite horodatée (date, niveau, logger, fil) dans un fichier de log de l'app, avec rotation ; `faulthandler` est activé.
 - AC3.1.2 — **Given** une suite pytest locale, **When** un test bloque ou échoue, **Then** un délai par test produit une trace (comme en CI) et le nodeid de chaque échec est écrit au fil de l'eau dans un fichier, pas seulement au résumé final.
@@ -102,7 +102,7 @@ En tant que mainteneur, je veux que l'application et la suite de tests laissent 
 
 En tant que consultant, je veux qu'une transcription de fichier ou une retranscription progresse sur une machine chargée, et que le silence ne produise pas de faux texte, afin d'obtenir une transcription fiable sans relances inutiles.
 
-**Statut : à faire.** Constats : C-1, C-2, C-3, C-4, C-6, C-7, C-8, C-9, C-10, C-11, D-10(a).
+**Statut : fait** (fusionné dans main c9dbebc + 153a78c, poussé le 2026-11-17, CI verte). Constats : C-1, C-2, C-3, C-4, C-6, C-7, C-8, C-9, C-10, C-11, D-10(a).
 
 - AC3.2.1 — **Given** un worker qui charge son modèle lentement, **When** le chargement dépasse la borne d'un bloc, **Then** le délai du bloc ne court qu'une fois le modèle prêt (le chargement a sa propre borne, généreuse), et une relance ne repaie pas un chargement déjà fait quand c'est évitable.
 - AC3.2.2 — **Given** le repli séquentiel, le job d'un seul bloc et le repli après casse du pool, **Then** chacun est borné, signale qu'il vit, passe par la garde mémoire, et l'attente du verrou ne compte pas dans le délai du bloc ; un chargement en cours renvoie un « occupé » réessayable plutôt qu'une attente sans fin.
@@ -114,7 +114,7 @@ En tant que consultant, je veux qu'une transcription de fichier ou une retranscr
 
 En tant que consultant en entretien, je veux qu'aucun clic ni aucune réponse serveur inattendue ne fasse perdre la session en cours, afin de ne pas perdre l'entretien.
 
-**Statut : à faire.** Constats : A-1, A-2, A-3, A-4, A-5, A-6, A-7, A-8, A-9, A-10 à A-19.
+**Statut : fait** (fusionné dans main 58baa5b, poussé le 2026-11-17, CI verte ; A-10 à A-19 en partie reportés, voir Story 3.7). Constats : A-1, A-2, A-3, A-4, A-5, A-6, A-7, A-8, A-9, A-10 à A-19.
 
 - AC3.3.1 — **Given** un enregistrement en cours ou un texte déjà présent, **Then** la reprise d'un brouillon est impossible (bannière masquée au démarrage, gestionnaire gardé).
 - AC3.3.2 — **Given** le vrai chemin d'envoi des segments (422 no_speech, relance d'un vieux segment, segment courant, partage perdu), **Then** un test exécuté prouve le comportement de l'alerte sans stub de `resetNoSpeech`.
@@ -126,7 +126,7 @@ En tant que consultant en entretien, je veux qu'aucun clic ni aucune réponse se
 
 En tant que consultant, je veux que l'enregistrement, la structuration et les sauvegardes ne perdent ni ne dupliquent rien, et qu'un entretien bloqué affiche pourquoi et comment en sortir.
 
-**Statut : à faire.** Constats : B-1 (avertissement et sortie, la règle de blocage est conservée par arbitrage du 2026-11-16), B-2 à B-14, D-10(b,c), D-11.
+**Statut : fait** (fusionné dans main 4deed34 + 7770651, B-2 29fb726, poussé le 2026-11-17, CI verte ; F4 traité par la Story 3.5). Constats : B-1 (avertissement et sortie, la règle de blocage est conservée par arbitrage du 2026-11-16), B-2 à B-14, D-10(b,c), D-11.
 
 - AC3.4.1 — **Given** un entretien libre bloqué `a_transcrire` avec du texte, **Then** un avertissement visible dit pourquoi et propose une sortie (relancer les tranches, ou structurer le texte disponible après confirmation), et la docstring dit vrai.
 - AC3.4.2 — **Given** des tranches finies hors ordre, **Then** l'aperçu live n'en saute aucune.
@@ -139,10 +139,57 @@ En tant que consultant, je veux que l'enregistrement, la structuration et les sa
 
 En tant que consultant, je veux qu'un entretien dont j'ai supprimé une partie audio, y compris la dernière, se signale comme incomplet, pour ne jamais présenter comme complet un entretien amputé.
 
-**Statut : à faire.** Origine : revue finale de la Story 3.4 (F4, 2026-11-17) — supprimer la DERNIÈRE tranche (0,1,2 → 0,1) ne laisse aucun trou de positions, donc rien ne la détecte. Arbitrage utilisateur du 2026-11-17 : **colonne dédiée** (pas de marque dans `audio_segments`, lu à 75 endroits).
+**Statut : fait** (fusionné dans main 8b92378, poussé, CI #79 verte, validé à l'écran par l'utilisateur le 2026-11-17). Origine : revue finale de la Story 3.4 (F4, 2026-11-17) — supprimer la DERNIÈRE tranche (0,1,2 → 0,1) ne laisse aucun trou de positions, donc rien ne la détecte. Arbitrage utilisateur du 2026-11-17 : **colonne dédiée** (pas de marque dans `audio_segments`, lu à 75 endroits).
 
 - AC3.5.1 — **Given** un entretien avec des parties audio, **When** j'en supprime une (première, milieu ou DERNIÈRE), **Then** une colonne dédiée de l'entretien compte les parties supprimées, et la fiche affiche « N partie(s) supprimée(s) » ; ce compte ne se confond pas avec `tranches_manquantes` (transcription incomplète).
 - AC3.5.2 — **Given** une base existante, **When** l'app démarre, **Then** la migration ajoute la colonne (défaut 0, aucun entretien existant modifié) selon le mécanisme du projet : `data/app.db` n'est migrée QUE par `APP_DB_MIGRATE=1`, jamais au démarrage (`SchemaEnRetard` sinon) ; les bases de test migrent comme avant.
 - AC3.5.3 — **Given** une retranscription complète réussie depuis les parties restantes, **Then** le compte des parties supprimées n'est PAS remis à zéro (l'audio supprimé reste perdu).
 - AC3.5.4 — Les exports (PDF d'entretien, deck) et la complétude de la fiche signalent l'entretien comme incomplet quand le compte est non nul, avec un test par chemin touché.
 
+
+### Story 3.6: L'entretien libre ne cache aucune lacune à l'écran
+
+En tant que consultant, je veux que chaque écran de l'entretien libre dise vrai sur ce qui manque (transcription incomplète, partie supprimée), afin de ne jamais restituer un entretien partiel comme complet.
+
+**Statut : à faire.** Origine : restes ouverts des stories 3.3 et 3.5 (triage du 2026-11-16, clôtures des 2026-11-17 et 2026-11-18). Périmètre arbitré par l'utilisateur le 2026-11-18 (« finalise les travaux de l'entretien libre », lacunes visibles).
+
+- AC3.6.1 — **Given** un enregistrement libre terminé par la route historique `POST /missions/{id}/interviews/record-libre` avec des tranches manquantes, **When** l'entretien est créé, **Then** le signal « transcription incomplète » affiché sur la revue est persisté dans l'entretien (même champ que le chemin par tranches), et la fiche l'affiche.
+- AC3.6.2 — **Given** un entretien dont `parties_supprimees > 0`, **Then** l'écran de revue de la retranscription (`libre_retranscription_review.html`) et le bandeau de finalisation de mission (`missions/finaliser.html`) le signalent avec le libellé unique `texte_parties_supprimees`.
+- AC3.6.3 — **Given** la suppression d'un fichier de sauvegarde rattaché à aucun entretien, **Then** la confirmation n'annonce PAS « l'entretien sera marqué INCOMPLET » ; elle l'annonce seulement pour un fichier rattaché.
+- AC3.6.4 — **Given** la page d'attente `record_segment_wait.html`, **Then** sa sortie (borne de sortie avec export/copie) est rejouée par un clic dans un vrai navigateur (P5).
+
+### Story 3.7: Petits défauts du client d'enregistrement libre
+
+En tant que consultant, je veux que le brouillon, les relances et les erreurs d'enregistrement se comportent de façon prévisible, afin de ne rien perdre en silence.
+
+**Statut : à faire.** Constats reportés le 2026-11-17 : A-12, A-13, A-14, A-16, A-17, A-19 (A-10 exclu : mode guidé, hors entretien libre), et reste B-2 (tranche ré-extraite après réception non rafraîchie dans l'aperçu ; positions sans ligne redemandées à chaque sondage). Périmètre arbitré le 2026-11-18.
+
+- AC3.7.1 — A-12 : deux onglets de la même mission n'écrasent pas le brouillon l'un de l'autre (clé par session).
+- AC3.7.2 — A-13 : `marquerEnvoye` et `effacerSiEnvoye` prennent leurs paramètres dans le même ordre, tous les appelants alignés.
+- AC3.7.3 — A-14 : le brouillon conserve l'identité saisie et les segments perdus relançables.
+- AC3.7.4 — A-16 : libellés de relance cohérents, commentaires à jour, `STATUT_ECHEC_MOTIFS` complet.
+- AC3.7.5 — A-17 : une erreur d'autosave (403/413/422, `sendError`, `htmx:timeout`) reste affichée tant que rien n'est enregistré.
+- AC3.7.6 — A-19 : un échec de `resume()` ou une piste `muted` prévient l'utilisateur.
+- AC3.7.7 — B-2 reste : une tranche ré-extraite après réception est rafraîchie dans l'aperçu ; une position sans ligne n'est plus redemandée sans fin.
+- Chaque comportement a un test exécuté (harnais JS réel), et chaque clic touché un test e2e.
+
+### Story 3.8: Nettoyage serveur de l'entretien libre
+
+En tant que mainteneur, je veux un code serveur sans code mort ni tri ambigu, afin que la prochaine correction ne bute pas sur une docstring fausse.
+
+**Statut : à faire.** Constats : B-14, tri `position or 0` (sauvegardes, `interviews_libre.py`, `interviews_retranscription.py`), B-5 non appliqué à `segment_jobs_status` complet. Périmètre arbitré le 2026-11-18.
+
+- AC3.8.1 — B-5 : toutes les lectures de suivi des tranches filtrent sur `kind`, avec un test qui mélange les deux types.
+- AC3.8.2 — Les tris par position traitent une position nulle de façon explicite et testée (pas de collision silencieuse avec la position 0).
+- AC3.8.3 — B-14 : code mort retiré et docstrings périmées corrigées, sans changement de comportement (suite inchangée).
+
+### Story 3.9: Robustesse du moteur de transcription (reste de la 3.2)
+
+En tant que consultant, je veux qu'une suite de transcriptions sur une machine chargée ne recharge pas le modèle sans nécessité et ne reste jamais sans signe de vie, afin de gagner du temps sans risquer la mémoire.
+
+**Statut : à faire.** Restes de la re-revue du pool (clôture 3.2 du 2026-11-17) et tests de minutage instables (clôture 3.1). Périmètre arbitré le 2026-11-18.
+
+- AC3.9.1 — Un pool chaud garé est réutilisé pour un fichier de durée différente quand sa taille suffit (pas seulement à taille exacte), sans dépasser la garde mémoire.
+- AC3.9.2 — Aucune attente du pool n'est sans battement (B1-B3 de la re-revue) ; les gardes mémoire du chemin direct tiennent compte du pool garé (B5).
+- AC3.9.3 — Les tests de minutage `test_audio_fond_busy_non_rejoue`, `test_audio_permis_fond_attente` et le test CPU de `test_serveur_dev_script` ne dépendent plus de la charge de la machine (événements au lieu de délais), prouvé par 10 passages consécutifs.
+- Jamais le vrai modèle Whisper chargé dans les tests.

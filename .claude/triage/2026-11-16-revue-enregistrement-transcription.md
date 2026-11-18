@@ -125,3 +125,10 @@ Restes ouverts (non bloquants, à reprendre dans une story dédiée) :
 - 3.1 : purge `-KeepIfFresh` par âge du worker (arbitrage utilisateur) ; serveur non identifiable avec certitude → « indéterminé » sans purge (le lancement manuel purge) ; tests de minutage instables sous forte charge (test_audio_fond_busy_non_rejoue, test_audio_permis_fond_attente, test CPU de test_serveur_dev_script).
 - B-2 : positions sans ligne (POST de segment échoué) redemandées à chaque sondage, borné à 500 ; tranche ré-extraite après réception non rafraîchie dans l'aperçu.
 - A-10, A-12, A-13, A-14, A-16, A-17, A-19 : reportés (voir tableau A).
+
+## Clôture du 2026-11-18 : Story 3.5 et suite
+
+- 3.4 F4 : traité par la Story 3.5 (colonne `parties_supprimees`), fusionnée 8b92378, poussée, CI #79 verte, validée à l'écran par l'utilisateur le 2026-11-17.
+- Stories 3.1 à 3.4 poussées le 2026-11-17, CI verte.
+- Restes 3.5 : confirmation de suppression trop large pour un fichier orphelin ; revue de retranscription et bandeau de finalisation muets sur les parties supprimées ; vraie concurrence non testée.
+- Arbitrage utilisateur du 2026-11-18 (« finalise les travaux de l'entretien libre ») : TOUS les restes ouverts ci-dessus sont repris en stories 3.6 (lacunes visibles), 3.7 (A-12 à A-19 sauf A-10, reste B-2), 3.8 (B-5, B-14, tris par position), 3.9 (pool chaud, battements, tests de minutage) — voir `epics.md`. A-10 (mode guidé) reste reporté, hors entretien libre.
