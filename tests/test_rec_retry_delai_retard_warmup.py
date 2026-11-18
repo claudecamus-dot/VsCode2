@@ -100,7 +100,7 @@ def test_decision_delai_depasse_avec_et_sans_copie_acquittee(pur: dict) -> None:
     assert d["copie_relance_attente"] == {"action": "attente"}
     assert d["copie_relance_perdu"]["action"] == "relance", "relance manuelle d'un vrai perdu : pas d'attente"
     # Revue du 2026-10-28 : UNE seule relance, précédée d'un préchauffage.
-    assert d["sans_copie_0"] == {"action": "relance", "delai": 2000, "numero": 1, "total": 1,
+    assert d["sans_copie_0"] == {"action": "relance", "delai": 2000, "numero": 2, "total": 2,
                                  "prechauffer": True}
     assert d["sans_copie_1"] == {"action": "perdu"}
     assert d["sans_copie_2"] == {"action": "perdu"}

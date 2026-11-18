@@ -6,6 +6,8 @@ ordre d'enregistrement des routes et nom de logger inchangés.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 from datetime import timedelta
 
 from fastapi import (
@@ -249,7 +251,7 @@ def segment_jobs_status_json(
 
 @router.get("/interviews/segment-jobs/turns")
 def segment_jobs_turns_json(
-    session_token: str, since: int = 0, manquantes: str = "",
+    session_token: str, since: int = 0, manquantes: str = "", verif: str = "",
     db: Session = Depends(get_session),
 ):
     """Tours de parole DÉJÀ extraits (jobs terminés) d'une session — alimente
@@ -313,6 +315,37 @@ def segment_jobs_turns_json(
         if premiere_en_vol is None or j.position < premiere_en_vol
     ]
     merged = merge_segment_turns(jobs, None)
+    # Story 3.7 (AC3.7.7, reste B-2) : deux informations pour le client, sans toucher au
+    # curseur ni au schéma. `revs` = empreinte (SHA-1 du résultat, calculée ici) des seules
+    # tranches `done` que le client demande de VÉRIFIER (`verif=`, <= 20 par sondage, il les
+    # fait tourner) : une tranche ré-extraite après réception change d'empreinte et le client
+    # la redemande via `manquantes`. Lecture bornée : jamais toutes les tranches à chaque
+    # sondage. `sans_ligne` = positions demandées qui n'ont AUCUNE ligne (POST jamais arrivé).
+    a_verifier = sorted({
+        int(p) for p in (x.strip() for x in verif.split(","))
+        if 0 < len(p) <= 9 and p.isdecimal() and int(p) < since
+    })[:VERIF_MAX]
+    revs = {}
+    if jeton and a_verifier:
+        for pos, resultat in db.execute(
+            select(InterviewSegmentJob.position, InterviewSegmentJob.turns_result).where(
+                InterviewSegmentJob.session_token == jeton,
+                InterviewSegmentJob.kind == "libre_turns",
+                InterviewSegmentJob.status == "done",
+                InterviewSegmentJob.position.in_(a_verifier),
+            )
+        ).all():
+            revs[pos] = _empreinte(resultat)
+    sans_ligne = []
+    if jeton and tardives:
+        existantes = set(db.scalars(
+            select(InterviewSegmentJob.position).where(
+                InterviewSegmentJob.session_token == jeton,
+                InterviewSegmentJob.kind == "libre_turns",
+                InterviewSegmentJob.position.in_(tardives),
+            )
+        ).all())
+        sans_ligne = [p for p in tardives if p not in existantes]
     # Les tardives sont < since : elles ne font jamais avancer le curseur.
     next_since = max([since] + [j.position + 1 for j in jobs])
     corps = {
@@ -328,10 +361,24 @@ def segment_jobs_turns_json(
         # tranche n'est renvoyée (le sondage courant) : forme d'avant inchangée.
         corps["tranches"] = [
             {"position": j.position,
-             "turns": (j.turns_result or {}).get("turns", [])}
+             "turns": (j.turns_result or {}).get("turns", []),
+             "rev": _empreinte(j.turns_result)}
             for j in sorted(jobs, key=lambda j: j.position)
         ]
+    if revs:
+        corps["revs"] = {str(p): v for p, v in revs.items()}
+    if sans_ligne:
+        corps["sans_ligne"] = sans_ligne
     return JSONResponse(corps)
+
+
+VERIF_MAX = 20
+
+
+def _empreinte(resultat: dict | None) -> str:
+    """Empreinte stable d'un résultat de tranche (même contenu, même empreinte)."""
+    brut = json.dumps(resultat, sort_keys=True, ensure_ascii=False)
+    return hashlib.sha1(brut.encode("utf-8")).hexdigest()[:12]
 
 
 @router.get("/interviews/segment-jobs/answers")

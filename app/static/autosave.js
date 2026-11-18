@@ -107,8 +107,18 @@
     } else if (!target.classList.contains("saved")) {
       return;
     }
+    // `secondaire` (Story 3.7 : 403/413/422, sendError, timeout) : persistant, mais
+    // il ne remplace pas un 404/401 plus précis déjà affiché.
     // Un message persistant (404/401) n'est jamais remplacé par un transitoire
     // (500/réseau) : il s'effacerait à 3 s alors que rien n'est enregistré.
+    if (opts.secondaire && persistants.has(target)) {
+      // Pas de remplacement du message, mais la SOURCE est suivie : le succès d'un autre
+      // élément n'efface pas cette erreur-là.
+      var deja = persistants.get(target);
+      var src2 = evt.detail.elt || null;
+      if (deja.indexOf(src2) < 0) deja.push(src2);
+      return;
+    }
     if (!opts.persistant && persistants.has(target)) return;
     marquerLive(target);
     var existing = timers.get(target);
@@ -173,11 +183,19 @@
     } else if (statut === 401) {
       showError(evt, "⚠ session expirée — ",
         { persistant: true, lien: { texte: "reconnectez-vous", href: "/connexion" } });
+    } else if (statut === 403 || statut === 413 || statut === 422) {
+      // Story 3.7 (A-17) : refus définitifs (CSRF/origine, trop gros, invalide) — rien
+      // n'est enregistré et un effacement à 3 s le ferait oublier : message persistant.
+      showError(evt, "⚠ échec de l'enregistrement — rien n'est enregistré",
+        { persistant: true, secondaire: true });
     } else {
       showError(evt, "⚠ échec de l'enregistrement");
     }
   });
   document.body.addEventListener("htmx:sendError", function (evt) {
-    showError(evt, "⚠ connexion perdue");
+    showError(evt, "⚠ connexion perdue — rien n'est enregistré", { persistant: true, secondaire: true });
   });
+  // `htmx:timeout` n'est volontairement PAS écouté : `htmx.config.timeout` vaut 0 (jamais) et
+  // le relever globalement couperait les requêtes IA longues ; sans délai configuré
+  // l'évènement n'arrive jamais. Une requête qui n'aboutit pas finit en `sendError`.
 })();

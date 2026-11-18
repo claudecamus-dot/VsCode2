@@ -49,13 +49,66 @@
   var micNode = null, tabNode = null;
   var micAnalyser = null, tabAnalyser = null;
   var meterTimer = null;
-  var onTabLost = null, onLevels = null;
+  var onTabLost = null, onLevels = null, onIssue = null;
   var tabEnded = false;
   var partageEnCours = false;  // mutex : voir shareTab()
   // Story 3.3 (A-6) : jeton de génération, incrémenté par release(). Une demande
   // (sélecteur d'onglet, permission micro) résolue APRÈS « Arrêter » ne doit pas
   // réacquérir micro/onglet/AudioContext : ses pistes sont arrêtées et elle échoue.
   var generation = 0;
+  // Story 3.7 (A-19) : un contexte audio qui ne repart pas ou une piste micro
+  // `muted` donnent un enregistrement SILENCIEUX sans rien dire. L'appelant est
+  // prévenu par `on({ issue: fn(kind|null) })` ; null = rétabli.
+  // Une entrée par CAUSE (`muted`, `resume`) : lever l'une ne lève pas l'autre. Le rappel
+  // reçoit la cause active la plus grave (`muted` d'abord) ou null quand plus rien ne l'est.
+  var causes = {};
+  var dernierEmis = null;
+  function emettre() {
+    if (!onIssue) return;
+    var kind = causes.muted ? 'muted' : (causes.resume ? 'resume' : null);
+    if (kind === dernierEmis) return;   // pas de doublon
+    dernierEmis = kind;
+    try { onIssue(kind); } catch (e) { /* un rappel défaillant ne casse pas la capture */ }
+  }
+  function signaler(cause, actif) {
+    causes[cause] = !!actif;
+    emettre();
+  }
+  var RESUME_DELAI_MS = 5000;
+  var clicBranche = false;
+  // `resume()` peut être refusé tant qu'aucun geste n'a eu lieu : le message demande de
+  // cliquer dans la page, ce clic relance donc réellement le contexte.
+  function brancherClic() {
+    if (clicBranche || typeof document === 'undefined' || !document.addEventListener) return;
+    clicBranche = true;
+    document.addEventListener('click', function () {
+      if (ctx && ctx.state === 'suspended') reprendre();
+    });
+  }
+  function reprendre() {
+    var gen = generation, ctx0 = ctx, termine = false;
+    var p;
+    try { p = ctx0.resume(); } catch (e) { signaler('resume', true); return; }
+    if (!p || typeof p.then !== 'function') return;
+    // Promesse jamais réglée (contexte bloqué) : au bout du délai, c'est un échec.
+    var minuteur = setTimeout(function () {
+      if (!termine && gen === generation) signaler('resume', true);
+    }, RESUME_DELAI_MS);
+    p.then(function () {
+      termine = true; clearTimeout(minuteur);
+      if (gen === generation) signaler('resume', false);   // contexte d'une session close : ignoré
+    }, function () {
+      termine = true; clearTimeout(minuteur);
+      if (gen === generation) signaler('resume', true);
+    });
+  }
+  function surveillerPiste(piste) {
+    if (!piste || !piste.addEventListener) return;
+    var gen = generation;
+    if (piste.muted) signaler('muted', true);
+    piste.addEventListener('mute', function () { if (gen === generation) signaler('muted', true); });
+    piste.addEventListener('unmute', function () { if (gen === generation) signaler('muted', false); });
+  }
   function perimee(s) {
     if (s) s.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
     return new Error("Demande abandonnée : l'enregistrement a été arrêté entre-temps.");
@@ -75,12 +128,11 @@
       // exactement le bug qu'on corrige, une couche plus bas. On le relance,
       // et l'appelant est prévenu pour pouvoir alerter à l'écran.
       ctx.addEventListener('statechange', function () {
-        if (ctx && ctx.state === 'suspended') {
-          ctx.resume().catch(function () {});
-        }
+        if (ctx && ctx.state === 'suspended') reprendre();
       });
     }
-    if (ctx.state === 'suspended') ctx.resume().catch(function () {});
+    brancherClic();
+    if (ctx.state === 'suspended') reprendre();
     return ctx;
   }
 
@@ -177,6 +229,7 @@
     return navigator.mediaDevices.getUserMedia({ audio: true }).then(function (s) {
       if (genDepart !== generation) throw perimee(s);
       micStream = s;
+      try { surveillerPiste(s.getAudioTracks()[0]); } catch (e) { /* flux atypique */ }
       return s;
     });
   }
@@ -280,6 +333,8 @@
 
   function release() {
     generation++;
+    causes = {};   // une session close ne laisse aucune alerte derrière elle
+    emettre();
     // Une demande de partage restée en vol appartient à la session close : la
     // session suivante ne doit pas se la voir opposer par le mutex (Story 3.3).
     partageEnCours = false;
@@ -307,6 +362,7 @@
     on: function (opts) {
       if (opts.tabLost) onTabLost = opts.tabLost;
       if (opts.levels) onLevels = opts.levels;
+      if (opts.issue) onIssue = opts.issue;
     }
   };
 })();

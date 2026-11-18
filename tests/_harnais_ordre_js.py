@@ -76,7 +76,8 @@ const g = {
   window: { localStorage: {
       getItem: function (k) { return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
       setItem: function (k, v) { store[k] = String(v); },
-      removeItem: function (k) { delete store[k]; } },
+      removeItem: function (k) { delete store[k]; },
+      get length() { return Object.keys(store).length; }, key: function (i) { return Object.keys(store)[i] || null; }, },
     addEventListener: function () {}, location: doublure },
   module: undefined, console: console, JSON: JSON, Math: Math, Promise: Promise,
   Array: Array, String: String, Object: Object, Date: Date, Error: Error, TypeError: TypeError,

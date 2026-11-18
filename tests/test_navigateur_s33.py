@@ -35,7 +35,7 @@ _STUBS_ALERTE = "function resetNoSpeech() {} function noteNoSpeech() {}"
 
 _ALERTE_REELLE = r"""
 let noSpeechStreak = 0; const NOSPEECH_ALERT_AFTER = 2; let titreOrigine = null;
-let noSpeechActive = false, partagePerdu = false, alerteKind = null, partageErreur = '';
+let noSpeechActive = false, partagePerdu = false, alerteKind = null, partageErreur = '', sourceAvert = '';
 const NOSPEECH_TITLE_PREFIX = %(pref)s, PARTAGE_TITLE_PREFIX = %(part)s, SEGMENT_MS = 60000;
 function bandeau() { return { hidden: true, textContent: '', style: {},
   getBoundingClientRect: function () { return { height: 40 }; } }; }

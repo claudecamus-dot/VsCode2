@@ -65,7 +65,8 @@ const reel = {
   window: { localStorage: {
     getItem: function (k) { return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
     setItem: function (k, v) { store[k] = String(v); },
-    removeItem: function (k) { delete store[k]; } } },
+    removeItem: function (k) { delete store[k]; },
+    get length() { return Object.keys(store).length; }, key: function (i) { return Object.keys(store)[i] || null; }, } },
   module: undefined,
   console: console, JSON: JSON, Math: Math, Promise: Promise, Array: Array, String: String,
   Object: Object, Date: Date, Error: Error, FormData: FormData,
@@ -210,7 +211,7 @@ Object.assign(bac, {
   backupSegments: [], nextBackupPosition: 0,
   transcriptEl: el('t'), transcriptHidden: el('th'), sessionTokenHidden: el('st'),
   audioSegmentsHidden: el('as'), backupPathHidden: el('bp'), statusEl: el('status'),
-  updateSubmitState: function () { appels.updateSubmitState++; },
+  persistDraft: function () {}, updateSubmitState: function () { appels.updateSubmitState++; },
   refreshSegmentTail: function () { appels.refreshSegmentTail++; },
   refreshBackupStatus: function () {}, refreshBackupList: function () { appels.refreshBackupList++; },
   confirm: function () { return true; }
@@ -330,6 +331,7 @@ Object.assign(bac, {
   MISSION_ID: 19, transcriptSoFar: 'abc', sessionToken: 'tok', coveredLen: 1, segmentJobPosition: 1,
   backupSegments: [], recDraft: {
     charger: function () { return { journal: [{ t: 1 }] }; },
+    chargerPropre: function () { return { journal: [{ t: 1 }] }; },
     sauver: function (id, etat) { ecrits.push(etat); return sauverRend; }
   }
 });

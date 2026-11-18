@@ -78,7 +78,8 @@ var store = {}; var setItemThrows = false;
 global.window = { localStorage: {
   getItem: function (k) { return Object.prototype.hasOwnProperty.call(store, k) ? store[k] : null; },
   setItem: function (k, v) { if (setItemThrows) throw new Error('QuotaExceededError'); store[k] = String(v); },
-  removeItem: function (k) { delete store[k]; }
+  removeItem: function (k) { delete store[k]; },
+  get length() { return Object.keys(store).length; }, key: function (i) { return Object.keys(store)[i] || null; },
 }};
 var recDraft = require(process.argv[2]);
 var out = {};
@@ -92,7 +93,7 @@ out.autre_mission_vide = recDraft.charger(8, T0) === null;
 // 2. péremption alignée sur la purge serveur (7 jours)
 out.frais_a_6j = recDraft.charger(7, T0 + 6 * JOUR) !== null;
 out.perime_a_8j = recDraft.charger(7, T0 + 8 * JOUR) === null;
-out.perime_retire = !Object.prototype.hasOwnProperty.call(store, 'i2d:brouillon-libre:7');
+out.perime_retire = !Object.keys(store).some(function (k) { return k.indexOf('i2d:brouillon-libre:7') === 0; });
 // 3. JSON corrompu : null, et retiré
 store['i2d:brouillon-libre:9'] = '{pas du json';
 out.corrompu_null = recDraft.charger(9, T0) === null;
@@ -114,7 +115,7 @@ out.journal_ne_touche_pas_le_texte = e5.transcript === 'texte' && e5.sessionToke
 out.decision_vide = recDraft.decision(null, T0) === null && recDraft.decision({ transcript: '   ' }, T0) === null;
 var d1 = recDraft.decision({ transcript: 'abc', savedAt: T0 }, T0 + 60000);
 out.decision_reprise = !!d1 && d1.mode === 'reprise' && /3 caract/.test(d1.libelle);
-recDraft.marquerEnvoye(5, T0 + 5000);
+recDraft.marquerEnvoye(5, undefined, T0 + 5000);
 var d2 = recDraft.decision(recDraft.charger(5, T0 + 6000), T0 + 6000);
 out.decision_discrete_apres_envoi = !!d2 && d2.mode === 'discret';
 out.envoye_pas_efface = recDraft.charger(5, T0 + 6000).transcript === 'texte';
@@ -194,8 +195,8 @@ def test_record_libre_propose_la_reprise_et_marque_l_envoi() -> None:
     html = RECORD_LIBRE.read_text(encoding="utf-8")
     for attendu in (
         'id="rec-draft-banner"', 'id="rec-draft-restore"', 'id="rec-draft-discard"',
-        "recDraft.charger(MISSION_ID)", "recDraft.decision(", "recDraft.marquerEnvoye(MISSION_ID, undefined, sessionToken)",
-        "recDraft.effacer(MISSION_ID)",
+        "recDraft.charger(MISSION_ID)", "recDraft.decision(", "recDraft.marquerEnvoye(MISSION_ID, sessionToken)",
+        "recDraft.effacer(MISSION_ID, brouillon && brouillon._cle)",
     ):
         assert attendu in html, attendu
     # Le texte n'est jamais restauré en silence : la restauration est derrière
@@ -256,7 +257,8 @@ def test_le_bloc_de_reprise_et_l_envoi_vivent_dans_la_fermeture_principale() -> 
 const out = {erreur: erreur, bandeau: !el('rec-draft-banner').hidden, soumis: null};
 try { el('record-form')._on.submit({target: el('record-form'), preventDefault: function () {}}); }
 catch (e) { out.soumis = e.name + ': ' + e.message; }
-const etat = JSON.parse(store['i2d:brouillon-libre:19']);
+const cle19 = Object.keys(store).filter(function (k) { return k.indexOf('i2d:brouillon-libre:19') === 0; })[0];
+const etat = JSON.parse(store[cle19]);
 out.envoye = !!etat.envoyeLe;
 console.log(JSON.stringify(out));
 """,
